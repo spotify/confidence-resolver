@@ -188,10 +188,10 @@ func createProviderWithTestState(
 	accountID string,
 	logger FlagLogger,
 ) (*LocalResolverProvider, error) {
-	// Create wazero runtime
-
+	unsupportedMatStore := NewUnsupportedMaterializationStore()
+	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 	// Create provider with the client secret from test state
 	// The test state includes client secret: mkjJruAATQWjeY7foFIWfVAcBWnci2YF
-	provider := NewLocalResolverProvider(lr.NewLocalResolver, stateProvider, logger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, logger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	return provider, nil
 }

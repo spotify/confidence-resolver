@@ -27,11 +27,18 @@ func (m *materializationSupportedResolver) ResolveWithSticky(request *resolver.R
 	if err != nil {
 		return nil, err
 	}
-	return m.handleStickyResponse(request, response)
+	return m.handleStickyResponseWithDepth(request, response, 0)
 
 }
 
-func (m *materializationSupportedResolver) handleStickyResponse(request *resolver.ResolveWithStickyRequest, response *resolver.ResolveWithStickyResponse) (*resolver.ResolveWithStickyResponse, error) {
+// max number of recursive retries when handling missing materializations
+const maxStickyRetryDepth = 5
+
+func (m *materializationSupportedResolver) handleStickyResponseWithDepth(request *resolver.ResolveWithStickyRequest, response *resolver.ResolveWithStickyResponse, depth int) (*resolver.ResolveWithStickyResponse, error) {
+	if depth >= maxStickyRetryDepth {
+		// Stop retrying to avoid potential infinite recursion
+		return nil, fmt.Errorf("exceeded maximum retries (%d) for handling missing materializations", maxStickyRetryDepth)
+	}
 	switch result := response.ResolveResult.(type) {
 	case *resolver.ResolveWithStickyResponse_Success_:
 		success := result.Success
@@ -54,7 +61,7 @@ func (m *materializationSupportedResolver) handleStickyResponse(request *resolve
 			return nil, err
 		}
 		// Recursively handle the response (in case there are more missing materializations)
-		return m.handleStickyResponse(updatedRequest, retryResponse)
+		return m.handleStickyResponseWithDepth(updatedRequest, retryResponse, depth+1)
 
 	default:
 		return nil, fmt.Errorf("unexpected resolve result type: %T", response.ResolveResult)

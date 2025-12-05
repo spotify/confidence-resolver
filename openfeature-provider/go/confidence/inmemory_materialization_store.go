@@ -31,6 +31,9 @@ type InMemoryMaterializationStore struct {
 	storage map[string]map[string]*materializationData
 	mu      sync.RWMutex
 	logger  *slog.Logger
+	// call tracking for tests
+	readCalls  [][]ReadOp
+	writeCalls [][]WriteOp
 }
 
 type materializationData struct {
@@ -51,6 +54,14 @@ func NewInMemoryMaterializationStore(logger *slog.Logger) *InMemoryMaterializati
 
 // Read performs a batch read of materialization data.
 func (s *InMemoryMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]ReadResult, error) {
+	s.mu.Lock()
+	// track call
+	// make a shallow copy to avoid external mutation
+	copied := make([]ReadOp, len(ops))
+	copy(copied, ops)
+	s.readCalls = append(s.readCalls, copied)
+	s.mu.Unlock()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -94,6 +105,10 @@ func (s *InMemoryMaterializationStore) Read(ctx context.Context, ops []ReadOp) (
 // Write performs a batch write of materialization data.
 func (s *InMemoryMaterializationStore) Write(ctx context.Context, ops []WriteOp) error {
 	s.mu.Lock()
+	// track call
+	copied := make([]WriteOp, len(ops))
+	copy(copied, ops)
+	s.writeCalls = append(s.writeCalls, copied)
 	defer s.mu.Unlock()
 
 	for _, op := range ops {
@@ -137,6 +152,8 @@ func (s *InMemoryMaterializationStore) Close() error {
 	defer s.mu.Unlock()
 
 	s.storage = make(map[string]map[string]*materializationData)
+	s.readCalls = nil
+	s.writeCalls = nil
 	s.logger.Debug("In-memory storage cleared")
 	return nil
 }
@@ -162,4 +179,30 @@ func (s *InMemoryMaterializationStore) Dump() []ReadResult {
 		}
 	}
 	return results
+}
+
+// ReadCalls returns a snapshot of all read calls and their ops in chronological order.
+func (s *InMemoryMaterializationStore) ReadCalls() [][]ReadOp {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([][]ReadOp, len(s.readCalls))
+	for i, call := range s.readCalls {
+		copied := make([]ReadOp, len(call))
+		copy(copied, call)
+		out[i] = copied
+	}
+	return out
+}
+
+// WriteCalls returns a snapshot of all write calls and their ops in chronological order.
+func (s *InMemoryMaterializationStore) WriteCalls() [][]WriteOp {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([][]WriteOp, len(s.writeCalls))
+	for i, call := range s.writeCalls {
+		copied := make([]WriteOp, len(call))
+		copy(copied, call)
+		out[i] = copied
+	}
+	return out
 }
