@@ -260,7 +260,10 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		}
 		mockFlagLogger := &tu.MockFlagLogger{}
 
-		openfeature.SetProviderAndWait(NewLocalResolverProvider(lr.NewLocalResolver, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+		mockedMaterializationStore := NewInMemoryMaterializationStore(nil)
+
+		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, mockedMaterializationStore)
+		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
 		client := openfeature.NewClient("test-client")
 
 		evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{

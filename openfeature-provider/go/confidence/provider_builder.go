@@ -17,16 +17,18 @@ import (
 const confidenceDomain = "edge-grpc.spotify.com"
 
 type ProviderConfig struct {
-	ClientSecret   string
-	Logger         *slog.Logger
-	TransportHooks TransportHooks
+	ClientSecret         string
+	Logger               *slog.Logger
+	TransportHooks       TransportHooks       // Optional: defaults to DefaultTransportHooks
+	MaterializationStore MaterializationStore // Optional: defaults to UnsupportedMaterializationStore
 }
 
 type ProviderTestConfig struct {
-	StateProvider StateProvider
-	FlagLogger    FlagLogger
-	ClientSecret  string
-	Logger        *slog.Logger
+	StateProvider        StateProvider
+	FlagLogger           FlagLogger
+	ClientSecret         string
+	Logger               *slog.Logger
+	MaterializationStore MaterializationStore // Optional: defaults to UnsupportedMaterializationStore
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
@@ -64,9 +66,13 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	transport := hooks.WrapHTTP(http.DefaultTransport)
 	stateProvider := NewFlagsAdminStateFetcherWithTransport(config.ClientSecret, logger, transport)
 	flagLogger := fl.NewGrpcWasmFlagLogger(flagLoggerService, config.ClientSecret, logger)
+	materializationStore := config.MaterializationStore
+	if materializationStore == nil {
+		materializationStore = NewUnsupportedMaterializationStore()
+	}
 
-	provider := NewLocalResolverProvider(lr.NewLocalResolver, stateProvider, flagLogger, config.ClientSecret, logger)
-
+	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
+	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger)
 	return provider, nil
 }
 
@@ -86,7 +92,12 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 		}))
 	}
 
-	provider := NewLocalResolverProvider(lr.NewLocalResolver, config.StateProvider, config.FlagLogger, config.ClientSecret, logger)
+	materializationStore := config.MaterializationStore
+	if materializationStore == nil {
+		materializationStore = NewUnsupportedMaterializationStore()
+	}
+	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
+	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger)
 
 	return provider, nil
 }
