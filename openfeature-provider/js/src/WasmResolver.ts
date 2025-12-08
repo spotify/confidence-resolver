@@ -17,7 +17,8 @@ const EXPORT_FN_NAMES = [
   'wasm_msg_free',
   'wasm_msg_guest_resolve_with_sticky',
   'wasm_msg_guest_set_resolver_state',
-  'wasm_msg_guest_flush_logs',
+  'wasm_msg_guest_bounded_flush_logs',
+  'wasm_msg_guest_bounded_flush_assign',
 ] as const;
 type EXPORT_FN_NAMES = (typeof EXPORT_FN_NAMES)[number];
 
@@ -38,6 +39,7 @@ function verifyExports(exports: WebAssembly.Exports): asserts exports is Resolve
 
 export class UnsafeWasmResolver implements LocalResolver {
   private exports: ResolverExports;
+  private flushCount = 0;
 
   constructor(module: WebAssembly.Module) {
     const imports = {
@@ -69,7 +71,16 @@ export class UnsafeWasmResolver implements LocalResolver {
   }
 
   flushLogs(): Uint8Array {
-    const resPtr = this.exports.wasm_msg_guest_flush_logs(0);
+    const resPtr = this.exports.wasm_msg_guest_bounded_flush_logs(0);
+    const { data, error } = this.consume(resPtr, Response);
+    if (error) {
+      throw new Error(error);
+    }
+    return data!;
+  }
+
+  flushAssigned(): Uint8Array {
+    const resPtr = this.exports.wasm_msg_guest_bounded_flush_assign(0);
     const { data, error } = this.consume(resPtr, Response);
     if (error) {
       throw new Error(error);
@@ -183,5 +194,10 @@ export class WasmResolver implements LocalResolver {
       }
       throw error;
     }
+  }
+
+  flushAssigned(): Uint8Array {
+    // TODO buffer logs and resend on failure
+    return this.delegate.flushAssigned();
   }
 }

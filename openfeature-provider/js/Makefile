@@ -48,6 +48,9 @@ test: $(WASM_ARTIFACT) $(INSTALL_STAMP) $(GEN_TS)
 test-e2e: $(WASM_ARTIFACT) $(INSTALL_STAMP) $(GEN_TS)
 	yarn test --run e2e.test
 
+bench-local: $(BUILD_STAMP)
+	cd bench && DEBUG=* node bench.mjs -duration 30 -flag tutorial-feature -client-secret mkjJruAATQWjeY7foFIWfVAcBWnci2YF
+
 clean:
 	rm -rf node_modules dist src/proto $(INSTALL_STAMP) $(BUILD_STAMP)
 
