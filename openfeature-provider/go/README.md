@@ -184,7 +184,7 @@ Materialization stores provide persistent storage for sticky variant assignments
 
 ### Default Behavior
 
-> Warning: If your flags rely on sticky assignments or materialized segments, the default SDK behaviour will prevent those rules from being applied and your evaluations will fall back to default values. For production workloads that need sticky behavior or segment lookups, implement and configure a real `MaterializationStore` (e.g., Redis, Bigtable, DynamoDB) to avoid unexpected fallbacks and ensure consistent variant assignment.
+⚠️ Warning: If your flags rely on sticky assignments or materialized segments, the default SDK behaviour will prevent those rules from being applied and your evaluations will fall back to default values. For production workloads that need sticky behavior or segment lookups, implement and configure a real `MaterializationStore` (e.g., Redis, Bigtable, DynamoDB) to avoid unexpected fallbacks and ensure consistent variant assignment. ✅
 
 ### Custom Implementations
 
