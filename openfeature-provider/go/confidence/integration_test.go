@@ -118,7 +118,7 @@ func TestIntegration_OpenFeatureShutdownFlushesLogs(t *testing.T) {
 	}
 
 	// Create provider with test state
-	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger)
+	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger, NewUnsupportedMaterializationStore())
 	if err != nil {
 		t.Fatalf("Failed to create provider: %v", err)
 	}
@@ -181,15 +181,131 @@ func TestIntegration_OpenFeatureShutdownFlushesLogs(t *testing.T) {
 	t.Logf("Successfully flushed %d log entries via %d gRPC calls during shutdown", finalLogCount, grpcCallsReceived)
 }
 
+func TestIntegration_OpenFeatureResolveStickyFlagMatStoreReadAndWrite(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock state provider
+	stateProvider := &mockStateProvider{
+		state:     tu.CreateStateWithStickyFlag(),
+		accountID: "test-account",
+	}
+
+	// Create tracking logger with actual GrpcWasmFlagLogger and mocked connection
+	mockStub := &mockGrpcStubForIntegration{
+		onCallReceived: make(chan struct{}, 100), // Buffer to prevent blocking
+	}
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	trackingLogger := &trackingFlagLogger{
+		actualLogger:       actualGrpcLogger,
+		lastWriteCompleted: make(chan struct{}, 1),
+	}
+	matStore := NewInMemoryMaterializationStore(nil)
+	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+
+	// Create provider with test state
+	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	client := openfeature.NewClient("integration-test")
+
+	state := client.State()
+	if state != "NOT_READY" {
+		t.Fatalf("Expected client state to be NOT_READY before initialization, was %+v", state)
+	}
+	// Register with OpenFeature
+	err := openfeature.SetProviderAndWait(provider)
+	if err != nil {
+		t.Fatalf("Failed to set provider: %v", err)
+	}
+
+	evalCtx := openfeature.NewEvaluationContext(
+		"test-user-123",
+		map[string]interface{}{
+			"user_id": "test-user-123",
+		},
+	)
+
+	state = client.State()
+	if state != "READY" {
+		t.Fatalf("Expected client state to be READY after initialization, was %+v", state)
+	}
+
+	// Evaluate the tutorial-feature flag (this should generate logs)
+	// This flag exists in the test state and should resolve successfully
+	result, _ := client.BooleanValueDetails(ctx, "sticky-test-flag.enabled", false, evalCtx)
+	t.Logf("Sticky flag evaluation result: %+v", result)
+
+	// Verify result is as expected
+	if result.Value != true {
+		t.Fatalf("Expected sticky flag result to be true, got %+v", result.Value)
+	}
+
+	if got, want := result.Variant, "flags/sticky-test-flag/variants/on"; got != want {
+		t.Fatalf("Unexpected variant: got %q want %q", got, want)
+	}
+
+	// Verify that the materialization store was read
+	if len(matStore.ReadCalls()) != 1 {
+		t.Fatalf("expected 1 read call to materialization store, got %d", len(matStore.ReadCalls()))
+	}
+	readOps := matStore.ReadCalls()[0]
+	if len(readOps) != 1 {
+		t.Fatalf("expected 1 read op in materialization store call, got %d", len(readOps))
+	}
+	readOp, ok := readOps[0].(*ReadOpVariant)
+	if !ok {
+		t.Fatalf("expected ReadOpVariant type, got %T", readOps[0])
+	}
+	if got, want := readOp.Materialization(), "experiment_v1"; got != want {
+		t.Fatalf("unexpected materialization id: got %q want %q", got, want)
+	}
+	if got, want := readOp.Unit(), "test-user-123"; got != want {
+		t.Fatalf("unexpected unit id: got %q want %q", got, want)
+	}
+	if got, want := readOp.Rule(), "flags/sticky-test-flag/rules/sticky-rule"; got != want {
+		t.Fatalf("unexpected rule id: got %q want %q", got, want)
+	}
+
+	// Verify that the materialization store was written to (storing the variant)
+	// requires that we wait for async go routine
+	time.Sleep(10 * time.Millisecond) // wait for async write to complete
+	if len(matStore.WriteCalls()) != 1 {
+		t.Fatalf("expected 1 write call to materialization store, got %d", len(matStore.WriteCalls()))
+	}
+	writeOps := matStore.WriteCalls()[0]
+	if len(writeOps) != 1 {
+		t.Fatalf("expected 1 write op in materialization store call, got %d", len(writeOps))
+	}
+	writeOp, ok := writeOps[0].(*WriteOpVariant)
+	if !ok {
+		t.Fatalf("expected WriteOpVariant type, got %T", writeOps[0])
+	}
+	if got, want := writeOp.Materialization(), "experiment_v1"; got != want {
+		t.Fatalf("unexpected materialization id: got %q want %q", got, want)
+	}
+	if got, want := writeOp.Unit(), "test-user-123"; got != want {
+		t.Fatalf("unexpected unit id: got %q want %q", got, want)
+	}
+	if got, want := writeOp.Rule(), "flags/sticky-test-flag/rules/sticky-rule"; got != want {
+		t.Fatalf("unexpected rule id: got %q want %q", got, want)
+	}
+	if got, want := writeOp.Variant(), "flags/sticky-test-flag/variants/on"; got != want {
+		t.Fatalf("unexpected variant: got %q want %q", got, want)
+	}
+
+	// Now shutdown
+	openfeature.Shutdown()
+}
+
 // createProviderWithTestState creates a provider with mock state provider and tracking logger
 func createProviderWithTestState(
 	ctx context.Context,
 	stateProvider StateProvider,
 	accountID string,
 	logger FlagLogger,
+	matStore MaterializationStore,
 ) (*LocalResolverProvider, error) {
-	unsupportedMatStore := NewUnsupportedMaterializationStore()
-	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
+	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
 	// Create provider with the client secret from test state
 	// The test state includes client secret: mkjJruAATQWjeY7foFIWfVAcBWnci2YF
 	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, logger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
