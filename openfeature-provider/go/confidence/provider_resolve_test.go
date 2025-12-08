@@ -37,9 +37,11 @@ func TestLocalResolverProvider_ReturnsDefaultOnError(t *testing.T) {
 		AccountID: "test-account",
 	}
 	mockFlagLogger := &tu.MockFlagLogger{}
+	unsupportedMatStore := newUnsupportedMaterializationStore()
 
+	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 	// Use different client secret that won't match
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(lr.NewLocalResolver, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -80,9 +82,11 @@ func TestLocalResolverProvider_ReturnsCorrectValue(t *testing.T) {
 		AccountID: testAcctID,
 	}
 	mockFlagLogger := &tu.MockFlagLogger{}
+	unsupportedMatStore := newUnsupportedMaterializationStore()
 
+	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 	// Use the correct client secret from test data
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(lr.NewLocalResolver, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -159,9 +163,11 @@ func TestLocalResolverProvider_PathNotFound(t *testing.T) {
 	}
 
 	mockFlagLogger := &tu.MockFlagLogger{}
+	unsupportedMatStore := newUnsupportedMaterializationStore()
 
+	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 	// Use the correct client secret from test data
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(lr.NewLocalResolver, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -223,8 +229,10 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 			AccountID: testAcctID,
 		}
 		mockFlagLogger := &tu.MockFlagLogger{}
+		unsupportedMatStore := newUnsupportedMaterializationStore()
 
-		openfeature.SetProviderAndWait(NewLocalResolverProvider(lr.NewLocalResolver, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
+		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
 		client := openfeature.NewClient("test-client")
 
 		evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -248,7 +256,7 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		}
 	})
 
-	t.Run("Provider returns missing materializations error message", func(t *testing.T) {
+	t.Run("Provider returns missing materializations error message for UnsupportedMaterializationStore", func(t *testing.T) {
 
 		// Create state with a flag that requires materializations
 		stickyState := tu.CreateStateWithStickyFlag()
@@ -260,7 +268,10 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		}
 		mockFlagLogger := &tu.MockFlagLogger{}
 
-		openfeature.SetProviderAndWait(NewLocalResolverProvider(lr.NewLocalResolver, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+		unsupportedMatStore := newUnsupportedMaterializationStore()
+
+		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
+		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
 		client := openfeature.NewClient("test-client")
 
 		evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -271,8 +282,8 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		result, error := client.BooleanValueDetails(ctx, "sticky-test-flag.enabled", defaultValue, evalCtx)
 		if error == nil {
 			t.Error("Expected error when materializations missing, got nil")
-		} else if error.Error() != "error code: GENERAL: missing materializations" {
-			t.Errorf("Expected 'error code: GENERAL: missing materializations', got: %v", error.Error())
+		} else if error.Error() != "error code: GENERAL: resolve failed: failed to handle missing materializations: materialization read not supported, falling back to remote resolution" {
+			t.Errorf("Expected 'GENERAL: resolve failed: failed to handle missing materializations: materialization read not supported, falling back to remote resolution', got: %v", error.Error())
 		}
 
 		if result.Value != defaultValue {

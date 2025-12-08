@@ -8,11 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	proto "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
 	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/admin/v1"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
 	iamv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/iam/v1"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
-	"google.golang.org/protobuf/proto"
+	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -95,7 +96,7 @@ func CreateMinimalResolverState() []byte {
 			},
 		},
 	}
-	data, err := proto.Marshal(state)
+	data, err := gproto.Marshal(state)
 	if err != nil {
 		panic("Failed to create minimal state: " + err.Error())
 	}
@@ -104,6 +105,22 @@ func CreateMinimalResolverState() []byte {
 
 // Helper to create a resolver state with a flag that requires materializations
 func CreateStateWithStickyFlag() []byte {
+	segments := []*adminv1.Segment{
+		{
+			Name: "segments/always-true",
+		},
+	}
+
+	// Build bitsets for each segment
+	bitsets := make([]*adminv1.ResolverState_PackedBitset, 0, len(segments))
+	for _, segment := range segments {
+		bitsets = append(bitsets, &adminv1.ResolverState_PackedBitset{
+			Segment: segment.Name,
+			Bitset: &adminv1.ResolverState_PackedBitset_FullBitset{
+				FullBitset: true,
+			},
+		})
+	}
 	state := &adminv1.ResolverState{
 		Flags: []*adminv1.Flag{
 			{
@@ -132,11 +149,11 @@ func CreateStateWithStickyFlag() []byte {
 				Rules: []*adminv1.Flag_Rule{
 					{
 						Name:                 "flags/sticky-test-flag/rules/sticky-rule",
-						Segment:              "segments/always-true",
+						Segment:              segments[0].Name,
 						TargetingKeySelector: "user_id",
 						Enabled:              true,
 						AssignmentSpec: &adminv1.Flag_Rule_AssignmentSpec{
-							BucketCount: 10000,
+							BucketCount: 2,
 							Assignments: []*adminv1.Flag_Rule_Assignment{
 								{
 									AssignmentId: "variant-assignment",
@@ -147,7 +164,8 @@ func CreateStateWithStickyFlag() []byte {
 									},
 									BucketRanges: []*adminv1.Flag_Rule_BucketRange{
 										{
-											Upper: 10000,
+											Lower: 0,
+											Upper: 2,
 										},
 									},
 								},
@@ -166,17 +184,14 @@ func CreateStateWithStickyFlag() []byte {
 				},
 			},
 		},
-		SegmentsNoBitsets: []*adminv1.Segment{
-			{
-				Name: "segments/always-true",
-				// Empty segment - may not match any users
-			},
-		},
+		SegmentsNoBitsets: segments,
 		Clients: []*iamv1.Client{
 			{
 				Name: "clients/test-client",
 			},
 		},
+		// All-one bitset for each segment
+		Bitsets: bitsets,
 		ClientCredentials: []*iamv1.ClientCredential{
 			{
 				// ClientCredential name must start with the client name
@@ -189,7 +204,7 @@ func CreateStateWithStickyFlag() []byte {
 			},
 		},
 	}
-	data, err := proto.Marshal(state)
+	data, err := gproto.Marshal(state)
 	if err != nil {
 		panic("Failed to create state with sticky flag: " + err.Error())
 	}
@@ -227,3 +242,48 @@ func CreateTutorialFeatureRequest() *resolver.ResolveFlagsRequest {
 		},
 	}
 }
+
+// Helper function to create a response matching CreateTutorialFeatureRequest
+func CreateTutorialFeatureResponse() *resolver.ResolveFlagsResponse {
+	return &resolver.ResolveFlagsResponse{
+		ResolvedFlags: []*resolver.ResolvedFlag{
+			{
+				Flag:    "flags/tutorial-feature",
+				Variant: "flags/tutorial-feature/variants/on",
+				Value: &structpb.Struct{Fields: map[string]*structpb.Value{
+					"enabled": structpb.NewBoolValue(true),
+				}},
+				ShouldApply: true,
+			},
+		},
+		ResolveId: "test-resolve-id",
+	}
+}
+
+// MockedLocalResolver is a test double implementing the LocalResolver API used in tests.
+type MockedLocalResolver struct {
+	// Single response fallback
+	Response *resolver.ResolveWithStickyResponse
+	Err      error
+	// Sequenced responses support
+	Responses []*resolver.ResolveWithStickyResponse
+	callIdx   int
+}
+
+func (m MockedLocalResolver) Close(context.Context) error { return nil }
+func (m MockedLocalResolver) FlushAllLogs() error         { return nil }
+func (m MockedLocalResolver) FlushAssignLogs() error      { return nil }
+func (m *MockedLocalResolver) ResolveWithSticky(*resolver.ResolveWithStickyRequest) (*resolver.ResolveWithStickyResponse, error) {
+	if len(m.Responses) > 0 {
+		idx := m.callIdx
+		if idx >= len(m.Responses) {
+			// If calls exceed provided responses, return last response
+			return m.Responses[len(m.Responses)-1], m.Err
+		}
+		resp := m.Responses[idx]
+		m.callIdx++
+		return resp, m.Err
+	}
+	return m.Response, m.Err
+}
+func (m MockedLocalResolver) SetResolverState(*proto.SetResolverStateRequest) error { return nil }
