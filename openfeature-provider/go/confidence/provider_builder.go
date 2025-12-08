@@ -20,7 +20,7 @@ type ProviderConfig struct {
 	ClientSecret         string
 	Logger               *slog.Logger
 	TransportHooks       TransportHooks       // Optional: defaults to DefaultTransportHooks
-	MaterializationStore MaterializationStore // Optional: defaults to UnsupportedMaterializationStore
+	MaterializationStore MaterializationStore // Optional
 }
 
 type ProviderTestConfig struct {
@@ -28,7 +28,7 @@ type ProviderTestConfig struct {
 	FlagLogger           FlagLogger
 	ClientSecret         string
 	Logger               *slog.Logger
-	MaterializationStore MaterializationStore // Optional: defaults to UnsupportedMaterializationStore
+	MaterializationStore MaterializationStore // Optional
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
@@ -68,7 +68,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	flagLogger := fl.NewGrpcWasmFlagLogger(flagLoggerService, config.ClientSecret, logger)
 	materializationStore := config.MaterializationStore
 	if materializationStore == nil {
-		materializationStore = NewUnsupportedMaterializationStore()
+		materializationStore = newUnsupportedMaterializationStore()
 	}
 
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
@@ -94,7 +94,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 
 	materializationStore := config.MaterializationStore
 	if materializationStore == nil {
-		materializationStore = NewUnsupportedMaterializationStore()
+		materializationStore = newUnsupportedMaterializationStore()
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger)

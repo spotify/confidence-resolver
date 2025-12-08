@@ -15,10 +15,13 @@ type materializationSupportedResolver struct {
 	current lr.LocalResolver
 }
 
-func NewMaterializationSupportedResolver(store MaterializationStore, innerResolver lr.LocalResolver) *materializationSupportedResolver {
-	return &materializationSupportedResolver{
-		store:   store,
-		current: innerResolver,
+func wrapResolverSupplierWithMaterializations(supplier LocalResolverSupplier, materializationStore MaterializationStore) LocalResolverSupplier {
+	return func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		localResolver := supplier(ctx, logSink)
+		return &materializationSupportedResolver{
+			store:   materializationStore,
+			current: localResolver,
+		}
 	}
 }
 
@@ -73,7 +76,7 @@ func (m *materializationSupportedResolver) storeUpdates(updates []*resolver.Reso
 	// Convert protobuf updates to WriteOp slice
 	writeOps := make([]WriteOp, len(updates))
 	for i, update := range updates {
-		writeOps[i] = NewWriteOpVariant(
+		writeOps[i] = newWriteOpVariant(
 			update.GetWriteMaterialization(),
 			update.GetUnit(),
 			update.GetRule(),
@@ -99,7 +102,7 @@ func (m *materializationSupportedResolver) handleMissingMaterializations(request
 	// Convert missing items to ReadOp slice
 	readOps := make([]ReadOp, len(missingItems))
 	for i, item := range missingItems {
-		readOps[i] = NewReadOpVariant(
+		readOps[i] = newReadOpVariant(
 			item.GetReadMaterialization(),
 			item.GetUnit(),
 			item.GetRule(),
@@ -176,11 +179,4 @@ func (m *materializationSupportedResolver) SetResolverState(request *messages.Se
 
 func (m *materializationSupportedResolver) Close(ctx context.Context) error {
 	return m.current.Close(ctx)
-}
-
-func wrapResolverSupplierWithMaterializations(supplier LocalResolverSupplier, materializationStore MaterializationStore) LocalResolverSupplier {
-	return func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		localResolver := supplier(ctx, logSink)
-		return NewMaterializationSupportedResolver(materializationStore, localResolver)
-	}
 }

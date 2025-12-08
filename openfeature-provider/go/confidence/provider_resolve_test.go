@@ -37,7 +37,7 @@ func TestLocalResolverProvider_ReturnsDefaultOnError(t *testing.T) {
 		AccountID: "test-account",
 	}
 	mockFlagLogger := &tu.MockFlagLogger{}
-	unsupportedMatStore := NewUnsupportedMaterializationStore()
+	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 	// Use different client secret that won't match
@@ -82,7 +82,7 @@ func TestLocalResolverProvider_ReturnsCorrectValue(t *testing.T) {
 		AccountID: testAcctID,
 	}
 	mockFlagLogger := &tu.MockFlagLogger{}
-	unsupportedMatStore := NewUnsupportedMaterializationStore()
+	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 	// Use the correct client secret from test data
@@ -163,7 +163,7 @@ func TestLocalResolverProvider_PathNotFound(t *testing.T) {
 	}
 
 	mockFlagLogger := &tu.MockFlagLogger{}
-	unsupportedMatStore := NewUnsupportedMaterializationStore()
+	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 	// Use the correct client secret from test data
@@ -229,7 +229,7 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 			AccountID: testAcctID,
 		}
 		mockFlagLogger := &tu.MockFlagLogger{}
-		unsupportedMatStore := NewUnsupportedMaterializationStore()
+		unsupportedMatStore := newUnsupportedMaterializationStore()
 
 		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
@@ -268,7 +268,7 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		}
 		mockFlagLogger := &tu.MockFlagLogger{}
 
-		unsupportedMatStore := NewUnsupportedMaterializationStore()
+		unsupportedMatStore := newUnsupportedMaterializationStore()
 
 		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
 		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))

@@ -15,10 +15,6 @@ import (
 //     runtime, materializations allow efficient lookup of whether a unit (user, session, etc.)
 //     is included in a target segment.
 //
-// Default Behavior: By default, the provider uses UnsupportedMaterializationStore which
-// triggers remote resolution via gRPC to the Confidence service. Confidence manages
-// materializations server-side with automatic 90-day TTL management.
-//
 // Custom Implementations: Optionally implement this interface to store materialization
 // data in your own infrastructure (Redis, database, etc.) to eliminate network calls
 // and improve latency during flag resolution.
@@ -63,8 +59,8 @@ type ReadOpInclusion struct {
 	unit            string
 }
 
-// NewReadOpInclusion creates a new inclusion read operation.
-func NewReadOpInclusion(materialization, unit string) *ReadOpInclusion {
+// newReadOpInclusion creates a new inclusion read operation.
+func newReadOpInclusion(materialization, unit string) *ReadOpInclusion {
 	return &ReadOpInclusion{
 		materialization: materialization,
 		unit:            unit,
@@ -92,8 +88,8 @@ type ReadOpVariant struct {
 	rule            string
 }
 
-// NewReadOpVariant creates a new variant read operation.
-func NewReadOpVariant(materialization, unit, rule string) *ReadOpVariant {
+// newReadOpVariant creates a new variant read operation.
+func newReadOpVariant(materialization, unit, rule string) *ReadOpVariant {
 	return &ReadOpVariant{
 		materialization: materialization,
 		unit:            unit,
@@ -176,8 +172,8 @@ type WriteOpVariant struct {
 	variant         string
 }
 
-// NewWriteOpVariant creates a new variant write operation.
-func NewWriteOpVariant(materialization, unit, rule, variant string) *WriteOpVariant {
+// newWriteOpVariant creates a new variant write operation.
+func newWriteOpVariant(materialization, unit, rule, variant string) *WriteOpVariant {
 	return &WriteOpVariant{
 		materialization: materialization,
 		unit:            unit,

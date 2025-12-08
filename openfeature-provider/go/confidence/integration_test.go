@@ -118,7 +118,7 @@ func TestIntegration_OpenFeatureShutdownFlushesLogs(t *testing.T) {
 	}
 
 	// Create provider with test state
-	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger, NewUnsupportedMaterializationStore())
+	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger, newUnsupportedMaterializationStore())
 	if err != nil {
 		t.Fatalf("Failed to create provider: %v", err)
 	}

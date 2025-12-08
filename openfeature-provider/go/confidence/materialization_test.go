@@ -6,13 +6,21 @@ import (
 	"testing"
 	"time"
 
+	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
 )
 
+func newMaterializationSupportedResolver(store MaterializationStore, innerResolver lr.LocalResolver) *materializationSupportedResolver {
+	return &materializationSupportedResolver{
+		store:   store,
+		current: innerResolver,
+	}
+}
+
 func TestMaterializationLocalResolverProvider_EmitsErrorFromInnerResolver(t *testing.T) {
 	expectedErr := "simulated inner resolver error"
-	mockedStore := NewUnsupportedMaterializationStore()
+	mockedStore := newUnsupportedMaterializationStore()
 	mockedResolver := &tu.MockedLocalResolver{
 		Err: errors.New(expectedErr),
 	}
@@ -24,7 +32,7 @@ func TestMaterializationLocalResolverProvider_EmitsErrorFromInnerResolver(t *tes
 		NotProcessSticky:        false,
 	}
 
-	resolver := NewMaterializationSupportedResolver(mockedStore, mockedResolver)
+	resolver := newMaterializationSupportedResolver(mockedStore, mockedResolver)
 	_, err := resolver.ResolveWithSticky(request)
 	if err == nil || err.Error() != expectedErr {
 		t.Fatalf("expected error %q, got %v", expectedErr, err)
@@ -32,7 +40,7 @@ func TestMaterializationLocalResolverProvider_EmitsErrorFromInnerResolver(t *tes
 }
 
 func TestMaterializationLocalResolverProvider_WorksWithoutMaterializations(t *testing.T) {
-	mockedStore := NewUnsupportedMaterializationStore()
+	mockedStore := newUnsupportedMaterializationStore()
 	mockedResolver := &tu.MockedLocalResolver{
 		Response: &resolver.ResolveWithStickyResponse{
 			ResolveResult: &resolver.ResolveWithStickyResponse_Success_{
@@ -50,7 +58,7 @@ func TestMaterializationLocalResolverProvider_WorksWithoutMaterializations(t *te
 		NotProcessSticky:        false,
 	}
 
-	resolver := NewMaterializationSupportedResolver(mockedStore, mockedResolver)
+	resolver := newMaterializationSupportedResolver(mockedStore, mockedResolver)
 
 	response, err := resolver.ResolveWithSticky(request)
 	if err != nil {
@@ -93,7 +101,7 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 	// Use empty materialization store that returns no variants
 	inMemoryStore := NewInMemoryMaterializationStore(nil)
 	// Pre-populate store with variant assignment for the test user
-	inMemoryStore.Write(context.Background(), []WriteOp{NewWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
+	inMemoryStore.Write(context.Background(), []WriteOp{newWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
 	mockedResolver := &tu.MockedLocalResolver{
 		Responses: []*resolver.ResolveWithStickyResponse{
 			{
@@ -125,7 +133,7 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
-	resolver := NewMaterializationSupportedResolver(inMemoryStore, mockedResolver)
+	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)
 
 	response, err := resolver.ResolveWithSticky(request)
 	if err != nil {
@@ -184,7 +192,7 @@ func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t 
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
-	resolver := NewMaterializationSupportedResolver(inMemoryStore, mockedResolver)
+	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)
 
 	response, err := resolver.ResolveWithSticky(request)
 	if err != nil {
@@ -227,7 +235,7 @@ func TestMaterializationLocalResolverProvider_DoesNotRetryBeyondMaxDepth(t *test
 	inMemoryStore := NewInMemoryMaterializationStore(nil)
 	defer inMemoryStore.Close()
 	// Pre-populate store with variant assignment for the test user
-	inMemoryStore.Write(context.Background(), []WriteOp{NewWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
+	inMemoryStore.Write(context.Background(), []WriteOp{newWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
 	mockedResolver := &tu.MockedLocalResolver{
 		Response: &resolver.ResolveWithStickyResponse{
 			ResolveResult: &resolver.ResolveWithStickyResponse_MissingMaterializations_{
@@ -250,7 +258,7 @@ func TestMaterializationLocalResolverProvider_DoesNotRetryBeyondMaxDepth(t *test
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
-	resolver := NewMaterializationSupportedResolver(inMemoryStore, mockedResolver)
+	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)
 
 	response, err := resolver.ResolveWithSticky(request)
 	if response != nil {

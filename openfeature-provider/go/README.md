@@ -153,7 +153,8 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 
 - `Logger` (*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration)
-- `MaterializationStore` (MaterializationStore): Custom storage for sticky variant assignments and materialized segments. If not provided, uses `UnsupportedMaterializationStore` which triggers remote resolution. See [Materialization Stores](#materialization-stores) for details.
+- `MaterializationStore` (MaterializationStore): Custom storage for sticky variant assignments and materialized segments. If not provided, the provider will 
+fall back to default values for flags with rules that require materializations. See [Materialization Stores](#materialization-stores) for details.
 
 #### Advanced: Testing with Custom State Provider
 
@@ -183,7 +184,7 @@ Materialization stores provide persistent storage for sticky variant assignments
 
 ### Default Behavior
 
-> Warning: If your flags rely on sticky assignments or materialized segments, the default `UnsupportedMaterializationStore` will prevent those rules from being applied and your evaluations will fall back to default values. For production workloads that need sticky behavior or segment lookups, implement and configure a real `MaterializationStore` (e.g., Redis, Bigtable, DynamoDB) to avoid unexpected fallbacks and ensure consistent variant assignment.
+> Warning: If your flags rely on sticky assignments or materialized segments, the default SDK behaviour will prevent those rules from being applied and your evaluations will fall back to default values. For production workloads that need sticky behavior or segment lookups, implement and configure a real `MaterializationStore` (e.g., Redis, Bigtable, DynamoDB) to avoid unexpected fallbacks and ensure consistent variant assignment.
 
 ### Custom Implementations
 
@@ -226,21 +227,8 @@ func main() {
 
 ### In-Memory Store for Testing
 
-An in-memory reference implementation is provided for testing and development:
-
-```go
-import "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
-
-// Create an in-memory store (for testing only)
-store := confidence.NewInMemoryMaterializationStore(nil)
-
-provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-    ClientSecret:          "your-client-secret",
-    MaterializationStore: store,
-})
-```
-
-**Warning**: The in-memory store is for testing/example purposes only and should NOT be used in production because:
+An in-memory reference implementation is provided for testing and development.
+**Warning**: An in-memory store should NOT be used in production because:
 - Data is lost on application restart (no persistence)
 - Memory grows unbounded
 - Not suitable for multi-instance deployments
