@@ -153,6 +153,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 
 - `Logger` (*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration)
+- `MaterializationStore` (MaterializationStore): Custom storage for sticky variant assignments and materialized segments. If not provided, uses `UnsupportedMaterializationStore` which triggers remote resolution. See [Materialization Stores](#materialization-stores) for details.
 
 #### Advanced: Testing with Custom State Provider
 
@@ -171,6 +172,88 @@ provider, err := confidence.NewProviderForTest(ctx,
 ```
 
 **Important**: This configuration requires you to provide both a `StateProvider` and `FlagLogger`. For production deployments, always use `NewProvider()` with `ProviderConfig`.
+
+## Materialization Stores
+
+Materialization stores provide persistent storage for sticky variant assignments and custom targeting segments. This enables two key use cases:
+
+1. **Sticky Assignments**: Maintain consistent variant assignments across evaluations even when targeting attributes change. This enables pausing intake (stopping new users from entering an experiment) while keeping existing users in their assigned variants.
+
+2. **Custom Targeting via Materialized Segments**: Precomputed sets of identifiers from datasets that should be targeted. Instead of evaluating complex targeting rules at runtime, materializations allow efficient lookup of whether a unit (user, session, etc.) is included in a target segment.
+
+### Default Behavior
+
+> Warning: If your flags rely on sticky assignments or materialized segments, the default `UnsupportedMaterializationStore` will prevent those rules from being applied and your evaluations will fall back to default values. For production workloads that need sticky behavior or segment lookups, implement and configure a real `MaterializationStore` (e.g., Redis, Bigtable, DynamoDB) to avoid unexpected fallbacks and ensure consistent variant assignment.
+
+### Custom Implementations
+
+For improved latency and reduced network calls, you can implement your own `MaterializationStore` interface to store materialization data in your infrastructure (Redis, DynamoDB, etc.):
+
+```go
+import (
+    "context"
+    "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
+)
+
+// Implement the MaterializationStore interface
+type MyRedisStore struct {
+    // your implementation
+}
+
+func (s *MyRedisStore) Read(ctx context.Context, ops []confidence.ReadOp) ([]confidence.ReadResult, error) {
+    // Load materialization data from Redis
+}
+
+func (s *MyRedisStore) Write(ctx context.Context, ops []confidence.WriteOp) error {
+    // Store materialization data to Redis
+}
+
+// Use your custom store
+func main() {
+    ctx := context.Background()
+
+    myStore := &MyRedisStore{
+        // initialize your store
+    }
+
+    provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
+        ClientSecret:          "your-client-secret",
+        MaterializationStore: myStore,
+    })
+    // ...
+}
+```
+
+### In-Memory Store for Testing
+
+An in-memory reference implementation is provided for testing and development:
+
+```go
+import "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
+
+// Create an in-memory store (for testing only)
+store := confidence.NewInMemoryMaterializationStore(nil)
+
+provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
+    ClientSecret:          "your-client-secret",
+    MaterializationStore: store,
+})
+```
+
+**Warning**: The in-memory store is for testing/example purposes only and should NOT be used in production because:
+- Data is lost on application restart (no persistence)
+- Memory grows unbounded
+- Not suitable for multi-instance deployments
+
+### When to Use Materialization Stores
+
+Consider implementing a custom materialization store if:
+- You need to support sticky variant assignments for experiments
+- You use materialized segments for custom targeting
+- You want to minimize network latency during flag resolution
+- You have high-volume flag evaluations
+
+If you don't use sticky assignments or materialized segments, the default behavior is sufficient.
 
 ## Flag Evaluation
 
