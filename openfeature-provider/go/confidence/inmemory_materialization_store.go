@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// InMemoryMaterializationStore is a thread-safe in-memory implementation of MaterializationStore.
+// inMemoryMaterializationStore is a thread-safe in-memory implementation of MaterializationStore.
 //
 // ⚠️ For Testing/Example Only: This implementation is suitable for testing and as a reference
 // but should NOT be used in production because:
@@ -26,7 +26,7 @@ import (
 //
 // Production Implementation: For production use, implement MaterializationStore with
 // persistent storage like Redis, DynamoDB, etc.
-type InMemoryMaterializationStore struct {
+type inMemoryMaterializationStore struct {
 	// storage: unit -> materialization -> data
 	storage map[string]map[string]*materializationData
 	mu      sync.RWMutex
@@ -41,19 +41,19 @@ type materializationData struct {
 	ruleToVariant map[string]string // rule -> variant mappings for sticky assignments
 }
 
-// NewInMemoryMaterializationStore creates a new in-memory materialization store.
-func NewInMemoryMaterializationStore(logger *slog.Logger) *InMemoryMaterializationStore {
+// newInMemoryMaterializationStore creates a new in-memory materialization store.
+func newInMemoryMaterializationStore(logger *slog.Logger) *inMemoryMaterializationStore {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &InMemoryMaterializationStore{
+	return &inMemoryMaterializationStore{
 		storage: make(map[string]map[string]*materializationData),
 		logger:  logger,
 	}
 }
 
 // Read performs a batch read of materialization data.
-func (s *InMemoryMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]ReadResult, error) {
+func (s *inMemoryMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]ReadResult, error) {
 	s.mu.Lock()
 	// track call
 	// make a shallow copy to avoid external mutation
@@ -103,7 +103,7 @@ func (s *InMemoryMaterializationStore) Read(ctx context.Context, ops []ReadOp) (
 }
 
 // Write performs a batch write of materialization data.
-func (s *InMemoryMaterializationStore) Write(ctx context.Context, ops []WriteOp) error {
+func (s *inMemoryMaterializationStore) Write(ctx context.Context, ops []WriteOp) error {
 	s.mu.Lock()
 	// track call
 	copied := make([]WriteOp, len(ops))
@@ -147,7 +147,7 @@ func (s *InMemoryMaterializationStore) Write(ctx context.Context, ops []WriteOp)
 
 // Close clears all stored materialization data from memory.
 // Call this method during application shutdown or test cleanup to free memory.
-func (s *InMemoryMaterializationStore) Close() error {
+func (s *inMemoryMaterializationStore) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -158,31 +158,8 @@ func (s *InMemoryMaterializationStore) Close() error {
 	return nil
 }
 
-// Dump returns all stored materialization data as ReadResults for testing assertions.
-func (s *InMemoryMaterializationStore) Dump() []ReadResult {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var results []ReadResult
-	for unit, matMap := range s.storage {
-		for mat, data := range matMap {
-			// Add variant results for each rule
-			for rule, variant := range data.ruleToVariant {
-				variantCopy := variant
-				results = append(results, &ReadResultVariant{
-					materialization: mat,
-					unit:            unit,
-					rule:            rule,
-					variant:         &variantCopy,
-				})
-			}
-		}
-	}
-	return results
-}
-
 // ReadCalls returns a snapshot of all read calls and their ops in chronological order.
-func (s *InMemoryMaterializationStore) ReadCalls() [][]ReadOp {
+func (s *inMemoryMaterializationStore) ReadCalls() [][]ReadOp {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([][]ReadOp, len(s.readCalls))
@@ -195,7 +172,7 @@ func (s *InMemoryMaterializationStore) ReadCalls() [][]ReadOp {
 }
 
 // WriteCalls returns a snapshot of all write calls and their ops in chronological order.
-func (s *InMemoryMaterializationStore) WriteCalls() [][]WriteOp {
+func (s *inMemoryMaterializationStore) WriteCalls() [][]WriteOp {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([][]WriteOp, len(s.writeCalls))

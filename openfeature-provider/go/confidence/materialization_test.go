@@ -99,7 +99,7 @@ func TestMaterializationLocalResolverProvider_WorksWithoutMaterializations(t *te
 func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrectly(t *testing.T) {
 
 	// Use empty materialization store that returns no variants
-	inMemoryStore := NewInMemoryMaterializationStore(nil)
+	inMemoryStore := newInMemoryMaterializationStore(nil)
 	// Pre-populate store with variant assignment for the test user
 	inMemoryStore.Write(context.Background(), []WriteOp{newWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
 	mockedResolver := &tu.MockedLocalResolver{
@@ -167,7 +167,7 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 
 func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t *testing.T) {
 	// Use empty materialization store that returns no variants
-	inMemoryStore := NewInMemoryMaterializationStore(nil)
+	inMemoryStore := newInMemoryMaterializationStore(nil)
 	mockedResolver := &tu.MockedLocalResolver{
 		Response: &resolver.ResolveWithStickyResponse{
 			ResolveResult: &resolver.ResolveWithStickyResponse_Success_{
@@ -232,7 +232,7 @@ func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t 
 func TestMaterializationLocalResolverProvider_DoesNotRetryBeyondMaxDepth(t *testing.T) {
 
 	// Use empty materialization store that returns no variants
-	inMemoryStore := NewInMemoryMaterializationStore(nil)
+	inMemoryStore := newInMemoryMaterializationStore(nil)
 	defer inMemoryStore.Close()
 	// Pre-populate store with variant assignment for the test user
 	inMemoryStore.Write(context.Background(), []WriteOp{newWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})

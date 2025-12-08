@@ -200,7 +200,7 @@ func TestIntegration_OpenFeatureResolveStickyFlagMatStoreReadAndWrite(t *testing
 		actualLogger:       actualGrpcLogger,
 		lastWriteCompleted: make(chan struct{}, 1),
 	}
-	matStore := NewInMemoryMaterializationStore(nil)
+	matStore := newInMemoryMaterializationStore(nil)
 	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
 
 	// Create provider with test state
