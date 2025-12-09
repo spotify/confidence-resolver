@@ -153,8 +153,12 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 
 - `Logger` (*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration)
-- `MaterializationStore` (MaterializationStore): Custom storage for sticky variant assignments and materialized segments. If not provided, the provider will 
-fall back to default values for flags with rules that require materializations. See [Materialization Stores](#materialization-stores) for details.
+- `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
+  - `nil` (default): Falls back to default values for flags requiring materializations
+  - `NewRemoteMaterializationStore()`: Uses remote gRPC storage (recommended for getting started)
+  - Custom implementation: Your own storage (Redis, DynamoDB, etc.) for optimal performance
+
+  See [Materialization Stores](#materialization-stores) for details.
 
 #### Advanced: Testing with Custom State Provider
 
@@ -185,6 +189,55 @@ Materialization stores provide persistent storage for sticky variant assignments
 ### Default Behavior
 
 ⚠️ Warning: If your flags rely on sticky assignments or materialized segments, the default SDK behaviour will prevent those rules from being applied and your evaluations will fall back to default values. For production workloads that need sticky behavior or segment lookups, implement and configure a real `MaterializationStore` (e.g., Redis, Bigtable, DynamoDB) to avoid unexpected fallbacks and ensure consistent variant assignment. ✅
+
+### Remote Materialization Store
+
+For quick setup without managing your own storage infrastructure, use the built-in `RemoteMaterializationStore`. This implementation stores materialization data remotely via gRPC to the Confidence service.
+
+**When to use**:
+- You need sticky assignments or materialized segments but don't want to manage storage infrastructure
+- Quick prototyping or getting started
+- Lower-volume applications where network latency is acceptable
+
+**Trade-offs**:
+- Additional network calls during flag resolution (adds latency)
+- Lower performance compared to local storage implementations (Redis, DynamoDB, etc.)
+
+```go
+import (
+    "context"
+    "log"
+
+    "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
+)
+
+func main() {
+    ctx := context.Background()
+    clientSecret := "your-client-secret"
+
+    // Create remote materialization store
+    remoteStore, err := confidence.NewRemoteMaterializationStore(clientSecret)
+    if err != nil {
+        log.Fatalf("Failed to create remote store: %v", err)
+    }
+
+    // Use it with the provider
+    provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
+        ClientSecret:         clientSecret,
+        MaterializationStore: remoteStore,
+    })
+    if err != nil {
+        log.Fatalf("Failed to create provider: %v", err)
+    }
+    // ...
+}
+```
+
+If you need custom transport hooks (for testing or proxies), use `NewRemoteMaterializationStoreWithTransport`:
+
+```go
+remoteStore, err := confidence.NewRemoteMaterializationStoreWithTransport(clientSecret, myTransportHooks)
+```
 
 ### Custom Implementations
 

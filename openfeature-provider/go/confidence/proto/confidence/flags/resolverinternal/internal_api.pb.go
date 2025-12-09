@@ -7,14 +7,9 @@
 package resolverinternal
 
 import (
-	_ "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/api"
-	_ "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/auth/v1"
 	v1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/admin/v1"
-	_ "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/admin/v1/events"
 	resolverevents "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverevents"
 	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolvertypes"
-	_ "google.golang.org/genproto/googleapis/api/annotations"
-	_ "google.golang.org/genproto/googleapis/api/visibility"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
@@ -242,6 +237,9 @@ func (x *WriteFlagAssignedResponse) GetAssignedFlags() int64 {
 // monitor sender-side issues or performance
 type TelemetryData struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// "events" dropped from the sender due to issues or inefficiencies.
+	// This is implemented as a delta counter between TelemetryData messages
+	DroppedEvents int64 `protobuf:"varint,1,opt,name=dropped_events,json=droppedEvents,proto3" json:"dropped_events,omitempty"`
 	// Information about the SDK/provider
 	Sdk           *resolvertypes.Sdk `protobuf:"bytes,2,opt,name=sdk,proto3" json:"sdk,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -276,6 +274,13 @@ func (x *TelemetryData) ProtoReflect() protoreflect.Message {
 // Deprecated: Use TelemetryData.ProtoReflect.Descriptor instead.
 func (*TelemetryData) Descriptor() ([]byte, []int) {
 	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TelemetryData) GetDroppedEvents() int64 {
+	if x != nil {
+		return x.DroppedEvents
+	}
+	return 0
 }
 
 func (x *TelemetryData) GetSdk() *resolvertypes.Sdk {
@@ -356,10 +361,9 @@ type ResolveTokenV1 struct {
 	EvaluationContext *structpb.Struct                        `protobuf:"bytes,1,opt,name=evaluation_context,json=evaluationContext,proto3" json:"evaluation_context,omitempty"`
 	Assignments       map[string]*ResolveTokenV1_AssignedFlag `protobuf:"bytes,2,rep,name=assignments,proto3" json:"assignments,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	ResolveId         string                                  `protobuf:"bytes,3,opt,name=resolve_id,json=resolveId,proto3" json:"resolve_id,omitempty"`
-	// The account that the resolve was made for
-	Account       string `protobuf:"bytes,4,opt,name=account,proto3" json:"account,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Account           string                                  `protobuf:"bytes,4,opt,name=account,proto3" json:"account,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ResolveTokenV1) Reset() {
@@ -420,6 +424,578 @@ func (x *ResolveTokenV1) GetAccount() string {
 	return ""
 }
 
+type WriteOperationsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	StoreVariantOp []*VariantData         `protobuf:"bytes,1,rep,name=store_variant_op,json=storeVariantOp,proto3" json:"store_variant_op,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *WriteOperationsRequest) Reset() {
+	*x = WriteOperationsRequest{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteOperationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteOperationsRequest) ProtoMessage() {}
+
+func (x *WriteOperationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteOperationsRequest.ProtoReflect.Descriptor instead.
+func (*WriteOperationsRequest) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WriteOperationsRequest) GetStoreVariantOp() []*VariantData {
+	if x != nil {
+		return x.StoreVariantOp
+	}
+	return nil
+}
+
+type WriteOperationsResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteOperationsResult) Reset() {
+	*x = WriteOperationsResult{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteOperationsResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteOperationsResult) ProtoMessage() {}
+
+func (x *WriteOperationsResult) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteOperationsResult.ProtoReflect.Descriptor instead.
+func (*WriteOperationsResult) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{8}
+}
+
+type VariantReadOp struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Unit            string                 `protobuf:"bytes,1,opt,name=unit,proto3" json:"unit,omitempty"`
+	Materialization string                 `protobuf:"bytes,2,opt,name=materialization,proto3" json:"materialization,omitempty"`
+	Rule            string                 `protobuf:"bytes,3,opt,name=rule,proto3" json:"rule,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *VariantReadOp) Reset() {
+	*x = VariantReadOp{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VariantReadOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VariantReadOp) ProtoMessage() {}
+
+func (x *VariantReadOp) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VariantReadOp.ProtoReflect.Descriptor instead.
+func (*VariantReadOp) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *VariantReadOp) GetUnit() string {
+	if x != nil {
+		return x.Unit
+	}
+	return ""
+}
+
+func (x *VariantReadOp) GetMaterialization() string {
+	if x != nil {
+		return x.Materialization
+	}
+	return ""
+}
+
+func (x *VariantReadOp) GetRule() string {
+	if x != nil {
+		return x.Rule
+	}
+	return ""
+}
+
+type InclusionReadOp struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Unit            string                 `protobuf:"bytes,1,opt,name=unit,proto3" json:"unit,omitempty"`
+	Materialization string                 `protobuf:"bytes,2,opt,name=materialization,proto3" json:"materialization,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *InclusionReadOp) Reset() {
+	*x = InclusionReadOp{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InclusionReadOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InclusionReadOp) ProtoMessage() {}
+
+func (x *InclusionReadOp) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InclusionReadOp.ProtoReflect.Descriptor instead.
+func (*InclusionReadOp) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *InclusionReadOp) GetUnit() string {
+	if x != nil {
+		return x.Unit
+	}
+	return ""
+}
+
+func (x *InclusionReadOp) GetMaterialization() string {
+	if x != nil {
+		return x.Materialization
+	}
+	return ""
+}
+
+type ReadOp struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Op:
+	//
+	//	*ReadOp_VariantReadOp
+	//	*ReadOp_InclusionReadOp
+	Op            isReadOp_Op `protobuf_oneof:"op"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadOp) Reset() {
+	*x = ReadOp{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadOp) ProtoMessage() {}
+
+func (x *ReadOp) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadOp.ProtoReflect.Descriptor instead.
+func (*ReadOp) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ReadOp) GetOp() isReadOp_Op {
+	if x != nil {
+		return x.Op
+	}
+	return nil
+}
+
+func (x *ReadOp) GetVariantReadOp() *VariantReadOp {
+	if x != nil {
+		if x, ok := x.Op.(*ReadOp_VariantReadOp); ok {
+			return x.VariantReadOp
+		}
+	}
+	return nil
+}
+
+func (x *ReadOp) GetInclusionReadOp() *InclusionReadOp {
+	if x != nil {
+		if x, ok := x.Op.(*ReadOp_InclusionReadOp); ok {
+			return x.InclusionReadOp
+		}
+	}
+	return nil
+}
+
+type isReadOp_Op interface {
+	isReadOp_Op()
+}
+
+type ReadOp_VariantReadOp struct {
+	VariantReadOp *VariantReadOp `protobuf:"bytes,1,opt,name=variant_read_op,json=variantReadOp,proto3,oneof"`
+}
+
+type ReadOp_InclusionReadOp struct {
+	InclusionReadOp *InclusionReadOp `protobuf:"bytes,2,opt,name=inclusion_read_op,json=inclusionReadOp,proto3,oneof"`
+}
+
+func (*ReadOp_VariantReadOp) isReadOp_Op() {}
+
+func (*ReadOp_InclusionReadOp) isReadOp_Op() {}
+
+type ReadOperationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ops           []*ReadOp              `protobuf:"bytes,3,rep,name=ops,proto3" json:"ops,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadOperationsRequest) Reset() {
+	*x = ReadOperationsRequest{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadOperationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadOperationsRequest) ProtoMessage() {}
+
+func (x *ReadOperationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadOperationsRequest.ProtoReflect.Descriptor instead.
+func (*ReadOperationsRequest) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ReadOperationsRequest) GetOps() []*ReadOp {
+	if x != nil {
+		return x.Ops
+	}
+	return nil
+}
+
+type VariantData struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Unit            string                 `protobuf:"bytes,1,opt,name=unit,proto3" json:"unit,omitempty"`
+	Materialization string                 `protobuf:"bytes,2,opt,name=materialization,proto3" json:"materialization,omitempty"`
+	Rule            string                 `protobuf:"bytes,3,opt,name=rule,proto3" json:"rule,omitempty"`
+	Variant         string                 `protobuf:"bytes,4,opt,name=variant,proto3" json:"variant,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *VariantData) Reset() {
+	*x = VariantData{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VariantData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VariantData) ProtoMessage() {}
+
+func (x *VariantData) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VariantData.ProtoReflect.Descriptor instead.
+func (*VariantData) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *VariantData) GetUnit() string {
+	if x != nil {
+		return x.Unit
+	}
+	return ""
+}
+
+func (x *VariantData) GetMaterialization() string {
+	if x != nil {
+		return x.Materialization
+	}
+	return ""
+}
+
+func (x *VariantData) GetRule() string {
+	if x != nil {
+		return x.Rule
+	}
+	return ""
+}
+
+func (x *VariantData) GetVariant() string {
+	if x != nil {
+		return x.Variant
+	}
+	return ""
+}
+
+type InclusionData struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Unit            string                 `protobuf:"bytes,1,opt,name=unit,proto3" json:"unit,omitempty"`
+	Materialization string                 `protobuf:"bytes,2,opt,name=materialization,proto3" json:"materialization,omitempty"`
+	IsIncluded      bool                   `protobuf:"varint,3,opt,name=is_included,json=isIncluded,proto3" json:"is_included,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *InclusionData) Reset() {
+	*x = InclusionData{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InclusionData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InclusionData) ProtoMessage() {}
+
+func (x *InclusionData) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InclusionData.ProtoReflect.Descriptor instead.
+func (*InclusionData) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *InclusionData) GetUnit() string {
+	if x != nil {
+		return x.Unit
+	}
+	return ""
+}
+
+func (x *InclusionData) GetMaterialization() string {
+	if x != nil {
+		return x.Materialization
+	}
+	return ""
+}
+
+func (x *InclusionData) GetIsIncluded() bool {
+	if x != nil {
+		return x.IsIncluded
+	}
+	return false
+}
+
+type ReadResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Result:
+	//
+	//	*ReadResult_VariantResult
+	//	*ReadResult_InclusionResult
+	Result        isReadResult_Result `protobuf_oneof:"result"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadResult) Reset() {
+	*x = ReadResult{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadResult) ProtoMessage() {}
+
+func (x *ReadResult) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadResult.ProtoReflect.Descriptor instead.
+func (*ReadResult) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ReadResult) GetResult() isReadResult_Result {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *ReadResult) GetVariantResult() *VariantData {
+	if x != nil {
+		if x, ok := x.Result.(*ReadResult_VariantResult); ok {
+			return x.VariantResult
+		}
+	}
+	return nil
+}
+
+func (x *ReadResult) GetInclusionResult() *InclusionData {
+	if x != nil {
+		if x, ok := x.Result.(*ReadResult_InclusionResult); ok {
+			return x.InclusionResult
+		}
+	}
+	return nil
+}
+
+type isReadResult_Result interface {
+	isReadResult_Result()
+}
+
+type ReadResult_VariantResult struct {
+	VariantResult *VariantData `protobuf:"bytes,1,opt,name=variant_result,json=variantResult,proto3,oneof"`
+}
+
+type ReadResult_InclusionResult struct {
+	InclusionResult *InclusionData `protobuf:"bytes,2,opt,name=inclusion_result,json=inclusionResult,proto3,oneof"`
+}
+
+func (*ReadResult_VariantResult) isReadResult_Result() {}
+
+func (*ReadResult_InclusionResult) isReadResult_Result() {}
+
+type ReadOperationsResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Results       []*ReadResult          `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadOperationsResult) Reset() {
+	*x = ReadOperationsResult{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadOperationsResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadOperationsResult) ProtoMessage() {}
+
+func (x *ReadOperationsResult) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadOperationsResult.ProtoReflect.Descriptor instead.
+func (*ReadOperationsResult) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ReadOperationsResult) GetResults() []*ReadResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
 type ResolveTokenV1_AssignedFlag struct {
 	state                  protoimpl.MessageState                  `protogen:"open.v1"`
 	Flag                   string                                  `protobuf:"bytes,1,opt,name=flag,proto3" json:"flag,omitempty"`
@@ -437,7 +1013,7 @@ type ResolveTokenV1_AssignedFlag struct {
 
 func (x *ResolveTokenV1_AssignedFlag) Reset() {
 	*x = ResolveTokenV1_AssignedFlag{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[8]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -449,7 +1025,7 @@ func (x *ResolveTokenV1_AssignedFlag) String() string {
 func (*ResolveTokenV1_AssignedFlag) ProtoMessage() {}
 
 func (x *ResolveTokenV1_AssignedFlag) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[8]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -532,23 +1108,24 @@ var File_confidence_flags_resolver_v1_internal_api_proto protoreflect.FileDescri
 
 const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\n" +
-	"/confidence/flags/resolver/v1/internal_api.proto\x12\x1cconfidence.flags.resolver.v1\x1a\x19google/api/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1bgoogle/api/visibility.proto\x1a%confidence/flags/admin/v1/types.proto\x1a(confidence/flags/resolver/v1/types.proto\x1a0confidence/flags/resolver/v1/events/events.proto\x1a\x1dconfidence/auth/v1/auth.proto\x1a confidence/api/annotations.proto\x1a-confidence/flags/admin/v1/events/events.proto\"\x90\x03\n" +
-	"\x14WriteFlagLogsRequest\x12\\\n" +
-	"\rflag_assigned\x18\x01 \x03(\v21.confidence.flags.resolver.v1.events.FlagAssignedB\x04\xe2A\x01\x01R\fflagAssigned\x12X\n" +
-	"\x0etelemetry_data\x18\x02 \x01(\v2+.confidence.flags.resolver.v1.TelemetryDataB\x04\xe2A\x01\x01R\rtelemetryData\x12b\n" +
-	"\x13client_resolve_info\x18\x03 \x03(\v2,.confidence.flags.admin.v1.ClientResolveInfoB\x04\xe2A\x01\x01R\x11clientResolveInfo\x12\\\n" +
-	"\x11flag_resolve_info\x18\x04 \x03(\v2*.confidence.flags.admin.v1.FlagResolveInfoB\x04\xe2A\x01\x01R\x0fflagResolveInfo\"\x17\n" +
-	"\x15WriteFlagLogsResponse\"\xd2\x01\n" +
-	"\x18WriteFlagAssignedRequest\x12\\\n" +
-	"\rflag_assigned\x18\x01 \x03(\v21.confidence.flags.resolver.v1.events.FlagAssignedB\x04\xe2A\x01\x02R\fflagAssigned\x12X\n" +
-	"\x0etelemetry_data\x18\x02 \x01(\v2+.confidence.flags.resolver.v1.TelemetryDataB\x04\xe2A\x01\x01R\rtelemetryData\"B\n" +
+	"/confidence/flags/resolver/v1/internal_api.proto\x12\x1cconfidence.flags.resolver.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a%confidence/flags/admin/v1/types.proto\x1a(confidence/flags/resolver/v1/types.proto\x1a0confidence/flags/resolver/v1/events/events.proto\"\xf8\x02\n" +
+	"\x14WriteFlagLogsRequest\x12V\n" +
+	"\rflag_assigned\x18\x01 \x03(\v21.confidence.flags.resolver.v1.events.FlagAssignedR\fflagAssigned\x12R\n" +
+	"\x0etelemetry_data\x18\x02 \x01(\v2+.confidence.flags.resolver.v1.TelemetryDataR\rtelemetryData\x12\\\n" +
+	"\x13client_resolve_info\x18\x03 \x03(\v2,.confidence.flags.admin.v1.ClientResolveInfoR\x11clientResolveInfo\x12V\n" +
+	"\x11flag_resolve_info\x18\x04 \x03(\v2*.confidence.flags.admin.v1.FlagResolveInfoR\x0fflagResolveInfo\"\x17\n" +
+	"\x15WriteFlagLogsResponse\"\xc6\x01\n" +
+	"\x18WriteFlagAssignedRequest\x12V\n" +
+	"\rflag_assigned\x18\x01 \x03(\v21.confidence.flags.resolver.v1.events.FlagAssignedR\fflagAssigned\x12R\n" +
+	"\x0etelemetry_data\x18\x02 \x01(\v2+.confidence.flags.resolver.v1.TelemetryDataR\rtelemetryData\"B\n" +
 	"\x19WriteFlagAssignedResponse\x12%\n" +
-	"\x0eassigned_flags\x18\x01 \x01(\x03R\rassignedFlags\"J\n" +
-	"\rTelemetryData\x129\n" +
-	"\x03sdk\x18\x02 \x01(\v2!.confidence.flags.resolver.v1.SdkB\x04\xe2A\x01\x01R\x03sdk\"j\n" +
+	"\x0eassigned_flags\x18\x01 \x01(\x03R\rassignedFlags\"k\n" +
+	"\rTelemetryData\x12%\n" +
+	"\x0edropped_events\x18\x01 \x01(\x03R\rdroppedEvents\x123\n" +
+	"\x03sdk\x18\x02 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\"j\n" +
 	"\fResolveToken\x12I\n" +
 	"\btoken_v1\x18\x01 \x01(\v2,.confidence.flags.resolver.v1.ResolveTokenV1H\x00R\atokenV1B\x0f\n" +
-	"\rresolve_token\"\x9a\a\n" +
+	"\rresolve_token\"\x94\x06\n" +
 	"\x0eResolveTokenV1\x12F\n" +
 	"\x12evaluation_context\x18\x01 \x01(\v2\x17.google.protobuf.StructR\x11evaluationContext\x12_\n" +
 	"\vassignments\x18\x02 \x03(\v2=.confidence.flags.resolver.v1.ResolveTokenV1.AssignmentsEntryR\vassignments\x12\x1d\n" +
@@ -557,29 +1134,56 @@ const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\aaccount\x18\x04 \x01(\tR\aaccount\x1ay\n" +
 	"\x10AssignmentsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12O\n" +
-	"\x05value\x18\x02 \x01(\v29.confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlagR\x05value:\x028\x01\x1a\xaa\x04\n" +
-	"\fAssignedFlag\x122\n" +
-	"\x04flag\x18\x01 \x01(\tB\x1e\xfaA\x1b\n" +
-	"\x19flags.confidence.dev/FlagR\x04flag\x12#\n" +
+	"\x05value\x18\x02 \x01(\v29.confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlagR\x05value:\x028\x01\x1a\xa4\x03\n" +
+	"\fAssignedFlag\x12\x12\n" +
+	"\x04flag\x18\x01 \x01(\tR\x04flag\x12#\n" +
 	"\rtargeting_key\x18\x02 \x01(\tR\ftargetingKey\x124\n" +
 	"\x16targeting_key_selector\x18\n" +
-	" \x01(\tR\x14targetingKeySelector\x12;\n" +
-	"\asegment\x18\x03 \x01(\tB!\xfaA\x1e\n" +
-	"\x1cflags.confidence.dev/SegmentR\asegment\x12;\n" +
-	"\avariant\x18\x04 \x01(\tB!\xfaA\x1e\n" +
-	"\x1cflags.confidence.dev/VariantR\avariant\x122\n" +
-	"\x04rule\x18\x05 \x01(\tB\x1e\xfaA\x1b\n" +
-	"\x19flags.confidence.dev/RuleR\x04rule\x12C\n" +
+	" \x01(\tR\x14targetingKeySelector\x12\x18\n" +
+	"\asegment\x18\x03 \x01(\tR\asegment\x12\x18\n" +
+	"\avariant\x18\x04 \x01(\tR\avariant\x12\x12\n" +
+	"\x04rule\x18\x05 \x01(\tR\x04rule\x12C\n" +
 	"\x06reason\x18\x06 \x01(\x0e2+.confidence.flags.resolver.v1.ResolveReasonR\x06reason\x12s\n" +
 	"\x17fallthrough_assignments\x18\t \x03(\v2:.confidence.flags.resolver.v1.events.FallthroughAssignmentR\x16fallthroughAssignments\x12#\n" +
-	"\rassignment_id\x18\b \x01(\tR\fassignmentId2\xf4\x05\n" +
-	"\x19InternalFlagLoggerService\x12\x82\x02\n" +
-	"\x11WriteFlagAssigned\x126.confidence.flags.resolver.v1.WriteFlagAssignedRequest\x1a7.confidence.flags.resolver.v1.WriteFlagAssignedResponse\"|ʇ\xe4\x10(\n" +
-	"\x02\xf2\x02\"\aaccount*\x17can_write_flag_assigned0\x01\x82\xd3\xe4\x93\x02I:\x01*Z,:\rflag_assigned\"\x1b/v1/flagAssigned:writeArray\"\x16/v1/flagAssigned:write\x12\xc4\x01\n" +
-	"\rWriteFlagLogs\x122.confidence.flags.resolver.v1.WriteFlagLogsRequest\x1a3.confidence.flags.resolver.v1.WriteFlagLogsResponse\"Jʇ\xe4\x10(\n" +
-	"\x02\xf2\x02\"\aaccount*\x17can_write_flag_assigned0\x01\x82\xd3\xe4\x93\x02\x17:\x01*\"\x12/v1/flagLogs:write\x12\xa3\x01\n" +
-	"\x13ClientWriteFlagLogs\x122.confidence.flags.resolver.v1.WriteFlagLogsRequest\x1a3.confidence.flags.resolver.v1.WriteFlagLogsResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/v1/clientFlagLogs:write\x1ae\xe2\x87\xe4\x10\x1aresolver.eu.confidence.dev\xe2\x87\xe4\x10\x1aresolver.us.confidence.dev\xea\x87\xe4\x10\x12InternalFlagLogger\xfa\xd2\xe4\x93\x02\n" +
-	"\x12\bINTERNALB>\n" +
+	"\rassignment_id\x18\b \x01(\tR\fassignmentId\"m\n" +
+	"\x16WriteOperationsRequest\x12S\n" +
+	"\x10store_variant_op\x18\x01 \x03(\v2).confidence.flags.resolver.v1.VariantDataR\x0estoreVariantOp\"\x17\n" +
+	"\x15WriteOperationsResult\"a\n" +
+	"\rVariantReadOp\x12\x12\n" +
+	"\x04unit\x18\x01 \x01(\tR\x04unit\x12(\n" +
+	"\x0fmaterialization\x18\x02 \x01(\tR\x0fmaterialization\x12\x12\n" +
+	"\x04rule\x18\x03 \x01(\tR\x04rule\"O\n" +
+	"\x0fInclusionReadOp\x12\x12\n" +
+	"\x04unit\x18\x01 \x01(\tR\x04unit\x12(\n" +
+	"\x0fmaterialization\x18\x02 \x01(\tR\x0fmaterialization\"\xc2\x01\n" +
+	"\x06ReadOp\x12U\n" +
+	"\x0fvariant_read_op\x18\x01 \x01(\v2+.confidence.flags.resolver.v1.VariantReadOpH\x00R\rvariantReadOp\x12[\n" +
+	"\x11inclusion_read_op\x18\x02 \x01(\v2-.confidence.flags.resolver.v1.InclusionReadOpH\x00R\x0finclusionReadOpB\x04\n" +
+	"\x02op\"O\n" +
+	"\x15ReadOperationsRequest\x126\n" +
+	"\x03ops\x18\x03 \x03(\v2$.confidence.flags.resolver.v1.ReadOpR\x03ops\"y\n" +
+	"\vVariantData\x12\x12\n" +
+	"\x04unit\x18\x01 \x01(\tR\x04unit\x12(\n" +
+	"\x0fmaterialization\x18\x02 \x01(\tR\x0fmaterialization\x12\x12\n" +
+	"\x04rule\x18\x03 \x01(\tR\x04rule\x12\x18\n" +
+	"\avariant\x18\x04 \x01(\tR\avariant\"n\n" +
+	"\rInclusionData\x12\x12\n" +
+	"\x04unit\x18\x01 \x01(\tR\x04unit\x12(\n" +
+	"\x0fmaterialization\x18\x02 \x01(\tR\x0fmaterialization\x12\x1f\n" +
+	"\vis_included\x18\x03 \x01(\bR\n" +
+	"isIncluded\"\xc4\x01\n" +
+	"\n" +
+	"ReadResult\x12R\n" +
+	"\x0evariant_result\x18\x01 \x01(\v2).confidence.flags.resolver.v1.VariantDataH\x00R\rvariantResult\x12X\n" +
+	"\x10inclusion_result\x18\x02 \x01(\v2+.confidence.flags.resolver.v1.InclusionDataH\x00R\x0finclusionResultB\b\n" +
+	"\x06result\"Z\n" +
+	"\x14ReadOperationsResult\x12B\n" +
+	"\aresults\x18\x01 \x03(\v2(.confidence.flags.resolver.v1.ReadResultR\aresults2\xbe\x04\n" +
+	"\x19InternalFlagLoggerService\x12\x86\x01\n" +
+	"\x11WriteFlagAssigned\x126.confidence.flags.resolver.v1.WriteFlagAssignedRequest\x1a7.confidence.flags.resolver.v1.WriteFlagAssignedResponse\"\x00\x12\x80\x01\n" +
+	"\x13ClientWriteFlagLogs\x122.confidence.flags.resolver.v1.WriteFlagLogsRequest\x1a3.confidence.flags.resolver.v1.WriteFlagLogsResponse\"\x00\x12\x8a\x01\n" +
+	"\x1bWriteMaterializedOperations\x124.confidence.flags.resolver.v1.WriteOperationsRequest\x1a3.confidence.flags.resolver.v1.WriteOperationsResult\"\x00\x12\x87\x01\n" +
+	"\x1aReadMaterializedOperations\x123.confidence.flags.resolver.v1.ReadOperationsRequest\x1a2.confidence.flags.resolver.v1.ReadOperationsResult\"\x00B>\n" +
 	"(com.spotify.confidence.flags.resolver.v1B\x10InternalApiProtoP\x01b\x06proto3"
 
 var (
@@ -594,7 +1198,7 @@ func file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP() []byte {
 	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescData
 }
 
-var file_confidence_flags_resolver_v1_internal_api_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_confidence_flags_resolver_v1_internal_api_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_confidence_flags_resolver_v1_internal_api_proto_goTypes = []any{
 	(*WriteFlagLogsRequest)(nil),                 // 0: confidence.flags.resolver.v1.WriteFlagLogsRequest
 	(*WriteFlagLogsResponse)(nil),                // 1: confidence.flags.resolver.v1.WriteFlagLogsResponse
@@ -603,41 +1207,60 @@ var file_confidence_flags_resolver_v1_internal_api_proto_goTypes = []any{
 	(*TelemetryData)(nil),                        // 4: confidence.flags.resolver.v1.TelemetryData
 	(*ResolveToken)(nil),                         // 5: confidence.flags.resolver.v1.ResolveToken
 	(*ResolveTokenV1)(nil),                       // 6: confidence.flags.resolver.v1.ResolveTokenV1
-	nil,                                          // 7: confidence.flags.resolver.v1.ResolveTokenV1.AssignmentsEntry
-	(*ResolveTokenV1_AssignedFlag)(nil),          // 8: confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlag
-	(*resolverevents.FlagAssigned)(nil),          // 9: confidence.flags.resolver.v1.events.FlagAssigned
-	(*v1.ClientResolveInfo)(nil),                 // 10: confidence.flags.admin.v1.ClientResolveInfo
-	(*v1.FlagResolveInfo)(nil),                   // 11: confidence.flags.admin.v1.FlagResolveInfo
-	(*resolvertypes.Sdk)(nil),                    // 12: confidence.flags.resolver.v1.Sdk
-	(*structpb.Struct)(nil),                      // 13: google.protobuf.Struct
-	(resolvertypes.ResolveReason)(0),             // 14: confidence.flags.resolver.v1.ResolveReason
-	(*resolverevents.FallthroughAssignment)(nil), // 15: confidence.flags.resolver.v1.events.FallthroughAssignment
+	(*WriteOperationsRequest)(nil),               // 7: confidence.flags.resolver.v1.WriteOperationsRequest
+	(*WriteOperationsResult)(nil),                // 8: confidence.flags.resolver.v1.WriteOperationsResult
+	(*VariantReadOp)(nil),                        // 9: confidence.flags.resolver.v1.VariantReadOp
+	(*InclusionReadOp)(nil),                      // 10: confidence.flags.resolver.v1.InclusionReadOp
+	(*ReadOp)(nil),                               // 11: confidence.flags.resolver.v1.ReadOp
+	(*ReadOperationsRequest)(nil),                // 12: confidence.flags.resolver.v1.ReadOperationsRequest
+	(*VariantData)(nil),                          // 13: confidence.flags.resolver.v1.VariantData
+	(*InclusionData)(nil),                        // 14: confidence.flags.resolver.v1.InclusionData
+	(*ReadResult)(nil),                           // 15: confidence.flags.resolver.v1.ReadResult
+	(*ReadOperationsResult)(nil),                 // 16: confidence.flags.resolver.v1.ReadOperationsResult
+	nil,                                          // 17: confidence.flags.resolver.v1.ResolveTokenV1.AssignmentsEntry
+	(*ResolveTokenV1_AssignedFlag)(nil),          // 18: confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlag
+	(*resolverevents.FlagAssigned)(nil),          // 19: confidence.flags.resolver.v1.events.FlagAssigned
+	(*v1.ClientResolveInfo)(nil),                 // 20: confidence.flags.admin.v1.ClientResolveInfo
+	(*v1.FlagResolveInfo)(nil),                   // 21: confidence.flags.admin.v1.FlagResolveInfo
+	(*resolvertypes.Sdk)(nil),                    // 22: confidence.flags.resolver.v1.Sdk
+	(*structpb.Struct)(nil),                      // 23: google.protobuf.Struct
+	(resolvertypes.ResolveReason)(0),             // 24: confidence.flags.resolver.v1.ResolveReason
+	(*resolverevents.FallthroughAssignment)(nil), // 25: confidence.flags.resolver.v1.events.FallthroughAssignment
 }
 var file_confidence_flags_resolver_v1_internal_api_proto_depIdxs = []int32{
-	9,  // 0: confidence.flags.resolver.v1.WriteFlagLogsRequest.flag_assigned:type_name -> confidence.flags.resolver.v1.events.FlagAssigned
+	19, // 0: confidence.flags.resolver.v1.WriteFlagLogsRequest.flag_assigned:type_name -> confidence.flags.resolver.v1.events.FlagAssigned
 	4,  // 1: confidence.flags.resolver.v1.WriteFlagLogsRequest.telemetry_data:type_name -> confidence.flags.resolver.v1.TelemetryData
-	10, // 2: confidence.flags.resolver.v1.WriteFlagLogsRequest.client_resolve_info:type_name -> confidence.flags.admin.v1.ClientResolveInfo
-	11, // 3: confidence.flags.resolver.v1.WriteFlagLogsRequest.flag_resolve_info:type_name -> confidence.flags.admin.v1.FlagResolveInfo
-	9,  // 4: confidence.flags.resolver.v1.WriteFlagAssignedRequest.flag_assigned:type_name -> confidence.flags.resolver.v1.events.FlagAssigned
+	20, // 2: confidence.flags.resolver.v1.WriteFlagLogsRequest.client_resolve_info:type_name -> confidence.flags.admin.v1.ClientResolveInfo
+	21, // 3: confidence.flags.resolver.v1.WriteFlagLogsRequest.flag_resolve_info:type_name -> confidence.flags.admin.v1.FlagResolveInfo
+	19, // 4: confidence.flags.resolver.v1.WriteFlagAssignedRequest.flag_assigned:type_name -> confidence.flags.resolver.v1.events.FlagAssigned
 	4,  // 5: confidence.flags.resolver.v1.WriteFlagAssignedRequest.telemetry_data:type_name -> confidence.flags.resolver.v1.TelemetryData
-	12, // 6: confidence.flags.resolver.v1.TelemetryData.sdk:type_name -> confidence.flags.resolver.v1.Sdk
+	22, // 6: confidence.flags.resolver.v1.TelemetryData.sdk:type_name -> confidence.flags.resolver.v1.Sdk
 	6,  // 7: confidence.flags.resolver.v1.ResolveToken.token_v1:type_name -> confidence.flags.resolver.v1.ResolveTokenV1
-	13, // 8: confidence.flags.resolver.v1.ResolveTokenV1.evaluation_context:type_name -> google.protobuf.Struct
-	7,  // 9: confidence.flags.resolver.v1.ResolveTokenV1.assignments:type_name -> confidence.flags.resolver.v1.ResolveTokenV1.AssignmentsEntry
-	8,  // 10: confidence.flags.resolver.v1.ResolveTokenV1.AssignmentsEntry.value:type_name -> confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlag
-	14, // 11: confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlag.reason:type_name -> confidence.flags.resolver.v1.ResolveReason
-	15, // 12: confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlag.fallthrough_assignments:type_name -> confidence.flags.resolver.v1.events.FallthroughAssignment
-	2,  // 13: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteFlagAssigned:input_type -> confidence.flags.resolver.v1.WriteFlagAssignedRequest
-	0,  // 14: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteFlagLogs:input_type -> confidence.flags.resolver.v1.WriteFlagLogsRequest
-	0,  // 15: confidence.flags.resolver.v1.InternalFlagLoggerService.ClientWriteFlagLogs:input_type -> confidence.flags.resolver.v1.WriteFlagLogsRequest
-	3,  // 16: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteFlagAssigned:output_type -> confidence.flags.resolver.v1.WriteFlagAssignedResponse
-	1,  // 17: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteFlagLogs:output_type -> confidence.flags.resolver.v1.WriteFlagLogsResponse
-	1,  // 18: confidence.flags.resolver.v1.InternalFlagLoggerService.ClientWriteFlagLogs:output_type -> confidence.flags.resolver.v1.WriteFlagLogsResponse
-	16, // [16:19] is the sub-list for method output_type
-	13, // [13:16] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	23, // 8: confidence.flags.resolver.v1.ResolveTokenV1.evaluation_context:type_name -> google.protobuf.Struct
+	17, // 9: confidence.flags.resolver.v1.ResolveTokenV1.assignments:type_name -> confidence.flags.resolver.v1.ResolveTokenV1.AssignmentsEntry
+	13, // 10: confidence.flags.resolver.v1.WriteOperationsRequest.store_variant_op:type_name -> confidence.flags.resolver.v1.VariantData
+	9,  // 11: confidence.flags.resolver.v1.ReadOp.variant_read_op:type_name -> confidence.flags.resolver.v1.VariantReadOp
+	10, // 12: confidence.flags.resolver.v1.ReadOp.inclusion_read_op:type_name -> confidence.flags.resolver.v1.InclusionReadOp
+	11, // 13: confidence.flags.resolver.v1.ReadOperationsRequest.ops:type_name -> confidence.flags.resolver.v1.ReadOp
+	13, // 14: confidence.flags.resolver.v1.ReadResult.variant_result:type_name -> confidence.flags.resolver.v1.VariantData
+	14, // 15: confidence.flags.resolver.v1.ReadResult.inclusion_result:type_name -> confidence.flags.resolver.v1.InclusionData
+	15, // 16: confidence.flags.resolver.v1.ReadOperationsResult.results:type_name -> confidence.flags.resolver.v1.ReadResult
+	18, // 17: confidence.flags.resolver.v1.ResolveTokenV1.AssignmentsEntry.value:type_name -> confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlag
+	24, // 18: confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlag.reason:type_name -> confidence.flags.resolver.v1.ResolveReason
+	25, // 19: confidence.flags.resolver.v1.ResolveTokenV1.AssignedFlag.fallthrough_assignments:type_name -> confidence.flags.resolver.v1.events.FallthroughAssignment
+	2,  // 20: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteFlagAssigned:input_type -> confidence.flags.resolver.v1.WriteFlagAssignedRequest
+	0,  // 21: confidence.flags.resolver.v1.InternalFlagLoggerService.ClientWriteFlagLogs:input_type -> confidence.flags.resolver.v1.WriteFlagLogsRequest
+	7,  // 22: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteMaterializedOperations:input_type -> confidence.flags.resolver.v1.WriteOperationsRequest
+	12, // 23: confidence.flags.resolver.v1.InternalFlagLoggerService.ReadMaterializedOperations:input_type -> confidence.flags.resolver.v1.ReadOperationsRequest
+	3,  // 24: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteFlagAssigned:output_type -> confidence.flags.resolver.v1.WriteFlagAssignedResponse
+	1,  // 25: confidence.flags.resolver.v1.InternalFlagLoggerService.ClientWriteFlagLogs:output_type -> confidence.flags.resolver.v1.WriteFlagLogsResponse
+	8,  // 26: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteMaterializedOperations:output_type -> confidence.flags.resolver.v1.WriteOperationsResult
+	16, // 27: confidence.flags.resolver.v1.InternalFlagLoggerService.ReadMaterializedOperations:output_type -> confidence.flags.resolver.v1.ReadOperationsResult
+	24, // [24:28] is the sub-list for method output_type
+	20, // [20:24] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_confidence_flags_resolver_v1_internal_api_proto_init() }
@@ -648,13 +1271,21 @@ func file_confidence_flags_resolver_v1_internal_api_proto_init() {
 	file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[5].OneofWrappers = []any{
 		(*ResolveToken_TokenV1)(nil),
 	}
+	file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[11].OneofWrappers = []any{
+		(*ReadOp_VariantReadOp)(nil),
+		(*ReadOp_InclusionReadOp)(nil),
+	}
+	file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[15].OneofWrappers = []any{
+		(*ReadResult_VariantResult)(nil),
+		(*ReadResult_InclusionResult)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_flags_resolver_v1_internal_api_proto_rawDesc), len(file_confidence_flags_resolver_v1_internal_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
