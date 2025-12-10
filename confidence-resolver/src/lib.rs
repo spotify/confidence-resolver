@@ -58,8 +58,9 @@ use gzip::decompress_gz;
 use crate::err::{ErrorCode, OrFailExt};
 use crate::proto::confidence::flags::resolver::v1::resolve_with_sticky_response::ResolveResult;
 use crate::proto::confidence::flags::resolver::v1::{
-    resolve_with_sticky_response, ResolveFlagsRequest, ResolveFlagsResponse,
-    read_op, read_result, ResolveWithStickyRequest, ResolveWithStickyResponse, ReadOp, ReadOperationsRequest, ReadResult, VariantData, VariantReadOp,
+    read_op, read_result, resolve_with_sticky_response, ReadOp, ReadOperationsRequest, ReadResult,
+    ResolveFlagsRequest, ResolveFlagsResponse, ResolveWithStickyRequest, ResolveWithStickyResponse,
+    VariantData, VariantReadOp,
 };
 
 impl TryFrom<Vec<u8>> for ResolverStatePb {
