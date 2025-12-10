@@ -7,8 +7,8 @@ import (
 	"time"
 
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
 )
 
 func newMaterializationSupportedResolver(store MaterializationStore, innerResolver lr.LocalResolver) *materializationSupportedResolver {
@@ -25,9 +25,9 @@ func TestMaterializationLocalResolverProvider_EmitsErrorFromInnerResolver(t *tes
 		Err: errors.New(expectedErr),
 	}
 
-	request := &resolver.ResolveWithStickyRequest{
+	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*resolver.MaterializationMap),
+		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
@@ -42,18 +42,18 @@ func TestMaterializationLocalResolverProvider_EmitsErrorFromInnerResolver(t *tes
 func TestMaterializationLocalResolverProvider_WorksWithoutMaterializations(t *testing.T) {
 	mockedStore := newUnsupportedMaterializationStore()
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &resolver.ResolveWithStickyResponse{
-			ResolveResult: &resolver.ResolveWithStickyResponse_Success_{
-				Success: &resolver.ResolveWithStickyResponse_Success{
+		Response: &wasm.ResolveWithStickyResponse{
+			ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
+				Success: &wasm.ResolveWithStickyResponse_Success{
 					Response: tu.CreateTutorialFeatureResponse(),
 				},
 			},
 		},
 	}
 
-	request := &resolver.ResolveWithStickyRequest{
+	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*resolver.MaterializationMap),
+		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
@@ -103,11 +103,11 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 	// Pre-populate store with variant assignment for the test user
 	inMemoryStore.Write(context.Background(), []WriteOp{newWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
 	mockedResolver := &tu.MockedLocalResolver{
-		Responses: []*resolver.ResolveWithStickyResponse{
+		Responses: []*wasm.ResolveWithStickyResponse{
 			{
-				ResolveResult: &resolver.ResolveWithStickyResponse_MissingMaterializations_{
-					MissingMaterializations: &resolver.ResolveWithStickyResponse_MissingMaterializations{
-						Items: []*resolver.ResolveWithStickyResponse_MissingMaterializationItem{
+				ResolveResult: &wasm.ResolveWithStickyResponse_MissingMaterializations_{
+					MissingMaterializations: &wasm.ResolveWithStickyResponse_MissingMaterializations{
+						Items: []*wasm.ResolveWithStickyResponse_MissingMaterializationItem{
 							{
 								ReadMaterialization: "experiment_v1",
 								Unit:                "test-user-123",
@@ -118,8 +118,8 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 				},
 			},
 			{
-				ResolveResult: &resolver.ResolveWithStickyResponse_Success_{
-					Success: &resolver.ResolveWithStickyResponse_Success{
+				ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
+					Success: &wasm.ResolveWithStickyResponse_Success{
 						Response: tu.CreateTutorialFeatureResponse(),
 					},
 				},
@@ -127,9 +127,9 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 		},
 	}
 
-	request := &resolver.ResolveWithStickyRequest{
+	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*resolver.MaterializationMap),
+		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
@@ -169,11 +169,11 @@ func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t 
 	// Use empty materialization store that returns no variants
 	inMemoryStore := newInMemoryMaterializationStore(nil)
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &resolver.ResolveWithStickyResponse{
-			ResolveResult: &resolver.ResolveWithStickyResponse_Success_{
-				Success: &resolver.ResolveWithStickyResponse_Success{
+		Response: &wasm.ResolveWithStickyResponse{
+			ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
+				Success: &wasm.ResolveWithStickyResponse_Success{
 					Response: tu.CreateTutorialFeatureResponse(),
-					Updates: []*resolver.ResolveWithStickyResponse_MaterializationUpdate{
+					Updates: []*wasm.ResolveWithStickyResponse_MaterializationUpdate{
 						{
 							WriteMaterialization: "experiment_v1",
 							Unit:                 "test-user-123",
@@ -186,9 +186,9 @@ func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t 
 		},
 	}
 
-	request := &resolver.ResolveWithStickyRequest{
+	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*resolver.MaterializationMap),
+		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
@@ -237,10 +237,10 @@ func TestMaterializationLocalResolverProvider_DoesNotRetryBeyondMaxDepth(t *test
 	// Pre-populate store with variant assignment for the test user
 	inMemoryStore.Write(context.Background(), []WriteOp{newWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &resolver.ResolveWithStickyResponse{
-			ResolveResult: &resolver.ResolveWithStickyResponse_MissingMaterializations_{
-				MissingMaterializations: &resolver.ResolveWithStickyResponse_MissingMaterializations{
-					Items: []*resolver.ResolveWithStickyResponse_MissingMaterializationItem{
+		Response: &wasm.ResolveWithStickyResponse{
+			ResolveResult: &wasm.ResolveWithStickyResponse_MissingMaterializations_{
+				MissingMaterializations: &wasm.ResolveWithStickyResponse_MissingMaterializations{
+					Items: []*wasm.ResolveWithStickyResponse_MissingMaterializationItem{
 						{
 							ReadMaterialization: "experiment_v1",
 							Unit:                "test-user-123",
@@ -252,9 +252,9 @@ func TestMaterializationLocalResolverProvider_DoesNotRetryBeyondMaxDepth(t *test
 		},
 	}
 
-	request := &resolver.ResolveWithStickyRequest{
+	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*resolver.MaterializationMap),
+		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	proto "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	admin "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/admin"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal"
+	admin "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -213,14 +213,14 @@ func CreateStateWithStickyFlag() []byte {
 // Helper function to create a ResolveWithStickyRequest
 func CreateResolveWithStickyRequest(
 	resolveRequest *resolver.ResolveFlagsRequest,
-	materializations map[string]*resolver.MaterializationMap,
+	materializations map[string]*wasm.MaterializationMap,
 	failFast bool,
 	notProcessSticky bool,
-) *resolver.ResolveWithStickyRequest {
+) *wasm.ResolveWithStickyRequest {
 	if materializations == nil {
-		materializations = make(map[string]*resolver.MaterializationMap)
+		materializations = make(map[string]*wasm.MaterializationMap)
 	}
-	return &resolver.ResolveWithStickyRequest{
+	return &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          resolveRequest,
 		MaterializationsPerUnit: materializations,
 		FailFastOnSticky:        failFast,
@@ -262,17 +262,17 @@ func CreateTutorialFeatureResponse() *resolver.ResolveFlagsResponse {
 // MockedLocalResolver is a test double implementing the LocalResolver API used in tests.
 type MockedLocalResolver struct {
 	// Single response fallback
-	Response *resolver.ResolveWithStickyResponse
+	Response *wasm.ResolveWithStickyResponse
 	Err      error
 	// Sequenced responses support
-	Responses []*resolver.ResolveWithStickyResponse
+	Responses []*wasm.ResolveWithStickyResponse
 	callIdx   int
 }
 
 func (m MockedLocalResolver) Close(context.Context) error { return nil }
 func (m MockedLocalResolver) FlushAllLogs() error         { return nil }
 func (m MockedLocalResolver) FlushAssignLogs() error      { return nil }
-func (m *MockedLocalResolver) ResolveWithSticky(*resolver.ResolveWithStickyRequest) (*resolver.ResolveWithStickyResponse, error) {
+func (m *MockedLocalResolver) ResolveWithSticky(*wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
 	if len(m.Responses) > 0 {
 		idx := m.callIdx
 		if idx >= len(m.Responses) {
@@ -285,4 +285,4 @@ func (m *MockedLocalResolver) ResolveWithSticky(*resolver.ResolveWithStickyReque
 	}
 	return m.Response, m.Err
 }
-func (m MockedLocalResolver) SetResolverState(*proto.SetResolverStateRequest) error { return nil }
+func (m MockedLocalResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }

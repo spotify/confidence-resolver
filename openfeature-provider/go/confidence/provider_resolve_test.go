@@ -8,9 +8,9 @@ import (
 
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	iamv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/admin"
-	iamv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/admin"
 	"google.golang.org/protobuf/proto"
 )
 

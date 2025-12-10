@@ -2,11 +2,12 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v5.29.3
-// source: confidence/resolver_wasm_api.proto
+// source: confidence/wasm/wasm_api.proto
 
-package resolver
+package wasm
 
 import (
+	resolver "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -22,8 +23,8 @@ const (
 )
 
 type ResolveWithStickyRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ResolveRequest *ResolveFlagsRequest   `protobuf:"bytes,1,opt,name=resolve_request,json=resolveRequest,proto3" json:"resolve_request,omitempty"`
+	state          protoimpl.MessageState        `protogen:"open.v1"`
+	ResolveRequest *resolver.ResolveFlagsRequest `protobuf:"bytes,1,opt,name=resolve_request,json=resolveRequest,proto3" json:"resolve_request,omitempty"`
 	// Context about the materialization required for the resolve
 	MaterializationsPerUnit map[string]*MaterializationMap `protobuf:"bytes,2,rep,name=materializations_per_unit,json=materializationsPerUnit,proto3" json:"materializations_per_unit,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// if a materialization info is missing, we want tor return to the caller immediately
@@ -36,7 +37,7 @@ type ResolveWithStickyRequest struct {
 
 func (x *ResolveWithStickyRequest) Reset() {
 	*x = ResolveWithStickyRequest{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[0]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -48,7 +49,7 @@ func (x *ResolveWithStickyRequest) String() string {
 func (*ResolveWithStickyRequest) ProtoMessage() {}
 
 func (x *ResolveWithStickyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[0]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61,10 +62,10 @@ func (x *ResolveWithStickyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveWithStickyRequest.ProtoReflect.Descriptor instead.
 func (*ResolveWithStickyRequest) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{0}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *ResolveWithStickyRequest) GetResolveRequest() *ResolveFlagsRequest {
+func (x *ResolveWithStickyRequest) GetResolveRequest() *resolver.ResolveFlagsRequest {
 	if x != nil {
 		return x.ResolveRequest
 	}
@@ -102,7 +103,7 @@ type MaterializationMap struct {
 
 func (x *MaterializationMap) Reset() {
 	*x = MaterializationMap{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[1]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -114,7 +115,7 @@ func (x *MaterializationMap) String() string {
 func (*MaterializationMap) ProtoMessage() {}
 
 func (x *MaterializationMap) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[1]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -127,7 +128,7 @@ func (x *MaterializationMap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaterializationMap.ProtoReflect.Descriptor instead.
 func (*MaterializationMap) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{1}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *MaterializationMap) GetInfoMap() map[string]*MaterializationInfo {
@@ -147,7 +148,7 @@ type MaterializationInfo struct {
 
 func (x *MaterializationInfo) Reset() {
 	*x = MaterializationInfo{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[2]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -159,7 +160,7 @@ func (x *MaterializationInfo) String() string {
 func (*MaterializationInfo) ProtoMessage() {}
 
 func (x *MaterializationInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[2]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -172,7 +173,7 @@ func (x *MaterializationInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaterializationInfo.ProtoReflect.Descriptor instead.
 func (*MaterializationInfo) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{2}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *MaterializationInfo) GetUnitInInfo() bool {
@@ -198,7 +199,7 @@ type LogMessage struct {
 
 func (x *LogMessage) Reset() {
 	*x = LogMessage{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[3]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -210,7 +211,7 @@ func (x *LogMessage) String() string {
 func (*LogMessage) ProtoMessage() {}
 
 func (x *LogMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[3]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -223,7 +224,7 @@ func (x *LogMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogMessage.ProtoReflect.Descriptor instead.
 func (*LogMessage) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{3}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *LogMessage) GetMessage() string {
@@ -246,7 +247,7 @@ type ResolveWithStickyResponse struct {
 
 func (x *ResolveWithStickyResponse) Reset() {
 	*x = ResolveWithStickyResponse{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[4]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -258,7 +259,7 @@ func (x *ResolveWithStickyResponse) String() string {
 func (*ResolveWithStickyResponse) ProtoMessage() {}
 
 func (x *ResolveWithStickyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[4]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -271,7 +272,7 @@ func (x *ResolveWithStickyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveWithStickyResponse.ProtoReflect.Descriptor instead.
 func (*ResolveWithStickyResponse) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{4}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ResolveWithStickyResponse) GetResolveResult() isResolveWithStickyResponse_ResolveResult {
@@ -318,7 +319,7 @@ func (*ResolveWithStickyResponse_MissingMaterializations_) isResolveWithStickyRe
 
 type ResolveWithStickyResponse_Success struct {
 	state         protoimpl.MessageState                             `protogen:"open.v1"`
-	Response      *ResolveFlagsResponse                              `protobuf:"bytes,1,opt,name=response,proto3" json:"response,omitempty"`
+	Response      *resolver.ResolveFlagsResponse                     `protobuf:"bytes,1,opt,name=response,proto3" json:"response,omitempty"`
 	Updates       []*ResolveWithStickyResponse_MaterializationUpdate `protobuf:"bytes,2,rep,name=updates,proto3" json:"updates,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -326,7 +327,7 @@ type ResolveWithStickyResponse_Success struct {
 
 func (x *ResolveWithStickyResponse_Success) Reset() {
 	*x = ResolveWithStickyResponse_Success{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[8]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -338,7 +339,7 @@ func (x *ResolveWithStickyResponse_Success) String() string {
 func (*ResolveWithStickyResponse_Success) ProtoMessage() {}
 
 func (x *ResolveWithStickyResponse_Success) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[8]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -351,10 +352,10 @@ func (x *ResolveWithStickyResponse_Success) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ResolveWithStickyResponse_Success.ProtoReflect.Descriptor instead.
 func (*ResolveWithStickyResponse_Success) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{4, 0}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{4, 0}
 }
 
-func (x *ResolveWithStickyResponse_Success) GetResponse() *ResolveFlagsResponse {
+func (x *ResolveWithStickyResponse_Success) GetResponse() *resolver.ResolveFlagsResponse {
 	if x != nil {
 		return x.Response
 	}
@@ -377,7 +378,7 @@ type ResolveWithStickyResponse_MissingMaterializations struct {
 
 func (x *ResolveWithStickyResponse_MissingMaterializations) Reset() {
 	*x = ResolveWithStickyResponse_MissingMaterializations{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[9]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -389,7 +390,7 @@ func (x *ResolveWithStickyResponse_MissingMaterializations) String() string {
 func (*ResolveWithStickyResponse_MissingMaterializations) ProtoMessage() {}
 
 func (x *ResolveWithStickyResponse_MissingMaterializations) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[9]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -402,7 +403,7 @@ func (x *ResolveWithStickyResponse_MissingMaterializations) ProtoReflect() proto
 
 // Deprecated: Use ResolveWithStickyResponse_MissingMaterializations.ProtoReflect.Descriptor instead.
 func (*ResolveWithStickyResponse_MissingMaterializations) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{4, 1}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{4, 1}
 }
 
 func (x *ResolveWithStickyResponse_MissingMaterializations) GetItems() []*ResolveWithStickyResponse_MissingMaterializationItem {
@@ -423,7 +424,7 @@ type ResolveWithStickyResponse_MissingMaterializationItem struct {
 
 func (x *ResolveWithStickyResponse_MissingMaterializationItem) Reset() {
 	*x = ResolveWithStickyResponse_MissingMaterializationItem{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[10]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -435,7 +436,7 @@ func (x *ResolveWithStickyResponse_MissingMaterializationItem) String() string {
 func (*ResolveWithStickyResponse_MissingMaterializationItem) ProtoMessage() {}
 
 func (x *ResolveWithStickyResponse_MissingMaterializationItem) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[10]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -448,7 +449,7 @@ func (x *ResolveWithStickyResponse_MissingMaterializationItem) ProtoReflect() pr
 
 // Deprecated: Use ResolveWithStickyResponse_MissingMaterializationItem.ProtoReflect.Descriptor instead.
 func (*ResolveWithStickyResponse_MissingMaterializationItem) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{4, 2}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{4, 2}
 }
 
 func (x *ResolveWithStickyResponse_MissingMaterializationItem) GetUnit() string {
@@ -484,7 +485,7 @@ type ResolveWithStickyResponse_MaterializationUpdate struct {
 
 func (x *ResolveWithStickyResponse_MaterializationUpdate) Reset() {
 	*x = ResolveWithStickyResponse_MaterializationUpdate{}
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[11]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -496,7 +497,7 @@ func (x *ResolveWithStickyResponse_MaterializationUpdate) String() string {
 func (*ResolveWithStickyResponse_MaterializationUpdate) ProtoMessage() {}
 
 func (x *ResolveWithStickyResponse_MaterializationUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_wasm_api_proto_msgTypes[11]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -509,7 +510,7 @@ func (x *ResolveWithStickyResponse_MaterializationUpdate) ProtoReflect() protore
 
 // Deprecated: Use ResolveWithStickyResponse_MaterializationUpdate.ProtoReflect.Descriptor instead.
 func (*ResolveWithStickyResponse_MaterializationUpdate) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_wasm_api_proto_rawDescGZIP(), []int{4, 3}
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{4, 3}
 }
 
 func (x *ResolveWithStickyResponse_MaterializationUpdate) GetUnit() string {
@@ -540,42 +541,42 @@ func (x *ResolveWithStickyResponse_MaterializationUpdate) GetVariant() string {
 	return ""
 }
 
-var File_confidence_resolver_wasm_api_proto protoreflect.FileDescriptor
+var File_confidence_wasm_wasm_api_proto protoreflect.FileDescriptor
 
-const file_confidence_resolver_wasm_api_proto_rawDesc = "" +
+const file_confidence_wasm_wasm_api_proto_rawDesc = "" +
 	"\n" +
-	"\"confidence/resolver_wasm_api.proto\x12\x13confidence.resolver\x1a\x1dconfidence/resolver_api.proto\"\xc8\x03\n" +
-	"\x18ResolveWithStickyRequest\x12Q\n" +
-	"\x0fresolve_request\x18\x01 \x01(\v2(.confidence.resolver.ResolveFlagsRequestR\x0eresolveRequest\x12\x86\x01\n" +
-	"\x19materializations_per_unit\x18\x02 \x03(\v2J.confidence.resolver.ResolveWithStickyRequest.MaterializationsPerUnitEntryR\x17materializationsPerUnit\x12-\n" +
+	"\x1econfidence/wasm/wasm_api.proto\x12\x1cconfidence.flags.resolver.v1\x1a&confidence/flags/resolver/v1/api.proto\"\xe3\x03\n" +
+	"\x18ResolveWithStickyRequest\x12Z\n" +
+	"\x0fresolve_request\x18\x01 \x01(\v21.confidence.flags.resolver.v1.ResolveFlagsRequestR\x0eresolveRequest\x12\x8f\x01\n" +
+	"\x19materializations_per_unit\x18\x02 \x03(\v2S.confidence.flags.resolver.v1.ResolveWithStickyRequest.MaterializationsPerUnitEntryR\x17materializationsPerUnit\x12-\n" +
 	"\x13fail_fast_on_sticky\x18\x03 \x01(\bR\x10failFastOnSticky\x12,\n" +
-	"\x12not_process_sticky\x18\x04 \x01(\bR\x10notProcessSticky\x1as\n" +
+	"\x12not_process_sticky\x18\x04 \x01(\bR\x10notProcessSticky\x1a|\n" +
 	"\x1cMaterializationsPerUnitEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12=\n" +
-	"\x05value\x18\x02 \x01(\v2'.confidence.resolver.MaterializationMapR\x05value:\x028\x01\"\xcb\x01\n" +
-	"\x12MaterializationMap\x12O\n" +
-	"\binfo_map\x18\x01 \x03(\v24.confidence.resolver.MaterializationMap.InfoMapEntryR\ainfoMap\x1ad\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12F\n" +
+	"\x05value\x18\x02 \x01(\v20.confidence.flags.resolver.v1.MaterializationMapR\x05value:\x028\x01\"\xdd\x01\n" +
+	"\x12MaterializationMap\x12X\n" +
+	"\binfo_map\x18\x01 \x03(\v2=.confidence.flags.resolver.v1.MaterializationMap.InfoMapEntryR\ainfoMap\x1am\n" +
 	"\fInfoMapEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12>\n" +
-	"\x05value\x18\x02 \x01(\v2(.confidence.resolver.MaterializationInfoR\x05value:\x028\x01\"\xde\x01\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12G\n" +
+	"\x05value\x18\x02 \x01(\v21.confidence.flags.resolver.v1.MaterializationInfoR\x05value:\x028\x01\"\xe7\x01\n" +
 	"\x13MaterializationInfo\x12 \n" +
 	"\funit_in_info\x18\x01 \x01(\bR\n" +
-	"unitInInfo\x12c\n" +
-	"\x0frule_to_variant\x18\x02 \x03(\v2;.confidence.resolver.MaterializationInfo.RuleToVariantEntryR\rruleToVariant\x1a@\n" +
+	"unitInInfo\x12l\n" +
+	"\x0frule_to_variant\x18\x02 \x03(\v2D.confidence.flags.resolver.v1.MaterializationInfo.RuleToVariantEntryR\rruleToVariant\x1a@\n" +
 	"\x12RuleToVariantEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"&\n" +
 	"\n" +
 	"LogMessage\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\xc0\x06\n" +
-	"\x19ResolveWithStickyResponse\x12R\n" +
-	"\asuccess\x18\x01 \x01(\v26.confidence.resolver.ResolveWithStickyResponse.SuccessH\x00R\asuccess\x12\x83\x01\n" +
-	"\x18missing_materializations\x18\x02 \x01(\v2F.confidence.resolver.ResolveWithStickyResponse.MissingMaterializationsH\x00R\x17missingMaterializations\x1a\xb0\x01\n" +
-	"\aSuccess\x12E\n" +
-	"\bresponse\x18\x01 \x01(\v2).confidence.resolver.ResolveFlagsResponseR\bresponse\x12^\n" +
-	"\aupdates\x18\x02 \x03(\v2D.confidence.resolver.ResolveWithStickyResponse.MaterializationUpdateR\aupdates\x1az\n" +
-	"\x17MissingMaterializations\x12_\n" +
-	"\x05items\x18\x01 \x03(\v2I.confidence.resolver.ResolveWithStickyResponse.MissingMaterializationItemR\x05items\x1aw\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\xee\x06\n" +
+	"\x19ResolveWithStickyResponse\x12[\n" +
+	"\asuccess\x18\x01 \x01(\v2?.confidence.flags.resolver.v1.ResolveWithStickyResponse.SuccessH\x00R\asuccess\x12\x8c\x01\n" +
+	"\x18missing_materializations\x18\x02 \x01(\v2O.confidence.flags.resolver.v1.ResolveWithStickyResponse.MissingMaterializationsH\x00R\x17missingMaterializations\x1a\xc2\x01\n" +
+	"\aSuccess\x12N\n" +
+	"\bresponse\x18\x01 \x01(\v22.confidence.flags.resolver.v1.ResolveFlagsResponseR\bresponse\x12g\n" +
+	"\aupdates\x18\x02 \x03(\v2M.confidence.flags.resolver.v1.ResolveWithStickyResponse.MaterializationUpdateR\aupdates\x1a\x83\x01\n" +
+	"\x17MissingMaterializations\x12h\n" +
+	"\x05items\x18\x01 \x03(\v2R.confidence.flags.resolver.v1.ResolveWithStickyResponse.MissingMaterializationItemR\x05items\x1aw\n" +
 	"\x1aMissingMaterializationItem\x12\x12\n" +
 	"\x04unit\x18\x01 \x01(\tR\x04unit\x12\x12\n" +
 	"\x04rule\x18\x02 \x01(\tR\x04rule\x121\n" +
@@ -585,50 +586,50 @@ const file_confidence_resolver_wasm_api_proto_rawDesc = "" +
 	"\x15write_materialization\x18\x02 \x01(\tR\x14writeMaterialization\x12\x12\n" +
 	"\x04rule\x18\x03 \x01(\tR\x04rule\x12\x18\n" +
 	"\avariant\x18\x04 \x01(\tR\avariantB\x10\n" +
-	"\x0eresolve_resultB\x8b\x01\n" +
-	"\x1fcom.spotify.confidence.resolverB\fWasmApiProtoP\x01ZXgithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverb\x06proto3"
+	"\x0eresolve_resultB\x99\x01\n" +
+	"(com.spotify.confidence.flags.resolver.v1B\fWasmApiProtoP\x01Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
 
 var (
-	file_confidence_resolver_wasm_api_proto_rawDescOnce sync.Once
-	file_confidence_resolver_wasm_api_proto_rawDescData []byte
+	file_confidence_wasm_wasm_api_proto_rawDescOnce sync.Once
+	file_confidence_wasm_wasm_api_proto_rawDescData []byte
 )
 
-func file_confidence_resolver_wasm_api_proto_rawDescGZIP() []byte {
-	file_confidence_resolver_wasm_api_proto_rawDescOnce.Do(func() {
-		file_confidence_resolver_wasm_api_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_confidence_resolver_wasm_api_proto_rawDesc), len(file_confidence_resolver_wasm_api_proto_rawDesc)))
+func file_confidence_wasm_wasm_api_proto_rawDescGZIP() []byte {
+	file_confidence_wasm_wasm_api_proto_rawDescOnce.Do(func() {
+		file_confidence_wasm_wasm_api_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_confidence_wasm_wasm_api_proto_rawDesc), len(file_confidence_wasm_wasm_api_proto_rawDesc)))
 	})
-	return file_confidence_resolver_wasm_api_proto_rawDescData
+	return file_confidence_wasm_wasm_api_proto_rawDescData
 }
 
-var file_confidence_resolver_wasm_api_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
-var file_confidence_resolver_wasm_api_proto_goTypes = []any{
-	(*ResolveWithStickyRequest)(nil),  // 0: confidence.resolver.ResolveWithStickyRequest
-	(*MaterializationMap)(nil),        // 1: confidence.resolver.MaterializationMap
-	(*MaterializationInfo)(nil),       // 2: confidence.resolver.MaterializationInfo
-	(*LogMessage)(nil),                // 3: confidence.resolver.LogMessage
-	(*ResolveWithStickyResponse)(nil), // 4: confidence.resolver.ResolveWithStickyResponse
-	nil,                               // 5: confidence.resolver.ResolveWithStickyRequest.MaterializationsPerUnitEntry
-	nil,                               // 6: confidence.resolver.MaterializationMap.InfoMapEntry
-	nil,                               // 7: confidence.resolver.MaterializationInfo.RuleToVariantEntry
-	(*ResolveWithStickyResponse_Success)(nil),                    // 8: confidence.resolver.ResolveWithStickyResponse.Success
-	(*ResolveWithStickyResponse_MissingMaterializations)(nil),    // 9: confidence.resolver.ResolveWithStickyResponse.MissingMaterializations
-	(*ResolveWithStickyResponse_MissingMaterializationItem)(nil), // 10: confidence.resolver.ResolveWithStickyResponse.MissingMaterializationItem
-	(*ResolveWithStickyResponse_MaterializationUpdate)(nil),      // 11: confidence.resolver.ResolveWithStickyResponse.MaterializationUpdate
-	(*ResolveFlagsRequest)(nil),                                  // 12: confidence.resolver.ResolveFlagsRequest
-	(*ResolveFlagsResponse)(nil),                                 // 13: confidence.resolver.ResolveFlagsResponse
+var file_confidence_wasm_wasm_api_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_confidence_wasm_wasm_api_proto_goTypes = []any{
+	(*ResolveWithStickyRequest)(nil),  // 0: confidence.flags.resolver.v1.ResolveWithStickyRequest
+	(*MaterializationMap)(nil),        // 1: confidence.flags.resolver.v1.MaterializationMap
+	(*MaterializationInfo)(nil),       // 2: confidence.flags.resolver.v1.MaterializationInfo
+	(*LogMessage)(nil),                // 3: confidence.flags.resolver.v1.LogMessage
+	(*ResolveWithStickyResponse)(nil), // 4: confidence.flags.resolver.v1.ResolveWithStickyResponse
+	nil,                               // 5: confidence.flags.resolver.v1.ResolveWithStickyRequest.MaterializationsPerUnitEntry
+	nil,                               // 6: confidence.flags.resolver.v1.MaterializationMap.InfoMapEntry
+	nil,                               // 7: confidence.flags.resolver.v1.MaterializationInfo.RuleToVariantEntry
+	(*ResolveWithStickyResponse_Success)(nil),                    // 8: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success
+	(*ResolveWithStickyResponse_MissingMaterializations)(nil),    // 9: confidence.flags.resolver.v1.ResolveWithStickyResponse.MissingMaterializations
+	(*ResolveWithStickyResponse_MissingMaterializationItem)(nil), // 10: confidence.flags.resolver.v1.ResolveWithStickyResponse.MissingMaterializationItem
+	(*ResolveWithStickyResponse_MaterializationUpdate)(nil),      // 11: confidence.flags.resolver.v1.ResolveWithStickyResponse.MaterializationUpdate
+	(*resolver.ResolveFlagsRequest)(nil),                         // 12: confidence.flags.resolver.v1.ResolveFlagsRequest
+	(*resolver.ResolveFlagsResponse)(nil),                        // 13: confidence.flags.resolver.v1.ResolveFlagsResponse
 }
-var file_confidence_resolver_wasm_api_proto_depIdxs = []int32{
-	12, // 0: confidence.resolver.ResolveWithStickyRequest.resolve_request:type_name -> confidence.resolver.ResolveFlagsRequest
-	5,  // 1: confidence.resolver.ResolveWithStickyRequest.materializations_per_unit:type_name -> confidence.resolver.ResolveWithStickyRequest.MaterializationsPerUnitEntry
-	6,  // 2: confidence.resolver.MaterializationMap.info_map:type_name -> confidence.resolver.MaterializationMap.InfoMapEntry
-	7,  // 3: confidence.resolver.MaterializationInfo.rule_to_variant:type_name -> confidence.resolver.MaterializationInfo.RuleToVariantEntry
-	8,  // 4: confidence.resolver.ResolveWithStickyResponse.success:type_name -> confidence.resolver.ResolveWithStickyResponse.Success
-	9,  // 5: confidence.resolver.ResolveWithStickyResponse.missing_materializations:type_name -> confidence.resolver.ResolveWithStickyResponse.MissingMaterializations
-	1,  // 6: confidence.resolver.ResolveWithStickyRequest.MaterializationsPerUnitEntry.value:type_name -> confidence.resolver.MaterializationMap
-	2,  // 7: confidence.resolver.MaterializationMap.InfoMapEntry.value:type_name -> confidence.resolver.MaterializationInfo
-	13, // 8: confidence.resolver.ResolveWithStickyResponse.Success.response:type_name -> confidence.resolver.ResolveFlagsResponse
-	11, // 9: confidence.resolver.ResolveWithStickyResponse.Success.updates:type_name -> confidence.resolver.ResolveWithStickyResponse.MaterializationUpdate
-	10, // 10: confidence.resolver.ResolveWithStickyResponse.MissingMaterializations.items:type_name -> confidence.resolver.ResolveWithStickyResponse.MissingMaterializationItem
+var file_confidence_wasm_wasm_api_proto_depIdxs = []int32{
+	12, // 0: confidence.flags.resolver.v1.ResolveWithStickyRequest.resolve_request:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
+	5,  // 1: confidence.flags.resolver.v1.ResolveWithStickyRequest.materializations_per_unit:type_name -> confidence.flags.resolver.v1.ResolveWithStickyRequest.MaterializationsPerUnitEntry
+	6,  // 2: confidence.flags.resolver.v1.MaterializationMap.info_map:type_name -> confidence.flags.resolver.v1.MaterializationMap.InfoMapEntry
+	7,  // 3: confidence.flags.resolver.v1.MaterializationInfo.rule_to_variant:type_name -> confidence.flags.resolver.v1.MaterializationInfo.RuleToVariantEntry
+	8,  // 4: confidence.flags.resolver.v1.ResolveWithStickyResponse.success:type_name -> confidence.flags.resolver.v1.ResolveWithStickyResponse.Success
+	9,  // 5: confidence.flags.resolver.v1.ResolveWithStickyResponse.missing_materializations:type_name -> confidence.flags.resolver.v1.ResolveWithStickyResponse.MissingMaterializations
+	1,  // 6: confidence.flags.resolver.v1.ResolveWithStickyRequest.MaterializationsPerUnitEntry.value:type_name -> confidence.flags.resolver.v1.MaterializationMap
+	2,  // 7: confidence.flags.resolver.v1.MaterializationMap.InfoMapEntry.value:type_name -> confidence.flags.resolver.v1.MaterializationInfo
+	13, // 8: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success.response:type_name -> confidence.flags.resolver.v1.ResolveFlagsResponse
+	11, // 9: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success.updates:type_name -> confidence.flags.resolver.v1.ResolveWithStickyResponse.MaterializationUpdate
+	10, // 10: confidence.flags.resolver.v1.ResolveWithStickyResponse.MissingMaterializations.items:type_name -> confidence.flags.resolver.v1.ResolveWithStickyResponse.MissingMaterializationItem
 	11, // [11:11] is the sub-list for method output_type
 	11, // [11:11] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
@@ -636,13 +637,12 @@ var file_confidence_resolver_wasm_api_proto_depIdxs = []int32{
 	0,  // [0:11] is the sub-list for field type_name
 }
 
-func init() { file_confidence_resolver_wasm_api_proto_init() }
-func file_confidence_resolver_wasm_api_proto_init() {
-	if File_confidence_resolver_wasm_api_proto != nil {
+func init() { file_confidence_wasm_wasm_api_proto_init() }
+func file_confidence_wasm_wasm_api_proto_init() {
+	if File_confidence_wasm_wasm_api_proto != nil {
 		return
 	}
-	file_confidence_resolver_api_proto_init()
-	file_confidence_resolver_wasm_api_proto_msgTypes[4].OneofWrappers = []any{
+	file_confidence_wasm_wasm_api_proto_msgTypes[4].OneofWrappers = []any{
 		(*ResolveWithStickyResponse_Success_)(nil),
 		(*ResolveWithStickyResponse_MissingMaterializations_)(nil),
 	}
@@ -650,17 +650,17 @@ func file_confidence_resolver_wasm_api_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_resolver_wasm_api_proto_rawDesc), len(file_confidence_resolver_wasm_api_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_wasm_wasm_api_proto_rawDesc), len(file_confidence_wasm_wasm_api_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_confidence_resolver_wasm_api_proto_goTypes,
-		DependencyIndexes: file_confidence_resolver_wasm_api_proto_depIdxs,
-		MessageInfos:      file_confidence_resolver_wasm_api_proto_msgTypes,
+		GoTypes:           file_confidence_wasm_wasm_api_proto_goTypes,
+		DependencyIndexes: file_confidence_wasm_wasm_api_proto_depIdxs,
+		MessageInfos:      file_confidence_wasm_wasm_api_proto_msgTypes,
 	}.Build()
-	File_confidence_resolver_wasm_api_proto = out.File
-	file_confidence_resolver_wasm_api_proto_goTypes = nil
-	file_confidence_resolver_wasm_api_proto_depIdxs = nil
+	File_confidence_wasm_wasm_api_proto = out.File
+	file_confidence_wasm_wasm_api_proto_goTypes = nil
+	file_confidence_wasm_wasm_api_proto_depIdxs = nil
 }

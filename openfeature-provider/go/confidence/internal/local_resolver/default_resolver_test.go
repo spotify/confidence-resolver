@@ -5,9 +5,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	messages "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -29,7 +30,7 @@ func TestSwapWasmResolverApi_NewSwapWasmResolverApi(t *testing.T) {
 	defer defaultResolver.Close(ctx)
 
 	// Initialize with test state
-	if err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+	if err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     initialState,
 		AccountId: accountId,
 	}); err != nil {
@@ -53,7 +54,7 @@ func TestSwapWasmResolverApi_WithRealState(t *testing.T) {
 	defer defaultResolver.Close(ctx)
 
 	// Initialize with test state
-	if err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+	if err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     testState,
 		AccountId: testAcctID,
 	}); err != nil {
@@ -146,7 +147,7 @@ func TestSwapWasmResolverApi_UpdateStateAndFlushLogs(t *testing.T) {
 	defer defaultResolver.Close(ctx)
 
 	// Initialize with test state
-	if err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+	if err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     initialState,
 		AccountId: accountId,
 	}); err != nil {
@@ -155,7 +156,7 @@ func TestSwapWasmResolverApi_UpdateStateAndFlushLogs(t *testing.T) {
 
 	// Update with new state - the key test is that UpdateStateAndFlushLogs succeeds
 	newState := tu.LoadTestResolverState(t)
-	err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+	err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     newState,
 		AccountId: accountId,
 	})
@@ -204,7 +205,7 @@ func TestSwapWasmResolverApi_MultipleUpdates(t *testing.T) {
 	defer defaultResolver.Close(ctx)
 
 	// Initialize with test state
-	if err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+	if err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     initialState,
 		AccountId: accountId,
 	}); err != nil {
@@ -214,7 +215,7 @@ func TestSwapWasmResolverApi_MultipleUpdates(t *testing.T) {
 	// Perform multiple state updates to verify the defaultResolver mechanism works correctly
 	for i := 0; i < 3; i++ {
 		newState := tu.LoadTestResolverState(t)
-		err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+		err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 			State:     newState,
 			AccountId: accountId,
 		})
@@ -259,7 +260,7 @@ func TestSwapWasmResolverApi_Close(t *testing.T) {
 	defaultResolver := resolverFactory.New()
 
 	// Initialize with test state
-	if err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+	if err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     initialState,
 		AccountId: accountId,
 	}); err != nil {
@@ -296,7 +297,7 @@ func TestSwapWasmResolverApi_ResolveFlagWithNoStickyRules(t *testing.T) {
 	defer defaultResolver.Close(ctx)
 
 	// Initialize with test state
-	if err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+	if err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     testState,
 		AccountId: testAcctID,
 	}); err != nil {
@@ -319,7 +320,7 @@ func TestSwapWasmResolverApi_ResolveFlagWithNoStickyRules(t *testing.T) {
 		t.Fatal("Expected non-nil response")
 	}
 
-	successResult, ok := response.ResolveResult.(*resolver.ResolveWithStickyResponse_Success_)
+	successResult, ok := response.ResolveResult.(*wasm.ResolveWithStickyResponse_Success_)
 	if !ok {
 		t.Fatal("Expected success result from ResolveWithSticky")
 	}
@@ -380,7 +381,7 @@ func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(
 	defer defaultResolver.Close(ctx)
 
 	// Initialize with test state
-	if err := defaultResolver.SetResolverState(&messages.SetResolverStateRequest{
+	if err := defaultResolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     stickyState,
 		AccountId: accountId,
 	}); err != nil {
@@ -413,7 +414,7 @@ func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(
 	}
 
 	// The response should be a MissingMaterializations result, not Success
-	missingResult, ok := response.ResolveResult.(*resolver.ResolveWithStickyResponse_MissingMaterializations_)
+	missingResult, ok := response.ResolveResult.(*wasm.ResolveWithStickyResponse_MissingMaterializations_)
 	if !ok {
 		t.Fatal("Expected MissingMaterializations result, got Success or other type")
 	}

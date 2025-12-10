@@ -7,8 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
 type PooledResolverFactory struct {
@@ -60,7 +59,7 @@ func NewPooledResolver(size int, supplier LocalResolverSupplier) *PooledResolver
 }
 
 // ResolveWithSticky implements LocalResolver.
-func (s *PooledResolver) ResolveWithSticky(request *resolver.ResolveWithStickyRequest) (*resolver.ResolveWithStickyResponse, error) {
+func (s *PooledResolver) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
 	n := uint64(len(s.slots))
 	idx := s.rr.Add(1)
 	for !s.slots[idx%n].rw.TryRLock() {
@@ -72,7 +71,7 @@ func (s *PooledResolver) ResolveWithSticky(request *resolver.ResolveWithStickyRe
 }
 
 // SetResolverState implements LocalResolver.
-func (s *PooledResolver) SetResolverState(request *proto.SetResolverStateRequest) error {
+func (s *PooledResolver) SetResolverState(request *wasm.SetResolverStateRequest) error {
 	return s.maintenance(func(lr LocalResolver) error {
 		return lr.SetResolverState(request)
 	})

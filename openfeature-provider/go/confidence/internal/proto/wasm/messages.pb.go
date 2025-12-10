@@ -2,14 +2,13 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v5.29.3
-// source: messages.proto
+// source: confidence/wasm/messages.proto
 
-package proto
+package wasm
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -30,7 +29,7 @@ type Void struct {
 
 func (x *Void) Reset() {
 	*x = Void{}
-	mi := &file_messages_proto_msgTypes[0]
+	mi := &file_confidence_wasm_messages_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -42,7 +41,7 @@ func (x *Void) String() string {
 func (*Void) ProtoMessage() {}
 
 func (x *Void) ProtoReflect() protoreflect.Message {
-	mi := &file_messages_proto_msgTypes[0]
+	mi := &file_confidence_wasm_messages_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -55,7 +54,7 @@ func (x *Void) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Void.ProtoReflect.Descriptor instead.
 func (*Void) Descriptor() ([]byte, []int) {
-	return file_messages_proto_rawDescGZIP(), []int{0}
+	return file_confidence_wasm_messages_proto_rawDescGZIP(), []int{0}
 }
 
 type SetResolverStateRequest struct {
@@ -68,7 +67,7 @@ type SetResolverStateRequest struct {
 
 func (x *SetResolverStateRequest) Reset() {
 	*x = SetResolverStateRequest{}
-	mi := &file_messages_proto_msgTypes[1]
+	mi := &file_confidence_wasm_messages_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -80,7 +79,7 @@ func (x *SetResolverStateRequest) String() string {
 func (*SetResolverStateRequest) ProtoMessage() {}
 
 func (x *SetResolverStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_messages_proto_msgTypes[1]
+	mi := &file_confidence_wasm_messages_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -93,7 +92,7 @@ func (x *SetResolverStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetResolverStateRequest.ProtoReflect.Descriptor instead.
 func (*SetResolverStateRequest) Descriptor() ([]byte, []int) {
-	return file_messages_proto_rawDescGZIP(), []int{1}
+	return file_confidence_wasm_messages_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SetResolverStateRequest) GetState() []byte {
@@ -110,66 +109,6 @@ func (x *SetResolverStateRequest) GetAccountId() string {
 	return ""
 }
 
-type ResolveSimpleRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	ClientSecret      string                 `protobuf:"bytes,1,opt,name=client_secret,json=clientSecret,proto3" json:"client_secret,omitempty"`
-	EvaluationContext *structpb.Struct       `protobuf:"bytes,2,opt,name=evaluation_context,json=evaluationContext,proto3" json:"evaluation_context,omitempty"`
-	Name              string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
-}
-
-func (x *ResolveSimpleRequest) Reset() {
-	*x = ResolveSimpleRequest{}
-	mi := &file_messages_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResolveSimpleRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResolveSimpleRequest) ProtoMessage() {}
-
-func (x *ResolveSimpleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_messages_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ResolveSimpleRequest.ProtoReflect.Descriptor instead.
-func (*ResolveSimpleRequest) Descriptor() ([]byte, []int) {
-	return file_messages_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ResolveSimpleRequest) GetClientSecret() string {
-	if x != nil {
-		return x.ClientSecret
-	}
-	return ""
-}
-
-func (x *ResolveSimpleRequest) GetEvaluationContext() *structpb.Struct {
-	if x != nil {
-		return x.EvaluationContext
-	}
-	return nil
-}
-
-func (x *ResolveSimpleRequest) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
 type Request struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
@@ -179,7 +118,7 @@ type Request struct {
 
 func (x *Request) Reset() {
 	*x = Request{}
-	mi := &file_messages_proto_msgTypes[3]
+	mi := &file_confidence_wasm_messages_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -191,7 +130,7 @@ func (x *Request) String() string {
 func (*Request) ProtoMessage() {}
 
 func (x *Request) ProtoReflect() protoreflect.Message {
-	mi := &file_messages_proto_msgTypes[3]
+	mi := &file_confidence_wasm_messages_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -204,7 +143,7 @@ func (x *Request) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Request.ProtoReflect.Descriptor instead.
 func (*Request) Descriptor() ([]byte, []int) {
-	return file_messages_proto_rawDescGZIP(), []int{3}
+	return file_confidence_wasm_messages_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Request) GetData() []byte {
@@ -227,7 +166,7 @@ type Response struct {
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_messages_proto_msgTypes[4]
+	mi := &file_confidence_wasm_messages_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -239,7 +178,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_messages_proto_msgTypes[4]
+	mi := &file_confidence_wasm_messages_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -252,7 +191,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_messages_proto_rawDescGZIP(), []int{4}
+	return file_confidence_wasm_messages_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Response) GetResult() isResponse_Result {
@@ -296,65 +235,57 @@ func (*Response_Data) isResponse_Result() {}
 
 func (*Response_Error) isResponse_Result() {}
 
-var File_messages_proto protoreflect.FileDescriptor
+var File_confidence_wasm_messages_proto protoreflect.FileDescriptor
 
-const file_messages_proto_rawDesc = "" +
+const file_confidence_wasm_messages_proto_rawDesc = "" +
 	"\n" +
-	"\x0emessages.proto\x12\n" +
-	"rust_guest\x1a\x1cgoogle/protobuf/struct.proto\"\x06\n" +
+	"\x1econfidence/wasm/messages.proto\x12\x0fconfidence.wasm\"\x06\n" +
 	"\x04Void\"N\n" +
 	"\x17SetResolverStateRequest\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\fR\x05state\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x02 \x01(\tR\taccountId\"\x97\x01\n" +
-	"\x14ResolveSimpleRequest\x12#\n" +
-	"\rclient_secret\x18\x01 \x01(\tR\fclientSecret\x12F\n" +
-	"\x12evaluation_context\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x11evaluationContext\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\"\x1d\n" +
+	"account_id\x18\x02 \x01(\tR\taccountId\"\x1d\n" +
 	"\aRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"B\n" +
 	"\bResponse\x12\x14\n" +
 	"\x04data\x18\x01 \x01(\fH\x00R\x04data\x12\x16\n" +
 	"\x05error\x18\x02 \x01(\tH\x00R\x05errorB\b\n" +
-	"\x06resultB)\n" +
-	"\x1bcom.spotify.confidence.wasmB\bMessagesP\x00b\x06proto3"
+	"\x06resultB\x88\x01\n" +
+	"\x1bcom.spotify.confidence.wasmB\bMessagesP\x00Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
 
 var (
-	file_messages_proto_rawDescOnce sync.Once
-	file_messages_proto_rawDescData []byte
+	file_confidence_wasm_messages_proto_rawDescOnce sync.Once
+	file_confidence_wasm_messages_proto_rawDescData []byte
 )
 
-func file_messages_proto_rawDescGZIP() []byte {
-	file_messages_proto_rawDescOnce.Do(func() {
-		file_messages_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_messages_proto_rawDesc), len(file_messages_proto_rawDesc)))
+func file_confidence_wasm_messages_proto_rawDescGZIP() []byte {
+	file_confidence_wasm_messages_proto_rawDescOnce.Do(func() {
+		file_confidence_wasm_messages_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_confidence_wasm_messages_proto_rawDesc), len(file_confidence_wasm_messages_proto_rawDesc)))
 	})
-	return file_messages_proto_rawDescData
+	return file_confidence_wasm_messages_proto_rawDescData
 }
 
-var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
-var file_messages_proto_goTypes = []any{
-	(*Void)(nil),                    // 0: rust_guest.Void
-	(*SetResolverStateRequest)(nil), // 1: rust_guest.SetResolverStateRequest
-	(*ResolveSimpleRequest)(nil),    // 2: rust_guest.ResolveSimpleRequest
-	(*Request)(nil),                 // 3: rust_guest.Request
-	(*Response)(nil),                // 4: rust_guest.Response
-	(*structpb.Struct)(nil),         // 5: google.protobuf.Struct
+var file_confidence_wasm_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_confidence_wasm_messages_proto_goTypes = []any{
+	(*Void)(nil),                    // 0: confidence.wasm.Void
+	(*SetResolverStateRequest)(nil), // 1: confidence.wasm.SetResolverStateRequest
+	(*Request)(nil),                 // 2: confidence.wasm.Request
+	(*Response)(nil),                // 3: confidence.wasm.Response
 }
-var file_messages_proto_depIdxs = []int32{
-	5, // 0: rust_guest.ResolveSimpleRequest.evaluation_context:type_name -> google.protobuf.Struct
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+var file_confidence_wasm_messages_proto_depIdxs = []int32{
+	0, // [0:0] is the sub-list for method output_type
+	0, // [0:0] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_messages_proto_init() }
-func file_messages_proto_init() {
-	if File_messages_proto != nil {
+func init() { file_confidence_wasm_messages_proto_init() }
+func file_confidence_wasm_messages_proto_init() {
+	if File_confidence_wasm_messages_proto != nil {
 		return
 	}
-	file_messages_proto_msgTypes[4].OneofWrappers = []any{
+	file_confidence_wasm_messages_proto_msgTypes[3].OneofWrappers = []any{
 		(*Response_Data)(nil),
 		(*Response_Error)(nil),
 	}
@@ -362,17 +293,17 @@ func file_messages_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_messages_proto_rawDesc), len(file_messages_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_wasm_messages_proto_rawDesc), len(file_confidence_wasm_messages_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_messages_proto_goTypes,
-		DependencyIndexes: file_messages_proto_depIdxs,
-		MessageInfos:      file_messages_proto_msgTypes,
+		GoTypes:           file_confidence_wasm_messages_proto_goTypes,
+		DependencyIndexes: file_confidence_wasm_messages_proto_depIdxs,
+		MessageInfos:      file_confidence_wasm_messages_proto_msgTypes,
 	}.Build()
-	File_messages_proto = out.File
-	file_messages_proto_goTypes = nil
-	file_messages_proto_depIdxs = nil
+	File_confidence_wasm_messages_proto = out.File
+	file_confidence_wasm_messages_proto_goTypes = nil
+	file_confidence_wasm_messages_proto_depIdxs = nil
 }

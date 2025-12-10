@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/admin"
+	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -85,7 +85,7 @@ func TestFlagsAdminStateFetcher_Reload_Success(t *testing.T) {
 		},
 	}
 	testStateBytes, _ := proto.Marshal(testState)
-	stateRequest := &pb.SetResolverStateRequest{
+	stateRequest := &wasm.SetResolverStateRequest{
 		State:     testStateBytes,
 		AccountId: "test-account-123",
 	}
@@ -135,7 +135,7 @@ func TestFlagsAdminStateFetcher_Reload_NotModified(t *testing.T) {
 		{Name: "flags/test-flag"},
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
-	stateRequest := &pb.SetResolverStateRequest{
+	stateRequest := &wasm.SetResolverStateRequest{
 		State:     testStateBytes,
 		AccountId: "test-account",
 	}
@@ -221,7 +221,7 @@ func TestFlagsAdminStateFetcher_Provide(t *testing.T) {
 		{Name: "flags/test-flag"},
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
-	stateRequest := &pb.SetResolverStateRequest{
+	stateRequest := &wasm.SetResolverStateRequest{
 		State:     testStateBytes,
 		AccountId: "test-account",
 	}
@@ -259,7 +259,7 @@ func TestFlagsAdminStateFetcher_Provide_ReturnsStateOnError(t *testing.T) {
 		{Name: "flags/test-flag"},
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
-	stateRequest := &pb.SetResolverStateRequest{
+	stateRequest := &wasm.SetResolverStateRequest{
 		State:     testStateBytes,
 		AccountId: "test-account",
 	}

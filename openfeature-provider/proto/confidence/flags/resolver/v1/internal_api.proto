@@ -4,11 +4,10 @@ syntax = "proto3";
 // The full gRPC service name is: confidence.flags.resolver.v1.InternalFlagLoggerService
 package confidence.flags.resolver.v1;
 
-import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
-import "confidence/resolver_types.proto";
+import "confidence/flags/resolver/v1/types.proto";
 
-option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal";
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal";
 option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;
 option java_outer_classname = "InternalApiProto";
@@ -43,7 +42,7 @@ message WriteFlagLogsResponse {}
 // Collection of telemetry metrics
 message TelemetryData {
   // Information about the SDK/provider
-  confidence.resolver.Sdk sdk = 2;
+  Sdk sdk = 2;
 }
 
 message ClientInfo {
@@ -51,7 +50,7 @@ message ClientInfo {
   string client_credential = 2;
 
   // Information about the SDK used to interact with the API.
-  confidence.resolver.Sdk sdk = 3;
+  Sdk sdk = 3;
 }
 
 message FlagAssigned {

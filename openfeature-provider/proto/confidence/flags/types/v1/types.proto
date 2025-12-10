@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package confidence.flags.types.v1;
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/types";
+option java_package = "com.spotify.confidence.flags.types.v1";
+option java_multiple_files = true;
+option java_outer_classname = "TypesProto";
+
+// Simplified from confidence-resolver/protos/confidence/flags/types/v1/types.proto
+// Annotations removed for minimal dependencies
+
+// Schema for the value of a flag.
+message FlagSchema {
+  oneof schema_type {
+    // Schema if this is a struct
+    StructFlagSchema struct_schema = 1;
+    // Schema if this is a list
+    ListFlagSchema list_schema = 2;
+    // Schema if this is an int
+    IntFlagSchema int_schema = 3;
+    // Schema if this is a double
+    DoubleFlagSchema double_schema = 4;
+    //Schema if this is a string
+    StringFlagSchema string_schema = 5;
+    //Schema if this is a bool
+    BoolFlagSchema bool_schema = 6;
+  }
+
+  // A schema of nested fields.
+  message StructFlagSchema {
+    // Map of field name to the schema for the field
+    map<string, FlagSchema> schema = 1;
+  }
+
+  // A number that has a decimal place.
+  message DoubleFlagSchema {
+  }
+
+  // A whole number without a decimal point.
+  message IntFlagSchema {
+  }
+
+  // A string.
+  message StringFlagSchema {
+  }
+
+  // A boolean: true or false.
+  message BoolFlagSchema {
+  }
+
+  // A list of values.
+  message ListFlagSchema {
+    // The schema for the elements in the list
+    FlagSchema element_schema = 1;
+  }
+}
