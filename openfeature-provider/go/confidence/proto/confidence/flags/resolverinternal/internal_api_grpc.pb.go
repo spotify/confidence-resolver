@@ -19,9 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InternalFlagLoggerService_WriteFlagAssigned_FullMethodName   = "/confidence.flags.resolver.v1.InternalFlagLoggerService/WriteFlagAssigned"
-	InternalFlagLoggerService_WriteFlagLogs_FullMethodName       = "/confidence.flags.resolver.v1.InternalFlagLoggerService/WriteFlagLogs"
-	InternalFlagLoggerService_ClientWriteFlagLogs_FullMethodName = "/confidence.flags.resolver.v1.InternalFlagLoggerService/ClientWriteFlagLogs"
+	InternalFlagLoggerService_WriteFlagAssigned_FullMethodName           = "/confidence.flags.resolver.v1.InternalFlagLoggerService/WriteFlagAssigned"
+	InternalFlagLoggerService_ClientWriteFlagLogs_FullMethodName         = "/confidence.flags.resolver.v1.InternalFlagLoggerService/ClientWriteFlagLogs"
+	InternalFlagLoggerService_WriteMaterializedOperations_FullMethodName = "/confidence.flags.resolver.v1.InternalFlagLoggerService/WriteMaterializedOperations"
+	InternalFlagLoggerService_ReadMaterializedOperations_FullMethodName  = "/confidence.flags.resolver.v1.InternalFlagLoggerService/ReadMaterializedOperations"
 )
 
 // InternalFlagLoggerServiceClient is the client API for InternalFlagLoggerService service.
@@ -29,21 +30,13 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InternalFlagLoggerServiceClient interface {
 	// Writes flag assignment events. Mostly called from the sidecar resolver.
-	// (-- api-linter: core::0136::http-uri-suffix=disabled
-	//
-	//	aip.dev/not-precedent: Disabled because the additional binding. --)
 	WriteFlagAssigned(ctx context.Context, in *WriteFlagAssignedRequest, opts ...grpc.CallOption) (*WriteFlagAssignedResponse, error)
-	// Writes flag assignment events and resolve logs together.
-	// (-- api-linter: core::0136::http-uri-suffix=disabled
-	//
-	//	aip.dev/not-precedent: Disabled because the additional binding. --)
-	WriteFlagLogs(ctx context.Context, in *WriteFlagLogsRequest, opts ...grpc.CallOption) (*WriteFlagLogsResponse, error)
-	// Client writes flag assignment events and resolve logs using client secret authentication.
-	// This method uses Authorization: ClientSecret {client_secret} header instead of JWT.
-	// (-- api-linter: core::0136::http-uri-suffix=disabled
-	//
-	//	aip.dev/not-precedent: Disabled because the additional binding. --)
+	// With client secret guarded writing flag assignment events and resolve logs together.
 	ClientWriteFlagLogs(ctx context.Context, in *WriteFlagLogsRequest, opts ...grpc.CallOption) (*WriteFlagLogsResponse, error)
+	// Stores materializations for units. Uses client secret authentication.
+	WriteMaterializedOperations(ctx context.Context, in *WriteOperationsRequest, opts ...grpc.CallOption) (*WriteOperationsResult, error)
+	// Loads materializations for units. Uses client secret authentication.
+	ReadMaterializedOperations(ctx context.Context, in *ReadOperationsRequest, opts ...grpc.CallOption) (*ReadOperationsResult, error)
 }
 
 type internalFlagLoggerServiceClient struct {
@@ -64,20 +57,30 @@ func (c *internalFlagLoggerServiceClient) WriteFlagAssigned(ctx context.Context,
 	return out, nil
 }
 
-func (c *internalFlagLoggerServiceClient) WriteFlagLogs(ctx context.Context, in *WriteFlagLogsRequest, opts ...grpc.CallOption) (*WriteFlagLogsResponse, error) {
+func (c *internalFlagLoggerServiceClient) ClientWriteFlagLogs(ctx context.Context, in *WriteFlagLogsRequest, opts ...grpc.CallOption) (*WriteFlagLogsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(WriteFlagLogsResponse)
-	err := c.cc.Invoke(ctx, InternalFlagLoggerService_WriteFlagLogs_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, InternalFlagLoggerService_ClientWriteFlagLogs_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *internalFlagLoggerServiceClient) ClientWriteFlagLogs(ctx context.Context, in *WriteFlagLogsRequest, opts ...grpc.CallOption) (*WriteFlagLogsResponse, error) {
+func (c *internalFlagLoggerServiceClient) WriteMaterializedOperations(ctx context.Context, in *WriteOperationsRequest, opts ...grpc.CallOption) (*WriteOperationsResult, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(WriteFlagLogsResponse)
-	err := c.cc.Invoke(ctx, InternalFlagLoggerService_ClientWriteFlagLogs_FullMethodName, in, out, cOpts...)
+	out := new(WriteOperationsResult)
+	err := c.cc.Invoke(ctx, InternalFlagLoggerService_WriteMaterializedOperations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalFlagLoggerServiceClient) ReadMaterializedOperations(ctx context.Context, in *ReadOperationsRequest, opts ...grpc.CallOption) (*ReadOperationsResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReadOperationsResult)
+	err := c.cc.Invoke(ctx, InternalFlagLoggerService_ReadMaterializedOperations_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -89,21 +92,13 @@ func (c *internalFlagLoggerServiceClient) ClientWriteFlagLogs(ctx context.Contex
 // for forward compatibility.
 type InternalFlagLoggerServiceServer interface {
 	// Writes flag assignment events. Mostly called from the sidecar resolver.
-	// (-- api-linter: core::0136::http-uri-suffix=disabled
-	//
-	//	aip.dev/not-precedent: Disabled because the additional binding. --)
 	WriteFlagAssigned(context.Context, *WriteFlagAssignedRequest) (*WriteFlagAssignedResponse, error)
-	// Writes flag assignment events and resolve logs together.
-	// (-- api-linter: core::0136::http-uri-suffix=disabled
-	//
-	//	aip.dev/not-precedent: Disabled because the additional binding. --)
-	WriteFlagLogs(context.Context, *WriteFlagLogsRequest) (*WriteFlagLogsResponse, error)
-	// Client writes flag assignment events and resolve logs using client secret authentication.
-	// This method uses Authorization: ClientSecret {client_secret} header instead of JWT.
-	// (-- api-linter: core::0136::http-uri-suffix=disabled
-	//
-	//	aip.dev/not-precedent: Disabled because the additional binding. --)
+	// With client secret guarded writing flag assignment events and resolve logs together.
 	ClientWriteFlagLogs(context.Context, *WriteFlagLogsRequest) (*WriteFlagLogsResponse, error)
+	// Stores materializations for units. Uses client secret authentication.
+	WriteMaterializedOperations(context.Context, *WriteOperationsRequest) (*WriteOperationsResult, error)
+	// Loads materializations for units. Uses client secret authentication.
+	ReadMaterializedOperations(context.Context, *ReadOperationsRequest) (*ReadOperationsResult, error)
 	mustEmbedUnimplementedInternalFlagLoggerServiceServer()
 }
 
@@ -117,11 +112,14 @@ type UnimplementedInternalFlagLoggerServiceServer struct{}
 func (UnimplementedInternalFlagLoggerServiceServer) WriteFlagAssigned(context.Context, *WriteFlagAssignedRequest) (*WriteFlagAssignedResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WriteFlagAssigned not implemented")
 }
-func (UnimplementedInternalFlagLoggerServiceServer) WriteFlagLogs(context.Context, *WriteFlagLogsRequest) (*WriteFlagLogsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method WriteFlagLogs not implemented")
-}
 func (UnimplementedInternalFlagLoggerServiceServer) ClientWriteFlagLogs(context.Context, *WriteFlagLogsRequest) (*WriteFlagLogsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ClientWriteFlagLogs not implemented")
+}
+func (UnimplementedInternalFlagLoggerServiceServer) WriteMaterializedOperations(context.Context, *WriteOperationsRequest) (*WriteOperationsResult, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WriteMaterializedOperations not implemented")
+}
+func (UnimplementedInternalFlagLoggerServiceServer) ReadMaterializedOperations(context.Context, *ReadOperationsRequest) (*ReadOperationsResult, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadMaterializedOperations not implemented")
 }
 func (UnimplementedInternalFlagLoggerServiceServer) mustEmbedUnimplementedInternalFlagLoggerServiceServer() {
 }
@@ -163,24 +161,6 @@ func _InternalFlagLoggerService_WriteFlagAssigned_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
-func _InternalFlagLoggerService_WriteFlagLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WriteFlagLogsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(InternalFlagLoggerServiceServer).WriteFlagLogs(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: InternalFlagLoggerService_WriteFlagLogs_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(InternalFlagLoggerServiceServer).WriteFlagLogs(ctx, req.(*WriteFlagLogsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _InternalFlagLoggerService_ClientWriteFlagLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(WriteFlagLogsRequest)
 	if err := dec(in); err != nil {
@@ -199,6 +179,42 @@ func _InternalFlagLoggerService_ClientWriteFlagLogs_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InternalFlagLoggerService_WriteMaterializedOperations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteOperationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalFlagLoggerServiceServer).WriteMaterializedOperations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalFlagLoggerService_WriteMaterializedOperations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalFlagLoggerServiceServer).WriteMaterializedOperations(ctx, req.(*WriteOperationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalFlagLoggerService_ReadMaterializedOperations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadOperationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalFlagLoggerServiceServer).ReadMaterializedOperations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalFlagLoggerService_ReadMaterializedOperations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalFlagLoggerServiceServer).ReadMaterializedOperations(ctx, req.(*ReadOperationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InternalFlagLoggerService_ServiceDesc is the grpc.ServiceDesc for InternalFlagLoggerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -211,12 +227,16 @@ var InternalFlagLoggerService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _InternalFlagLoggerService_WriteFlagAssigned_Handler,
 		},
 		{
-			MethodName: "WriteFlagLogs",
-			Handler:    _InternalFlagLoggerService_WriteFlagLogs_Handler,
-		},
-		{
 			MethodName: "ClientWriteFlagLogs",
 			Handler:    _InternalFlagLoggerService_ClientWriteFlagLogs_Handler,
+		},
+		{
+			MethodName: "WriteMaterializedOperations",
+			Handler:    _InternalFlagLoggerService_WriteMaterializedOperations_Handler,
+		},
+		{
+			MethodName: "ReadMaterializedOperations",
+			Handler:    _InternalFlagLoggerService_ReadMaterializedOperations_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

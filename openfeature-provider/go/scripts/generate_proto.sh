@@ -127,7 +127,8 @@ protoc --proto_path=../../confidence-resolver/protos \
 mkdir -p confidence/proto/confidence/flags/resolverinternal
 mkdir -p confidence/proto/confidence/flags/resolvertypes
 mkdir -p confidence/proto/confidence/flags/resolverevents
-protoc --proto_path=../../confidence-resolver/protos \
+protoc --proto_path=../proto \
+       --proto_path=../../confidence-resolver/protos \
        --proto_path=../java/target/protoc-dependencies/fb94b2d0c5936e4cf7aa794a2caf00da \
        --proto_path=../java/target/protoc-dependencies/45da6e25a3df602921e82a52a83b342b \
        --go_out=confidence/proto \
