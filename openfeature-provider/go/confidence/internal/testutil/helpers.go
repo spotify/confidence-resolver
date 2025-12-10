@@ -10,8 +10,8 @@ import (
 
 	proto "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
 	admin "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/admin"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
