@@ -14,7 +14,6 @@ fn main() -> Result<()> {
         root.join("confidence/flags/resolver/v1/internal_api.proto"),
         root.join("confidence/flags/resolver/v1/wasm_api.proto"),
         root.join("confidence/flags/resolver/v1/events/events.proto"),
-        root.join("confidence/shared/v1/materialization_operations.proto"),
     ];
 
     // Tell cargo to recompile if any of these proto files are changed
@@ -75,7 +74,6 @@ fn main() -> Result<()> {
                 ".confidence.flags.types.v1",
                 ".confidence.auth.v1",
                 ".confidence.iam.v1",
-                ".confidence.shared.v1",
                 ".google.type",
             ])?;
 

@@ -93,20 +93,66 @@ message ResolveWithStickyRequest {
   bool not_process_sticky = 4;
 
   // Context about the materialization required for the resolve
-  repeated confidence.shared.v1.ReadResult materializations = 5;
+  repeated ReadResult materializations = 5;
 }
 
 // Response from resolving with sticky assignments
 message ResolveWithStickyResponse {
   oneof resolve_result {
     Success success = 1;
-    confidence.shared.v1.ReadOperationsRequest read_ops_request = 3;
+    ReadOperationsRequest read_ops_request = 3;
   }
   
   // Successful resolution with materialization updates
   message Success {
     ResolveFlagsResponse response = 1;
     // New assignments that should be stored
-    repeated confidence.shared.v1.VariantData materialization_updates = 3;
+    repeated VariantData materialization_updates = 3;
   }
+}
+
+message VariantReadOp {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+}
+
+message InclusionReadOp {
+  string unit = 1;
+  string materialization = 2;
+}
+
+message ReadOp {
+  oneof op {
+    VariantReadOp variant_read_op = 1;
+    InclusionReadOp inclusion_read_op = 2;
+  }
+}
+
+message ReadOperationsRequest {
+  repeated ReadOp ops = 3;
+}
+
+message VariantData {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+  string variant = 4;
+}
+
+message InclusionData {
+  string unit = 1;
+  string materialization = 2;
+  bool is_included = 3;
+}
+
+message ReadResult {
+  oneof result {
+    VariantData variant_result = 1;
+    InclusionData inclusion_result = 2;
+  }
+}
+
+message ReadOperationsResult {
+  repeated ReadResult results = 1;
 }

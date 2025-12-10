@@ -14,6 +14,7 @@ import (
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -289,10 +290,10 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 
 	// Create ResolveWithSticky request
 	stickyRequest := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:          request,
-		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
-		FailFastOnSticky:        false,
-		NotProcessSticky:        false,
+		ResolveRequest:   request,
+		Materializations: make([]*resolverinternal.ReadResult, 0),
+		FailFastOnSticky: false,
+		NotProcessSticky: false,
 	}
 
 	// Resolve flags with sticky support
@@ -313,7 +314,7 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	switch result := stickyResponse.ResolveResult.(type) {
 	case *wasm.ResolveWithStickyResponse_Success_:
 		response = result.Success.Response
-	case *wasm.ResolveWithStickyResponse_MissingMaterializations_:
+	case *wasm.ResolveWithStickyResponse_ReadOpsRequest:
 		p.logger.Error("Missing materializations for flag", "flag", flagPath)
 		return openfeature.InterfaceResolutionDetail{
 			Value: defaultValue,

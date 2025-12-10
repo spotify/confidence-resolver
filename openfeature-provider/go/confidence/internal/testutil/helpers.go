@@ -213,18 +213,18 @@ func CreateStateWithStickyFlag() []byte {
 // Helper function to create a ResolveWithStickyRequest
 func CreateResolveWithStickyRequest(
 	resolveRequest *resolver.ResolveFlagsRequest,
-	materializations map[string]*wasm.MaterializationMap,
+	materializations []*resolverv1.ReadResult,
 	failFast bool,
 	notProcessSticky bool,
 ) *wasm.ResolveWithStickyRequest {
 	if materializations == nil {
-		materializations = make(map[string]*wasm.MaterializationMap)
+		materializations = []*resolverv1.ReadResult{}
 	}
 	return &wasm.ResolveWithStickyRequest{
-		ResolveRequest:          resolveRequest,
-		MaterializationsPerUnit: materializations,
-		FailFastOnSticky:        failFast,
-		NotProcessSticky:        notProcessSticky,
+		ResolveRequest:   resolveRequest,
+		Materializations: materializations,
+		FailFastOnSticky: failFast,
+		NotProcessSticky: notProcessSticky,
 	}
 }
 
