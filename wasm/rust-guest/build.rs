@@ -23,6 +23,10 @@ fn main() {
         ".google.protobuf.Timestamp",
         "::confidence_resolver::proto::google::Timestamp",
     );
+    config.extern_path(
+        ".confidence.shared.v1",
+        "::confidence_resolver::proto::confidence::shared::v1",
+    );
 
     config
         .compile_protos(&["messages.proto", "types.proto"], &["../proto"])

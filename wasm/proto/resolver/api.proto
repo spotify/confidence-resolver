@@ -10,7 +10,7 @@ import "google/protobuf/struct.proto";
 import "types.proto";
 import "confidence/flags/resolver/v1/types.proto";
 
-// TODO update this file as well or better yet, align!
+
 
 message ResolveSimpleRequest {
     string client_secret = 1;
@@ -87,62 +87,26 @@ message ResolveWithStickyRequest {
   // The standard resolve request
   ResolveFlagsRequest resolve_request = 1;
 
-  // Context about the materialization required for the resolve
-  // Map of targeting key (unit) to their materialization data
-  map<string, MaterializationMap> materializations_per_unit = 2;
-
-  // If a materialization info is missing, return to the caller immediately
+  // if a materialization info is missing, we want tor return to the caller immediately
   bool fail_fast_on_sticky = 3;
-}
+  // if we should support sticky or completely skip the flag if they had sticky rules
+  bool not_process_sticky = 4;
 
-// Map of materialization IDs to their info for a specific unit
-message MaterializationMap {
-  // Map of materialization name to info
-  map<string, MaterializationInfo> info_map = 1;
-}
-
-// Information about a materialization for a specific unit
-message MaterializationInfo {
-  // Whether the unit is in this materialization/rollout
-  bool unit_in_info = 1;
-
-  // Map of rule name to variant name for this unit
-  map<string, string> rule_to_variant = 2;
+  // Context about the materialization required for the resolve
+  repeated confidence.shared.v1.ReadResult materializations = 5;
 }
 
 // Response from resolving with sticky assignments
 message ResolveWithStickyResponse {
   oneof resolve_result {
     Success success = 1;
-    MissingMaterializations missing_materializations = 2;
+    confidence.shared.v1.ReadOperationsRequest read_ops_request = 3;
   }
-
+  
   // Successful resolution with materialization updates
   message Success {
-    // The resolved flags response
     ResolveFlagsResponse response = 1;
-
     // New assignments that should be stored
-    repeated MaterializationUpdate updates = 2;
-  }
-
-  // Information about missing materializations
-  message MissingMaterializations {
-    repeated MissingMaterializationItem items = 1;
-  }
-
-  // A missing materialization item
-  message MissingMaterializationItem {
-    string unit = 1;
-    string rule = 2;
-    string read_materialization = 3;
-  }
-
-  // A materialization update to be stored
-  message MaterializationUpdate {
-    string unit = 1;
-    string write_materialization = 2;
-    string rule = 3;
-    string variant = 4;
+    repeated confidence.shared.v1.VariantData materialization_updates = 3;
   }
 }

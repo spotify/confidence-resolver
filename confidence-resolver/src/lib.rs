@@ -12,7 +12,7 @@
 use bitvec::prelude as bv;
 use core::marker::PhantomData;
 use fastmurmur3::murmur3_x64_128;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use bytes::Bytes;
 
@@ -445,7 +445,6 @@ impl ResolveWithStickyResponse {
             resolve_result: Some(ResolveResult::Success(
                 resolve_with_sticky_response::Success {
                     response: Some(response),
-                    updates: vec![],
                     materialization_updates: updates,
                 },
             )),
@@ -467,7 +466,6 @@ impl ResolveWithStickyRequest {
             resolve_request: Some(resolve_request),
             fail_fast_on_sticky: false,
             not_process_sticky: true,
-            materializations_per_unit: BTreeMap::new(),
             materializations: vec![],
         }
     }
@@ -658,9 +656,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         Some(flags_response) => Ok(flags_response),
                         None => Err("failed to resolve flags".to_string()),
                     },
-                    ResolveResult::MissingMaterializations(_) => {
-                        Err("sticky assignments is not supported".to_string())
-                    }
                     ResolveResult::ReadOpsRequest(_) => {
                         Err("sticky assignments is not supported".to_string())
                     }
