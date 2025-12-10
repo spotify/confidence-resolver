@@ -10,6 +10,8 @@ import "google/protobuf/struct.proto";
 import "types.proto";
 import "confidence/flags/resolver/v1/types.proto";
 
+// TODO update this file as well or better yet, align!
+
 message ResolveSimpleRequest {
     string client_secret = 1;
     google.protobuf.Struct evaluation_context = 2;

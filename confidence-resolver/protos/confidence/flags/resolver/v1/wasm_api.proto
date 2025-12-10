@@ -13,6 +13,8 @@ import "confidence/flags/types/v1/types.proto";
 import "confidence/flags/resolver/v1/types.proto";
 import "confidence/flags/resolver/v1/api.proto";
 
+import "confidence/shared/v1/materialization_operations.proto";
+
 option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;
 option java_outer_classname = "WasmApiProto";
@@ -22,12 +24,16 @@ message ResolveWithStickyRequest {
   ResolveFlagsRequest resolve_request = 1;
 
   // Context about the materialization required for the resolve
+  // deprecated, use materializations field instead
   map<string, MaterializationMap> materializations_per_unit = 2;
-
+  
   // if a materialization info is missing, we want tor return to the caller immediately
   bool fail_fast_on_sticky = 3;
   // if we should support sticky or completely skip the flag if they had sticky rules
   bool not_process_sticky = 4;
+
+  // Context about the materialization required for the resolve
+  repeated confidence.shared.v1.ReadResult materializations = 5;
 }
 
 message MaterializationMap {
@@ -47,12 +53,17 @@ message LogMessage {
 message ResolveWithStickyResponse {
  oneof resolve_result {
  Success success = 1;
+
+ // deprecated, use ReadOperationsRequest message instead
  MissingMaterializations missing_materializations = 2;
+ confidence.shared.v1.ReadOperationsRequest read_ops_request = 3;
  }
 
  message Success {
   ResolveFlagsResponse response = 1;
+  // deprecated, use materialization_updates field instead
   repeated MaterializationUpdate updates = 2;
+  repeated confidence.shared.v1.VariantData materialization_updates = 3;
  }
 
  message MissingMaterializations {
