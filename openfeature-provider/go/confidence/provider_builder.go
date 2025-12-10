@@ -17,10 +17,11 @@ import (
 const confidenceDomain = "edge-grpc.spotify.com"
 
 type ProviderConfig struct {
-	ClientSecret         string
-	Logger               *slog.Logger
-	TransportHooks       TransportHooks       // Optional: defaults to DefaultTransportHooks
-	MaterializationStore MaterializationStore // Optional
+	ClientSecret                  string
+	Logger                        *slog.Logger
+	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
+	MaterializationStore          MaterializationStore // Optional
+	UseRemoteMaterializationStore bool                 // set to true to use a Remote lookup for materializations. Requires that MaterializationStore is nil.
 }
 
 type ProviderTestConfig struct {
@@ -67,8 +68,8 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	stateProvider := NewFlagsAdminStateFetcherWithTransport(config.ClientSecret, logger, transport)
 	flagLogger := fl.NewGrpcWasmFlagLogger(flagLoggerService, config.ClientSecret, logger)
 	materializationStore := config.MaterializationStore
-	if materializationStore == nil {
-		materializationStore = newUnsupportedMaterializationStore()
+	if materializationStore == nil && config.UseRemoteMaterializationStore {
+		materializationStore = newRemoteMaterializationStore(resolverv1.NewInternalFlagLoggerServiceClient(conn), config.ClientSecret)
 	}
 
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)

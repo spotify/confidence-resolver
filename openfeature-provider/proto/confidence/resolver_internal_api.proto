@@ -19,6 +19,12 @@ option java_outer_classname = "InternalApiProto";
 service InternalFlagLoggerService {
   // Client writes flag assignment events and resolve logs using client secret authentication.
   rpc ClientWriteFlagLogs(WriteFlagLogsRequest) returns (WriteFlagLogsResponse);
+
+  // Stores materializations for units. Uses client secret authentication.
+  rpc WriteMaterializedOperations(WriteOperationsRequest) returns (WriteOperationsResult) {}
+
+  // Loads materializations for units. Uses client secret authentication.
+  rpc ReadMaterializedOperations(ReadOperationsRequest) returns (ReadOperationsResult) {}
 }
 
 // The service that allows to report flag assigned and other client-side flag
@@ -129,4 +135,56 @@ message FlagResolveInfo {
      // Number of times the variant was resolved in this period
      int64 count = 3;
    }
+}
+
+message WriteOperationsRequest {
+  repeated VariantData store_variant_op = 1;
+}
+
+message WriteOperationsResult {}
+
+message VariantReadOp {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+}
+
+message InclusionReadOp {
+  string unit = 1;
+  string materialization = 2;
+}
+
+message ReadOp {
+  oneof op {
+    VariantReadOp variant_read_op = 1;
+    InclusionReadOp inclusion_read_op = 2;
+  }
+}
+
+message ReadOperationsRequest {
+  repeated ReadOp ops = 3;
+}
+
+message VariantData {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+  string variant = 4;
+}
+
+message InclusionData {
+  string unit = 1;
+  string materialization = 2;
+  bool is_included = 3;
+}
+
+message ReadResult {
+  oneof result {
+    VariantData variant_result = 1;
+    InclusionData inclusion_result = 2;
+  }
+}
+
+message ReadOperationsResult {
+  repeated ReadResult results = 1;
 }

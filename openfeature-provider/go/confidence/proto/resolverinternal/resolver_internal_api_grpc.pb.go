@@ -22,7 +22,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InternalFlagLoggerService_ClientWriteFlagLogs_FullMethodName = "/confidence.flags.resolver.v1.InternalFlagLoggerService/ClientWriteFlagLogs"
+	InternalFlagLoggerService_ClientWriteFlagLogs_FullMethodName         = "/confidence.flags.resolver.v1.InternalFlagLoggerService/ClientWriteFlagLogs"
+	InternalFlagLoggerService_WriteMaterializedOperations_FullMethodName = "/confidence.flags.resolver.v1.InternalFlagLoggerService/WriteMaterializedOperations"
+	InternalFlagLoggerService_ReadMaterializedOperations_FullMethodName  = "/confidence.flags.resolver.v1.InternalFlagLoggerService/ReadMaterializedOperations"
 )
 
 // InternalFlagLoggerServiceClient is the client API for InternalFlagLoggerService service.
@@ -31,6 +33,10 @@ const (
 type InternalFlagLoggerServiceClient interface {
 	// Client writes flag assignment events and resolve logs using client secret authentication.
 	ClientWriteFlagLogs(ctx context.Context, in *WriteFlagLogsRequest, opts ...grpc.CallOption) (*WriteFlagLogsResponse, error)
+	// Stores materializations for units. Uses client secret authentication.
+	WriteMaterializedOperations(ctx context.Context, in *WriteOperationsRequest, opts ...grpc.CallOption) (*WriteOperationsResult, error)
+	// Loads materializations for units. Uses client secret authentication.
+	ReadMaterializedOperations(ctx context.Context, in *ReadOperationsRequest, opts ...grpc.CallOption) (*ReadOperationsResult, error)
 }
 
 type internalFlagLoggerServiceClient struct {
@@ -51,12 +57,36 @@ func (c *internalFlagLoggerServiceClient) ClientWriteFlagLogs(ctx context.Contex
 	return out, nil
 }
 
+func (c *internalFlagLoggerServiceClient) WriteMaterializedOperations(ctx context.Context, in *WriteOperationsRequest, opts ...grpc.CallOption) (*WriteOperationsResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WriteOperationsResult)
+	err := c.cc.Invoke(ctx, InternalFlagLoggerService_WriteMaterializedOperations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalFlagLoggerServiceClient) ReadMaterializedOperations(ctx context.Context, in *ReadOperationsRequest, opts ...grpc.CallOption) (*ReadOperationsResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReadOperationsResult)
+	err := c.cc.Invoke(ctx, InternalFlagLoggerService_ReadMaterializedOperations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InternalFlagLoggerServiceServer is the server API for InternalFlagLoggerService service.
 // All implementations must embed UnimplementedInternalFlagLoggerServiceServer
 // for forward compatibility.
 type InternalFlagLoggerServiceServer interface {
 	// Client writes flag assignment events and resolve logs using client secret authentication.
 	ClientWriteFlagLogs(context.Context, *WriteFlagLogsRequest) (*WriteFlagLogsResponse, error)
+	// Stores materializations for units. Uses client secret authentication.
+	WriteMaterializedOperations(context.Context, *WriteOperationsRequest) (*WriteOperationsResult, error)
+	// Loads materializations for units. Uses client secret authentication.
+	ReadMaterializedOperations(context.Context, *ReadOperationsRequest) (*ReadOperationsResult, error)
 	mustEmbedUnimplementedInternalFlagLoggerServiceServer()
 }
 
@@ -69,6 +99,12 @@ type UnimplementedInternalFlagLoggerServiceServer struct{}
 
 func (UnimplementedInternalFlagLoggerServiceServer) ClientWriteFlagLogs(context.Context, *WriteFlagLogsRequest) (*WriteFlagLogsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ClientWriteFlagLogs not implemented")
+}
+func (UnimplementedInternalFlagLoggerServiceServer) WriteMaterializedOperations(context.Context, *WriteOperationsRequest) (*WriteOperationsResult, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WriteMaterializedOperations not implemented")
+}
+func (UnimplementedInternalFlagLoggerServiceServer) ReadMaterializedOperations(context.Context, *ReadOperationsRequest) (*ReadOperationsResult, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadMaterializedOperations not implemented")
 }
 func (UnimplementedInternalFlagLoggerServiceServer) mustEmbedUnimplementedInternalFlagLoggerServiceServer() {
 }
@@ -110,6 +146,42 @@ func _InternalFlagLoggerService_ClientWriteFlagLogs_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InternalFlagLoggerService_WriteMaterializedOperations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteOperationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalFlagLoggerServiceServer).WriteMaterializedOperations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalFlagLoggerService_WriteMaterializedOperations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalFlagLoggerServiceServer).WriteMaterializedOperations(ctx, req.(*WriteOperationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalFlagLoggerService_ReadMaterializedOperations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadOperationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalFlagLoggerServiceServer).ReadMaterializedOperations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalFlagLoggerService_ReadMaterializedOperations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalFlagLoggerServiceServer).ReadMaterializedOperations(ctx, req.(*ReadOperationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InternalFlagLoggerService_ServiceDesc is the grpc.ServiceDesc for InternalFlagLoggerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -120,6 +192,14 @@ var InternalFlagLoggerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClientWriteFlagLogs",
 			Handler:    _InternalFlagLoggerService_ClientWriteFlagLogs_Handler,
+		},
+		{
+			MethodName: "WriteMaterializedOperations",
+			Handler:    _InternalFlagLoggerService_WriteMaterializedOperations_Handler,
+		},
+		{
+			MethodName: "ReadMaterializedOperations",
+			Handler:    _InternalFlagLoggerService_ReadMaterializedOperations_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
