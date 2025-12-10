@@ -2,15 +2,15 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v5.29.3
-// source: confidence/resolver_state.proto
+// source: confidence/flags/admin/v1/resolver.proto
 
 package admin
 
 import (
+	types "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/types"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
-	_ "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -60,11 +60,11 @@ func (x ResolverState_Region) String() string {
 }
 
 func (ResolverState_Region) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_resolver_state_proto_enumTypes[0].Descriptor()
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[0].Descriptor()
 }
 
 func (ResolverState_Region) Type() protoreflect.EnumType {
-	return &file_confidence_resolver_state_proto_enumTypes[0]
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[0]
 }
 
 func (x ResolverState_Region) Number() protoreflect.EnumNumber {
@@ -73,7 +73,7 @@ func (x ResolverState_Region) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ResolverState_Region.Descriptor instead.
 func (ResolverState_Region) EnumDescriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{0, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{0, 0}
 }
 
 // State of the flag.
@@ -113,11 +113,11 @@ func (x Flag_State) String() string {
 }
 
 func (Flag_State) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_resolver_state_proto_enumTypes[1].Descriptor()
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[1].Descriptor()
 }
 
 func (Flag_State) Type() protoreflect.EnumType {
-	return &file_confidence_resolver_state_proto_enumTypes[1]
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[1]
 }
 
 func (x Flag_State) Number() protoreflect.EnumNumber {
@@ -126,7 +126,7 @@ func (x Flag_State) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Flag_State.Descriptor instead.
 func (Flag_State) EnumDescriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 0}
 }
 
 type Condition_Comparison_Operator int32
@@ -198,11 +198,11 @@ func (x Condition_Comparison_Operator) String() string {
 }
 
 func (Condition_Comparison_Operator) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_resolver_state_proto_enumTypes[2].Descriptor()
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[2].Descriptor()
 }
 
 func (Condition_Comparison_Operator) Type() protoreflect.EnumType {
-	return &file_confidence_resolver_state_proto_enumTypes[2]
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[2]
 }
 
 func (x Condition_Comparison_Operator) Number() protoreflect.EnumNumber {
@@ -211,7 +211,7 @@ func (x Condition_Comparison_Operator) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Condition_Comparison_Operator.Descriptor instead.
 func (Condition_Comparison_Operator) EnumDescriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 5, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 5, 0}
 }
 
 type Condition_ContextFieldComparison_Operator int32
@@ -259,11 +259,11 @@ func (x Condition_ContextFieldComparison_Operator) String() string {
 }
 
 func (Condition_ContextFieldComparison_Operator) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_resolver_state_proto_enumTypes[3].Descriptor()
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[3].Descriptor()
 }
 
 func (Condition_ContextFieldComparison_Operator) Type() protoreflect.EnumType {
-	return &file_confidence_resolver_state_proto_enumTypes[3]
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[3]
 }
 
 func (x Condition_ContextFieldComparison_Operator) Number() protoreflect.EnumNumber {
@@ -272,7 +272,7 @@ func (x Condition_ContextFieldComparison_Operator) Number() protoreflect.EnumNum
 
 // Deprecated: Use Condition_ContextFieldComparison_Operator.Descriptor instead.
 func (Condition_ContextFieldComparison_Operator) EnumDescriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 6, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 6, 0}
 }
 
 // The full state for operating a flags resolver
@@ -290,14 +290,14 @@ type ResolverState struct {
 	// All client credentials
 	ClientCredentials []*ClientCredential `protobuf:"bytes,7,rep,name=client_credentials,json=clientCredentials,proto3" json:"client_credentials,omitempty"`
 	// The region of the account
-	Region        ResolverState_Region `protobuf:"varint,8,opt,name=region,proto3,enum=confidence.admin.ResolverState_Region" json:"region,omitempty"`
+	Region        ResolverState_Region `protobuf:"varint,8,opt,name=region,proto3,enum=confidence.flags.admin.v1.ResolverState_Region" json:"region,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResolverState) Reset() {
 	*x = ResolverState{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[0]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -309,7 +309,7 @@ func (x *ResolverState) String() string {
 func (*ResolverState) ProtoMessage() {}
 
 func (x *ResolverState) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[0]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -322,7 +322,7 @@ func (x *ResolverState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolverState.ProtoReflect.Descriptor instead.
 func (*ResolverState) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *ResolverState) GetFlags() []*Flag {
@@ -375,11 +375,11 @@ type Flag struct {
 	// A description for the flag.
 	Description string `protobuf:"bytes,13,opt,name=description,proto3" json:"description,omitempty"`
 	// Schema for the value of each variant.
-	Schema *FlagSchema_StructFlagSchema `protobuf:"bytes,2,opt,name=schema,proto3" json:"schema,omitempty"`
+	Schema *types.FlagSchema_StructFlagSchema `protobuf:"bytes,2,opt,name=schema,proto3" json:"schema,omitempty"`
 	// List of variants for this flag.
 	Variants []*Flag_Variant `protobuf:"bytes,3,rep,name=variants,proto3" json:"variants,omitempty"`
 	// The current state of the flag.
-	State Flag_State `protobuf:"varint,4,opt,name=state,proto3,enum=confidence.admin.Flag_State" json:"state,omitempty"`
+	State Flag_State `protobuf:"varint,4,opt,name=state,proto3,enum=confidence.flags.admin.v1.Flag_State" json:"state,omitempty"`
 	// List of ordered rules that determines how entities are assigned to variants.
 	Rules []*Flag_Rule `protobuf:"bytes,5,rep,name=rules,proto3" json:"rules,omitempty"`
 	// List of clients that this flag is enabled for.
@@ -390,7 +390,7 @@ type Flag struct {
 
 func (x *Flag) Reset() {
 	*x = Flag{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[1]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -402,7 +402,7 @@ func (x *Flag) String() string {
 func (*Flag) ProtoMessage() {}
 
 func (x *Flag) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[1]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -415,7 +415,7 @@ func (x *Flag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flag.ProtoReflect.Descriptor instead.
 func (*Flag) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Flag) GetName() string {
@@ -432,7 +432,7 @@ func (x *Flag) GetDescription() string {
 	return ""
 }
 
-func (x *Flag) GetSchema() *FlagSchema_StructFlagSchema {
+func (x *Flag) GetSchema() *types.FlagSchema_StructFlagSchema {
 	if x != nil {
 		return x.Schema
 	}
@@ -467,159 +467,6 @@ func (x *Flag) GetClients() []string {
 	return nil
 }
 
-// Schema for the value of a flag.
-type FlagSchema struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to SchemaType:
-	//
-	//	*FlagSchema_StructSchema
-	//	*FlagSchema_ListSchema
-	//	*FlagSchema_IntSchema
-	//	*FlagSchema_DoubleSchema
-	//	*FlagSchema_StringSchema
-	//	*FlagSchema_BoolSchema
-	SchemaType    isFlagSchema_SchemaType `protobuf_oneof:"schema_type"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FlagSchema) Reset() {
-	*x = FlagSchema{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FlagSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FlagSchema) ProtoMessage() {}
-
-func (x *FlagSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FlagSchema.ProtoReflect.Descriptor instead.
-func (*FlagSchema) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *FlagSchema) GetSchemaType() isFlagSchema_SchemaType {
-	if x != nil {
-		return x.SchemaType
-	}
-	return nil
-}
-
-func (x *FlagSchema) GetStructSchema() *FlagSchema_StructFlagSchema {
-	if x != nil {
-		if x, ok := x.SchemaType.(*FlagSchema_StructSchema); ok {
-			return x.StructSchema
-		}
-	}
-	return nil
-}
-
-func (x *FlagSchema) GetListSchema() *FlagSchema_ListFlagSchema {
-	if x != nil {
-		if x, ok := x.SchemaType.(*FlagSchema_ListSchema); ok {
-			return x.ListSchema
-		}
-	}
-	return nil
-}
-
-func (x *FlagSchema) GetIntSchema() *FlagSchema_IntFlagSchema {
-	if x != nil {
-		if x, ok := x.SchemaType.(*FlagSchema_IntSchema); ok {
-			return x.IntSchema
-		}
-	}
-	return nil
-}
-
-func (x *FlagSchema) GetDoubleSchema() *FlagSchema_DoubleFlagSchema {
-	if x != nil {
-		if x, ok := x.SchemaType.(*FlagSchema_DoubleSchema); ok {
-			return x.DoubleSchema
-		}
-	}
-	return nil
-}
-
-func (x *FlagSchema) GetStringSchema() *FlagSchema_StringFlagSchema {
-	if x != nil {
-		if x, ok := x.SchemaType.(*FlagSchema_StringSchema); ok {
-			return x.StringSchema
-		}
-	}
-	return nil
-}
-
-func (x *FlagSchema) GetBoolSchema() *FlagSchema_BoolFlagSchema {
-	if x != nil {
-		if x, ok := x.SchemaType.(*FlagSchema_BoolSchema); ok {
-			return x.BoolSchema
-		}
-	}
-	return nil
-}
-
-type isFlagSchema_SchemaType interface {
-	isFlagSchema_SchemaType()
-}
-
-type FlagSchema_StructSchema struct {
-	// Schema if this is a struct
-	StructSchema *FlagSchema_StructFlagSchema `protobuf:"bytes,1,opt,name=struct_schema,json=structSchema,proto3,oneof"`
-}
-
-type FlagSchema_ListSchema struct {
-	// Schema if this is a list
-	ListSchema *FlagSchema_ListFlagSchema `protobuf:"bytes,2,opt,name=list_schema,json=listSchema,proto3,oneof"`
-}
-
-type FlagSchema_IntSchema struct {
-	// Schema if this is an int
-	IntSchema *FlagSchema_IntFlagSchema `protobuf:"bytes,3,opt,name=int_schema,json=intSchema,proto3,oneof"`
-}
-
-type FlagSchema_DoubleSchema struct {
-	// Schema if this is a double
-	DoubleSchema *FlagSchema_DoubleFlagSchema `protobuf:"bytes,4,opt,name=double_schema,json=doubleSchema,proto3,oneof"`
-}
-
-type FlagSchema_StringSchema struct {
-	// Schema if this is a string
-	StringSchema *FlagSchema_StringFlagSchema `protobuf:"bytes,5,opt,name=string_schema,json=stringSchema,proto3,oneof"`
-}
-
-type FlagSchema_BoolSchema struct {
-	// Schema if this is a bool
-	BoolSchema *FlagSchema_BoolFlagSchema `protobuf:"bytes,6,opt,name=bool_schema,json=boolSchema,proto3,oneof"`
-}
-
-func (*FlagSchema_StructSchema) isFlagSchema_SchemaType() {}
-
-func (*FlagSchema_ListSchema) isFlagSchema_SchemaType() {}
-
-func (*FlagSchema_IntSchema) isFlagSchema_SchemaType() {}
-
-func (*FlagSchema_DoubleSchema) isFlagSchema_SchemaType() {}
-
-func (*FlagSchema_StringSchema) isFlagSchema_SchemaType() {}
-
-func (*FlagSchema_BoolSchema) isFlagSchema_SchemaType() {}
-
 // A reusable slice of an entity population.
 type Segment struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -640,7 +487,7 @@ type Segment struct {
 
 func (x *Segment) Reset() {
 	*x = Segment{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[3]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -652,7 +499,7 @@ func (x *Segment) String() string {
 func (*Segment) ProtoMessage() {}
 
 func (x *Segment) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[3]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -665,7 +512,7 @@ func (x *Segment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Segment.ProtoReflect.Descriptor instead.
 func (*Segment) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{3}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Segment) GetName() string {
@@ -722,7 +569,7 @@ type Condition struct {
 
 func (x *Condition) Reset() {
 	*x = Condition{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[4]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -734,7 +581,7 @@ func (x *Condition) String() string {
 func (*Condition) ProtoMessage() {}
 
 func (x *Condition) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[4]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -747,7 +594,7 @@ func (x *Condition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition.ProtoReflect.Descriptor instead.
 func (*Condition) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Condition) GetCondition() isCondition_Condition {
@@ -879,7 +726,7 @@ type Client struct {
 
 func (x *Client) Reset() {
 	*x = Client{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[5]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -891,7 +738,7 @@ func (x *Client) String() string {
 func (*Client) ProtoMessage() {}
 
 func (x *Client) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[5]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -904,7 +751,7 @@ func (x *Client) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Client.ProtoReflect.Descriptor instead.
 func (*Client) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{5}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Client) GetName() string {
@@ -938,7 +785,7 @@ type ClientCredential struct {
 
 func (x *ClientCredential) Reset() {
 	*x = ClientCredential{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[6]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +797,7 @@ func (x *ClientCredential) String() string {
 func (*ClientCredential) ProtoMessage() {}
 
 func (x *ClientCredential) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[6]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +810,7 @@ func (x *ClientCredential) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientCredential.ProtoReflect.Descriptor instead.
 func (*ClientCredential) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{6}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ClientCredential) GetName() string {
@@ -1017,7 +864,7 @@ type ResolverState_PackedBitset struct {
 
 func (x *ResolverState_PackedBitset) Reset() {
 	*x = ResolverState_PackedBitset{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[7]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1029,7 +876,7 @@ func (x *ResolverState_PackedBitset) String() string {
 func (*ResolverState_PackedBitset) ProtoMessage() {}
 
 func (x *ResolverState_PackedBitset) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[7]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1042,7 +889,7 @@ func (x *ResolverState_PackedBitset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolverState_PackedBitset.ProtoReflect.Descriptor instead.
 func (*ResolverState_PackedBitset) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{0, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{0, 0}
 }
 
 func (x *ResolverState_PackedBitset) GetSegment() string {
@@ -1108,7 +955,7 @@ type Flag_Variant struct {
 
 func (x *Flag_Variant) Reset() {
 	*x = Flag_Variant{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[8]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1120,7 +967,7 @@ func (x *Flag_Variant) String() string {
 func (*Flag_Variant) ProtoMessage() {}
 
 func (x *Flag_Variant) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[8]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1133,7 +980,7 @@ func (x *Flag_Variant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flag_Variant.ProtoReflect.Descriptor instead.
 func (*Flag_Variant) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 0}
 }
 
 func (x *Flag_Variant) GetName() string {
@@ -1173,7 +1020,7 @@ type Flag_Rule struct {
 
 func (x *Flag_Rule) Reset() {
 	*x = Flag_Rule{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[9]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1185,7 +1032,7 @@ func (x *Flag_Rule) String() string {
 func (*Flag_Rule) ProtoMessage() {}
 
 func (x *Flag_Rule) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[9]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1198,7 +1045,7 @@ func (x *Flag_Rule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flag_Rule.ProtoReflect.Descriptor instead.
 func (*Flag_Rule) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1}
 }
 
 func (x *Flag_Rule) GetName() string {
@@ -1258,7 +1105,7 @@ type Flag_Rule_MaterializationSpec struct {
 
 func (x *Flag_Rule_MaterializationSpec) Reset() {
 	*x = Flag_Rule_MaterializationSpec{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[10]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1270,7 +1117,7 @@ func (x *Flag_Rule_MaterializationSpec) String() string {
 func (*Flag_Rule_MaterializationSpec) ProtoMessage() {}
 
 func (x *Flag_Rule_MaterializationSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[10]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1283,7 +1130,7 @@ func (x *Flag_Rule_MaterializationSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flag_Rule_MaterializationSpec.ProtoReflect.Descriptor instead.
 func (*Flag_Rule_MaterializationSpec) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 0}
 }
 
 func (x *Flag_Rule_MaterializationSpec) GetWriteMaterialization() string {
@@ -1320,7 +1167,7 @@ type Flag_Rule_AssignmentSpec struct {
 
 func (x *Flag_Rule_AssignmentSpec) Reset() {
 	*x = Flag_Rule_AssignmentSpec{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[11]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1332,7 +1179,7 @@ func (x *Flag_Rule_AssignmentSpec) String() string {
 func (*Flag_Rule_AssignmentSpec) ProtoMessage() {}
 
 func (x *Flag_Rule_AssignmentSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[11]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1345,7 +1192,7 @@ func (x *Flag_Rule_AssignmentSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flag_Rule_AssignmentSpec.ProtoReflect.Descriptor instead.
 func (*Flag_Rule_AssignmentSpec) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1, 1}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 1}
 }
 
 func (x *Flag_Rule_AssignmentSpec) GetBucketCount() int32 {
@@ -1383,7 +1230,7 @@ type Flag_Rule_Assignment struct {
 
 func (x *Flag_Rule_Assignment) Reset() {
 	*x = Flag_Rule_Assignment{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[12]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1395,7 +1242,7 @@ func (x *Flag_Rule_Assignment) String() string {
 func (*Flag_Rule_Assignment) ProtoMessage() {}
 
 func (x *Flag_Rule_Assignment) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[12]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1408,7 +1255,7 @@ func (x *Flag_Rule_Assignment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flag_Rule_Assignment.ProtoReflect.Descriptor instead.
 func (*Flag_Rule_Assignment) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1, 2}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 2}
 }
 
 func (x *Flag_Rule_Assignment) GetAssignmentId() string {
@@ -1497,7 +1344,7 @@ type Flag_Rule_BucketRange struct {
 
 func (x *Flag_Rule_BucketRange) Reset() {
 	*x = Flag_Rule_BucketRange{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[13]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1509,7 +1356,7 @@ func (x *Flag_Rule_BucketRange) String() string {
 func (*Flag_Rule_BucketRange) ProtoMessage() {}
 
 func (x *Flag_Rule_BucketRange) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[13]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +1369,7 @@ func (x *Flag_Rule_BucketRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flag_Rule_BucketRange.ProtoReflect.Descriptor instead.
 func (*Flag_Rule_BucketRange) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1, 3}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 3}
 }
 
 func (x *Flag_Rule_BucketRange) GetLower() int32 {
@@ -1552,7 +1399,7 @@ type Flag_Rule_MaterializationSpec_MaterializationReadMode struct {
 
 func (x *Flag_Rule_MaterializationSpec_MaterializationReadMode) Reset() {
 	*x = Flag_Rule_MaterializationSpec_MaterializationReadMode{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[14]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1564,7 +1411,7 @@ func (x *Flag_Rule_MaterializationSpec_MaterializationReadMode) String() string 
 func (*Flag_Rule_MaterializationSpec_MaterializationReadMode) ProtoMessage() {}
 
 func (x *Flag_Rule_MaterializationSpec_MaterializationReadMode) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[14]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1577,7 +1424,7 @@ func (x *Flag_Rule_MaterializationSpec_MaterializationReadMode) ProtoReflect() p
 
 // Deprecated: Use Flag_Rule_MaterializationSpec_MaterializationReadMode.ProtoReflect.Descriptor instead.
 func (*Flag_Rule_MaterializationSpec_MaterializationReadMode) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1, 0, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 0, 0}
 }
 
 func (x *Flag_Rule_MaterializationSpec_MaterializationReadMode) GetMaterializationMustMatch() bool {
@@ -1605,7 +1452,7 @@ type Flag_Rule_Assignment_VariantAssignment struct {
 
 func (x *Flag_Rule_Assignment_VariantAssignment) Reset() {
 	*x = Flag_Rule_Assignment_VariantAssignment{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[15]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1617,7 +1464,7 @@ func (x *Flag_Rule_Assignment_VariantAssignment) String() string {
 func (*Flag_Rule_Assignment_VariantAssignment) ProtoMessage() {}
 
 func (x *Flag_Rule_Assignment_VariantAssignment) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[15]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1630,7 +1477,7 @@ func (x *Flag_Rule_Assignment_VariantAssignment) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use Flag_Rule_Assignment_VariantAssignment.ProtoReflect.Descriptor instead.
 func (*Flag_Rule_Assignment_VariantAssignment) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1, 2, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 2, 0}
 }
 
 func (x *Flag_Rule_Assignment_VariantAssignment) GetVariant() string {
@@ -1649,7 +1496,7 @@ type Flag_Rule_Assignment_FallthroughAssignment struct {
 
 func (x *Flag_Rule_Assignment_FallthroughAssignment) Reset() {
 	*x = Flag_Rule_Assignment_FallthroughAssignment{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[16]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1661,7 +1508,7 @@ func (x *Flag_Rule_Assignment_FallthroughAssignment) String() string {
 func (*Flag_Rule_Assignment_FallthroughAssignment) ProtoMessage() {}
 
 func (x *Flag_Rule_Assignment_FallthroughAssignment) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[16]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1674,7 +1521,7 @@ func (x *Flag_Rule_Assignment_FallthroughAssignment) ProtoReflect() protoreflect
 
 // Deprecated: Use Flag_Rule_Assignment_FallthroughAssignment.ProtoReflect.Descriptor instead.
 func (*Flag_Rule_Assignment_FallthroughAssignment) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1, 2, 1}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 2, 1}
 }
 
 // No variant will be assigned and the client should return the
@@ -1687,7 +1534,7 @@ type Flag_Rule_Assignment_ClientDefaultAssignment struct {
 
 func (x *Flag_Rule_Assignment_ClientDefaultAssignment) Reset() {
 	*x = Flag_Rule_Assignment_ClientDefaultAssignment{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[17]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1699,7 +1546,7 @@ func (x *Flag_Rule_Assignment_ClientDefaultAssignment) String() string {
 func (*Flag_Rule_Assignment_ClientDefaultAssignment) ProtoMessage() {}
 
 func (x *Flag_Rule_Assignment_ClientDefaultAssignment) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[17]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1712,247 +1559,7 @@ func (x *Flag_Rule_Assignment_ClientDefaultAssignment) ProtoReflect() protorefle
 
 // Deprecated: Use Flag_Rule_Assignment_ClientDefaultAssignment.ProtoReflect.Descriptor instead.
 func (*Flag_Rule_Assignment_ClientDefaultAssignment) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{1, 1, 2, 2}
-}
-
-// A schema of nested fields.
-type FlagSchema_StructFlagSchema struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Map of field name to the schema for the field
-	Schema        map[string]*FlagSchema `protobuf:"bytes,1,rep,name=schema,proto3" json:"schema,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FlagSchema_StructFlagSchema) Reset() {
-	*x = FlagSchema_StructFlagSchema{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[18]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FlagSchema_StructFlagSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FlagSchema_StructFlagSchema) ProtoMessage() {}
-
-func (x *FlagSchema_StructFlagSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[18]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FlagSchema_StructFlagSchema.ProtoReflect.Descriptor instead.
-func (*FlagSchema_StructFlagSchema) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{2, 0}
-}
-
-func (x *FlagSchema_StructFlagSchema) GetSchema() map[string]*FlagSchema {
-	if x != nil {
-		return x.Schema
-	}
-	return nil
-}
-
-// A number that has a decimal place.
-type FlagSchema_DoubleFlagSchema struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FlagSchema_DoubleFlagSchema) Reset() {
-	*x = FlagSchema_DoubleFlagSchema{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[19]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FlagSchema_DoubleFlagSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FlagSchema_DoubleFlagSchema) ProtoMessage() {}
-
-func (x *FlagSchema_DoubleFlagSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[19]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FlagSchema_DoubleFlagSchema.ProtoReflect.Descriptor instead.
-func (*FlagSchema_DoubleFlagSchema) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{2, 1}
-}
-
-// A whole number without a decimal point.
-type FlagSchema_IntFlagSchema struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FlagSchema_IntFlagSchema) Reset() {
-	*x = FlagSchema_IntFlagSchema{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[20]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FlagSchema_IntFlagSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FlagSchema_IntFlagSchema) ProtoMessage() {}
-
-func (x *FlagSchema_IntFlagSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[20]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FlagSchema_IntFlagSchema.ProtoReflect.Descriptor instead.
-func (*FlagSchema_IntFlagSchema) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{2, 2}
-}
-
-// A string.
-type FlagSchema_StringFlagSchema struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FlagSchema_StringFlagSchema) Reset() {
-	*x = FlagSchema_StringFlagSchema{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[21]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FlagSchema_StringFlagSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FlagSchema_StringFlagSchema) ProtoMessage() {}
-
-func (x *FlagSchema_StringFlagSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[21]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FlagSchema_StringFlagSchema.ProtoReflect.Descriptor instead.
-func (*FlagSchema_StringFlagSchema) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{2, 3}
-}
-
-// A boolean: true or false.
-type FlagSchema_BoolFlagSchema struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FlagSchema_BoolFlagSchema) Reset() {
-	*x = FlagSchema_BoolFlagSchema{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[22]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FlagSchema_BoolFlagSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FlagSchema_BoolFlagSchema) ProtoMessage() {}
-
-func (x *FlagSchema_BoolFlagSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[22]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FlagSchema_BoolFlagSchema.ProtoReflect.Descriptor instead.
-func (*FlagSchema_BoolFlagSchema) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{2, 4}
-}
-
-// A list of values.
-type FlagSchema_ListFlagSchema struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// The schema for the elements in the list
-	ElementSchema *FlagSchema `protobuf:"bytes,1,opt,name=element_schema,json=elementSchema,proto3" json:"element_schema,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FlagSchema_ListFlagSchema) Reset() {
-	*x = FlagSchema_ListFlagSchema{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[23]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FlagSchema_ListFlagSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FlagSchema_ListFlagSchema) ProtoMessage() {}
-
-func (x *FlagSchema_ListFlagSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[23]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FlagSchema_ListFlagSchema.ProtoReflect.Descriptor instead.
-func (*FlagSchema_ListFlagSchema) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{2, 5}
-}
-
-func (x *FlagSchema_ListFlagSchema) GetElementSchema() *FlagSchema {
-	if x != nil {
-		return x.ElementSchema
-	}
-	return nil
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 2, 2}
 }
 
 // Targeting criteria
@@ -1966,7 +1573,7 @@ type Segment_Targeting struct {
 
 func (x *Segment_Targeting) Reset() {
 	*x = Segment_Targeting{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[25]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1978,7 +1585,7 @@ func (x *Segment_Targeting) String() string {
 func (*Segment_Targeting) ProtoMessage() {}
 
 func (x *Segment_Targeting) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[25]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1991,7 +1598,7 @@ func (x *Segment_Targeting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Segment_Targeting.ProtoReflect.Descriptor instead.
 func (*Segment_Targeting) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{3, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2, 0}
 }
 
 func (x *Segment_Targeting) GetCondition() *Condition {
@@ -2016,7 +1623,7 @@ type Segment_Allocation struct {
 
 func (x *Segment_Allocation) Reset() {
 	*x = Segment_Allocation{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[26]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2028,7 +1635,7 @@ func (x *Segment_Allocation) String() string {
 func (*Segment_Allocation) ProtoMessage() {}
 
 func (x *Segment_Allocation) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[26]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2041,7 +1648,7 @@ func (x *Segment_Allocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Segment_Allocation.ProtoReflect.Descriptor instead.
 func (*Segment_Allocation) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{3, 1}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2, 1}
 }
 
 func (x *Segment_Allocation) GetProportion() string {
@@ -2077,7 +1684,7 @@ type Segment_BitsetAllocation struct {
 
 func (x *Segment_BitsetAllocation) Reset() {
 	*x = Segment_BitsetAllocation{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[27]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2089,7 +1696,7 @@ func (x *Segment_BitsetAllocation) String() string {
 func (*Segment_BitsetAllocation) ProtoMessage() {}
 
 func (x *Segment_BitsetAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[27]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2102,7 +1709,7 @@ func (x *Segment_BitsetAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Segment_BitsetAllocation.ProtoReflect.Descriptor instead.
 func (*Segment_BitsetAllocation) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{3, 2}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2, 2}
 }
 
 func (x *Segment_BitsetAllocation) GetBitset() []byte {
@@ -2120,7 +1727,7 @@ type Condition_True struct {
 
 func (x *Condition_True) Reset() {
 	*x = Condition_True{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[28]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2132,7 +1739,7 @@ func (x *Condition_True) String() string {
 func (*Condition_True) ProtoMessage() {}
 
 func (x *Condition_True) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[28]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2145,7 +1752,7 @@ func (x *Condition_True) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition_True.ProtoReflect.Descriptor instead.
 func (*Condition_True) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 0}
 }
 
 type Condition_False struct {
@@ -2156,7 +1763,7 @@ type Condition_False struct {
 
 func (x *Condition_False) Reset() {
 	*x = Condition_False{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[29]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2168,7 +1775,7 @@ func (x *Condition_False) String() string {
 func (*Condition_False) ProtoMessage() {}
 
 func (x *Condition_False) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[29]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2181,7 +1788,7 @@ func (x *Condition_False) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition_False.ProtoReflect.Descriptor instead.
 func (*Condition_False) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 1}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 1}
 }
 
 type Condition_And struct {
@@ -2193,7 +1800,7 @@ type Condition_And struct {
 
 func (x *Condition_And) Reset() {
 	*x = Condition_And{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[30]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2205,7 +1812,7 @@ func (x *Condition_And) String() string {
 func (*Condition_And) ProtoMessage() {}
 
 func (x *Condition_And) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[30]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2218,7 +1825,7 @@ func (x *Condition_And) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition_And.ProtoReflect.Descriptor instead.
 func (*Condition_And) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 2}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 2}
 }
 
 func (x *Condition_And) GetConditions() []*Condition {
@@ -2237,7 +1844,7 @@ type Condition_Or struct {
 
 func (x *Condition_Or) Reset() {
 	*x = Condition_Or{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[31]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2249,7 +1856,7 @@ func (x *Condition_Or) String() string {
 func (*Condition_Or) ProtoMessage() {}
 
 func (x *Condition_Or) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[31]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2262,7 +1869,7 @@ func (x *Condition_Or) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition_Or.ProtoReflect.Descriptor instead.
 func (*Condition_Or) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 3}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 3}
 }
 
 func (x *Condition_Or) GetConditions() []*Condition {
@@ -2281,7 +1888,7 @@ type Condition_Not struct {
 
 func (x *Condition_Not) Reset() {
 	*x = Condition_Not{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[32]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2293,7 +1900,7 @@ func (x *Condition_Not) String() string {
 func (*Condition_Not) ProtoMessage() {}
 
 func (x *Condition_Not) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[32]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2306,7 +1913,7 @@ func (x *Condition_Not) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition_Not.ProtoReflect.Descriptor instead.
 func (*Condition_Not) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 4}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 4}
 }
 
 func (x *Condition_Not) GetCondition() *Condition {
@@ -2319,7 +1926,7 @@ func (x *Condition_Not) GetCondition() *Condition {
 type Condition_Comparison struct {
 	state         protoimpl.MessageState        `protogen:"open.v1"`
 	Field         string                        `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
-	Operator      Condition_Comparison_Operator `protobuf:"varint,2,opt,name=operator,proto3,enum=confidence.admin.Condition_Comparison_Operator" json:"operator,omitempty"`
+	Operator      Condition_Comparison_Operator `protobuf:"varint,2,opt,name=operator,proto3,enum=confidence.flags.admin.v1.Condition_Comparison_Operator" json:"operator,omitempty"`
 	Value         *structpb.Value               `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2327,7 +1934,7 @@ type Condition_Comparison struct {
 
 func (x *Condition_Comparison) Reset() {
 	*x = Condition_Comparison{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[33]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2339,7 +1946,7 @@ func (x *Condition_Comparison) String() string {
 func (*Condition_Comparison) ProtoMessage() {}
 
 func (x *Condition_Comparison) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[33]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2352,7 +1959,7 @@ func (x *Condition_Comparison) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition_Comparison.ProtoReflect.Descriptor instead.
 func (*Condition_Comparison) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 5}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 5}
 }
 
 func (x *Condition_Comparison) GetField() string {
@@ -2379,7 +1986,7 @@ func (x *Condition_Comparison) GetValue() *structpb.Value {
 type Condition_ContextFieldComparison struct {
 	state         protoimpl.MessageState                    `protogen:"open.v1"`
 	Field         string                                    `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
-	Operator      Condition_ContextFieldComparison_Operator `protobuf:"varint,2,opt,name=operator,proto3,enum=confidence.admin.Condition_ContextFieldComparison_Operator" json:"operator,omitempty"`
+	Operator      Condition_ContextFieldComparison_Operator `protobuf:"varint,2,opt,name=operator,proto3,enum=confidence.flags.admin.v1.Condition_ContextFieldComparison_Operator" json:"operator,omitempty"`
 	OtherField    string                                    `protobuf:"bytes,3,opt,name=other_field,json=otherField,proto3" json:"other_field,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2387,7 +1994,7 @@ type Condition_ContextFieldComparison struct {
 
 func (x *Condition_ContextFieldComparison) Reset() {
 	*x = Condition_ContextFieldComparison{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[34]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2399,7 +2006,7 @@ func (x *Condition_ContextFieldComparison) String() string {
 func (*Condition_ContextFieldComparison) ProtoMessage() {}
 
 func (x *Condition_ContextFieldComparison) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[34]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2412,7 +2019,7 @@ func (x *Condition_ContextFieldComparison) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Condition_ContextFieldComparison.ProtoReflect.Descriptor instead.
 func (*Condition_ContextFieldComparison) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{4, 6}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{3, 6}
 }
 
 func (x *Condition_ContextFieldComparison) GetField() string {
@@ -2447,7 +2054,7 @@ type ClientCredential_ClientSecret struct {
 
 func (x *ClientCredential_ClientSecret) Reset() {
 	*x = ClientCredential_ClientSecret{}
-	mi := &file_confidence_resolver_state_proto_msgTypes[35]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2459,7 +2066,7 @@ func (x *ClientCredential_ClientSecret) String() string {
 func (*ClientCredential_ClientSecret) ProtoMessage() {}
 
 func (x *ClientCredential_ClientSecret) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_resolver_state_proto_msgTypes[35]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2472,7 +2079,7 @@ func (x *ClientCredential_ClientSecret) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientCredential_ClientSecret.ProtoReflect.Descriptor instead.
 func (*ClientCredential_ClientSecret) Descriptor() ([]byte, []int) {
-	return file_confidence_resolver_state_proto_rawDescGZIP(), []int{6, 0}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{5, 0}
 }
 
 func (x *ClientCredential_ClientSecret) GetSecret() string {
@@ -2482,18 +2089,18 @@ func (x *ClientCredential_ClientSecret) GetSecret() string {
 	return ""
 }
 
-var File_confidence_resolver_state_proto protoreflect.FileDescriptor
+var File_confidence_flags_admin_v1_resolver_proto protoreflect.FileDescriptor
 
-const file_confidence_resolver_state_proto_rawDesc = "" +
+const file_confidence_flags_admin_v1_resolver_proto_rawDesc = "" +
 	"\n" +
-	"\x1fconfidence/resolver_state.proto\x12\x10confidence.admin\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd7\x04\n" +
-	"\rResolverState\x12,\n" +
-	"\x05flags\x18\x01 \x03(\v2\x16.confidence.admin.FlagR\x05flags\x12I\n" +
-	"\x13segments_no_bitsets\x18\x02 \x03(\v2\x19.confidence.admin.SegmentR\x11segmentsNoBitsets\x12F\n" +
-	"\abitsets\x18\x05 \x03(\v2,.confidence.admin.ResolverState.PackedBitsetR\abitsets\x122\n" +
-	"\aclients\x18\x06 \x03(\v2\x18.confidence.admin.ClientR\aclients\x12Q\n" +
-	"\x12client_credentials\x18\a \x03(\v2\".confidence.admin.ClientCredentialR\x11clientCredentials\x12>\n" +
-	"\x06region\x18\b \x01(\x0e2&.confidence.admin.ResolverState.RegionR\x06region\x1a~\n" +
+	"(confidence/flags/admin/v1/resolver.proto\x12\x19confidence.flags.admin.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a%confidence/flags/types/v1/types.proto\"\x8d\x05\n" +
+	"\rResolverState\x125\n" +
+	"\x05flags\x18\x01 \x03(\v2\x1f.confidence.flags.admin.v1.FlagR\x05flags\x12R\n" +
+	"\x13segments_no_bitsets\x18\x02 \x03(\v2\".confidence.flags.admin.v1.SegmentR\x11segmentsNoBitsets\x12O\n" +
+	"\abitsets\x18\x05 \x03(\v25.confidence.flags.admin.v1.ResolverState.PackedBitsetR\abitsets\x12;\n" +
+	"\aclients\x18\x06 \x03(\v2!.confidence.flags.admin.v1.ClientR\aclients\x12Z\n" +
+	"\x12client_credentials\x18\a \x03(\v2+.confidence.flags.admin.v1.ClientCredentialR\x11clientCredentials\x12G\n" +
+	"\x06region\x18\b \x01(\x0e2/.confidence.flags.admin.v1.ResolverState.RegionR\x06region\x1a~\n" +
 	"\fPackedBitset\x12\x18\n" +
 	"\asegment\x18\x01 \x01(\tR\asegment\x12'\n" +
 	"\x0egzipped_bitset\x18\x02 \x01(\fH\x00R\rgzippedBitset\x12!\n" +
@@ -2503,42 +2110,42 @@ const file_confidence_resolver_state_proto_rawDesc = "" +
 	"\x06Region\x12\x16\n" +
 	"\x12REGION_UNSPECIFIED\x10\x00\x12\r\n" +
 	"\tREGION_EU\x10\x01\x12\r\n" +
-	"\tREGION_US\x10\x02\"\xd5\x0e\n" +
+	"\tREGION_US\x10\x02\"\xc2\x0f\n" +
 	"\x04Flag\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\r \x01(\tR\vdescription\x12E\n" +
-	"\x06schema\x18\x02 \x01(\v2-.confidence.admin.FlagSchema.StructFlagSchemaR\x06schema\x12:\n" +
-	"\bvariants\x18\x03 \x03(\v2\x1e.confidence.admin.Flag.VariantR\bvariants\x122\n" +
-	"\x05state\x18\x04 \x01(\x0e2\x1c.confidence.admin.Flag.StateR\x05state\x121\n" +
-	"\x05rules\x18\x05 \x03(\v2\x1b.confidence.admin.Flag.RuleR\x05rules\x12\x18\n" +
+	"\vdescription\x18\r \x01(\tR\vdescription\x12N\n" +
+	"\x06schema\x18\x02 \x01(\v26.confidence.flags.types.v1.FlagSchema.StructFlagSchemaR\x06schema\x12C\n" +
+	"\bvariants\x18\x03 \x03(\v2'.confidence.flags.admin.v1.Flag.VariantR\bvariants\x12;\n" +
+	"\x05state\x18\x04 \x01(\x0e2%.confidence.flags.admin.v1.Flag.StateR\x05state\x12:\n" +
+	"\x05rules\x18\x05 \x03(\v2$.confidence.flags.admin.v1.Flag.RuleR\x05rules\x12\x18\n" +
 	"\aclients\x18\f \x03(\tR\aclients\x1aL\n" +
 	"\aVariant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value\x1a\x8a\v\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value\x1a\xd3\v\n" +
 	"\x04Rule\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\asegment\x18\x02 \x01(\tR\asegment\x12S\n" +
-	"\x0fassignment_spec\x18\f \x01(\v2*.confidence.admin.Flag.Rule.AssignmentSpecR\x0eassignmentSpec\x124\n" +
+	"\asegment\x18\x02 \x01(\tR\asegment\x12\\\n" +
+	"\x0fassignment_spec\x18\f \x01(\v23.confidence.flags.admin.v1.Flag.Rule.AssignmentSpecR\x0eassignmentSpec\x124\n" +
 	"\x16targeting_key_selector\x18\x05 \x01(\tR\x14targetingKeySelector\x12\x18\n" +
-	"\aenabled\x18\v \x01(\bR\aenabled\x12b\n" +
-	"\x14materialization_spec\x18\r \x01(\v2/.confidence.admin.Flag.Rule.MaterializationSpecR\x13materializationSpec\x1a\xfc\x02\n" +
+	"\aenabled\x18\v \x01(\bR\aenabled\x12k\n" +
+	"\x14materialization_spec\x18\r \x01(\v28.confidence.flags.admin.v1.Flag.Rule.MaterializationSpecR\x13materializationSpec\x1a\x85\x03\n" +
 	"\x13MaterializationSpec\x123\n" +
 	"\x15write_materialization\x18\x01 \x01(\tR\x14writeMaterialization\x121\n" +
-	"\x14read_materialization\x18\x02 \x01(\tR\x13readMaterialization\x12[\n" +
-	"\x04mode\x18\x03 \x01(\v2G.confidence.admin.Flag.Rule.MaterializationSpec.MaterializationReadModeR\x04mode\x1a\x9f\x01\n" +
+	"\x14read_materialization\x18\x02 \x01(\tR\x13readMaterialization\x12d\n" +
+	"\x04mode\x18\x03 \x01(\v2P.confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.MaterializationReadModeR\x04mode\x1a\x9f\x01\n" +
 	"\x17MaterializationReadMode\x12<\n" +
 	"\x1amaterialization_must_match\x18\x01 \x01(\bR\x18materializationMustMatch\x12F\n" +
-	" segment_targeting_can_be_ignored\x18\x02 \x01(\bR\x1csegmentTargetingCanBeIgnored\x1a}\n" +
+	" segment_targeting_can_be_ignored\x18\x02 \x01(\bR\x1csegmentTargetingCanBeIgnored\x1a\x86\x01\n" +
 	"\x0eAssignmentSpec\x12!\n" +
-	"\fbucket_count\x18\x01 \x01(\x05R\vbucketCount\x12H\n" +
-	"\vassignments\x18\x02 \x03(\v2&.confidence.admin.Flag.Rule.AssignmentR\vassignments\x1a\x91\x04\n" +
+	"\fbucket_count\x18\x01 \x01(\x05R\vbucketCount\x12Q\n" +
+	"\vassignments\x18\x02 \x03(\v2/.confidence.flags.admin.v1.Flag.Rule.AssignmentR\vassignments\x1a\xb5\x04\n" +
 	"\n" +
 	"Assignment\x12#\n" +
-	"\rassignment_id\x18\x01 \x01(\tR\fassignmentId\x12T\n" +
-	"\avariant\x18\x02 \x01(\v28.confidence.admin.Flag.Rule.Assignment.VariantAssignmentH\x00R\avariant\x12`\n" +
-	"\vfallthrough\x18\x03 \x01(\v2<.confidence.admin.Flag.Rule.Assignment.FallthroughAssignmentH\x00R\vfallthrough\x12g\n" +
-	"\x0eclient_default\x18\x04 \x01(\v2>.confidence.admin.Flag.Rule.Assignment.ClientDefaultAssignmentH\x00R\rclientDefault\x12L\n" +
-	"\rbucket_ranges\x18\x05 \x03(\v2'.confidence.admin.Flag.Rule.BucketRangeR\fbucketRanges\x1a-\n" +
+	"\rassignment_id\x18\x01 \x01(\tR\fassignmentId\x12]\n" +
+	"\avariant\x18\x02 \x01(\v2A.confidence.flags.admin.v1.Flag.Rule.Assignment.VariantAssignmentH\x00R\avariant\x12i\n" +
+	"\vfallthrough\x18\x03 \x01(\v2E.confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignmentH\x00R\vfallthrough\x12p\n" +
+	"\x0eclient_default\x18\x04 \x01(\v2G.confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignmentH\x00R\rclientDefault\x12U\n" +
+	"\rbucket_ranges\x18\x05 \x03(\v20.confidence.flags.admin.v1.Flag.Rule.BucketRangeR\fbucketRanges\x1a-\n" +
 	"\x11VariantAssignment\x12\x18\n" +
 	"\avariant\x18\x01 \x01(\tR\avariant\x1a\x17\n" +
 	"\x15FallthroughAssignment\x1a\x19\n" +
@@ -2552,40 +2159,17 @@ const file_confidence_resolver_state_proto_rawDesc = "" +
 	"\x11STATE_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
 	"\x06ACTIVE\x10\x01\x12\f\n" +
-	"\bARCHIVED\x10\x02\"\xed\x06\n" +
-	"\n" +
-	"FlagSchema\x12T\n" +
-	"\rstruct_schema\x18\x01 \x01(\v2-.confidence.admin.FlagSchema.StructFlagSchemaH\x00R\fstructSchema\x12N\n" +
-	"\vlist_schema\x18\x02 \x01(\v2+.confidence.admin.FlagSchema.ListFlagSchemaH\x00R\n" +
-	"listSchema\x12K\n" +
-	"\n" +
-	"int_schema\x18\x03 \x01(\v2*.confidence.admin.FlagSchema.IntFlagSchemaH\x00R\tintSchema\x12T\n" +
-	"\rdouble_schema\x18\x04 \x01(\v2-.confidence.admin.FlagSchema.DoubleFlagSchemaH\x00R\fdoubleSchema\x12T\n" +
-	"\rstring_schema\x18\x05 \x01(\v2-.confidence.admin.FlagSchema.StringFlagSchemaH\x00R\fstringSchema\x12N\n" +
-	"\vbool_schema\x18\x06 \x01(\v2+.confidence.admin.FlagSchema.BoolFlagSchemaH\x00R\n" +
-	"boolSchema\x1a\xbe\x01\n" +
-	"\x10StructFlagSchema\x12Q\n" +
-	"\x06schema\x18\x01 \x03(\v29.confidence.admin.FlagSchema.StructFlagSchema.SchemaEntryR\x06schema\x1aW\n" +
-	"\vSchemaEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x122\n" +
-	"\x05value\x18\x02 \x01(\v2\x1c.confidence.admin.FlagSchemaR\x05value:\x028\x01\x1a\x12\n" +
-	"\x10DoubleFlagSchema\x1a\x0f\n" +
-	"\rIntFlagSchema\x1a\x12\n" +
-	"\x10StringFlagSchema\x1a\x10\n" +
-	"\x0eBoolFlagSchema\x1aU\n" +
-	"\x0eListFlagSchema\x12C\n" +
-	"\x0eelement_schema\x18\x01 \x01(\v2\x1c.confidence.admin.FlagSchemaR\relementSchemaB\r\n" +
-	"\vschema_type\"\x92\x04\n" +
+	"\bARCHIVED\x10\x02\"\xb6\x04\n" +
 	"\aSegment\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
-	"\fdisplay_name\x18\f \x01(\tR\vdisplayName\x12A\n" +
-	"\ttargeting\x18\x02 \x01(\v2#.confidence.admin.Segment.TargetingR\ttargeting\x12D\n" +
+	"\fdisplay_name\x18\f \x01(\tR\vdisplayName\x12J\n" +
+	"\ttargeting\x18\x02 \x01(\v2,.confidence.flags.admin.v1.Segment.TargetingR\ttargeting\x12M\n" +
 	"\n" +
-	"allocation\x18\x03 \x01(\v2$.confidence.admin.Segment.AllocationR\n" +
-	"allocation\x12W\n" +
-	"\x11bitset_allocation\x18\x06 \x01(\v2*.confidence.admin.Segment.BitsetAllocationR\x10bitsetAllocation\x1aF\n" +
-	"\tTargeting\x129\n" +
-	"\tcondition\x18\x01 \x01(\v2\x1b.confidence.admin.ConditionR\tcondition\x1az\n" +
+	"allocation\x18\x03 \x01(\v2-.confidence.flags.admin.v1.Segment.AllocationR\n" +
+	"allocation\x12`\n" +
+	"\x11bitset_allocation\x18\x06 \x01(\v23.confidence.flags.admin.v1.Segment.BitsetAllocationR\x10bitsetAllocation\x1aO\n" +
+	"\tTargeting\x12B\n" +
+	"\tcondition\x18\x01 \x01(\v2$.confidence.flags.admin.v1.ConditionR\tcondition\x1az\n" +
 	"\n" +
 	"Allocation\x12\x1e\n" +
 	"\n" +
@@ -2594,33 +2178,33 @@ const file_confidence_resolver_state_proto_rawDesc = "" +
 	"\x10exclusivity_tags\x18\x03 \x03(\tR\x0fexclusivityTags\x12!\n" +
 	"\fexclusive_to\x18\x04 \x03(\tR\vexclusiveTo\x1a*\n" +
 	"\x10BitsetAllocation\x12\x16\n" +
-	"\x06bitset\x18\x01 \x01(\fR\x06bitset\"\xcd\v\n" +
-	"\tCondition\x12I\n" +
-	"\x0etrue_condition\x18\x01 \x01(\v2 .confidence.admin.Condition.TrueH\x00R\rtrueCondition\x12L\n" +
-	"\x0ffalse_condition\x18\x02 \x01(\v2!.confidence.admin.Condition.FalseH\x00R\x0efalseCondition\x123\n" +
-	"\x03and\x18\x03 \x01(\v2\x1f.confidence.admin.Condition.AndH\x00R\x03and\x120\n" +
-	"\x02or\x18\x04 \x01(\v2\x1e.confidence.admin.Condition.OrH\x00R\x02or\x123\n" +
-	"\x03not\x18\x05 \x01(\v2\x1f.confidence.admin.Condition.NotH\x00R\x03not\x12H\n" +
+	"\x06bitset\x18\x01 \x01(\fR\x06bitset\"\xb9\f\n" +
+	"\tCondition\x12R\n" +
+	"\x0etrue_condition\x18\x01 \x01(\v2).confidence.flags.admin.v1.Condition.TrueH\x00R\rtrueCondition\x12U\n" +
+	"\x0ffalse_condition\x18\x02 \x01(\v2*.confidence.flags.admin.v1.Condition.FalseH\x00R\x0efalseCondition\x12<\n" +
+	"\x03and\x18\x03 \x01(\v2(.confidence.flags.admin.v1.Condition.AndH\x00R\x03and\x129\n" +
+	"\x02or\x18\x04 \x01(\v2'.confidence.flags.admin.v1.Condition.OrH\x00R\x02or\x12<\n" +
+	"\x03not\x18\x05 \x01(\v2(.confidence.flags.admin.v1.Condition.NotH\x00R\x03not\x12Q\n" +
 	"\n" +
-	"comparison\x18\x06 \x01(\v2&.confidence.admin.Condition.ComparisonH\x00R\n" +
-	"comparison\x12n\n" +
-	"\x18context_field_comparison\x18\a \x01(\v22.confidence.admin.Condition.ContextFieldComparisonH\x00R\x16contextFieldComparison\x1a\x06\n" +
+	"comparison\x18\x06 \x01(\v2/.confidence.flags.admin.v1.Condition.ComparisonH\x00R\n" +
+	"comparison\x12w\n" +
+	"\x18context_field_comparison\x18\a \x01(\v2;.confidence.flags.admin.v1.Condition.ContextFieldComparisonH\x00R\x16contextFieldComparison\x1a\x06\n" +
 	"\x04True\x1a\a\n" +
-	"\x05False\x1aB\n" +
-	"\x03And\x12;\n" +
+	"\x05False\x1aK\n" +
+	"\x03And\x12D\n" +
 	"\n" +
-	"conditions\x18\x01 \x03(\v2\x1b.confidence.admin.ConditionR\n" +
-	"conditions\x1aA\n" +
-	"\x02Or\x12;\n" +
+	"conditions\x18\x01 \x03(\v2$.confidence.flags.admin.v1.ConditionR\n" +
+	"conditions\x1aJ\n" +
+	"\x02Or\x12D\n" +
 	"\n" +
-	"conditions\x18\x01 \x03(\v2\x1b.confidence.admin.ConditionR\n" +
-	"conditions\x1a@\n" +
-	"\x03Not\x129\n" +
-	"\tcondition\x18\x01 \x01(\v2\x1b.confidence.admin.ConditionR\tcondition\x1a\xa7\x03\n" +
+	"conditions\x18\x01 \x03(\v2$.confidence.flags.admin.v1.ConditionR\n" +
+	"conditions\x1aI\n" +
+	"\x03Not\x12B\n" +
+	"\tcondition\x18\x01 \x01(\v2$.confidence.flags.admin.v1.ConditionR\tcondition\x1a\xb0\x03\n" +
 	"\n" +
 	"Comparison\x12\x14\n" +
-	"\x05field\x18\x01 \x01(\tR\x05field\x12K\n" +
-	"\boperator\x18\x02 \x01(\x0e2/.confidence.admin.Condition.Comparison.OperatorR\boperator\x12,\n" +
+	"\x05field\x18\x01 \x01(\tR\x05field\x12T\n" +
+	"\boperator\x18\x02 \x01(\x0e28.confidence.flags.admin.v1.Condition.Comparison.OperatorR\boperator\x12,\n" +
 	"\x05value\x18\x03 \x01(\v2\x16.google.protobuf.ValueR\x05value\"\x87\x02\n" +
 	"\bOperator\x12\x18\n" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\n" +
@@ -2641,10 +2225,10 @@ const file_confidence_resolver_state_proto_rawDesc = "" +
 	"\n" +
 	"\x06NOT_IN\x10\f\x12\x10\n" +
 	"\fCONTAINS_ANY\x10\r\x12\x10\n" +
-	"\fCONTAINS_ALL\x10\x0e\x1a\xbf\x02\n" +
+	"\fCONTAINS_ALL\x10\x0e\x1a\xc8\x02\n" +
 	"\x16ContextFieldComparison\x12\x14\n" +
-	"\x05field\x18\x01 \x01(\tR\x05field\x12W\n" +
-	"\boperator\x18\x02 \x01(\x0e2;.confidence.admin.Condition.ContextFieldComparison.OperatorR\boperator\x12\x1f\n" +
+	"\x05field\x18\x01 \x01(\tR\x05field\x12`\n" +
+	"\boperator\x18\x02 \x01(\x0e2D.confidence.flags.admin.v1.Condition.ContextFieldComparison.OperatorR\boperator\x12\x1f\n" +
 	"\vother_field\x18\x03 \x01(\tR\n" +
 	"otherField\"\x94\x01\n" +
 	"\bOperator\x12\x18\n" +
@@ -2660,143 +2244,118 @@ const file_confidence_resolver_state_proto_rawDesc = "" +
 	"\tcondition\"?\n" +
 	"\x06Client\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
-	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\"\xb4\x01\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\"\xbd\x01\n" +
 	"\x10ClientCredential\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12V\n" +
-	"\rclient_secret\x18\x03 \x01(\v2/.confidence.admin.ClientCredential.ClientSecretH\x00R\fclientSecret\x1a&\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12_\n" +
+	"\rclient_secret\x18\x03 \x01(\v28.confidence.flags.admin.v1.ClientCredential.ClientSecretH\x00R\fclientSecret\x1a&\n" +
 	"\fClientSecret\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secretB\f\n" +
 	"\n" +
-	"credentialB\x83\x01\n" +
-	"\x1ccom.spotify.confidence.adminB\n" +
-	"StateProtoP\x01ZUgithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/adminb\x06proto3"
+	"credentialB\x98\x01\n" +
+	"%com.spotify.confidence.flags.admin.v1B\rResolverProtoP\x01Z^github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/adminb\x06proto3"
 
 var (
-	file_confidence_resolver_state_proto_rawDescOnce sync.Once
-	file_confidence_resolver_state_proto_rawDescData []byte
+	file_confidence_flags_admin_v1_resolver_proto_rawDescOnce sync.Once
+	file_confidence_flags_admin_v1_resolver_proto_rawDescData []byte
 )
 
-func file_confidence_resolver_state_proto_rawDescGZIP() []byte {
-	file_confidence_resolver_state_proto_rawDescOnce.Do(func() {
-		file_confidence_resolver_state_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_confidence_resolver_state_proto_rawDesc), len(file_confidence_resolver_state_proto_rawDesc)))
+func file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP() []byte {
+	file_confidence_flags_admin_v1_resolver_proto_rawDescOnce.Do(func() {
+		file_confidence_flags_admin_v1_resolver_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_confidence_flags_admin_v1_resolver_proto_rawDesc), len(file_confidence_flags_admin_v1_resolver_proto_rawDesc)))
 	})
-	return file_confidence_resolver_state_proto_rawDescData
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescData
 }
 
-var file_confidence_resolver_state_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_confidence_resolver_state_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
-var file_confidence_resolver_state_proto_goTypes = []any{
-	(ResolverState_Region)(0),                      // 0: confidence.admin.ResolverState.Region
-	(Flag_State)(0),                                // 1: confidence.admin.Flag.State
-	(Condition_Comparison_Operator)(0),             // 2: confidence.admin.Condition.Comparison.Operator
-	(Condition_ContextFieldComparison_Operator)(0), // 3: confidence.admin.Condition.ContextFieldComparison.Operator
-	(*ResolverState)(nil),                          // 4: confidence.admin.ResolverState
-	(*Flag)(nil),                                   // 5: confidence.admin.Flag
-	(*FlagSchema)(nil),                             // 6: confidence.admin.FlagSchema
-	(*Segment)(nil),                                // 7: confidence.admin.Segment
-	(*Condition)(nil),                              // 8: confidence.admin.Condition
-	(*Client)(nil),                                 // 9: confidence.admin.Client
-	(*ClientCredential)(nil),                       // 10: confidence.admin.ClientCredential
-	(*ResolverState_PackedBitset)(nil),             // 11: confidence.admin.ResolverState.PackedBitset
-	(*Flag_Variant)(nil),                           // 12: confidence.admin.Flag.Variant
-	(*Flag_Rule)(nil),                              // 13: confidence.admin.Flag.Rule
-	(*Flag_Rule_MaterializationSpec)(nil),          // 14: confidence.admin.Flag.Rule.MaterializationSpec
-	(*Flag_Rule_AssignmentSpec)(nil),               // 15: confidence.admin.Flag.Rule.AssignmentSpec
-	(*Flag_Rule_Assignment)(nil),                   // 16: confidence.admin.Flag.Rule.Assignment
-	(*Flag_Rule_BucketRange)(nil),                  // 17: confidence.admin.Flag.Rule.BucketRange
-	(*Flag_Rule_MaterializationSpec_MaterializationReadMode)(nil), // 18: confidence.admin.Flag.Rule.MaterializationSpec.MaterializationReadMode
-	(*Flag_Rule_Assignment_VariantAssignment)(nil),                // 19: confidence.admin.Flag.Rule.Assignment.VariantAssignment
-	(*Flag_Rule_Assignment_FallthroughAssignment)(nil),            // 20: confidence.admin.Flag.Rule.Assignment.FallthroughAssignment
-	(*Flag_Rule_Assignment_ClientDefaultAssignment)(nil),          // 21: confidence.admin.Flag.Rule.Assignment.ClientDefaultAssignment
-	(*FlagSchema_StructFlagSchema)(nil),                           // 22: confidence.admin.FlagSchema.StructFlagSchema
-	(*FlagSchema_DoubleFlagSchema)(nil),                           // 23: confidence.admin.FlagSchema.DoubleFlagSchema
-	(*FlagSchema_IntFlagSchema)(nil),                              // 24: confidence.admin.FlagSchema.IntFlagSchema
-	(*FlagSchema_StringFlagSchema)(nil),                           // 25: confidence.admin.FlagSchema.StringFlagSchema
-	(*FlagSchema_BoolFlagSchema)(nil),                             // 26: confidence.admin.FlagSchema.BoolFlagSchema
-	(*FlagSchema_ListFlagSchema)(nil),                             // 27: confidence.admin.FlagSchema.ListFlagSchema
-	nil,                                                           // 28: confidence.admin.FlagSchema.StructFlagSchema.SchemaEntry
-	(*Segment_Targeting)(nil),                                     // 29: confidence.admin.Segment.Targeting
-	(*Segment_Allocation)(nil),                                    // 30: confidence.admin.Segment.Allocation
-	(*Segment_BitsetAllocation)(nil),                              // 31: confidence.admin.Segment.BitsetAllocation
-	(*Condition_True)(nil),                                        // 32: confidence.admin.Condition.True
-	(*Condition_False)(nil),                                       // 33: confidence.admin.Condition.False
-	(*Condition_And)(nil),                                         // 34: confidence.admin.Condition.And
-	(*Condition_Or)(nil),                                          // 35: confidence.admin.Condition.Or
-	(*Condition_Not)(nil),                                         // 36: confidence.admin.Condition.Not
-	(*Condition_Comparison)(nil),                                  // 37: confidence.admin.Condition.Comparison
-	(*Condition_ContextFieldComparison)(nil),                      // 38: confidence.admin.Condition.ContextFieldComparison
-	(*ClientCredential_ClientSecret)(nil),                         // 39: confidence.admin.ClientCredential.ClientSecret
-	(*structpb.Struct)(nil),                                       // 40: google.protobuf.Struct
-	(*structpb.Value)(nil),                                        // 41: google.protobuf.Value
+var file_confidence_flags_admin_v1_resolver_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_confidence_flags_admin_v1_resolver_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_confidence_flags_admin_v1_resolver_proto_goTypes = []any{
+	(ResolverState_Region)(0),                      // 0: confidence.flags.admin.v1.ResolverState.Region
+	(Flag_State)(0),                                // 1: confidence.flags.admin.v1.Flag.State
+	(Condition_Comparison_Operator)(0),             // 2: confidence.flags.admin.v1.Condition.Comparison.Operator
+	(Condition_ContextFieldComparison_Operator)(0), // 3: confidence.flags.admin.v1.Condition.ContextFieldComparison.Operator
+	(*ResolverState)(nil),                          // 4: confidence.flags.admin.v1.ResolverState
+	(*Flag)(nil),                                   // 5: confidence.flags.admin.v1.Flag
+	(*Segment)(nil),                                // 6: confidence.flags.admin.v1.Segment
+	(*Condition)(nil),                              // 7: confidence.flags.admin.v1.Condition
+	(*Client)(nil),                                 // 8: confidence.flags.admin.v1.Client
+	(*ClientCredential)(nil),                       // 9: confidence.flags.admin.v1.ClientCredential
+	(*ResolverState_PackedBitset)(nil),             // 10: confidence.flags.admin.v1.ResolverState.PackedBitset
+	(*Flag_Variant)(nil),                           // 11: confidence.flags.admin.v1.Flag.Variant
+	(*Flag_Rule)(nil),                              // 12: confidence.flags.admin.v1.Flag.Rule
+	(*Flag_Rule_MaterializationSpec)(nil),          // 13: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec
+	(*Flag_Rule_AssignmentSpec)(nil),               // 14: confidence.flags.admin.v1.Flag.Rule.AssignmentSpec
+	(*Flag_Rule_Assignment)(nil),                   // 15: confidence.flags.admin.v1.Flag.Rule.Assignment
+	(*Flag_Rule_BucketRange)(nil),                  // 16: confidence.flags.admin.v1.Flag.Rule.BucketRange
+	(*Flag_Rule_MaterializationSpec_MaterializationReadMode)(nil), // 17: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.MaterializationReadMode
+	(*Flag_Rule_Assignment_VariantAssignment)(nil),                // 18: confidence.flags.admin.v1.Flag.Rule.Assignment.VariantAssignment
+	(*Flag_Rule_Assignment_FallthroughAssignment)(nil),            // 19: confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignment
+	(*Flag_Rule_Assignment_ClientDefaultAssignment)(nil),          // 20: confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignment
+	(*Segment_Targeting)(nil),                                     // 21: confidence.flags.admin.v1.Segment.Targeting
+	(*Segment_Allocation)(nil),                                    // 22: confidence.flags.admin.v1.Segment.Allocation
+	(*Segment_BitsetAllocation)(nil),                              // 23: confidence.flags.admin.v1.Segment.BitsetAllocation
+	(*Condition_True)(nil),                                        // 24: confidence.flags.admin.v1.Condition.True
+	(*Condition_False)(nil),                                       // 25: confidence.flags.admin.v1.Condition.False
+	(*Condition_And)(nil),                                         // 26: confidence.flags.admin.v1.Condition.And
+	(*Condition_Or)(nil),                                          // 27: confidence.flags.admin.v1.Condition.Or
+	(*Condition_Not)(nil),                                         // 28: confidence.flags.admin.v1.Condition.Not
+	(*Condition_Comparison)(nil),                                  // 29: confidence.flags.admin.v1.Condition.Comparison
+	(*Condition_ContextFieldComparison)(nil),                      // 30: confidence.flags.admin.v1.Condition.ContextFieldComparison
+	(*ClientCredential_ClientSecret)(nil),                         // 31: confidence.flags.admin.v1.ClientCredential.ClientSecret
+	(*types.FlagSchema_StructFlagSchema)(nil),                     // 32: confidence.flags.types.v1.FlagSchema.StructFlagSchema
+	(*structpb.Struct)(nil),                                       // 33: google.protobuf.Struct
+	(*structpb.Value)(nil),                                        // 34: google.protobuf.Value
 }
-var file_confidence_resolver_state_proto_depIdxs = []int32{
-	5,  // 0: confidence.admin.ResolverState.flags:type_name -> confidence.admin.Flag
-	7,  // 1: confidence.admin.ResolverState.segments_no_bitsets:type_name -> confidence.admin.Segment
-	11, // 2: confidence.admin.ResolverState.bitsets:type_name -> confidence.admin.ResolverState.PackedBitset
-	9,  // 3: confidence.admin.ResolverState.clients:type_name -> confidence.admin.Client
-	10, // 4: confidence.admin.ResolverState.client_credentials:type_name -> confidence.admin.ClientCredential
-	0,  // 5: confidence.admin.ResolverState.region:type_name -> confidence.admin.ResolverState.Region
-	22, // 6: confidence.admin.Flag.schema:type_name -> confidence.admin.FlagSchema.StructFlagSchema
-	12, // 7: confidence.admin.Flag.variants:type_name -> confidence.admin.Flag.Variant
-	1,  // 8: confidence.admin.Flag.state:type_name -> confidence.admin.Flag.State
-	13, // 9: confidence.admin.Flag.rules:type_name -> confidence.admin.Flag.Rule
-	22, // 10: confidence.admin.FlagSchema.struct_schema:type_name -> confidence.admin.FlagSchema.StructFlagSchema
-	27, // 11: confidence.admin.FlagSchema.list_schema:type_name -> confidence.admin.FlagSchema.ListFlagSchema
-	24, // 12: confidence.admin.FlagSchema.int_schema:type_name -> confidence.admin.FlagSchema.IntFlagSchema
-	23, // 13: confidence.admin.FlagSchema.double_schema:type_name -> confidence.admin.FlagSchema.DoubleFlagSchema
-	25, // 14: confidence.admin.FlagSchema.string_schema:type_name -> confidence.admin.FlagSchema.StringFlagSchema
-	26, // 15: confidence.admin.FlagSchema.bool_schema:type_name -> confidence.admin.FlagSchema.BoolFlagSchema
-	29, // 16: confidence.admin.Segment.targeting:type_name -> confidence.admin.Segment.Targeting
-	30, // 17: confidence.admin.Segment.allocation:type_name -> confidence.admin.Segment.Allocation
-	31, // 18: confidence.admin.Segment.bitset_allocation:type_name -> confidence.admin.Segment.BitsetAllocation
-	32, // 19: confidence.admin.Condition.true_condition:type_name -> confidence.admin.Condition.True
-	33, // 20: confidence.admin.Condition.false_condition:type_name -> confidence.admin.Condition.False
-	34, // 21: confidence.admin.Condition.and:type_name -> confidence.admin.Condition.And
-	35, // 22: confidence.admin.Condition.or:type_name -> confidence.admin.Condition.Or
-	36, // 23: confidence.admin.Condition.not:type_name -> confidence.admin.Condition.Not
-	37, // 24: confidence.admin.Condition.comparison:type_name -> confidence.admin.Condition.Comparison
-	38, // 25: confidence.admin.Condition.context_field_comparison:type_name -> confidence.admin.Condition.ContextFieldComparison
-	39, // 26: confidence.admin.ClientCredential.client_secret:type_name -> confidence.admin.ClientCredential.ClientSecret
-	40, // 27: confidence.admin.Flag.Variant.value:type_name -> google.protobuf.Struct
-	15, // 28: confidence.admin.Flag.Rule.assignment_spec:type_name -> confidence.admin.Flag.Rule.AssignmentSpec
-	14, // 29: confidence.admin.Flag.Rule.materialization_spec:type_name -> confidence.admin.Flag.Rule.MaterializationSpec
-	18, // 30: confidence.admin.Flag.Rule.MaterializationSpec.mode:type_name -> confidence.admin.Flag.Rule.MaterializationSpec.MaterializationReadMode
-	16, // 31: confidence.admin.Flag.Rule.AssignmentSpec.assignments:type_name -> confidence.admin.Flag.Rule.Assignment
-	19, // 32: confidence.admin.Flag.Rule.Assignment.variant:type_name -> confidence.admin.Flag.Rule.Assignment.VariantAssignment
-	20, // 33: confidence.admin.Flag.Rule.Assignment.fallthrough:type_name -> confidence.admin.Flag.Rule.Assignment.FallthroughAssignment
-	21, // 34: confidence.admin.Flag.Rule.Assignment.client_default:type_name -> confidence.admin.Flag.Rule.Assignment.ClientDefaultAssignment
-	17, // 35: confidence.admin.Flag.Rule.Assignment.bucket_ranges:type_name -> confidence.admin.Flag.Rule.BucketRange
-	28, // 36: confidence.admin.FlagSchema.StructFlagSchema.schema:type_name -> confidence.admin.FlagSchema.StructFlagSchema.SchemaEntry
-	6,  // 37: confidence.admin.FlagSchema.ListFlagSchema.element_schema:type_name -> confidence.admin.FlagSchema
-	6,  // 38: confidence.admin.FlagSchema.StructFlagSchema.SchemaEntry.value:type_name -> confidence.admin.FlagSchema
-	8,  // 39: confidence.admin.Segment.Targeting.condition:type_name -> confidence.admin.Condition
-	8,  // 40: confidence.admin.Condition.And.conditions:type_name -> confidence.admin.Condition
-	8,  // 41: confidence.admin.Condition.Or.conditions:type_name -> confidence.admin.Condition
-	8,  // 42: confidence.admin.Condition.Not.condition:type_name -> confidence.admin.Condition
-	2,  // 43: confidence.admin.Condition.Comparison.operator:type_name -> confidence.admin.Condition.Comparison.Operator
-	41, // 44: confidence.admin.Condition.Comparison.value:type_name -> google.protobuf.Value
-	3,  // 45: confidence.admin.Condition.ContextFieldComparison.operator:type_name -> confidence.admin.Condition.ContextFieldComparison.Operator
-	46, // [46:46] is the sub-list for method output_type
-	46, // [46:46] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+var file_confidence_flags_admin_v1_resolver_proto_depIdxs = []int32{
+	5,  // 0: confidence.flags.admin.v1.ResolverState.flags:type_name -> confidence.flags.admin.v1.Flag
+	6,  // 1: confidence.flags.admin.v1.ResolverState.segments_no_bitsets:type_name -> confidence.flags.admin.v1.Segment
+	10, // 2: confidence.flags.admin.v1.ResolverState.bitsets:type_name -> confidence.flags.admin.v1.ResolverState.PackedBitset
+	8,  // 3: confidence.flags.admin.v1.ResolverState.clients:type_name -> confidence.flags.admin.v1.Client
+	9,  // 4: confidence.flags.admin.v1.ResolverState.client_credentials:type_name -> confidence.flags.admin.v1.ClientCredential
+	0,  // 5: confidence.flags.admin.v1.ResolverState.region:type_name -> confidence.flags.admin.v1.ResolverState.Region
+	32, // 6: confidence.flags.admin.v1.Flag.schema:type_name -> confidence.flags.types.v1.FlagSchema.StructFlagSchema
+	11, // 7: confidence.flags.admin.v1.Flag.variants:type_name -> confidence.flags.admin.v1.Flag.Variant
+	1,  // 8: confidence.flags.admin.v1.Flag.state:type_name -> confidence.flags.admin.v1.Flag.State
+	12, // 9: confidence.flags.admin.v1.Flag.rules:type_name -> confidence.flags.admin.v1.Flag.Rule
+	21, // 10: confidence.flags.admin.v1.Segment.targeting:type_name -> confidence.flags.admin.v1.Segment.Targeting
+	22, // 11: confidence.flags.admin.v1.Segment.allocation:type_name -> confidence.flags.admin.v1.Segment.Allocation
+	23, // 12: confidence.flags.admin.v1.Segment.bitset_allocation:type_name -> confidence.flags.admin.v1.Segment.BitsetAllocation
+	24, // 13: confidence.flags.admin.v1.Condition.true_condition:type_name -> confidence.flags.admin.v1.Condition.True
+	25, // 14: confidence.flags.admin.v1.Condition.false_condition:type_name -> confidence.flags.admin.v1.Condition.False
+	26, // 15: confidence.flags.admin.v1.Condition.and:type_name -> confidence.flags.admin.v1.Condition.And
+	27, // 16: confidence.flags.admin.v1.Condition.or:type_name -> confidence.flags.admin.v1.Condition.Or
+	28, // 17: confidence.flags.admin.v1.Condition.not:type_name -> confidence.flags.admin.v1.Condition.Not
+	29, // 18: confidence.flags.admin.v1.Condition.comparison:type_name -> confidence.flags.admin.v1.Condition.Comparison
+	30, // 19: confidence.flags.admin.v1.Condition.context_field_comparison:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison
+	31, // 20: confidence.flags.admin.v1.ClientCredential.client_secret:type_name -> confidence.flags.admin.v1.ClientCredential.ClientSecret
+	33, // 21: confidence.flags.admin.v1.Flag.Variant.value:type_name -> google.protobuf.Struct
+	14, // 22: confidence.flags.admin.v1.Flag.Rule.assignment_spec:type_name -> confidence.flags.admin.v1.Flag.Rule.AssignmentSpec
+	13, // 23: confidence.flags.admin.v1.Flag.Rule.materialization_spec:type_name -> confidence.flags.admin.v1.Flag.Rule.MaterializationSpec
+	17, // 24: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.mode:type_name -> confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.MaterializationReadMode
+	15, // 25: confidence.flags.admin.v1.Flag.Rule.AssignmentSpec.assignments:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment
+	18, // 26: confidence.flags.admin.v1.Flag.Rule.Assignment.variant:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.VariantAssignment
+	19, // 27: confidence.flags.admin.v1.Flag.Rule.Assignment.fallthrough:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignment
+	20, // 28: confidence.flags.admin.v1.Flag.Rule.Assignment.client_default:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignment
+	16, // 29: confidence.flags.admin.v1.Flag.Rule.Assignment.bucket_ranges:type_name -> confidence.flags.admin.v1.Flag.Rule.BucketRange
+	7,  // 30: confidence.flags.admin.v1.Segment.Targeting.condition:type_name -> confidence.flags.admin.v1.Condition
+	7,  // 31: confidence.flags.admin.v1.Condition.And.conditions:type_name -> confidence.flags.admin.v1.Condition
+	7,  // 32: confidence.flags.admin.v1.Condition.Or.conditions:type_name -> confidence.flags.admin.v1.Condition
+	7,  // 33: confidence.flags.admin.v1.Condition.Not.condition:type_name -> confidence.flags.admin.v1.Condition
+	2,  // 34: confidence.flags.admin.v1.Condition.Comparison.operator:type_name -> confidence.flags.admin.v1.Condition.Comparison.Operator
+	34, // 35: confidence.flags.admin.v1.Condition.Comparison.value:type_name -> google.protobuf.Value
+	3,  // 36: confidence.flags.admin.v1.Condition.ContextFieldComparison.operator:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison.Operator
+	37, // [37:37] is the sub-list for method output_type
+	37, // [37:37] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
-func init() { file_confidence_resolver_state_proto_init() }
-func file_confidence_resolver_state_proto_init() {
-	if File_confidence_resolver_state_proto != nil {
+func init() { file_confidence_flags_admin_v1_resolver_proto_init() }
+func file_confidence_flags_admin_v1_resolver_proto_init() {
+	if File_confidence_flags_admin_v1_resolver_proto != nil {
 		return
 	}
-	file_confidence_resolver_state_proto_msgTypes[2].OneofWrappers = []any{
-		(*FlagSchema_StructSchema)(nil),
-		(*FlagSchema_ListSchema)(nil),
-		(*FlagSchema_IntSchema)(nil),
-		(*FlagSchema_DoubleSchema)(nil),
-		(*FlagSchema_StringSchema)(nil),
-		(*FlagSchema_BoolSchema)(nil),
-	}
-	file_confidence_resolver_state_proto_msgTypes[4].OneofWrappers = []any{
+	file_confidence_flags_admin_v1_resolver_proto_msgTypes[3].OneofWrappers = []any{
 		(*Condition_TrueCondition)(nil),
 		(*Condition_FalseCondition)(nil),
 		(*Condition_And_)(nil),
@@ -2805,14 +2364,14 @@ func file_confidence_resolver_state_proto_init() {
 		(*Condition_Comparison_)(nil),
 		(*Condition_ContextFieldComparison_)(nil),
 	}
-	file_confidence_resolver_state_proto_msgTypes[6].OneofWrappers = []any{
+	file_confidence_flags_admin_v1_resolver_proto_msgTypes[5].OneofWrappers = []any{
 		(*ClientCredential_ClientSecret_)(nil),
 	}
-	file_confidence_resolver_state_proto_msgTypes[7].OneofWrappers = []any{
+	file_confidence_flags_admin_v1_resolver_proto_msgTypes[6].OneofWrappers = []any{
 		(*ResolverState_PackedBitset_GzippedBitset)(nil),
 		(*ResolverState_PackedBitset_FullBitset)(nil),
 	}
-	file_confidence_resolver_state_proto_msgTypes[12].OneofWrappers = []any{
+	file_confidence_flags_admin_v1_resolver_proto_msgTypes[11].OneofWrappers = []any{
 		(*Flag_Rule_Assignment_Variant)(nil),
 		(*Flag_Rule_Assignment_Fallthrough)(nil),
 		(*Flag_Rule_Assignment_ClientDefault)(nil),
@@ -2821,18 +2380,18 @@ func file_confidence_resolver_state_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_resolver_state_proto_rawDesc), len(file_confidence_resolver_state_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_flags_admin_v1_resolver_proto_rawDesc), len(file_confidence_flags_admin_v1_resolver_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   36,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_confidence_resolver_state_proto_goTypes,
-		DependencyIndexes: file_confidence_resolver_state_proto_depIdxs,
-		EnumInfos:         file_confidence_resolver_state_proto_enumTypes,
-		MessageInfos:      file_confidence_resolver_state_proto_msgTypes,
+		GoTypes:           file_confidence_flags_admin_v1_resolver_proto_goTypes,
+		DependencyIndexes: file_confidence_flags_admin_v1_resolver_proto_depIdxs,
+		EnumInfos:         file_confidence_flags_admin_v1_resolver_proto_enumTypes,
+		MessageInfos:      file_confidence_flags_admin_v1_resolver_proto_msgTypes,
 	}.Build()
-	File_confidence_resolver_state_proto = out.File
-	file_confidence_resolver_state_proto_goTypes = nil
-	file_confidence_resolver_state_proto_depIdxs = nil
+	File_confidence_flags_admin_v1_resolver_proto = out.File
+	file_confidence_flags_admin_v1_resolver_proto_goTypes = nil
+	file_confidence_flags_admin_v1_resolver_proto_depIdxs = nil
 }

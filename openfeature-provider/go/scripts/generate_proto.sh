@@ -28,30 +28,27 @@ echo "Generating protobuf Go files..."
 mkdir -p confidence/proto
 
 # Generate wasm messages proto (WASM-specific types)
-echo "Generating WASM messages..."
-protoc --proto_path=../../wasm/proto \
-       --go_out=confidence/proto \
-       --go_opt=paths=source_relative \
-       --go_opt=Mmessages.proto=github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto \
-       messages.proto
-
 # Generate simplified resolver protos
-echo "Generating resolver protos..."
-mkdir -p confidence/proto/resolver
-mkdir -p confidence/proto/resolverinternal
-mkdir -p confidence/proto/admin
+echo "Generating WASM messages & resolver protos..."
+mkdir -p confidence/internal/proto/resolver
+mkdir -p confidence/internal/proto/resolverinternal
+mkdir -p confidence/internal/proto/admin
+mkdir -p confidence/internal/proto/types
+mkdir -p confidence/internal/proto/wasm
 
 protoc --proto_path=../proto \
-       --go_out=confidence/proto \
-       --go_opt=module=github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto \
-       --go-grpc_out=confidence/proto \
-       --go-grpc_opt=module=github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto \
-       confidence/resolver_types.proto \
-       confidence/resolver_api.proto \
-       confidence/resolver_wasm_api.proto \
-       confidence/resolver_internal_api.proto \
-       confidence/resolver_state.proto
+       --go_out=confidence/internal/proto \
+       --go_opt=module=github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto \
+       --go-grpc_out=confidence/internal/proto \
+       --go-grpc_opt=module=github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto \
+       confidence/flags/types/v1/types.proto \
+       confidence/flags/resolver/v1/types.proto \
+       confidence/flags/resolver/v1/api.proto \
+       confidence/flags/resolver/v1/internal_api.proto \
+       confidence/flags/admin/v1/resolver.proto \
+       confidence/wasm/wasm_api.proto \
+       confidence/wasm/messages.proto
 
 echo "Protobuf generation complete!"
 echo "Generated files:"
-find confidence/proto -name "*.go" -type f
+find confidence/internal/proto -name "*.go" -type f

@@ -5,8 +5,7 @@ import (
 	"fmt"
 
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
-	messages "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
 // materializationSupportedResolver wraps a LocalResolver and allows it to read and write materializations.
@@ -25,7 +24,7 @@ func wrapResolverSupplierWithMaterializations(supplier LocalResolverSupplier, ma
 	}
 }
 
-func (m *materializationSupportedResolver) ResolveWithSticky(request *resolver.ResolveWithStickyRequest) (resp *resolver.ResolveWithStickyResponse, err error) {
+func (m *materializationSupportedResolver) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (resp *wasm.ResolveWithStickyResponse, err error) {
 	response, err := m.current.ResolveWithSticky(request)
 	if err != nil {
 		return nil, err
@@ -37,13 +36,13 @@ func (m *materializationSupportedResolver) ResolveWithSticky(request *resolver.R
 // max number of recursive retries when handling missing materializations
 const maxStickyRetryDepth = 5
 
-func (m *materializationSupportedResolver) handleStickyResponseWithDepth(request *resolver.ResolveWithStickyRequest, response *resolver.ResolveWithStickyResponse, depth int) (*resolver.ResolveWithStickyResponse, error) {
+func (m *materializationSupportedResolver) handleStickyResponseWithDepth(request *wasm.ResolveWithStickyRequest, response *wasm.ResolveWithStickyResponse, depth int) (*wasm.ResolveWithStickyResponse, error) {
 	if depth >= maxStickyRetryDepth {
 		// Stop retrying to avoid potential infinite recursion
 		return nil, fmt.Errorf("exceeded maximum retries (%d) for handling missing materializations", maxStickyRetryDepth)
 	}
 	switch result := response.ResolveResult.(type) {
-	case *resolver.ResolveWithStickyResponse_Success_:
+	case *wasm.ResolveWithStickyResponse_Success_:
 		success := result.Success
 		// Store updates if present
 		if len(success.GetUpdates()) > 0 {
@@ -51,7 +50,7 @@ func (m *materializationSupportedResolver) handleStickyResponseWithDepth(request
 		}
 		return response, nil
 
-	case *resolver.ResolveWithStickyResponse_MissingMaterializations_:
+	case *wasm.ResolveWithStickyResponse_MissingMaterializations_:
 		missingMaterializations := result.MissingMaterializations
 		// Try to load missing materializations from store
 		updatedRequest, err := m.handleMissingMaterializations(request, missingMaterializations.GetItems())
@@ -72,7 +71,7 @@ func (m *materializationSupportedResolver) handleStickyResponseWithDepth(request
 	}
 }
 
-func (m *materializationSupportedResolver) storeUpdates(updates []*resolver.ResolveWithStickyResponse_MaterializationUpdate) {
+func (m *materializationSupportedResolver) storeUpdates(updates []*wasm.ResolveWithStickyResponse_MaterializationUpdate) {
 	// Convert protobuf updates to WriteOp slice
 	writeOps := make([]WriteOp, len(updates))
 	for i, update := range updates {
@@ -98,7 +97,7 @@ func (m *materializationSupportedResolver) storeUpdates(updates []*resolver.Reso
 
 // handleMissingMaterializations loads missing materializations from the store
 // and returns an updated request with the materializations added
-func (m *materializationSupportedResolver) handleMissingMaterializations(request *resolver.ResolveWithStickyRequest, missingItems []*resolver.ResolveWithStickyResponse_MissingMaterializationItem) (*resolver.ResolveWithStickyRequest, error) {
+func (m *materializationSupportedResolver) handleMissingMaterializations(request *wasm.ResolveWithStickyRequest, missingItems []*wasm.ResolveWithStickyResponse_MissingMaterializationItem) (*wasm.ResolveWithStickyRequest, error) {
 	// Convert missing items to ReadOp slice
 	readOps := make([]ReadOp, len(missingItems))
 	for i, item := range missingItems {
@@ -117,7 +116,7 @@ func (m *materializationSupportedResolver) handleMissingMaterializations(request
 
 	// Convert results to protobuf MaterializationMap format
 	// Group by unit for efficiency
-	materializationsPerUnit := make(map[string]*resolver.MaterializationMap)
+	materializationsPerUnit := make(map[string]*wasm.MaterializationMap)
 
 	// Copy existing materializations
 	for k, v := range request.GetMaterializationsPerUnit() {
@@ -136,14 +135,14 @@ func (m *materializationSupportedResolver) handleMissingMaterializations(request
 
 		// Ensure the map exists for this unit
 		if materializationsPerUnit[unit] == nil {
-			materializationsPerUnit[unit] = &resolver.MaterializationMap{
-				InfoMap: make(map[string]*resolver.MaterializationInfo),
+			materializationsPerUnit[unit] = &wasm.MaterializationMap{
+				InfoMap: make(map[string]*wasm.MaterializationInfo),
 			}
 		}
 
 		// Get or create the info for this materialization
 		if materializationsPerUnit[unit].InfoMap[mat] == nil {
-			materializationsPerUnit[unit].InfoMap[mat] = &resolver.MaterializationInfo{
+			materializationsPerUnit[unit].InfoMap[mat] = &wasm.MaterializationInfo{
 				UnitInInfo:    false,
 				RuleToVariant: make(map[string]string),
 			}
@@ -157,7 +156,7 @@ func (m *materializationSupportedResolver) handleMissingMaterializations(request
 	}
 
 	// Create a new request with the updated materializations
-	return &resolver.ResolveWithStickyRequest{
+	return &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          request.GetResolveRequest(),
 		MaterializationsPerUnit: materializationsPerUnit,
 		FailFastOnSticky:        request.GetFailFastOnSticky(),
@@ -173,7 +172,7 @@ func (m *materializationSupportedResolver) FlushAssignLogs() (err error) {
 	return m.current.FlushAssignLogs()
 }
 
-func (m *materializationSupportedResolver) SetResolverState(request *messages.SetResolverStateRequest) (err error) {
+func (m *materializationSupportedResolver) SetResolverState(request *wasm.SetResolverStateRequest) (err error) {
 	return m.current.SetResolverState(request)
 }
 

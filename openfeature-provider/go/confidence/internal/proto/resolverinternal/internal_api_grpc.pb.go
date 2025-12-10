@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v5.29.3
-// source: confidence/resolver_internal_api.proto
+// source: confidence/flags/resolver/v1/internal_api.proto
 
 // IMPORTANT: Package name must match backend expectation for gRPC service discovery
 // The full gRPC service name is: confidence.flags.resolver.v1.InternalFlagLoggerService
@@ -203,5 +203,5 @@ var InternalFlagLoggerService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "confidence/resolver_internal_api.proto",
+	Metadata: "confidence/flags/resolver/v1/internal_api.proto",
 }

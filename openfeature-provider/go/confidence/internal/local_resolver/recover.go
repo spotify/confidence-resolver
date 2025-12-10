@@ -6,8 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	messages "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
 // RecoveringResolverFactory composes an inner LocalResolverFactory and returns
@@ -38,7 +37,7 @@ type RecoveringResolver struct {
 	current atomic.Value // holds LocalResolver
 	broken  atomic.Bool  // indicates an instance has panicked
 
-	lastState atomic.Value // holds *messages.SetResolverStateRequest
+	lastState atomic.Value // holds *wasm.SetResolverStateRequest
 }
 
 func (r *RecoveringResolver) get() LocalResolver {
@@ -57,7 +56,7 @@ func (r *RecoveringResolver) startRecreate() {
 		old := r.get()
 		newLR := r.factory.New()
 		if v := r.lastState.Load(); v != nil {
-			state := v.(*messages.SetResolverStateRequest)
+			state := v.(*wasm.SetResolverStateRequest)
 			_ = newLR.SetResolverState(state)
 		}
 		r.current.Store(newLR)
@@ -86,7 +85,7 @@ func (r *RecoveringResolver) withRecover(opName string, setErr *error, fn func(L
 	fn(lr)
 }
 
-func (r *RecoveringResolver) SetResolverState(request *messages.SetResolverStateRequest) (err error) {
+func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequest) (err error) {
 	r.withRecover("SetResolverState", &err, func(lr LocalResolver) {
 		err = lr.SetResolverState(request)
 		// Cache last successful state
@@ -97,7 +96,7 @@ func (r *RecoveringResolver) SetResolverState(request *messages.SetResolverState
 	return
 }
 
-func (r *RecoveringResolver) ResolveWithSticky(request *resolver.ResolveWithStickyRequest) (resp *resolver.ResolveWithStickyResponse, err error) {
+func (r *RecoveringResolver) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (resp *wasm.ResolveWithStickyResponse, err error) {
 	r.withRecover("ResolveWithSticky", &err, func(lr LocalResolver) {
 		resp, err = lr.ResolveWithSticky(request)
 	})

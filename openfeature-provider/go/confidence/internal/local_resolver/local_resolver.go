@@ -5,8 +5,7 @@ import (
 	"errors"
 	"runtime"
 
-	messages "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
 type LocalResolverSupplier func() LocalResolver
@@ -17,8 +16,8 @@ type LocalResolverFactory interface {
 }
 
 type LocalResolver interface {
-	SetResolverState(*messages.SetResolverStateRequest) error
-	ResolveWithSticky(*resolver.ResolveWithStickyRequest) (*resolver.ResolveWithStickyResponse, error)
+	SetResolverState(*wasm.SetResolverStateRequest) error
+	ResolveWithSticky(*wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error)
 	FlushAllLogs() error
 	FlushAssignLogs() error
 	Close(context.Context) error

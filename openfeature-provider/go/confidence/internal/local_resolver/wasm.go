@@ -9,9 +9,9 @@ import (
 
 	_ "embed"
 
-	messages "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
+
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"google.golang.org/protobuf/proto"
@@ -39,12 +39,12 @@ type WasmResolver struct {
 
 var _ LocalResolver = (*WasmResolver)(nil)
 
-func (r *WasmResolver) SetResolverState(request *messages.SetResolverStateRequest) error {
+func (r *WasmResolver) SetResolverState(request *wasm.SetResolverStateRequest) error {
 	return r.call("wasm_msg_guest_set_resolver_state", request, nil)
 }
 
-func (r *WasmResolver) ResolveWithSticky(request *resolver.ResolveWithStickyRequest) (*resolver.ResolveWithStickyResponse, error) {
-	resp := &resolver.ResolveWithStickyResponse{}
+func (r *WasmResolver) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
+	resp := &wasm.ResolveWithStickyResponse{}
 	err := r.call("wasm_msg_guest_resolve_with_sticky", request, resp)
 	return resp, err
 }
@@ -79,7 +79,7 @@ func (r *WasmResolver) call(fnName string, request proto.Message, response proto
 
 	reqPtr := uint32(0)
 	if request != nil {
-		wsmMsgReq := &messages.Request{
+		wsmMsgReq := &wasm.Request{
 			Data: mustMarshal(request),
 		}
 		reqPtr = transfer(r.instance, mustMarshal(wsmMsgReq))
@@ -93,7 +93,7 @@ func (r *WasmResolver) call(fnName string, request proto.Message, response proto
 
 	if resPtr[0] != 0 {
 		resBytes := consume(r.instance, uint32(resPtr[0]))
-		wsmMsgRes := &messages.Response{}
+		wsmMsgRes := &wasm.Response{}
 		mustUnmarshal(resBytes, wsmMsgRes)
 		errMsg := wsmMsgRes.GetError()
 		if errMsg != "" {
@@ -125,8 +125,8 @@ func NewWasmResolverFactory(logSink LogSink) LocalResolverFactory {
 			timestamp := timestamppb.New(now)
 
 			// Create response wrapper
-			response := &messages.Response{
-				Result: &messages.Response_Data{
+			response := &wasm.Response{
+				Result: &wasm.Response_Data{
 					Data: mustMarshal(timestamp),
 				},
 			}

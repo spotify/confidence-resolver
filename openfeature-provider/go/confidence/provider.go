@@ -12,9 +12,9 @@ import (
 
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
-	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -288,9 +288,9 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	}
 
 	// Create ResolveWithSticky request
-	stickyRequest := &resolver.ResolveWithStickyRequest{
+	stickyRequest := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          request,
-		MaterializationsPerUnit: make(map[string]*resolver.MaterializationMap),
+		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
@@ -311,9 +311,9 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	// Extract the actual resolve response from the sticky response
 	var response *resolver.ResolveFlagsResponse
 	switch result := stickyResponse.ResolveResult.(type) {
-	case *resolver.ResolveWithStickyResponse_Success_:
+	case *wasm.ResolveWithStickyResponse_Success_:
 		response = result.Success.Response
-	case *resolver.ResolveWithStickyResponse_MissingMaterializations_:
+	case *wasm.ResolveWithStickyResponse_MissingMaterializations_:
 		p.logger.Error("Missing materializations for flag", "flag", flagPath)
 		return openfeature.InterfaceResolutionDetail{
 			Value: defaultValue,
@@ -450,7 +450,7 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 	}
 
 	// Update resolver with initial state (triggers WASM compilation and initialization)
-	setResolverStateRequest := &proto.SetResolverStateRequest{
+	setResolverStateRequest := &wasm.SetResolverStateRequest{
 		State:     initialState,
 		AccountId: accountId,
 	}
@@ -547,7 +547,7 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 				}
 
 				// Update state and flush logs
-				setResolverStateRequest := &proto.SetResolverStateRequest{
+				setResolverStateRequest := &wasm.SetResolverStateRequest{
 					State:     state,
 					AccountId: accountId,
 				}

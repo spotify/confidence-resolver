@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	admin "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/admin"
+	admin "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -137,7 +137,7 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 	}
 
 	// Parse SetResolverStateRequest
-	stateRequest := &pb.SetResolverStateRequest{}
+	stateRequest := &wasm.SetResolverStateRequest{}
 	if err := proto.Unmarshal(bytes, stateRequest); err != nil {
 		return fmt.Errorf("failed to unmarshal SetResolverStateRequest: %w", err)
 	}
