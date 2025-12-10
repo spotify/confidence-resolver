@@ -28,14 +28,11 @@ func main() {
 	log.Println("")
 
 	log.Println("Creating Confidence provider...")
-	materializationStore, err := confidence.NewRemoteMaterializationStore(clientSecret)
-	if err != nil {
-		log.Fatalf("Failed to create remote materialization store: %v", err)
-	}
 	provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-		ClientSecret:         clientSecret,
-		MaterializationStore: materializationStore,
+		ClientSecret:                  clientSecret,
+		UseRemoteMaterializationStore: true,
 	})
+
 	if err != nil {
 		log.Fatalf("Failed to create provider: %v", err)
 	}

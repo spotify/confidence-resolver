@@ -3,62 +3,59 @@ package confidence
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 )
 
-// RemoteMaterializationStore is a MaterializationStore implementation that stores
+const (
+	defaultMaterializationReadTimeoutSeconds  = 2
+	defaultMaterializationWriteTimeoutSeconds = 5
+)
+
+// remoteMaterializationStore is a MaterializationStore implementation that stores
 // materialization data remotely via gRPC to the Confidence service.
 //
 // This implementation is useful when you want the Confidence service to manage
 // materialization storage server-side rather than maintaining local state.
-type RemoteMaterializationStore struct {
+type remoteMaterializationStore struct {
 	client       pb.InternalFlagLoggerServiceClient
 	clientSecret string
 }
 
-// NewRemoteMaterializationStore creates a new RemoteMaterializationStore.
-func NewRemoteMaterializationStore(clientSecret string) (*RemoteMaterializationStore, error) {
-	return NewRemoteMaterializationStoreWithTransport(clientSecret, nil)
-}
-
-// NewRemoteMaterializationStoreWithTransport creates a new RemoteMaterializationStore with the given TransportHooks.
-// If TransportHooks is nil, DefaultTransportHooks will be used.
-func NewRemoteMaterializationStoreWithTransport(clientSecret string, transportHooks TransportHooks) (*RemoteMaterializationStore, error) {
-	if transportHooks == nil {
-		transportHooks = DefaultTransportHooks
-	}
-
-	tlsCreds := credentials.NewTLS(nil)
-	baseOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(tlsCreds),
-	}
-
-	target, opts := transportHooks.ModifyGRPCDial(confidenceDomain, baseOpts)
-	conn, err := grpc.NewClient(target, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create connection: %w", err)
-	}
-
-	client := pb.NewInternalFlagLoggerServiceClient(conn)
-
-	return newRemoteMaterializationStore(client, clientSecret), nil
-}
-
 // newRemoteMaterializationStore creates a new RemoteMaterializationStore with the given gRPC client.
-func newRemoteMaterializationStore(client pb.InternalFlagLoggerServiceClient, clientSecret string) *RemoteMaterializationStore {
-	return &RemoteMaterializationStore{
+func newRemoteMaterializationStore(client pb.InternalFlagLoggerServiceClient, clientSecret string) *remoteMaterializationStore {
+	return &remoteMaterializationStore{
 		client:       client,
 		clientSecret: clientSecret,
 	}
 }
 
+// getMaterializationReadTimeoutSeconds gets the materialization read timeout from environment or returns default
+func getMaterializationReadTimeoutSeconds() time.Duration {
+	if envVal := os.Getenv("CONFIDENCE_MATERIALIZATION_READ_TIMEOUT_SECONDS"); envVal != "" {
+		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return time.Duration(defaultMaterializationReadTimeoutSeconds) * time.Second
+}
+
+// getMaterializationWriteTimeoutSeconds gets the materialization write timeout from environment or returns default
+func getMaterializationWriteTimeoutSeconds() time.Duration {
+	if envVal := os.Getenv("CONFIDENCE_MATERIALIZATION_WRITE_TIMEOUT_SECONDS"); envVal != "" {
+		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return time.Duration(defaultMaterializationWriteTimeoutSeconds) * time.Second
+}
+
 // Read performs a batch read of materialization data from the remote service.
-func (r *RemoteMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]ReadResult, error) {
+func (r *remoteMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]ReadResult, error) {
 	if len(ops) == 0 {
 		return []ReadResult{}, nil
 	}
@@ -66,7 +63,7 @@ func (r *RemoteMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]
 	// Add deadline to context if not already present
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, getMaterializationReadTimeoutSeconds())
 		defer cancel()
 	}
 
@@ -108,7 +105,7 @@ func (r *RemoteMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]
 }
 
 // Write performs a batch write of materialization data to the remote service.
-func (r *RemoteMaterializationStore) Write(ctx context.Context, ops []WriteOp) error {
+func (r *remoteMaterializationStore) Write(ctx context.Context, ops []WriteOp) error {
 	if len(ops) == 0 {
 		return nil
 	}
@@ -116,7 +113,7 @@ func (r *RemoteMaterializationStore) Write(ctx context.Context, ops []WriteOp) e
 	// Add deadline to context if not already present
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, getMaterializationWriteTimeoutSeconds())
 		defer cancel()
 	}
 
