@@ -28,10 +28,11 @@ func main() {
 	log.Println("")
 
 	log.Println("Creating Confidence provider...")
-
 	provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-		ClientSecret: clientSecret,
+		ClientSecret:                  clientSecret,
+		UseRemoteMaterializationStore: true,
 	})
+
 	if err != nil {
 		log.Fatalf("Failed to create provider: %v", err)
 	}
@@ -55,16 +56,16 @@ func main() {
 
 	// Create evaluation context
 	evalCtx := openfeature.NewEvaluationContext(
-		"user-123",
+		"targeting_key_123",
 		map[string]interface{}{
-			"user_id":    "vahid",
+			"sticky":     true,
 			"visitor_id": "vahid",
 		},
 	)
 
 	// Run 5 concurrent threads continuously for 5 second
 	var wg sync.WaitGroup
-	numThreads := 5
+	numThreads := 2
 	runDuration := 5 * time.Second
 
 	log.Printf("Starting %d threads to run for %v to test reload and flush...", numThreads, runDuration)
@@ -87,7 +88,7 @@ func main() {
 
 			for time.Now().Before(stopTime) {
 				// Use ObjectValueDetails to get the full flag object
-				result, err := client.ObjectValueDetails(ctx, "mattias-boolean-flag", map[string]interface{}{}, evalCtx)
+				result, err := client.ObjectValueDetails(ctx, "web-sdk-e2e-flag", map[string]interface{}{}, evalCtx)
 				if err != nil {
 					errorCount++
 					if iteration == 0 { // Only log first error per thread
@@ -104,6 +105,7 @@ func main() {
 
 				// Small sleep to avoid tight loop
 				time.Sleep(1 * time.Millisecond)
+				//break
 			}
 
 			// Update shared counters atomically
