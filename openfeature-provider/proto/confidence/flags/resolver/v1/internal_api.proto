@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package confidence.flags.resolver.v1;
+
+import "google/protobuf/struct.proto";
+import "confidence/flags/admin/v1/types.proto";
+import "confidence/flags/resolver/v1/types.proto";
+import "confidence/flags/resolver/v1/events/events.proto";
+
+option java_package = "com.spotify.confidence.flags.resolver.v1";
+option java_multiple_files = true;
+option java_outer_classname = "InternalApiProto";
+
+service InternalFlagLoggerService {
+
+  // Writes flag assignment events. Mostly called from the sidecar resolver.
+  rpc WriteFlagAssigned(WriteFlagAssignedRequest) returns (WriteFlagAssignedResponse) {}
+
+  // With client secret guarded writing flag assignment events and resolve logs together.
+  rpc ClientWriteFlagLogs(WriteFlagLogsRequest) returns (WriteFlagLogsResponse) {}
+
+  // Stores materializations for units. Uses client secret authentication.
+  rpc WriteMaterializedOperations(WriteOperationsRequest) returns (WriteOperationsResult) {}
+
+  // Loads materializations for units. Uses client secret authentication.
+  rpc ReadMaterializedOperations(ReadOperationsRequest) returns (ReadOperationsResult) {}
+}
+
+// The service that allows to report flag assigned and other client-side flag
+// operations, useful when the resolve engine runs on the customer's premises
+// (e.g. side-car)
+message WriteFlagLogsRequest {
+  repeated confidence.flags.resolver.v1.events.FlagAssigned flag_assigned = 1;
+  TelemetryData telemetry_data = 2;
+  repeated confidence.flags.admin.v1.ClientResolveInfo client_resolve_info = 3;
+  repeated confidence.flags.admin.v1.FlagResolveInfo flag_resolve_info = 4;
+}
+
+message WriteFlagLogsResponse {}
+
+// Response to writing flag assignments
+message WriteFlagAssignedResponse {
+  // The total number of assigned flags, should equal the sum of the flag counts in each flag
+  // assigned event.
+  int64 assigned_flags = 1;
+}
+
+// Collection of telemetry metrics, usually included in request messages to
+// monitor sender-side issues or performance
+message TelemetryData {
+  // "events" dropped from the sender due to issues or inefficiencies.
+  // This is implemented as a delta counter between TelemetryData messages
+  int64 dropped_events = 1;
+
+  // Information about the SDK/provider
+  Sdk sdk = 2;
+}
+
+message ResolveToken {
+  oneof resolve_token {
+    ResolveTokenV1 token_v1 = 1;
+  }
+}
+
+message ResolveTokenV1 {
+  google.protobuf.Struct evaluation_context = 1;
+  map<string, AssignedFlag> assignments = 2;
+  string resolve_id = 3;
+  string account = 4;
+
+  message AssignedFlag {
+    string flag = 1;
+    string targeting_key = 2;
+    string targeting_key_selector = 10;
+    string segment = 3;
+    string variant = 4;
+    string rule = 5;
+    ResolveReason reason = 6;
+    repeated events.FallthroughAssignment fallthrough_assignments = 9;
+    string assignment_id = 8;
+  }
+}
+
+message WriteOperationsRequest {
+  repeated VariantData store_variant_op = 1;
+}
+
+message WriteOperationsResult {}
+
+message VariantReadOp {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+}
+
+message InclusionReadOp {
+  string unit = 1;
+  string materialization = 2;
+}
+
+message ReadOp {
+  oneof op {
+    VariantReadOp variant_read_op = 1;
+    InclusionReadOp inclusion_read_op = 2;
+  }
+}
+
+message ReadOperationsRequest {
+  repeated ReadOp ops = 3;
+}
+
+message VariantData {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+  string variant = 4;
+}
+
+message InclusionData {
+  string unit = 1;
+  string materialization = 2;
+  bool is_included = 3;
+}
+
+message ReadResult {
+  oneof result {
+    VariantData variant_result = 1;
+    InclusionData inclusion_result = 2;
+  }
+}
+
+message ReadOperationsResult {
+  repeated ReadResult results = 1;
+}
