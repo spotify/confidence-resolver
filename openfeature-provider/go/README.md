@@ -194,7 +194,7 @@ Materialization stores provide persistent storage for sticky variant assignments
 
 ### Remote Materialization Store
 
-For quick setup without managing your own storage infrastructure, use the built-in `RemoteMaterializationStore`. This implementation stores materialization data remotely via gRPC to the Confidence service.
+For quick setup without managing your own storage infrastructure, enable the built-in remote materialization store. This implementation stores materialization data via gRPC to the Confidence service.
 
 **When to use**:
 - You need sticky assignments or materialized segments but don't want to manage storage infrastructure
@@ -208,38 +208,29 @@ For quick setup without managing your own storage infrastructure, use the built-
 ```go
 import (
     "context"
-    "log"
 
+    "github.com/open-feature/go-sdk/openfeature"
     "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
 )
 
 func main() {
     ctx := context.Background()
-    clientSecret := "your-client-secret"
 
-    // Create remote materialization store
-    remoteStore, err := confidence.NewRemoteMaterializationStore(clientSecret)
-    if err != nil {
-        log.Fatalf("Failed to create remote store: %v", err)
-    }
-
-    // Use it with the provider
+    // Enable remote materialization store
     provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-        ClientSecret:         clientSecret,
-        MaterializationStore: remoteStore,
+        ClientSecret: "your-client-secret",
+        UseRemoteMaterializationStore: true,
     })
     if err != nil {
         log.Fatalf("Failed to create provider: %v", err)
     }
+
+    openfeature.SetProviderAndWait(provider)
     // ...
 }
 ```
 
-If you need custom transport hooks (for testing or proxies), use `NewRemoteMaterializationStoreWithTransport`:
-
-```go
-remoteStore, err := confidence.NewRemoteMaterializationStoreWithTransport(clientSecret, myTransportHooks)
-```
+The remote store is created automatically by the provider with the correct gRPC connection and authentication.
 
 ### Custom Implementations
 
