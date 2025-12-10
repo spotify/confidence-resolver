@@ -10,7 +10,7 @@ import (
 	_ "embed"
 
 	messages "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"

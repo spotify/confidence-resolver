@@ -2,12 +2,11 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v5.29.3
-// source: confidence/flags/resolver/v1/types.proto
+// source: confidence/resolver_types.proto
 
-package resolvertypes
+package resolver
 
 import (
-	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -34,7 +33,7 @@ const (
 	// The flag could not be resolved because the matching rule had no variant
 	// that could be assigned.
 	//
-	// Deprecated: Marked as deprecated in confidence/flags/resolver/v1/types.proto.
+	// Deprecated: Marked as deprecated in confidence/resolver_types.proto.
 	ResolveReason_RESOLVE_REASON_NO_TREATMENT_MATCH ResolveReason = 3
 	// The flag could not be resolved because it was archived.
 	ResolveReason_RESOLVE_REASON_FLAG_ARCHIVED ResolveReason = 4
@@ -77,11 +76,11 @@ func (x ResolveReason) String() string {
 }
 
 func (ResolveReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_flags_resolver_v1_types_proto_enumTypes[0].Descriptor()
+	return file_confidence_resolver_types_proto_enumTypes[0].Descriptor()
 }
 
 func (ResolveReason) Type() protoreflect.EnumType {
-	return &file_confidence_flags_resolver_v1_types_proto_enumTypes[0]
+	return &file_confidence_resolver_types_proto_enumTypes[0]
 }
 
 func (x ResolveReason) Number() protoreflect.EnumNumber {
@@ -90,7 +89,7 @@ func (x ResolveReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ResolveReason.Descriptor instead.
 func (ResolveReason) EnumDescriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_types_proto_rawDescGZIP(), []int{0}
+	return file_confidence_resolver_types_proto_rawDescGZIP(), []int{0}
 }
 
 type SdkId int32
@@ -186,11 +185,11 @@ func (x SdkId) String() string {
 }
 
 func (SdkId) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_flags_resolver_v1_types_proto_enumTypes[1].Descriptor()
+	return file_confidence_resolver_types_proto_enumTypes[1].Descriptor()
 }
 
 func (SdkId) Type() protoreflect.EnumType {
-	return &file_confidence_flags_resolver_v1_types_proto_enumTypes[1]
+	return &file_confidence_resolver_types_proto_enumTypes[1]
 }
 
 func (x SdkId) Number() protoreflect.EnumNumber {
@@ -199,12 +198,9 @@ func (x SdkId) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SdkId.Descriptor instead.
 func (SdkId) EnumDescriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_types_proto_rawDescGZIP(), []int{1}
+	return file_confidence_resolver_types_proto_rawDescGZIP(), []int{1}
 }
 
-// (-- api-linter: core::0123::resource-annotation=disabled
-//
-//	aip.dev/not-precedent: SDKs are not internal Confidence resources. --)
 type Sdk struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Identifier of the SDK used to interact with the API.
@@ -222,7 +218,7 @@ type Sdk struct {
 
 func (x *Sdk) Reset() {
 	*x = Sdk{}
-	mi := &file_confidence_flags_resolver_v1_types_proto_msgTypes[0]
+	mi := &file_confidence_resolver_types_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -234,7 +230,7 @@ func (x *Sdk) String() string {
 func (*Sdk) ProtoMessage() {}
 
 func (x *Sdk) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_types_proto_msgTypes[0]
+	mi := &file_confidence_resolver_types_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -247,7 +243,7 @@ func (x *Sdk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Sdk.ProtoReflect.Descriptor instead.
 func (*Sdk) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_types_proto_rawDescGZIP(), []int{0}
+	return file_confidence_resolver_types_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Sdk) GetSdk() isSdk_Sdk {
@@ -288,7 +284,7 @@ type isSdk_Sdk interface {
 
 type Sdk_Id struct {
 	// Name of a Confidence SDKs.
-	Id SdkId `protobuf:"varint,1,opt,name=id,proto3,enum=confidence.flags.resolver.v1.SdkId,oneof"`
+	Id SdkId `protobuf:"varint,1,opt,name=id,proto3,enum=confidence.resolver.SdkId,oneof"`
 }
 
 type Sdk_CustomId struct {
@@ -300,15 +296,15 @@ func (*Sdk_Id) isSdk_Sdk() {}
 
 func (*Sdk_CustomId) isSdk_Sdk() {}
 
-var File_confidence_flags_resolver_v1_types_proto protoreflect.FileDescriptor
+var File_confidence_resolver_types_proto protoreflect.FileDescriptor
 
-const file_confidence_flags_resolver_v1_types_proto_rawDesc = "" +
+const file_confidence_resolver_types_proto_rawDesc = "" +
 	"\n" +
-	"(confidence/flags/resolver/v1/types.proto\x12\x1cconfidence.flags.resolver.v1\x1a\x1fgoogle/api/field_behavior.proto\"\x82\x01\n" +
-	"\x03Sdk\x125\n" +
-	"\x02id\x18\x01 \x01(\x0e2#.confidence.flags.resolver.v1.SdkIdH\x00R\x02id\x12\x1d\n" +
-	"\tcustom_id\x18\x02 \x01(\tH\x00R\bcustomId\x12\x1e\n" +
-	"\aversion\x18\x03 \x01(\tB\x04\xe2A\x01\x01R\aversionB\x05\n" +
+	"\x1fconfidence/resolver_types.proto\x12\x13confidence.resolver\"s\n" +
+	"\x03Sdk\x12,\n" +
+	"\x02id\x18\x01 \x01(\x0e2\x1a.confidence.resolver.SdkIdH\x00R\x02id\x12\x1d\n" +
+	"\tcustom_id\x18\x02 \x01(\tH\x00R\bcustomId\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversionB\x05\n" +
 	"\x03sdk*\xfd\x01\n" +
 	"\rResolveReason\x12\x1e\n" +
 	"\x1aRESOLVE_REASON_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -342,31 +338,31 @@ const file_confidence_flags_resolver_v1_types_proto_rawDesc = "" +
 	"\x18SDK_ID_DOTNET_CONFIDENCE\x10\x13\x12\x1c\n" +
 	"\x18SDK_ID_GO_LOCAL_PROVIDER\x10\x14\x12\x1e\n" +
 	"\x1aSDK_ID_JAVA_LOCAL_PROVIDER\x10\x15\x12#\n" +
-	"\x1fSDK_ID_JS_LOCAL_SERVER_PROVIDER\x10\x16B8\n" +
-	"(com.spotify.confidence.flags.resolver.v1B\n" +
-	"TypesProtoP\x01b\x06proto3"
+	"\x1fSDK_ID_JS_LOCAL_SERVER_PROVIDER\x10\x16B\x89\x01\n" +
+	"\x1fcom.spotify.confidence.resolverB\n" +
+	"TypesProtoP\x01ZXgithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverb\x06proto3"
 
 var (
-	file_confidence_flags_resolver_v1_types_proto_rawDescOnce sync.Once
-	file_confidence_flags_resolver_v1_types_proto_rawDescData []byte
+	file_confidence_resolver_types_proto_rawDescOnce sync.Once
+	file_confidence_resolver_types_proto_rawDescData []byte
 )
 
-func file_confidence_flags_resolver_v1_types_proto_rawDescGZIP() []byte {
-	file_confidence_flags_resolver_v1_types_proto_rawDescOnce.Do(func() {
-		file_confidence_flags_resolver_v1_types_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_confidence_flags_resolver_v1_types_proto_rawDesc), len(file_confidence_flags_resolver_v1_types_proto_rawDesc)))
+func file_confidence_resolver_types_proto_rawDescGZIP() []byte {
+	file_confidence_resolver_types_proto_rawDescOnce.Do(func() {
+		file_confidence_resolver_types_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_confidence_resolver_types_proto_rawDesc), len(file_confidence_resolver_types_proto_rawDesc)))
 	})
-	return file_confidence_flags_resolver_v1_types_proto_rawDescData
+	return file_confidence_resolver_types_proto_rawDescData
 }
 
-var file_confidence_flags_resolver_v1_types_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_confidence_flags_resolver_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_confidence_flags_resolver_v1_types_proto_goTypes = []any{
-	(ResolveReason)(0), // 0: confidence.flags.resolver.v1.ResolveReason
-	(SdkId)(0),         // 1: confidence.flags.resolver.v1.SdkId
-	(*Sdk)(nil),        // 2: confidence.flags.resolver.v1.Sdk
+var file_confidence_resolver_types_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_confidence_resolver_types_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_confidence_resolver_types_proto_goTypes = []any{
+	(ResolveReason)(0), // 0: confidence.resolver.ResolveReason
+	(SdkId)(0),         // 1: confidence.resolver.SdkId
+	(*Sdk)(nil),        // 2: confidence.resolver.Sdk
 }
-var file_confidence_flags_resolver_v1_types_proto_depIdxs = []int32{
-	1, // 0: confidence.flags.resolver.v1.Sdk.id:type_name -> confidence.flags.resolver.v1.SdkId
+var file_confidence_resolver_types_proto_depIdxs = []int32{
+	1, // 0: confidence.resolver.Sdk.id:type_name -> confidence.resolver.SdkId
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
@@ -374,12 +370,12 @@ var file_confidence_flags_resolver_v1_types_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_confidence_flags_resolver_v1_types_proto_init() }
-func file_confidence_flags_resolver_v1_types_proto_init() {
-	if File_confidence_flags_resolver_v1_types_proto != nil {
+func init() { file_confidence_resolver_types_proto_init() }
+func file_confidence_resolver_types_proto_init() {
+	if File_confidence_resolver_types_proto != nil {
 		return
 	}
-	file_confidence_flags_resolver_v1_types_proto_msgTypes[0].OneofWrappers = []any{
+	file_confidence_resolver_types_proto_msgTypes[0].OneofWrappers = []any{
 		(*Sdk_Id)(nil),
 		(*Sdk_CustomId)(nil),
 	}
@@ -387,18 +383,18 @@ func file_confidence_flags_resolver_v1_types_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_flags_resolver_v1_types_proto_rawDesc), len(file_confidence_flags_resolver_v1_types_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_resolver_types_proto_rawDesc), len(file_confidence_resolver_types_proto_rawDesc)),
 			NumEnums:      2,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_confidence_flags_resolver_v1_types_proto_goTypes,
-		DependencyIndexes: file_confidence_flags_resolver_v1_types_proto_depIdxs,
-		EnumInfos:         file_confidence_flags_resolver_v1_types_proto_enumTypes,
-		MessageInfos:      file_confidence_flags_resolver_v1_types_proto_msgTypes,
+		GoTypes:           file_confidence_resolver_types_proto_goTypes,
+		DependencyIndexes: file_confidence_resolver_types_proto_depIdxs,
+		EnumInfos:         file_confidence_resolver_types_proto_enumTypes,
+		MessageInfos:      file_confidence_resolver_types_proto_msgTypes,
 	}.Build()
-	File_confidence_flags_resolver_v1_types_proto = out.File
-	file_confidence_flags_resolver_v1_types_proto_goTypes = nil
-	file_confidence_flags_resolver_v1_types_proto_depIdxs = nil
+	File_confidence_resolver_types_proto = out.File
+	file_confidence_resolver_types_proto_goTypes = nil
+	file_confidence_resolver_types_proto_depIdxs = nil
 }

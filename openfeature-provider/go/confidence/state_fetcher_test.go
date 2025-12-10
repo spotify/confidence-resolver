@@ -11,7 +11,7 @@ import (
 	"time"
 
 	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/admin/v1"
+	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/admin"
 	"google.golang.org/protobuf/proto"
 )
 
