@@ -13,8 +13,8 @@ import (
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolvertypes"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
+	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal"
 	"google.golang.org/grpc/metadata"
 )
 

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

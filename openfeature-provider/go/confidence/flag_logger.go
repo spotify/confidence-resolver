@@ -1,7 +1,7 @@
 package confidence
 
 import (
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolverinternal"
 )
 
 type FlagLogger interface {
