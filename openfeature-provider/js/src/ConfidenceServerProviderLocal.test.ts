@@ -269,7 +269,7 @@ describe('remote resolver fallback for sticky assignments', () => {
           resolveToken: new Uint8Array(),
           resolveId: 'resolve-123',
         },
-        updates: [],
+        materializationUpdates: [],
       },
     });
 
@@ -286,8 +286,9 @@ describe('remote resolver fallback for sticky assignments', () => {
         flags: ['flags/test-flag'],
         clientSecret: 'flagClientSecret',
       }),
-      materializationsPerUnit: {},
+      materializations: [],
       failFastOnSticky: true,
+      notProcessSticky: false,
     });
 
     // No remote call needed
@@ -299,9 +300,7 @@ describe('remote resolver fallback for sticky assignments', () => {
 
     // WASM resolver reports missing materialization
     mockedWasmResolver.resolveWithSticky.mockReturnValue({
-      missingMaterializations: {
-        items: [{ unit: 'user-456', rule: 'rule-1', readMaterialization: 'mat-v1' }],
-      },
+      readOpsRequest: { ops: [{ variantReadOp: { unit: 'user-456', rule: 'rule-1', materialization: 'mat-v1' } }] },
     });
 
     // Configure remote resolver response
@@ -350,8 +349,8 @@ describe('remote resolver fallback for sticky assignments', () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
     mockedWasmResolver.resolveWithSticky.mockReturnValue({
-      missingMaterializations: {
-        items: [{ unit: 'user-1', rule: 'rule-1', readMaterialization: 'mat-1' }],
+      readOpsRequest: {
+        ops: [{ variantReadOp: { unit: 'user-1', rule: 'rule-1', materialization: 'mat-1' } }],
       },
     });
 
@@ -402,7 +401,7 @@ describe('SDK telemetry', () => {
           resolveToken: new Uint8Array(),
           resolveId: 'resolve-123',
         },
-        updates: [],
+        materializationUpdates: [],
       },
     });
 
@@ -420,8 +419,9 @@ describe('SDK telemetry', () => {
           version: expect.stringMatching(/^\d+\.\d+\.\d+$/), // Semantic version format
         }),
       }),
-      materializationsPerUnit: {},
+      materializations: [],
       failFastOnSticky: true,
+      notProcessSticky: false,
     });
   });
 });

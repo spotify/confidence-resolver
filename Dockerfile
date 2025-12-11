@@ -303,9 +303,8 @@ COPY \
     ./
 COPY openfeature-provider/js/proto ./proto
 
-# Copy wasm and confidence-resolver proto files (needed for proto generation)
-COPY wasm/proto ../../../wasm/proto
-COPY confidence-resolver/protos ../../../confidence-resolver/protos
+# Copy proto files needed for proto generation
+COPY openfeature-provider/proto ../../../openfeature-provider/proto
 
 # Install dependencies (this layer will be cached)
 ENV IN_DOCKER_BUILD=1
@@ -326,7 +325,6 @@ COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ../../../wasm/con
 FROM openfeature-provider-js-base AS openfeature-provider-js.test
 
 # Copy confidence-resolver protos (needed by some tests for proto parsing)
-COPY confidence-resolver/protos ../../../confidence-resolver/protos
 COPY wasm/resolver_state.pb ../../../wasm/resolver_state.pb
 COPY openfeature-provider/js/prettier.config.cjs ./
 COPY openfeature-provider/js/.prettierignore ./

@@ -2,8 +2,8 @@ import { vi } from 'vitest';
 import { AccessToken } from './LocalResolver';
 import { abortableSleep, isObject, TimeUnit } from './util';
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { ResolveFlagsResponse } from './proto/resolver/api';
-import { SetResolverStateRequest } from './proto/messages';
+import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
+import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
 import { HashProvider } from './HashProvider';
 
 type PayloadFactory = (req: Request) => BodyInit | null;
