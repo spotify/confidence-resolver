@@ -529,8 +529,7 @@ COPY openfeature-provider/java/Makefile ./
 RUN mvn dependency:go-offline -q || true
 
 # Copy proto files (needed for protobuf generation)
-COPY confidence-resolver/protos ../../confidence-resolver/protos/
-COPY wasm/proto ../../wasm/proto/
+COPY openfeature-provider/proto ../proto/
 
 # Copy source code
 COPY openfeature-provider/java/src ./src/

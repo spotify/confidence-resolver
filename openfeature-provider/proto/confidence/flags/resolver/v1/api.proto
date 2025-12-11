@@ -15,6 +15,17 @@ option java_outer_classname = "ApiProto";
 // Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/api.proto
 // and confidence-resolver/protos/confidence/flags/types/v1/types.proto
 // Annotations removed for minimal dependencies
+service FlagResolverService {
+    // Resolve multiple flags into variants and values. This method resolves
+  // all flags that are enabled for the given client, or a subset of them
+  // specified in the request.
+  // A flag is resolved by evaluating its rules in order, a rule matches if:
+  // 1) it is enabled, 2) the referred segment is active, and 3) the
+  // randomization unit is in the population indicated by the segment's
+  // targeting criteria and population allocation. The first rule that matches
+  // will assign a variant and value to the unit. Archived flags are not included.
+  rpc ResolveFlags(ResolveFlagsRequest) returns (ResolveFlagsResponse) {}
+}
 
 message ResolveFlagsRequest {
   // If non-empty, the specific flags are resolved, otherwise all flags
@@ -34,6 +45,7 @@ message ResolveFlagsRequest {
   // resolve, or delayed until `ApplyFlag` is called. A flag is typically
   // applied when it is used, if this occurs much later than the resolve, then
   // `apply` should likely be set to false.
+  // In a local resolve case it is encouraged to set this to `true`
   bool apply = 4;
 
   // Information about the SDK used to initiate the request.
@@ -100,5 +112,5 @@ message ResolvedFlag {
   ResolveReason reason = 5;
 
   // Determines whether the flag should be applied in the clients
-  bool should_apply = 6;
+  // bool should_apply = 6; // not supported as of now
 }

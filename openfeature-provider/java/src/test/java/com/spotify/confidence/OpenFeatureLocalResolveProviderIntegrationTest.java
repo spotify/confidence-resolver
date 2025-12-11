@@ -4,8 +4,6 @@ import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.spotify.confidence.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
-import com.spotify.confidence.flags.resolver.v1.WriteFlagAssignedRequest;
-import com.spotify.confidence.flags.resolver.v1.WriteFlagAssignedResponse;
 import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsResponse;
 import com.sun.net.httpserver.HttpServer;
@@ -369,14 +367,6 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
       extends InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceImplBase {
     private final AtomicInteger requestCount = new AtomicInteger(0);
     private final List<WriteFlagLogsRequest> receivedRequests = new CopyOnWriteArrayList<>();
-
-    @Override
-    public void writeFlagAssigned(
-        WriteFlagAssignedRequest request,
-        StreamObserver<WriteFlagAssignedResponse> responseObserver) {
-      responseObserver.onNext(WriteFlagAssignedResponse.getDefaultInstance());
-      responseObserver.onCompleted();
-    }
 
     @Override
     public void clientWriteFlagLogs(

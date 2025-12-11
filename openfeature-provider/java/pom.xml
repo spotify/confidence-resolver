@@ -254,7 +254,7 @@
           <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
         </configuration>
         <executions>
-          <!-- Compile the Confidence API protos from this repo to satisfy imports and stubs -->
+          <!-- Compile the Confidence API protos and WASM interop messages from this repo to satisfy imports and stubs -->
           <execution>
             <id>compile-confidence-protos</id>
             <phase>generate-sources</phase>
@@ -263,34 +263,13 @@
               <goal>compile-custom</goal>
             </goals>
             <configuration>
-              <protoSourceRoot>${project.basedir}/../../confidence-resolver/protos</protoSourceRoot>
+              <protoSourceRoot>${project.basedir}/../proto</protoSourceRoot>
               <includes>
                 <include>confidence/flags/resolver/v1/**/*.proto</include>
                 <include>confidence/flags/types/v1/**/*.proto</include>
                 <include>confidence/flags/admin/v1/**/*.proto</include>
-                <include>confidence/iam/v1/**/*.proto</include>
-                <include>confidence/auth/v1/**/*.proto</include>
-                <include>google/api/**/*.proto</include>
-                <include>google/type/decimal.proto</include>
-                <include>confidence/api/annotations.proto</include>
-                <include>confidence/events/v1/annotations.proto</include>
+                <include>confidence/wasm/*.proto</include>
               </includes>
-            </configuration>
-          </execution>
-          <!-- Generate WASM interop messages from the shared wasm/proto/messages.proto -->
-          <execution>
-            <id>compile-wasm-messages</id>
-            <phase>generate-sources</phase>
-            <goals>
-              <goal>compile</goal>
-              <goal>compile-custom</goal>
-            </goals>
-            <configuration>
-              <protoSourceRoot>${project.basedir}/../../wasm/proto</protoSourceRoot>
-              <includes>
-                <include>messages.proto</include>
-              </includes>
-              <clearOutputDirectory>false</clearOutputDirectory>
             </configuration>
           </execution>
         </executions>
