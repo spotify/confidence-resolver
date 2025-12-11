@@ -187,7 +187,3 @@ message ReadResult {
 message ReadOperationsResult {
   repeated ReadResult results = 1;
 }
-
-message LogMessage {
-  string message = 1;
-}

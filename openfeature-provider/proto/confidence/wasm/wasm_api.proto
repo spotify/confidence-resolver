@@ -41,3 +41,7 @@ message ResolveWithStickyResponse {
     repeated VariantData materialization_updates = 3;
   }
 }
+
+message LogMessage {
+  string message = 1;
+}
