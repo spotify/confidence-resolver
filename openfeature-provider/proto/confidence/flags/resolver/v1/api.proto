@@ -34,6 +34,7 @@ message ResolveFlagsRequest {
   // resolve, or delayed until `ApplyFlag` is called. A flag is typically
   // applied when it is used, if this occurs much later than the resolve, then
   // `apply` should likely be set to false.
+  // In a local resolve case it is encouraged to set this to `true`
   bool apply = 4;
 
   // Information about the SDK used to initiate the request.
@@ -100,5 +101,5 @@ message ResolvedFlag {
   ResolveReason reason = 5;
 
   // Determines whether the flag should be applied in the clients
-  bool should_apply = 6;
+  // bool should_apply = 6; // not supported as of now
 }
