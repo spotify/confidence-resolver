@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.9.1...openfeature-provider-java-v0.10.0) (2025-12-11)
+
+
+### Features
+
+* WARN logs for errors in evaluations ([#192](https://github.com/spotify/confidence-resolver/issues/192)) ([7a9f157](https://github.com/spotify/confidence-resolver/commit/7a9f1571639e24ea366e643b5b966b1de6fe06bf))
+
+
+### Bug Fixes
+
+* java shutdown sequence fixing ([#167](https://github.com/spotify/confidence-resolver/issues/167)) ([17dfa47](https://github.com/spotify/confidence-resolver/commit/17dfa476d39c974053ea888e0d75d39be4f4e12b))
+
 ## [0.9.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.9.0...openfeature-provider-java-v0.9.1) (2025-12-03)
 
 

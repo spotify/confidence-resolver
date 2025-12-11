@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.3.0...openfeature-provider/go/v0.4.0) (2025-12-11)
+
+
+### Features
+
+* add remote materialization store for Go ([#203](https://github.com/spotify/confidence-resolver/issues/203)) ([d700af2](https://github.com/spotify/confidence-resolver/commit/d700af218eddc0db9b5f5edac1e211ce6fb1ffbf))
+* add support for materialization stores ([#200](https://github.com/spotify/confidence-resolver/issues/200)) ([0f2ef79](https://github.com/spotify/confidence-resolver/commit/0f2ef79944b72e3ef06fc1bcc06848ff093402fc))
+
+
+### Bug Fixes
+
+* **go:** Fail hard on empty AccoundId ([#194](https://github.com/spotify/confidence-resolver/issues/194)) ([b5c90f7](https://github.com/spotify/confidence-resolver/commit/b5c90f7c0033f9e238331de725f5ce6dca77271f))
+* **go:** Improve logs slightly ([#188](https://github.com/spotify/confidence-resolver/issues/188)) ([c013feb](https://github.com/spotify/confidence-resolver/commit/c013feb6086274b1c06d59cda85a8c5acf533609))
+
 ## [0.3.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.2.0...openfeature-provider/go/v0.3.0) (2025-12-02)
 
 

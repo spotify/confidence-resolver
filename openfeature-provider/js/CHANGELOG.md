@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.3.0...openfeature-provider-js-v0.4.0) (2025-12-11)
+
+
+### Features
+
+* **js:** flush assigned when reaching limit ([#145](https://github.com/spotify/confidence-resolver/issues/145)) ([09293ad](https://github.com/spotify/confidence-resolver/commit/09293adc5800f477620905f28539ad45d6a40997))
+* WARN logs for errors in evaluations ([#192](https://github.com/spotify/confidence-resolver/issues/192)) ([7a9f157](https://github.com/spotify/confidence-resolver/commit/7a9f1571639e24ea366e643b5b966b1de6fe06bf))
+
 ## [0.3.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.2.0...openfeature-provider-js-v0.3.0) (2025-12-02)
 
 

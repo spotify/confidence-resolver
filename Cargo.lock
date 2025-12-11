@@ -752,21 +752,21 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "openfeature-provider-go"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-java"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-js"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rust-guest",
 ]
