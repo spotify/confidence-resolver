@@ -25,7 +25,7 @@ fi
 
 echo "Generating protobuf Go files..."
 
-mkdir -p confidence/proto
+mkdir -p confidence/internal/proto
 
 # Generate wasm messages proto (WASM-specific types)
 # Generate simplified resolver protos

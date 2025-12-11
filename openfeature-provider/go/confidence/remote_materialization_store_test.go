@@ -241,13 +241,17 @@ func TestRemoteMaterializationStore_ErrorPropagation_InProvider(t *testing.T) {
 	// Create mocked resolver that requests missing materializations
 	mockedResolver := &tu.MockedLocalResolver{
 		Response: &wasm.ResolveWithStickyResponse{
-			ResolveResult: &wasm.ResolveWithStickyResponse_MissingMaterializations_{
-				MissingMaterializations: &wasm.ResolveWithStickyResponse_MissingMaterializations{
-					Items: []*wasm.ResolveWithStickyResponse_MissingMaterializationItem{
+			ResolveResult: &wasm.ResolveWithStickyResponse_ReadOpsRequest{
+				ReadOpsRequest: &pb.ReadOperationsRequest{
+					Ops: []*pb.ReadOp{
 						{
-							ReadMaterialization: "experiment_v1",
-							Unit:                "test-user-123",
-							Rule:                "flags/sticky-test-flag/rules/sticky-rule",
+							Op: &pb.ReadOp_VariantReadOp{
+								VariantReadOp: &pb.VariantReadOp{
+									Unit:            "test-user-123",
+									Materialization: "experiment_v1",
+									Rule:            "flags/sticky-test-flag/rules/sticky-rule",
+								},
+							},
 						},
 					},
 				},
@@ -256,10 +260,10 @@ func TestRemoteMaterializationStore_ErrorPropagation_InProvider(t *testing.T) {
 	}
 
 	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
-		FailFastOnSticky:        false,
-		NotProcessSticky:        false,
+		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
+		Materializations: []*pb.ReadResult{},
+		FailFastOnSticky: false,
+		NotProcessSticky: false,
 	}
 
 	materializationResolver := newMaterializationSupportedResolver(remoteStore, mockedResolver)
@@ -296,12 +300,12 @@ func TestRemoteMaterializationStore_WriteErrorDoesNotBlock(t *testing.T) {
 			ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
 				Success: &wasm.ResolveWithStickyResponse_Success{
 					Response: tu.CreateTutorialFeatureResponse(),
-					Updates: []*wasm.ResolveWithStickyResponse_MaterializationUpdate{
+					MaterializationUpdates: []*pb.VariantData{
 						{
-							WriteMaterialization: "experiment_v1",
-							Unit:                 "test-user-123",
-							Rule:                 "flags/sticky-test-flag/rules/sticky-rule",
-							Variant:              "flags/sticky-test-flag/variants/on",
+							Materialization: "experiment_v1",
+							Unit:            "test-user-123",
+							Rule:            "flags/sticky-test-flag/rules/sticky-rule",
+							Variant:         "flags/sticky-test-flag/variants/on",
 						},
 					},
 				},
@@ -310,10 +314,10 @@ func TestRemoteMaterializationStore_WriteErrorDoesNotBlock(t *testing.T) {
 	}
 
 	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
-		FailFastOnSticky:        false,
-		NotProcessSticky:        false,
+		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
+		Materializations: []*pb.ReadResult{},
+		FailFastOnSticky: false,
+		NotProcessSticky: false,
 	}
 
 	materializationResolver := newMaterializationSupportedResolver(remoteStore, mockedResolver)
