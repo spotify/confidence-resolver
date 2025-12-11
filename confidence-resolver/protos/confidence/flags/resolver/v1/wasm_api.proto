@@ -21,55 +21,75 @@ option java_outer_classname = "WasmApiProto";
 message ResolveWithStickyRequest {
   ResolveFlagsRequest resolve_request = 1;
 
-  // Context about the materialization required for the resolve
-  map<string, MaterializationMap> materializations_per_unit = 2;
-
   // if a materialization info is missing, we want tor return to the caller immediately
   bool fail_fast_on_sticky = 3;
   // if we should support sticky or completely skip the flag if they had sticky rules
   bool not_process_sticky = 4;
+
+  // Context about the materialization required for the resolve
+  repeated ReadResult materializations = 5;
 }
 
-message MaterializationMap {
-  // materialization name to info
-  map<string, MaterializationInfo> info_map = 1;
+
+message ResolveWithStickyResponse {
+  oneof resolve_result {
+    Success success = 1;
+    ReadOperationsRequest read_ops_request = 3;
+  }
+  
+  message Success {
+    ResolveFlagsResponse response = 1;
+    repeated VariantData materialization_updates = 3;
+  }
 }
 
-message MaterializationInfo {
-  bool unit_in_info = 1;
-  map<string, string> rule_to_variant = 2;
+
+message VariantReadOp {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+}
+
+message InclusionReadOp {
+  string unit = 1;
+  string materialization = 2;
+}
+
+message ReadOp {
+  oneof op {
+    VariantReadOp variant_read_op = 1;
+    InclusionReadOp inclusion_read_op = 2;
+  }
+}
+
+message ReadOperationsRequest {
+  repeated ReadOp ops = 3;
+}
+
+message VariantData {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+  string variant = 4;
+}
+
+message InclusionData {
+  string unit = 1;
+  string materialization = 2;
+  bool is_included = 3;
+}
+
+message ReadResult {
+  oneof result {
+    VariantData variant_result = 1;
+    InclusionData inclusion_result = 2;
+  }
+}
+
+message ReadOperationsResult {
+  repeated ReadResult results = 1;
 }
 
 message LogMessage {
  string message = 1;
 }
-
-message ResolveWithStickyResponse {
- oneof resolve_result {
- Success success = 1;
- MissingMaterializations missing_materializations = 2;
- }
-
- message Success {
-  ResolveFlagsResponse response = 1;
-  repeated MaterializationUpdate updates = 2;
- }
-
- message MissingMaterializations {
-     repeated MissingMaterializationItem items = 1;
- }
-
- message MissingMaterializationItem {
-     string unit = 1;
-     string rule = 2;
-     string read_materialization = 3;
- }
-
- message MaterializationUpdate {
-      string unit = 1;
-      string write_materialization = 2;
-      string rule = 3;
-      string variant = 4;
- }
-}
-
