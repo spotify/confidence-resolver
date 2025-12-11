@@ -3,10 +3,10 @@ package com.spotify.confidence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.spotify.confidence.flags.resolver.v1.FlagAssigned;
 import com.spotify.confidence.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsRequest;
-import com.spotify.confidence.flags.resolver.v1.events.FlagAssigned;
 import dev.openfeature.sdk.Client;
 import dev.openfeature.sdk.EvaluationContext;
 import dev.openfeature.sdk.MutableContext;
