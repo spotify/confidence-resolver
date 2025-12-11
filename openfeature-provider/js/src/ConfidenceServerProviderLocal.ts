@@ -8,9 +8,9 @@ import type {
   ResolutionDetails,
   ResolutionReason,
 } from '@openfeature/server-sdk';
-import { ResolveFlagsRequest, ResolveFlagsResponse, ResolveWithStickyRequest } from './proto/resolver/api';
-import { SdkId } from './proto/confidence/flags/resolver/v1/types';
-import { ResolveReason } from './proto/types';
+import { ResolveFlagsRequest, ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
+import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
+import { SdkId, ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
 import { scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
@@ -256,7 +256,7 @@ export class ConfidenceServerProviderLocal implements Provider {
 
     // Parse SetResolverStateRequest from response
     const bytes = new Uint8Array(await resp.arrayBuffer());
-    const { SetResolverStateRequest } = await import('./proto/messages');
+    const { SetResolverStateRequest } = await import('./proto/confidence/wasm/messages');
 
     this.resolver.setResolverState(SetResolverStateRequest.decode(bytes));
   }
