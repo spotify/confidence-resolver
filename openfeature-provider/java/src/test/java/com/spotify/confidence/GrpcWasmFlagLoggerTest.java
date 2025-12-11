@@ -9,14 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.spotify.confidence.flags.admin.v1.ClientResolveInfo;
-import com.spotify.confidence.flags.admin.v1.FlagResolveInfo;
-import com.spotify.confidence.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
-import com.spotify.confidence.flags.resolver.v1.TelemetryData;
-import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsRequest;
-import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsResponse;
-import com.spotify.confidence.flags.resolver.v1.events.ClientInfo;
-import com.spotify.confidence.flags.resolver.v1.events.FlagAssigned;
+import com.spotify.confidence.flags.resolver.v1.*;
 import io.grpc.ClientInterceptor;
 import io.grpc.ManagedChannel;
 import java.time.Duration;

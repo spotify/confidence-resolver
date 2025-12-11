@@ -16,6 +16,18 @@ option java_outer_classname = "ApiProto";
 // and confidence-resolver/protos/confidence/flags/types/v1/types.proto
 // Annotations removed for minimal dependencies
 
+service FlagResolverService {
+    // Resolve multiple flags into variants and values. This method resolves
+  // all flags that are enabled for the given client, or a subset of them
+  // specified in the request.
+  // A flag is resolved by evaluating its rules in order, a rule matches if:
+  // 1) it is enabled, 2) the referred segment is active, and 3) the
+  // randomization unit is in the population indicated by the segment's
+  // targeting criteria and population allocation. The first rule that matches
+  // will assign a variant and value to the unit. Archived flags are not included.
+  rpc ResolveFlags(ResolveFlagsRequest) returns (ResolveFlagsResponse) {}
+}
+
 message ResolveFlagsRequest {
   // If non-empty, the specific flags are resolved, otherwise all flags
   // available to the client will be resolved.

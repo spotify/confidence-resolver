@@ -9,11 +9,12 @@ import static org.mockito.Mockito.*;
 import com.google.protobuf.Struct;
 import com.google.protobuf.util.Structs;
 import com.google.protobuf.util.Values;
+import com.spotify.confidence.flags.admin.v1.Client;
+import com.spotify.confidence.flags.admin.v1.ClientCredential;
 import com.spotify.confidence.flags.admin.v1.Flag;
 import com.spotify.confidence.flags.admin.v1.Segment;
 import com.spotify.confidence.flags.resolver.v1.*;
 import com.spotify.confidence.flags.types.v1.FlagSchema;
-import com.spotify.confidence.iam.v1.ClientCredential;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -378,13 +379,9 @@ class ResolveTest {
                         .setSegment(name)
                         .setFullBitset(true)
                         .build()));
-    builder.addClients(
-        com.spotify.confidence.iam.v1.Client.newBuilder().setName(clientName).build());
+    builder.addClients(Client.newBuilder().setName(clientName).build());
     builder.addClientCredentials(
-        com.spotify.confidence.iam.v1.ClientCredential.newBuilder()
-            .setName(credentialName)
-            .setClientSecret(secret)
-            .build());
+        ClientCredential.newBuilder().setName(credentialName).setClientSecret(secret).build());
     return builder.build().toByteArray();
   }
 
