@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package confidence.flags.resolver.v1;
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver";
+option java_package = "com.spotify.confidence.flags.resolver.v1";
+option java_multiple_files = true;
+option java_outer_classname = "TypesProto";
+
+// Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/types.proto
+// Annotations removed for minimal dependencies
+
+message Sdk {
+  // Identifier of the SDK used to interact with the API.
+  oneof sdk {
+    // Name of a Confidence SDKs.
+    SdkId id = 1;
+    // Custom name for non-Confidence SDKs.
+    string custom_id = 2;
+  }
+
+  // Version of the SDK.
+  string version = 3;
+}
+
+enum ResolveReason {
+  // Unspecified enum.
+  RESOLVE_REASON_UNSPECIFIED = 0;
+  // The flag was successfully resolved because one rule matched.
+  RESOLVE_REASON_MATCH = 1;
+  // The flag could not be resolved because no rule matched.
+  RESOLVE_REASON_NO_SEGMENT_MATCH = 2;
+  // The flag could not be resolved because the matching rule had no variant
+  // that could be assigned.
+  RESOLVE_REASON_NO_TREATMENT_MATCH = 3 [deprecated = true];
+  // The flag could not be resolved because it was archived.
+  RESOLVE_REASON_FLAG_ARCHIVED = 4;
+  // The flag could not be resolved because the targeting key field was invalid
+  RESOLVE_REASON_TARGETING_KEY_ERROR = 5;
+  // Unknown error occurred during the resolve
+  RESOLVE_REASON_ERROR = 6;
+}
+
+enum SdkId {
+  SDK_ID_UNSPECIFIED = 0;
+  SDK_ID_JAVA_PROVIDER = 1;
+  SDK_ID_KOTLIN_PROVIDER = 2;
+  SDK_ID_SWIFT_PROVIDER = 3;
+  SDK_ID_JS_WEB_PROVIDER = 4;
+  SDK_ID_JS_SERVER_PROVIDER = 5;
+  SDK_ID_PYTHON_PROVIDER = 6;
+  SDK_ID_GO_PROVIDER = 7;
+  SDK_ID_RUBY_PROVIDER = 8;
+  SDK_ID_RUST_PROVIDER = 9;
+  SDK_ID_JAVA_CONFIDENCE = 10;
+  SDK_ID_KOTLIN_CONFIDENCE = 11;
+  SDK_ID_SWIFT_CONFIDENCE = 12;
+  SDK_ID_JS_CONFIDENCE = 13;
+  SDK_ID_PYTHON_CONFIDENCE = 14;
+  SDK_ID_GO_CONFIDENCE = 15;
+  SDK_ID_RUST_CONFIDENCE = 16;
+  SDK_ID_FLUTTER_IOS_CONFIDENCE = 17;
+  SDK_ID_FLUTTER_ANDROID_CONFIDENCE = 18;
+  SDK_ID_DOTNET_CONFIDENCE = 19;
+  SDK_ID_GO_LOCAL_PROVIDER = 20;
+  SDK_ID_JAVA_LOCAL_PROVIDER = 21;
+  SDK_ID_JS_LOCAL_SERVER_PROVIDER = 22;
+}

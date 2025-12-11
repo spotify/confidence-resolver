@@ -4,10 +4,9 @@
 // 	protoc        v5.29.3
 // source: confidence/flags/resolver/v1/types.proto
 
-package resolvertypes
+package resolver
 
 import (
-	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -202,9 +201,6 @@ func (SdkId) EnumDescriptor() ([]byte, []int) {
 	return file_confidence_flags_resolver_v1_types_proto_rawDescGZIP(), []int{1}
 }
 
-// (-- api-linter: core::0123::resource-annotation=disabled
-//
-//	aip.dev/not-precedent: SDKs are not internal Confidence resources. --)
 type Sdk struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Identifier of the SDK used to interact with the API.
@@ -304,11 +300,11 @@ var File_confidence_flags_resolver_v1_types_proto protoreflect.FileDescriptor
 
 const file_confidence_flags_resolver_v1_types_proto_rawDesc = "" +
 	"\n" +
-	"(confidence/flags/resolver/v1/types.proto\x12\x1cconfidence.flags.resolver.v1\x1a\x1fgoogle/api/field_behavior.proto\"\x82\x01\n" +
+	"(confidence/flags/resolver/v1/types.proto\x12\x1cconfidence.flags.resolver.v1\"|\n" +
 	"\x03Sdk\x125\n" +
 	"\x02id\x18\x01 \x01(\x0e2#.confidence.flags.resolver.v1.SdkIdH\x00R\x02id\x12\x1d\n" +
-	"\tcustom_id\x18\x02 \x01(\tH\x00R\bcustomId\x12\x1e\n" +
-	"\aversion\x18\x03 \x01(\tB\x04\xe2A\x01\x01R\aversionB\x05\n" +
+	"\tcustom_id\x18\x02 \x01(\tH\x00R\bcustomId\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversionB\x05\n" +
 	"\x03sdk*\xfd\x01\n" +
 	"\rResolveReason\x12\x1e\n" +
 	"\x1aRESOLVE_REASON_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -342,9 +338,9 @@ const file_confidence_flags_resolver_v1_types_proto_rawDesc = "" +
 	"\x18SDK_ID_DOTNET_CONFIDENCE\x10\x13\x12\x1c\n" +
 	"\x18SDK_ID_GO_LOCAL_PROVIDER\x10\x14\x12\x1e\n" +
 	"\x1aSDK_ID_JAVA_LOCAL_PROVIDER\x10\x15\x12#\n" +
-	"\x1fSDK_ID_JS_LOCAL_SERVER_PROVIDER\x10\x16B8\n" +
+	"\x1fSDK_ID_JS_LOCAL_SERVER_PROVIDER\x10\x16B\x9b\x01\n" +
 	"(com.spotify.confidence.flags.resolver.v1B\n" +
-	"TypesProtoP\x01b\x06proto3"
+	"TypesProtoP\x01Zagithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverb\x06proto3"
 
 var (
 	file_confidence_flags_resolver_v1_types_proto_rawDescOnce sync.Once

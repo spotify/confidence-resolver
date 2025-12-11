@@ -7,11 +7,7 @@
 package resolver
 
 import (
-	_ "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/api"
-	_ "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverevents"
-	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolvertypes"
-	v1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/types/v1"
-	_ "google.golang.org/genproto/googleapis/api/annotations"
+	types "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/types"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
@@ -46,7 +42,7 @@ type ResolveFlagsRequest struct {
 	// `apply` should likely be set to false.
 	Apply bool `protobuf:"varint,4,opt,name=apply,proto3" json:"apply,omitempty"`
 	// Information about the SDK used to initiate the request.
-	Sdk           *resolvertypes.Sdk `protobuf:"bytes,5,opt,name=sdk,proto3" json:"sdk,omitempty"`
+	Sdk           *Sdk `protobuf:"bytes,5,opt,name=sdk,proto3" json:"sdk,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -109,7 +105,7 @@ func (x *ResolveFlagsRequest) GetApply() bool {
 	return false
 }
 
-func (x *ResolveFlagsRequest) GetSdk() *resolvertypes.Sdk {
+func (x *ResolveFlagsRequest) GetSdk() *Sdk {
 	if x != nil {
 		return x.Sdk
 	}
@@ -193,7 +189,7 @@ type ApplyFlagsRequest struct {
 	// clock skew from the client.
 	SendTime *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=send_time,json=sendTime,proto3" json:"send_time,omitempty"`
 	// Information about the SDK used to initiate the request.
-	Sdk           *resolvertypes.Sdk `protobuf:"bytes,5,opt,name=sdk,proto3" json:"sdk,omitempty"`
+	Sdk           *Sdk `protobuf:"bytes,5,opt,name=sdk,proto3" json:"sdk,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -256,7 +252,7 @@ func (x *ApplyFlagsRequest) GetSendTime() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *ApplyFlagsRequest) GetSdk() *resolvertypes.Sdk {
+func (x *ApplyFlagsRequest) GetSdk() *Sdk {
 	if x != nil {
 		return x.Sdk
 	}
@@ -362,20 +358,10 @@ type ResolvedFlag struct {
 	// The value corresponding to the variant. It will always be a json object,
 	// for example `{ "color": "red", "size": 12 }`.
 	Value *structpb.Struct `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
-	// The schema of the value that was returned. For example:
-	// ```
-	//
-	//	{
-	//	   "schema": {
-	//	     "color": { "stringSchema": {} },
-	//	     "size": { "intSchema": {} }
-	//	   }
-	//	}
-	//
-	// ```
-	FlagSchema *v1.FlagSchema_StructFlagSchema `protobuf:"bytes,4,opt,name=flag_schema,json=flagSchema,proto3" json:"flag_schema,omitempty"`
+	// The schema of the value that was returned.
+	FlagSchema *types.FlagSchema_StructFlagSchema `protobuf:"bytes,4,opt,name=flag_schema,json=flagSchema,proto3" json:"flag_schema,omitempty"`
 	// The reason to why the flag could be resolved or not.
-	Reason resolvertypes.ResolveReason `protobuf:"varint,5,opt,name=reason,proto3,enum=confidence.flags.resolver.v1.ResolveReason" json:"reason,omitempty"`
+	Reason ResolveReason `protobuf:"varint,5,opt,name=reason,proto3,enum=confidence.flags.resolver.v1.ResolveReason" json:"reason,omitempty"`
 	// Determines whether the flag should be applied in the clients
 	ShouldApply   bool `protobuf:"varint,6,opt,name=should_apply,json=shouldApply,proto3" json:"should_apply,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -433,18 +419,18 @@ func (x *ResolvedFlag) GetValue() *structpb.Struct {
 	return nil
 }
 
-func (x *ResolvedFlag) GetFlagSchema() *v1.FlagSchema_StructFlagSchema {
+func (x *ResolvedFlag) GetFlagSchema() *types.FlagSchema_StructFlagSchema {
 	if x != nil {
 		return x.FlagSchema
 	}
 	return nil
 }
 
-func (x *ResolvedFlag) GetReason() resolvertypes.ResolveReason {
+func (x *ResolvedFlag) GetReason() ResolveReason {
 	if x != nil {
 		return x.Reason
 	}
-	return resolvertypes.ResolveReason(0)
+	return ResolveReason_RESOLVE_REASON_UNSPECIFIED
 }
 
 func (x *ResolvedFlag) GetShouldApply() bool {
@@ -458,48 +444,38 @@ var File_confidence_flags_resolver_v1_api_proto protoreflect.FileDescriptor
 
 const file_confidence_flags_resolver_v1_api_proto_rawDesc = "" +
 	"\n" +
-	"&confidence/flags/resolver/v1/api.proto\x12\x1cconfidence.flags.resolver.v1\x1a\x19google/api/resource.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a confidence/api/annotations.proto\x1a%confidence/flags/types/v1/types.proto\x1a(confidence/flags/resolver/v1/types.proto\x1a0confidence/flags/resolver/v1/events/events.proto\"\x9f\x02\n" +
-	"\x13ResolveFlagsRequest\x128\n" +
-	"\x05flags\x18\x01 \x03(\tB\"\xe2A\x01\x01\xfaA\x1b\n" +
-	"\x19flags.confidence.dev/FlagR\x05flags\x12L\n" +
-	"\x12evaluation_context\x18\x02 \x01(\v2\x17.google.protobuf.StructB\x04\xe2A\x01\x01R\x11evaluationContext\x12)\n" +
-	"\rclient_secret\x18\x03 \x01(\tB\x04\xe2A\x01\x02R\fclientSecret\x12\x1a\n" +
-	"\x05apply\x18\x04 \x01(\bB\x04\xe2A\x01\x02R\x05apply\x129\n" +
-	"\x03sdk\x18\x05 \x01(\v2!.confidence.flags.resolver.v1.SdkB\x04\xe2A\x01\x01R\x03sdk\"\xad\x01\n" +
+	"&confidence/flags/resolver/v1/api.proto\x12\x1cconfidence.flags.resolver.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a(confidence/flags/resolver/v1/types.proto\x1a%confidence/flags/types/v1/types.proto\"\xe3\x01\n" +
+	"\x13ResolveFlagsRequest\x12\x14\n" +
+	"\x05flags\x18\x01 \x03(\tR\x05flags\x12F\n" +
+	"\x12evaluation_context\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x11evaluationContext\x12#\n" +
+	"\rclient_secret\x18\x03 \x01(\tR\fclientSecret\x12\x14\n" +
+	"\x05apply\x18\x04 \x01(\bR\x05apply\x123\n" +
+	"\x03sdk\x18\x05 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\"\xad\x01\n" +
 	"\x14ResolveFlagsResponse\x12Q\n" +
 	"\x0eresolved_flags\x18\x01 \x03(\v2*.confidence.flags.resolver.v1.ResolvedFlagR\rresolvedFlags\x12#\n" +
 	"\rresolve_token\x18\x02 \x01(\fR\fresolveToken\x12\x1d\n" +
 	"\n" +
-	"resolve_id\x18\x03 \x01(\tR\tresolveId\"\xaa\x02\n" +
-	"\x11ApplyFlagsRequest\x12E\n" +
-	"\x05flags\x18\x01 \x03(\v2).confidence.flags.resolver.v1.AppliedFlagB\x04\xe2A\x01\x02R\x05flags\x12)\n" +
-	"\rclient_secret\x18\x02 \x01(\tB\x04\xe2A\x01\x02R\fclientSecret\x12)\n" +
-	"\rresolve_token\x18\x03 \x01(\fB\x04\xe2A\x01\x02R\fresolveToken\x12=\n" +
-	"\tsend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampB\x04\xe2A\x01\x02R\bsendTime\x129\n" +
-	"\x03sdk\x18\x05 \x01(\v2!.confidence.flags.resolver.v1.SdkB\x04\xe2A\x01\x01R\x03sdk\"\x14\n" +
-	"\x12ApplyFlagsResponse\"\x86\x01\n" +
-	"\vAppliedFlag\x126\n" +
-	"\x04flag\x18\x01 \x01(\tB\"\xe2A\x01\x02\xfaA\x1b\n" +
-	"\x19flags.confidence.dev/FlagR\x04flag\x12?\n" +
+	"resolve_id\x18\x03 \x01(\tR\tresolveId\"\x8c\x02\n" +
+	"\x11ApplyFlagsRequest\x12?\n" +
+	"\x05flags\x18\x01 \x03(\v2).confidence.flags.resolver.v1.AppliedFlagR\x05flags\x12#\n" +
+	"\rclient_secret\x18\x02 \x01(\tR\fclientSecret\x12#\n" +
+	"\rresolve_token\x18\x03 \x01(\fR\fresolveToken\x127\n" +
+	"\tsend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bsendTime\x123\n" +
+	"\x03sdk\x18\x05 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\"\x14\n" +
+	"\x12ApplyFlagsResponse\"\\\n" +
+	"\vAppliedFlag\x12\x12\n" +
+	"\x04flag\x18\x01 \x01(\tR\x04flag\x129\n" +
 	"\n" +
-	"apply_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x04\xe2A\x01\x02R\tapplyTime\"\xf5\x02\n" +
-	"\fResolvedFlag\x122\n" +
-	"\x04flag\x18\x01 \x01(\tB\x1e\xfaA\x1b\n" +
-	"\x19flags.confidence.dev/FlagR\x04flag\x12;\n" +
-	"\avariant\x18\x02 \x01(\tB!\xfaA\x1e\n" +
-	"\x1cflags.confidence.dev/VariantR\avariant\x12-\n" +
+	"apply_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tapplyTime\"\xac\x02\n" +
+	"\fResolvedFlag\x12\x12\n" +
+	"\x04flag\x18\x01 \x01(\tR\x04flag\x12\x18\n" +
+	"\avariant\x18\x02 \x01(\tR\avariant\x12-\n" +
 	"\x05value\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x05value\x12W\n" +
 	"\vflag_schema\x18\x04 \x01(\v26.confidence.flags.types.v1.FlagSchema.StructFlagSchemaR\n" +
 	"flagSchema\x12C\n" +
-	"\x06reason\x18\x05 \x01(\x0e2+.confidence.flags.resolver.v1.ResolveReasonR\x06reason\x12'\n" +
-	"\fshould_apply\x18\x06 \x01(\bB\x04\xe2A\x01\x03R\vshouldApply2\xc6\x03\n" +
-	"\x13FlagResolverService\x12\xb3\x01\n" +
-	"\fResolveFlags\x121.confidence.flags.resolver.v1.ResolveFlagsRequest\x1a2.confidence.flags.resolver.v1.ResolveFlagsResponse\"<҇\xe4\x10\x1b\n" +
-	"\x19flags.confidence.dev/Flag\x82\xd3\xe4\x93\x02\x16:\x01*\"\x11/v1/flags:resolve\x12\xab\x01\n" +
-	"\n" +
-	"ApplyFlags\x12/.confidence.flags.resolver.v1.ApplyFlagsRequest\x1a0.confidence.flags.resolver.v1.ApplyFlagsResponse\":҇\xe4\x10\x1b\n" +
-	"\x19flags.confidence.dev/Flag\x82\xd3\xe4\x93\x02\x14:\x01*\"\x0f/v1/flags:apply\x1aK\xe2\x87\xe4\x10\x1aresolver.eu.confidence.dev\xe2\x87\xe4\x10\x1aresolver.us.confidence.dev\xea\x87\xe4\x10\bResolverB6\n" +
-	"(com.spotify.confidence.flags.resolver.v1B\bApiProtoP\x01b\x06proto3"
+	"\x06reason\x18\x05 \x01(\x0e2+.confidence.flags.resolver.v1.ResolveReasonR\x06reason\x12!\n" +
+	"\fshould_apply\x18\x06 \x01(\bR\vshouldApplyB\x99\x01\n" +
+	"(com.spotify.confidence.flags.resolver.v1B\bApiProtoP\x01Zagithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverb\x06proto3"
 
 var (
 	file_confidence_flags_resolver_v1_api_proto_rawDescOnce sync.Once
@@ -515,17 +491,17 @@ func file_confidence_flags_resolver_v1_api_proto_rawDescGZIP() []byte {
 
 var file_confidence_flags_resolver_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_confidence_flags_resolver_v1_api_proto_goTypes = []any{
-	(*ResolveFlagsRequest)(nil),            // 0: confidence.flags.resolver.v1.ResolveFlagsRequest
-	(*ResolveFlagsResponse)(nil),           // 1: confidence.flags.resolver.v1.ResolveFlagsResponse
-	(*ApplyFlagsRequest)(nil),              // 2: confidence.flags.resolver.v1.ApplyFlagsRequest
-	(*ApplyFlagsResponse)(nil),             // 3: confidence.flags.resolver.v1.ApplyFlagsResponse
-	(*AppliedFlag)(nil),                    // 4: confidence.flags.resolver.v1.AppliedFlag
-	(*ResolvedFlag)(nil),                   // 5: confidence.flags.resolver.v1.ResolvedFlag
-	(*structpb.Struct)(nil),                // 6: google.protobuf.Struct
-	(*resolvertypes.Sdk)(nil),              // 7: confidence.flags.resolver.v1.Sdk
-	(*timestamppb.Timestamp)(nil),          // 8: google.protobuf.Timestamp
-	(*v1.FlagSchema_StructFlagSchema)(nil), // 9: confidence.flags.types.v1.FlagSchema.StructFlagSchema
-	(resolvertypes.ResolveReason)(0),       // 10: confidence.flags.resolver.v1.ResolveReason
+	(*ResolveFlagsRequest)(nil),               // 0: confidence.flags.resolver.v1.ResolveFlagsRequest
+	(*ResolveFlagsResponse)(nil),              // 1: confidence.flags.resolver.v1.ResolveFlagsResponse
+	(*ApplyFlagsRequest)(nil),                 // 2: confidence.flags.resolver.v1.ApplyFlagsRequest
+	(*ApplyFlagsResponse)(nil),                // 3: confidence.flags.resolver.v1.ApplyFlagsResponse
+	(*AppliedFlag)(nil),                       // 4: confidence.flags.resolver.v1.AppliedFlag
+	(*ResolvedFlag)(nil),                      // 5: confidence.flags.resolver.v1.ResolvedFlag
+	(*structpb.Struct)(nil),                   // 6: google.protobuf.Struct
+	(*Sdk)(nil),                               // 7: confidence.flags.resolver.v1.Sdk
+	(*timestamppb.Timestamp)(nil),             // 8: google.protobuf.Timestamp
+	(*types.FlagSchema_StructFlagSchema)(nil), // 9: confidence.flags.types.v1.FlagSchema.StructFlagSchema
+	(ResolveReason)(0),                        // 10: confidence.flags.resolver.v1.ResolveReason
 }
 var file_confidence_flags_resolver_v1_api_proto_depIdxs = []int32{
 	6,  // 0: confidence.flags.resolver.v1.ResolveFlagsRequest.evaluation_context:type_name -> google.protobuf.Struct
@@ -538,12 +514,8 @@ var file_confidence_flags_resolver_v1_api_proto_depIdxs = []int32{
 	6,  // 7: confidence.flags.resolver.v1.ResolvedFlag.value:type_name -> google.protobuf.Struct
 	9,  // 8: confidence.flags.resolver.v1.ResolvedFlag.flag_schema:type_name -> confidence.flags.types.v1.FlagSchema.StructFlagSchema
 	10, // 9: confidence.flags.resolver.v1.ResolvedFlag.reason:type_name -> confidence.flags.resolver.v1.ResolveReason
-	0,  // 10: confidence.flags.resolver.v1.FlagResolverService.ResolveFlags:input_type -> confidence.flags.resolver.v1.ResolveFlagsRequest
-	2,  // 11: confidence.flags.resolver.v1.FlagResolverService.ApplyFlags:input_type -> confidence.flags.resolver.v1.ApplyFlagsRequest
-	1,  // 12: confidence.flags.resolver.v1.FlagResolverService.ResolveFlags:output_type -> confidence.flags.resolver.v1.ResolveFlagsResponse
-	3,  // 13: confidence.flags.resolver.v1.FlagResolverService.ApplyFlags:output_type -> confidence.flags.resolver.v1.ApplyFlagsResponse
-	12, // [12:14] is the sub-list for method output_type
-	10, // [10:12] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -554,6 +526,7 @@ func file_confidence_flags_resolver_v1_api_proto_init() {
 	if File_confidence_flags_resolver_v1_api_proto != nil {
 		return
 	}
+	file_confidence_flags_resolver_v1_types_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
@@ -562,7 +535,7 @@ func file_confidence_flags_resolver_v1_api_proto_init() {
 			NumEnums:      0,
 			NumMessages:   6,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   0,
 		},
 		GoTypes:           file_confidence_flags_resolver_v1_api_proto_goTypes,
 		DependencyIndexes: file_confidence_flags_resolver_v1_api_proto_depIdxs,

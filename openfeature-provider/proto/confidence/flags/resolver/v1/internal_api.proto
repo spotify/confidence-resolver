@@ -1,23 +1,23 @@
 syntax = "proto3";
 
+// IMPORTANT: Package name must match backend expectation for gRPC service discovery
+// The full gRPC service name is: confidence.flags.resolver.v1.InternalFlagLoggerService
 package confidence.flags.resolver.v1;
 
-import "google/protobuf/struct.proto";
-import "confidence/flags/admin/v1/types.proto";
+import "google/protobuf/timestamp.proto";
 import "confidence/flags/resolver/v1/types.proto";
-import "confidence/flags/resolver/v1/events/events.proto";
 
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal";
 option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;
 option java_outer_classname = "InternalApiProto";
 
+// Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/internal_api.proto
+// Annotations removed for minimal dependencies
+
 service InternalFlagLoggerService {
-
-  // Writes flag assignment events. Mostly called from the sidecar resolver.
-  rpc WriteFlagAssigned(WriteFlagAssignedRequest) returns (WriteFlagAssignedResponse) {}
-
-  // With client secret guarded writing flag assignment events and resolve logs together.
-  rpc ClientWriteFlagLogs(WriteFlagLogsRequest) returns (WriteFlagLogsResponse) {}
+  // Client writes flag assignment events and resolve logs using client secret authentication.
+  rpc ClientWriteFlagLogs(WriteFlagLogsRequest) returns (WriteFlagLogsResponse);
 
   // Stores materializations for units. Uses client secret authentication.
   rpc WriteMaterializedOperations(WriteOperationsRequest) returns (WriteOperationsResult) {}
@@ -28,57 +28,112 @@ service InternalFlagLoggerService {
 
 // The service that allows to report flag assigned and other client-side flag
 // operations, useful when the resolve engine runs on the customer's premises
-// (e.g. side-car)
 message WriteFlagLogsRequest {
-  repeated confidence.flags.resolver.v1.events.FlagAssigned flag_assigned = 1;
+  repeated FlagAssigned flag_assigned = 1;
+
   TelemetryData telemetry_data = 2;
-  repeated confidence.flags.admin.v1.ClientResolveInfo client_resolve_info = 3;
-  repeated confidence.flags.admin.v1.FlagResolveInfo flag_resolve_info = 4;
+
+  repeated ClientResolveInfo client_resolve_info = 3;
+  repeated FlagResolveInfo flag_resolve_info = 4;
 }
 
 message WriteFlagLogsResponse {}
 
-// Response to writing flag assignments
-message WriteFlagAssignedResponse {
-  // The total number of assigned flags, should equal the sum of the flag counts in each flag
-  // assigned event.
-  int64 assigned_flags = 1;
-}
-
-// Collection of telemetry metrics, usually included in request messages to
-// monitor sender-side issues or performance
+// Collection of telemetry metrics
 message TelemetryData {
-  // "events" dropped from the sender due to issues or inefficiencies.
-  // This is implemented as a delta counter between TelemetryData messages
-  int64 dropped_events = 1;
-
   // Information about the SDK/provider
   Sdk sdk = 2;
 }
 
-message ResolveToken {
-  oneof resolve_token {
-    ResolveTokenV1 token_v1 = 1;
+message ClientInfo {
+  string client = 1;
+  string client_credential = 2;
+
+  // Information about the SDK used to interact with the API.
+  Sdk sdk = 3;
+}
+
+message FlagAssigned {
+  string resolve_id = 10;
+
+  ClientInfo client_info = 3;
+
+  repeated AppliedFlag flags = 15;
+
+  message AppliedFlag {
+    string flag = 1;
+
+    string targeting_key = 2;
+    string targeting_key_selector = 3;
+
+    oneof assignment {
+      AssignmentInfo assignment_info = 4;
+      DefaultAssignment default_assignment = 5;
+    }
+
+    string assignment_id = 6;
+
+    string rule = 7;
+
+    repeated FallthroughAssignment fallthrough_assignments = 8;
+    google.protobuf.Timestamp apply_time = 9;
+  }
+
+  message AssignmentInfo {
+    string segment = 1;
+    string variant = 2;
+  }
+
+  message DefaultAssignment {
+    DefaultAssignmentReason reason = 1;
+    enum DefaultAssignmentReason {
+      DEFAULT_ASSIGNMENT_REASON_UNSPECIFIED = 0;
+      NO_SEGMENT_MATCH = 1;
+      NO_TREATMENT_MATCH = 2 [deprecated = true];
+      FLAG_ARCHIVED = 3;
+    }
   }
 }
 
-message ResolveTokenV1 {
-  google.protobuf.Struct evaluation_context = 1;
-  map<string, AssignedFlag> assignments = 2;
-  string resolve_id = 3;
-  string account = 4;
+message FallthroughAssignment {
+  string rule = 1;
 
-  message AssignedFlag {
-    string flag = 1;
-    string targeting_key = 2;
-    string targeting_key_selector = 10;
-    string segment = 3;
-    string variant = 4;
-    string rule = 5;
-    ResolveReason reason = 6;
-    repeated events.FallthroughAssignment fallthrough_assignments = 9;
-    string assignment_id = 8;
+  string assignment_id = 2;
+
+  string targeting_key = 3;
+  string targeting_key_selector = 4;
+}
+
+message ClientResolveInfo {
+  // Resource reference to a client.
+  string client = 1;
+
+  // Resource reference to a credential.
+  string client_credential = 2;
+
+  // The different evaluation context schema of the client that have been seen recently.
+  repeated EvaluationContextSchemaInstance schema = 3;
+
+  // An instance of a schema that was seen
+  message EvaluationContextSchemaInstance {
+    // Schema of each field in the evaluation context.
+    map<string, int32> schema = 1;
   }
+}
+
+message FlagResolveInfo {
+   // The flag the info is about
+   string flag = 1;
+   // Information about how variants were resolved.
+   repeated VariantResolveInfo variant_resolve_info = 2;
+
+   // Information about how a variant was resolved.
+   message VariantResolveInfo {
+     // If there was a variant assigned, otherwise not set
+     string variant = 1;
+     // Number of times the variant was resolved in this period
+     int64 count = 3;
+   }
 }
 
 message WriteOperationsRequest {

@@ -3,7 +3,7 @@ package flag_logger
 import (
 	"sync"
 
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 )
 
 // CapturingFlagLogger captures all WriteFlagLogsRequest objects for testing.

@@ -4,7 +4,7 @@
 // 	protoc        v5.29.3
 // source: confidence/flags/types/v1/types.proto
 
-package v1
+package types
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -22,24 +22,6 @@ const (
 )
 
 // Schema for the value of a flag.
-//
-// The value of a flag is always a struct with one or more nested fields.
-// Example of a struct schema with two fields, `color` (a string) and `len` (an int):
-//
-// ```
-//
-//	{
-//	  "schema": {
-//	    "color": {
-//	      "stringSchema": {}
-//	    },
-//	    "len": {
-//	      "intSchema": {}
-//	    }
-//	  }
-//	}
-//
-// ```
 type FlagSchema struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to SchemaType:
@@ -192,10 +174,7 @@ func (*FlagSchema_StringSchema) isFlagSchema_SchemaType() {}
 
 func (*FlagSchema_BoolSchema) isFlagSchema_SchemaType() {}
 
-// A schema of nested fields. The length of the field name is limited to
-// 32 characters and can only contain alphanumeric characters, hyphens and
-// underscores. The number of fields in a struct is limited to 64.
-// Structs can not be nested more than four (4) levels.
+// A schema of nested fields.
 type FlagSchema_StructFlagSchema struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Map of field name to the schema for the field
@@ -315,7 +294,7 @@ func (*FlagSchema_IntFlagSchema) Descriptor() ([]byte, []int) {
 	return file_confidence_flags_types_v1_types_proto_rawDescGZIP(), []int{0, 2}
 }
 
-// A string. The length is limited to 250 characters.
+// A string.
 type FlagSchema_StringFlagSchema struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -389,8 +368,7 @@ func (*FlagSchema_BoolFlagSchema) Descriptor() ([]byte, []int) {
 	return file_confidence_flags_types_v1_types_proto_rawDescGZIP(), []int{0, 4}
 }
 
-// A list of values. The values have the same data types which
-// is defined by  `element_schema`.
+// A list of values.
 type FlagSchema_ListFlagSchema struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The schema for the elements in the list
@@ -463,9 +441,9 @@ const file_confidence_flags_types_v1_types_proto_rawDesc = "" +
 	"\x0eBoolFlagSchema\x1a^\n" +
 	"\x0eListFlagSchema\x12L\n" +
 	"\x0eelement_schema\x18\x01 \x01(\v2%.confidence.flags.types.v1.FlagSchemaR\relementSchemaB\r\n" +
-	"\vschema_typeB5\n" +
+	"\vschema_typeB\x95\x01\n" +
 	"%com.spotify.confidence.flags.types.v1B\n" +
-	"TypesProtoP\x01b\x06proto3"
+	"TypesProtoP\x01Z^github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/typesb\x06proto3"
 
 var (
 	file_confidence_flags_types_v1_types_proto_rawDescOnce sync.Once

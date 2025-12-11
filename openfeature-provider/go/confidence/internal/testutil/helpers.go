@@ -8,11 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	proto "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/admin/v1"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
-	iamv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/iam/v1"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
+	admin "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -78,18 +77,18 @@ func CreateMinimalResolverState() []byte {
 	clientName := "clients/test-client"
 	credentialName := "clients/test-client/credentials/test-credential"
 
-	state := &adminv1.ResolverState{
-		Flags: []*adminv1.Flag{},
-		Clients: []*iamv1.Client{
+	state := &admin.ResolverState{
+		Flags: []*admin.Flag{},
+		Clients: []*admin.Client{
 			{
 				Name: clientName,
 			},
 		},
-		ClientCredentials: []*iamv1.ClientCredential{
+		ClientCredentials: []*admin.ClientCredential{
 			{
 				Name: credentialName, // Must start with client name
-				Credential: &iamv1.ClientCredential_ClientSecret_{
-					ClientSecret: &iamv1.ClientCredential_ClientSecret{
+				Credential: &admin.ClientCredential_ClientSecret_{
+					ClientSecret: &admin.ClientCredential_ClientSecret{
 						Secret: "test-secret",
 					},
 				},
@@ -105,27 +104,27 @@ func CreateMinimalResolverState() []byte {
 
 // Helper to create a resolver state with a flag that requires materializations
 func CreateStateWithStickyFlag() []byte {
-	segments := []*adminv1.Segment{
+	segments := []*admin.Segment{
 		{
 			Name: "segments/always-true",
 		},
 	}
 
 	// Build bitsets for each segment
-	bitsets := make([]*adminv1.ResolverState_PackedBitset, 0, len(segments))
+	bitsets := make([]*admin.ResolverState_PackedBitset, 0, len(segments))
 	for _, segment := range segments {
-		bitsets = append(bitsets, &adminv1.ResolverState_PackedBitset{
+		bitsets = append(bitsets, &admin.ResolverState_PackedBitset{
 			Segment: segment.Name,
-			Bitset: &adminv1.ResolverState_PackedBitset_FullBitset{
+			Bitset: &admin.ResolverState_PackedBitset_FullBitset{
 				FullBitset: true,
 			},
 		})
 	}
-	state := &adminv1.ResolverState{
-		Flags: []*adminv1.Flag{
+	state := &admin.ResolverState{
+		Flags: []*admin.Flag{
 			{
 				Name: "flags/sticky-test-flag",
-				Variants: []*adminv1.Flag_Variant{
+				Variants: []*admin.Flag_Variant{
 					{
 						Name: "flags/sticky-test-flag/variants/on",
 						Value: &structpb.Struct{
@@ -143,26 +142,26 @@ func CreateStateWithStickyFlag() []byte {
 						},
 					},
 				},
-				State: adminv1.Flag_ACTIVE,
+				State: admin.Flag_ACTIVE,
 				// Associate this flag with the test client
 				Clients: []string{"clients/test-client"},
-				Rules: []*adminv1.Flag_Rule{
+				Rules: []*admin.Flag_Rule{
 					{
 						Name:                 "flags/sticky-test-flag/rules/sticky-rule",
 						Segment:              segments[0].Name,
 						TargetingKeySelector: "user_id",
 						Enabled:              true,
-						AssignmentSpec: &adminv1.Flag_Rule_AssignmentSpec{
+						AssignmentSpec: &admin.Flag_Rule_AssignmentSpec{
 							BucketCount: 2,
-							Assignments: []*adminv1.Flag_Rule_Assignment{
+							Assignments: []*admin.Flag_Rule_Assignment{
 								{
 									AssignmentId: "variant-assignment",
-									Assignment: &adminv1.Flag_Rule_Assignment_Variant{
-										Variant: &adminv1.Flag_Rule_Assignment_VariantAssignment{
+									Assignment: &admin.Flag_Rule_Assignment_Variant{
+										Variant: &admin.Flag_Rule_Assignment_VariantAssignment{
 											Variant: "flags/sticky-test-flag/variants/on",
 										},
 									},
-									BucketRanges: []*adminv1.Flag_Rule_BucketRange{
+									BucketRanges: []*admin.Flag_Rule_BucketRange{
 										{
 											Lower: 0,
 											Upper: 2,
@@ -172,10 +171,10 @@ func CreateStateWithStickyFlag() []byte {
 							},
 						},
 						// This rule requires a materialization named "experiment_v1"
-						MaterializationSpec: &adminv1.Flag_Rule_MaterializationSpec{
+						MaterializationSpec: &admin.Flag_Rule_MaterializationSpec{
 							ReadMaterialization:  "experiment_v1",
 							WriteMaterialization: "experiment_v1",
-							Mode: &adminv1.Flag_Rule_MaterializationSpec_MaterializationReadMode{
+							Mode: &admin.Flag_Rule_MaterializationSpec_MaterializationReadMode{
 								MaterializationMustMatch:     false,
 								SegmentTargetingCanBeIgnored: false,
 							},
@@ -185,19 +184,19 @@ func CreateStateWithStickyFlag() []byte {
 			},
 		},
 		SegmentsNoBitsets: segments,
-		Clients: []*iamv1.Client{
+		Clients: []*admin.Client{
 			{
 				Name: "clients/test-client",
 			},
 		},
 		// All-one bitset for each segment
 		Bitsets: bitsets,
-		ClientCredentials: []*iamv1.ClientCredential{
+		ClientCredentials: []*admin.ClientCredential{
 			{
 				// ClientCredential name must start with the client name
 				Name: "clients/test-client/credentials/test-credential",
-				Credential: &iamv1.ClientCredential_ClientSecret_{
-					ClientSecret: &iamv1.ClientCredential_ClientSecret{
+				Credential: &admin.ClientCredential_ClientSecret_{
+					ClientSecret: &admin.ClientCredential_ClientSecret{
 						Secret: "test-secret",
 					},
 				},
@@ -214,14 +213,14 @@ func CreateStateWithStickyFlag() []byte {
 // Helper function to create a ResolveWithStickyRequest
 func CreateResolveWithStickyRequest(
 	resolveRequest *resolver.ResolveFlagsRequest,
-	materializations map[string]*resolver.MaterializationMap,
+	materializations map[string]*wasm.MaterializationMap,
 	failFast bool,
 	notProcessSticky bool,
-) *resolver.ResolveWithStickyRequest {
+) *wasm.ResolveWithStickyRequest {
 	if materializations == nil {
-		materializations = make(map[string]*resolver.MaterializationMap)
+		materializations = make(map[string]*wasm.MaterializationMap)
 	}
-	return &resolver.ResolveWithStickyRequest{
+	return &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          resolveRequest,
 		MaterializationsPerUnit: materializations,
 		FailFastOnSticky:        failFast,
@@ -263,17 +262,17 @@ func CreateTutorialFeatureResponse() *resolver.ResolveFlagsResponse {
 // MockedLocalResolver is a test double implementing the LocalResolver API used in tests.
 type MockedLocalResolver struct {
 	// Single response fallback
-	Response *resolver.ResolveWithStickyResponse
+	Response *wasm.ResolveWithStickyResponse
 	Err      error
 	// Sequenced responses support
-	Responses []*resolver.ResolveWithStickyResponse
+	Responses []*wasm.ResolveWithStickyResponse
 	callIdx   int
 }
 
 func (m MockedLocalResolver) Close(context.Context) error { return nil }
 func (m MockedLocalResolver) FlushAllLogs() error         { return nil }
 func (m MockedLocalResolver) FlushAssignLogs() error      { return nil }
-func (m *MockedLocalResolver) ResolveWithSticky(*resolver.ResolveWithStickyRequest) (*resolver.ResolveWithStickyResponse, error) {
+func (m *MockedLocalResolver) ResolveWithSticky(*wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
 	if len(m.Responses) > 0 {
 		idx := m.callIdx
 		if idx >= len(m.Responses) {
@@ -286,4 +285,4 @@ func (m *MockedLocalResolver) ResolveWithSticky(*resolver.ResolveWithStickyReque
 	}
 	return m.Response, m.Err
 }
-func (m MockedLocalResolver) SetResolverState(*proto.SetResolverStateRequest) error { return nil }
+func (m MockedLocalResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }

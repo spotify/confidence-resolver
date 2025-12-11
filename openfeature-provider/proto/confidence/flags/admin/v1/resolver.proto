@@ -1,0 +1,341 @@
+syntax = "proto3";
+
+package confidence.flags.admin.v1;
+
+import "google/protobuf/struct.proto";
+import "confidence/flags/types/v1/types.proto";
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin";
+option java_package = "com.spotify.confidence.flags.admin.v1";
+option java_multiple_files = true;
+option java_outer_classname = "ResolverProto";
+
+// Simplified from confidence-resolver/protos/confidence/flags/admin/v1/resolver.proto
+// and confidence-resolver/protos/confidence/flags/admin/v1/types.proto
+// Annotations and metadata fields removed for minimal dependencies
+// Only fields needed for flag resolution are included
+
+// The full state for operating a flags resolver
+message ResolverState {
+  // All active flags
+  repeated Flag flags = 1;
+
+  // All allocated segments, but without the `bitset_allocation` field set. The actual bitsets will be packed and sent
+  // separately.
+  repeated Segment segments_no_bitsets = 2;
+
+  // Packed bitsets for the segments
+  repeated PackedBitset bitsets = 5;
+
+  // All clients
+  repeated Client clients = 6;
+
+  // All client credentials
+  repeated ClientCredential client_credentials = 7;
+
+  // The region of the account
+  Region region = 8;
+
+  // A compressed bitset for a specific segment. The bitset will be gzipped, unless it's all ones, in which case the
+  // `full_bitset` field will be set instead.
+  message PackedBitset {
+    // The segment which this bitset belongs to
+    string segment = 1;
+
+    oneof bitset {
+      // A gzip compressed bitset
+      bytes gzipped_bitset = 2;
+
+      // Set to true if all bits in the bitset are set
+      bool full_bitset = 3;
+    }
+  }
+  // An account region
+  enum Region {
+    // Region is not set
+    REGION_UNSPECIFIED = 0;
+    // EU region
+    REGION_EU = 1;
+    // US region
+    REGION_US = 2;
+  }
+}
+
+// A flag controlling how entities are assigned variants.
+message Flag {
+  // The resource name of the flag.
+  string name = 1;
+
+  // A description for the flag.
+  string description = 13;
+
+  // Schema for the value of each variant.
+  types.v1.FlagSchema.StructFlagSchema schema = 2;
+
+  // List of variants for this flag.
+  repeated Variant variants = 3;
+
+  // The current state of the flag.
+  State state = 4;
+
+  // List of ordered rules that determines how entities are assigned to variants.
+  repeated Rule rules = 5;
+
+  // List of clients that this flag is enabled for.
+  repeated string clients = 12;
+
+  // State of the flag.
+  enum State {
+    // Unspecified state.
+    STATE_UNSPECIFIED = 0;
+
+    // The flag is active and can be resolved.
+    ACTIVE = 1;
+
+    // The flag is no longer active.
+    ARCHIVED = 2;
+  }
+
+  // A possible named value the flag can assign.
+  message Variant {
+    // The resource name of the variant.
+    string name = 1;
+
+    // The value that this variant represents. A possibly nested json object.
+    google.protobuf.Struct value = 2;
+  }
+
+  // A rule that decides how a subset of the flags variants are assigned.
+  message Rule {
+    // The resource name of the rule.
+    string name = 1;
+
+    // A reference to the segment that this rule uses to specify entities
+    // that are eligible.
+    string segment = 2;
+
+    // Specification of how an entity should be randomly assigned to values.
+    AssignmentSpec assignment_spec = 12;
+
+    // Selector of what key to randomize on from the evaluation context.
+    // "targeting_key" is the default if not specified
+    string targeting_key_selector = 5;
+
+    // Decides if the rule should be enabled for resolve or not.
+    bool enabled = 11;
+
+    // Specifies if materializations are written to/read from
+    MaterializationSpec materialization_spec = 13;
+
+    // Specifies if materializations are written to/read from
+    message MaterializationSpec {
+      // Feeds assignments into materialization
+      string write_materialization = 1;
+      //Reads assignments from materialization
+      string read_materialization = 2;
+      // How materialization reads should be treated
+      MaterializationReadMode mode = 3;
+      // How materialization reads should be treated
+      message MaterializationReadMode {
+        // If the materialization must match
+        bool materialization_must_match = 1;
+
+        // Whether segment targeting can be ignored
+        bool segment_targeting_can_be_ignored = 2;
+      }
+    }
+
+    // Describes how an entity is randomly assigned to a variant.
+    message AssignmentSpec {
+      // The total number of buckets to consider when randomizing.
+      int32 bucket_count = 1;
+
+      // A list that divides the total buckets into assignments
+      repeated Assignment assignments = 2;
+    }
+
+    // Maps a range of buckets to a value assignment.
+    message Assignment {
+      // Opaque identifier of this assignment.
+      string assignment_id = 1;
+
+      // Determines how the client should be assigned values.
+      oneof assignment {
+        // Assign a value from a variant.
+        VariantAssignment variant = 2;
+        // Assign a value from the first rule after this one that matches.
+        FallthroughAssignment fallthrough = 3;
+        // Assign the default values in the client.
+        ClientDefaultAssignment client_default = 4;
+      }
+
+      // The range of buckets that the variant occupies.
+      repeated BucketRange bucket_ranges = 5;
+
+      // Assignment of a variant
+      message VariantAssignment {
+        // Reference to a variant in the flag.
+        string variant = 1;
+      }
+
+      // No value will be assigned and passed on to the next rule
+      message FallthroughAssignment {
+
+      }
+
+      // No variant will be assigned and the client should return the
+      // configured default values.
+      message ClientDefaultAssignment {
+
+      }
+    }
+
+    // The range of buckets that a variant occupies.
+    message BucketRange {
+      // The start bucket (inclusive).
+      int32 lower = 1;
+
+      // The end bucket (exclusive).
+      int32 upper = 2;
+    }
+  }
+}
+
+// A reusable slice of an entity population.
+message Segment {
+  // The resource name of the segment.
+  string name = 1;
+
+  // A human-friendly name for the segment.
+  string display_name = 12;
+
+  // The targeting that this segment adheres to.
+  Targeting targeting = 2;
+
+  // How much of the total population that is allocated to this segment,
+  // and the coordination with other segments.
+  Allocation allocation = 3;
+
+  // A bitset representing the buckets that are allocated for this segment.
+  BitsetAllocation bitset_allocation = 6;
+
+  // Targeting criteria
+  message Targeting {
+    // Condition expression
+    Condition condition = 1;
+  }
+
+  // Allocation and coordination of the segment.
+  message Allocation {
+    // Fraction of entity population that is eligible for this segment.
+    string proportion = 1;
+
+    // Set of tags that can be used to coordinate this segment with others.
+    repeated string exclusivity_tags = 3;
+
+    // List of tags that this segment is exclusive to
+    repeated string exclusive_to = 4;
+  }
+
+  // A bit set where each bit represents a fixed fraction of the entity
+  // population.
+  message BitsetAllocation {
+    // Byte encoded bitset.
+    bytes bitset = 1;
+  }
+}
+
+// Targeting condition (simplified)
+message Condition {
+  oneof condition {
+    True true_condition = 1;
+    False false_condition = 2;
+    And and = 3;
+    Or or = 4;
+    Not not = 5;
+    Comparison comparison = 6;
+    ContextFieldComparison context_field_comparison = 7;
+  }
+
+  message True {}
+  message False {}
+
+  message And {
+    repeated Condition conditions = 1;
+  }
+
+  message Or {
+    repeated Condition conditions = 1;
+  }
+
+  message Not {
+    Condition condition = 1;
+  }
+
+  message Comparison {
+    string field = 1;
+    Operator operator = 2;
+    google.protobuf.Value value = 3;
+
+    enum Operator {
+      OPERATOR_UNSPECIFIED = 0;
+      EQUALS = 1;
+      NOT_EQUALS = 2;
+      LESS_THAN = 3;
+      LESS_THAN_OR_EQUAL = 4;
+      GREATER_THAN = 5;
+      GREATER_THAN_OR_EQUAL = 6;
+      CONTAINS = 7;
+      STARTS_WITH = 8;
+      ENDS_WITH = 9;
+      MATCHES = 10;
+      IN = 11;
+      NOT_IN = 12;
+      CONTAINS_ANY = 13;
+      CONTAINS_ALL = 14;
+    }
+  }
+
+  message ContextFieldComparison {
+    string field = 1;
+    Operator operator = 2;
+    string other_field = 3;
+
+    enum Operator {
+      OPERATOR_UNSPECIFIED = 0;
+      EQUALS = 1;
+      NOT_EQUALS = 2;
+      LESS_THAN = 3;
+      LESS_THAN_OR_EQUAL = 4;
+      GREATER_THAN = 5;
+      GREATER_THAN_OR_EQUAL = 6;
+    }
+  }
+}
+
+// A client that can resolve flags
+message Client {
+  // The resource name of the client.
+  string name = 1;
+
+  // Human friendly name of the client.
+  string display_name = 2;
+}
+
+// Credentials for a client
+message ClientCredential {
+  // The resource name of the client credential.
+  string name = 1;
+
+  // The credential method used by this client.
+  oneof credential {
+    // A simple plaintext secret.
+    ClientSecret client_secret = 3;
+  }
+
+  // A client secret credential
+  message ClientSecret {
+    // The secret value
+    string secret = 1;
+  }
+}

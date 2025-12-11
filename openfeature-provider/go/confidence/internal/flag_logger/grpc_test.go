@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	resolverevents "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverevents"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"google.golang.org/grpc"
 )
 
@@ -85,7 +84,7 @@ func TestGrpcWasmFlagLogger_Write_SmallRequest(t *testing.T) {
 
 	// Create a small request (below chunk threshold)
 	request := &resolverv1.WriteFlagLogsRequest{
-		FlagAssigned: make([]*resolverevents.FlagAssigned, 100),
+		FlagAssigned: make([]*resolverv1.FlagAssigned, 100),
 	}
 
 	logger.Write(request)
@@ -118,7 +117,7 @@ func TestGrpcWasmFlagLogger_ErrorHandling(t *testing.T) {
 	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	request := &resolverv1.WriteFlagLogsRequest{
-		FlagAssigned: make([]*resolverevents.FlagAssigned, 10),
+		FlagAssigned: make([]*resolverv1.FlagAssigned, 10),
 	}
 
 	// Write should not return error (async)
@@ -148,7 +147,7 @@ func TestGrpcWasmFlagLogger_Shutdown(t *testing.T) {
 	// Send multiple requests
 	for i := 0; i < 5; i++ {
 		request := &resolverv1.WriteFlagLogsRequest{
-			FlagAssigned: make([]*resolverevents.FlagAssigned, 10),
+			FlagAssigned: make([]*resolverv1.FlagAssigned, 10),
 		}
 		logger.Write(request)
 	}
@@ -165,7 +164,7 @@ func TestNoOpWasmFlagLogger(t *testing.T) {
 	logger := NewNoOpWasmFlagLogger()
 
 	request := &resolverv1.WriteFlagLogsRequest{
-		FlagAssigned: make([]*resolverevents.FlagAssigned, 100),
+		FlagAssigned: make([]*resolverv1.FlagAssigned, 100),
 	}
 
 	// Should not return error

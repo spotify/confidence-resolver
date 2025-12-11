@@ -6,9 +6,8 @@ import (
 
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	messages "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -448,14 +447,14 @@ func TestLocalResolverProvider_ShutdownWithCancelFunc(t *testing.T) {
 type mockResolverAPIForInit struct {
 	updateStateFunc   func(state []byte, accountID string) error
 	closeFunc         func(ctx context.Context)
-	resolveWithSticky func(request *resolver.ResolveWithStickyRequest) (*resolver.ResolveWithStickyResponse, error)
+	resolveWithSticky func(request *wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error)
 }
 
 func mockResolverSupplier(_ context.Context, _ lr.LogSink) lr.LocalResolver {
 	return &mockResolverAPIForInit{}
 }
 
-func (m *mockResolverAPIForInit) SetResolverState(request *messages.SetResolverStateRequest) error {
+func (m *mockResolverAPIForInit) SetResolverState(request *wasm.SetResolverStateRequest) error {
 	if m.updateStateFunc != nil {
 		return m.updateStateFunc(request.State, request.AccountId)
 	}
@@ -469,7 +468,7 @@ func (m *mockResolverAPIForInit) Close(ctx context.Context) error {
 	return nil
 }
 
-func (m *mockResolverAPIForInit) ResolveWithSticky(request *resolver.ResolveWithStickyRequest) (*resolver.ResolveWithStickyResponse, error) {
+func (m *mockResolverAPIForInit) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
 	if m.resolveWithSticky != nil {
 		return m.resolveWithSticky(request)
 	}

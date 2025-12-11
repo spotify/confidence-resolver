@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/confidence/flags/resolverinternal"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/proto/resolver"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -240,10 +240,10 @@ func TestRemoteMaterializationStore_ErrorPropagation_InProvider(t *testing.T) {
 
 	// Create mocked resolver that requests missing materializations
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &resolver.ResolveWithStickyResponse{
-			ResolveResult: &resolver.ResolveWithStickyResponse_MissingMaterializations_{
-				MissingMaterializations: &resolver.ResolveWithStickyResponse_MissingMaterializations{
-					Items: []*resolver.ResolveWithStickyResponse_MissingMaterializationItem{
+		Response: &wasm.ResolveWithStickyResponse{
+			ResolveResult: &wasm.ResolveWithStickyResponse_MissingMaterializations_{
+				MissingMaterializations: &wasm.ResolveWithStickyResponse_MissingMaterializations{
+					Items: []*wasm.ResolveWithStickyResponse_MissingMaterializationItem{
 						{
 							ReadMaterialization: "experiment_v1",
 							Unit:                "test-user-123",
@@ -255,9 +255,9 @@ func TestRemoteMaterializationStore_ErrorPropagation_InProvider(t *testing.T) {
 		},
 	}
 
-	request := &resolver.ResolveWithStickyRequest{
+	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*resolver.MaterializationMap),
+		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
@@ -292,11 +292,11 @@ func TestRemoteMaterializationStore_WriteErrorDoesNotBlock(t *testing.T) {
 	remoteStore := newRemoteMaterializationStore(mockClient, "test-secret")
 
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &resolver.ResolveWithStickyResponse{
-			ResolveResult: &resolver.ResolveWithStickyResponse_Success_{
-				Success: &resolver.ResolveWithStickyResponse_Success{
+		Response: &wasm.ResolveWithStickyResponse{
+			ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
+				Success: &wasm.ResolveWithStickyResponse_Success{
 					Response: tu.CreateTutorialFeatureResponse(),
-					Updates: []*resolver.ResolveWithStickyResponse_MaterializationUpdate{
+					Updates: []*wasm.ResolveWithStickyResponse_MaterializationUpdate{
 						{
 							WriteMaterialization: "experiment_v1",
 							Unit:                 "test-user-123",
@@ -309,9 +309,9 @@ func TestRemoteMaterializationStore_WriteErrorDoesNotBlock(t *testing.T) {
 		},
 	}
 
-	request := &resolver.ResolveWithStickyRequest{
+	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:          tu.CreateTutorialFeatureRequest(),
-		MaterializationsPerUnit: make(map[string]*resolver.MaterializationMap),
+		MaterializationsPerUnit: make(map[string]*wasm.MaterializationMap),
 		FailFastOnSticky:        false,
 		NotProcessSticky:        false,
 	}
