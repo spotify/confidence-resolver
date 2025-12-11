@@ -413,13 +413,13 @@ func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(
 		t.Fatal("Expected non-nil response")
 	}
 
-	// The response should be a MissingMaterializations result, not Success
-	missingResult, ok := response.ResolveResult.(*wasm.ResolveWithStickyResponse_MissingMaterializations_)
+	// The response should be a ReadOpsRequest result, not Success
+	readOpsResult, ok := response.ResolveResult.(*wasm.ResolveWithStickyResponse_ReadOpsRequest)
 	if !ok {
-		t.Fatal("Expected MissingMaterializations result, got Success or other type")
+		t.Fatal("Expected ReadOpsRequest result, got Success or other type")
 	}
 
-	if missingResult.MissingMaterializations == nil {
-		t.Fatal("Expected non-nil MissingMaterializations")
+	if readOpsResult.ReadOpsRequest == nil {
+		t.Fatal("Expected non-nil ReadOpsRequest")
 	}
 }

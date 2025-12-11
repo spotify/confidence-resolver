@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
@@ -45,15 +46,15 @@ func (m *materializationSupportedResolver) handleStickyResponseWithDepth(request
 	case *wasm.ResolveWithStickyResponse_Success_:
 		success := result.Success
 		// Store updates if present
-		if len(success.GetUpdates()) > 0 {
-			m.storeUpdates(success.GetUpdates())
+		if len(success.GetMaterializationUpdates()) > 0 {
+			m.storeUpdates(success.GetMaterializationUpdates())
 		}
 		return response, nil
 
-	case *wasm.ResolveWithStickyResponse_MissingMaterializations_:
-		missingMaterializations := result.MissingMaterializations
+	case *wasm.ResolveWithStickyResponse_ReadOpsRequest:
+		missingMaterializations := result.ReadOpsRequest
 		// Try to load missing materializations from store
-		updatedRequest, err := m.handleMissingMaterializations(request, missingMaterializations.GetItems())
+		updatedRequest, err := m.handleMissingMaterializations(request, missingMaterializations.GetOps())
 		if err != nil {
 			return nil, fmt.Errorf("failed to handle missing materializations: %w", err)
 		}
@@ -71,12 +72,12 @@ func (m *materializationSupportedResolver) handleStickyResponseWithDepth(request
 	}
 }
 
-func (m *materializationSupportedResolver) storeUpdates(updates []*wasm.ResolveWithStickyResponse_MaterializationUpdate) {
+func (m *materializationSupportedResolver) storeUpdates(updates []*resolverinternal.VariantData) {
 	// Convert protobuf updates to WriteOp slice
 	writeOps := make([]WriteOp, len(updates))
 	for i, update := range updates {
 		writeOps[i] = newWriteOpVariant(
-			update.GetWriteMaterialization(),
+			update.GetMaterialization(),
 			update.GetUnit(),
 			update.GetRule(),
 			update.GetVariant(),
@@ -97,15 +98,22 @@ func (m *materializationSupportedResolver) storeUpdates(updates []*wasm.ResolveW
 
 // handleMissingMaterializations loads missing materializations from the store
 // and returns an updated request with the materializations added
-func (m *materializationSupportedResolver) handleMissingMaterializations(request *wasm.ResolveWithStickyRequest, missingItems []*wasm.ResolveWithStickyResponse_MissingMaterializationItem) (*wasm.ResolveWithStickyRequest, error) {
+func (m *materializationSupportedResolver) handleMissingMaterializations(request *wasm.ResolveWithStickyRequest, missingItems []*resolverinternal.ReadOp) (*wasm.ResolveWithStickyRequest, error) {
 	// Convert missing items to ReadOp slice
 	readOps := make([]ReadOp, len(missingItems))
 	for i, item := range missingItems {
-		readOps[i] = newReadOpVariant(
-			item.GetReadMaterialization(),
-			item.GetUnit(),
-			item.GetRule(),
-		)
+		if item.GetInclusionReadOp() != nil {
+			readOps[i] = newReadOpInclusion(
+				item.GetInclusionReadOp().GetMaterialization(),
+				item.GetInclusionReadOp().GetUnit(),
+			)
+		} else {
+			readOps[i] = newReadOpVariant(
+				item.GetVariantReadOp().GetMaterialization(),
+				item.GetVariantReadOp().GetUnit(),
+				item.GetVariantReadOp().GetRule(),
+			)
+		}
 	}
 
 	// Read from the store
@@ -114,54 +122,57 @@ func (m *materializationSupportedResolver) handleMissingMaterializations(request
 		return nil, err
 	}
 
-	// Convert results to protobuf MaterializationMap format
-	// Group by unit for efficiency
-	materializationsPerUnit := make(map[string]*wasm.MaterializationMap)
+	// Start with existing materializations
+	materializations := make([]*resolverinternal.ReadResult, len(request.GetMaterializations()))
+	copy(materializations, request.GetMaterializations())
 
-	// Copy existing materializations
-	for k, v := range request.GetMaterializationsPerUnit() {
-		materializationsPerUnit[k] = v
-	}
-
-	// Add loaded materializations
 	for _, result := range results {
-		variantResult, ok := result.(*ReadResultVariant)
-		if !ok {
-			continue
+		protoResult, err := readResultToProto(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert read result to proto: %w", err)
 		}
-
-		unit := variantResult.Unit()
-		mat := variantResult.Materialization()
-
-		// Ensure the map exists for this unit
-		if materializationsPerUnit[unit] == nil {
-			materializationsPerUnit[unit] = &wasm.MaterializationMap{
-				InfoMap: make(map[string]*wasm.MaterializationInfo),
-			}
-		}
-
-		// Get or create the info for this materialization
-		if materializationsPerUnit[unit].InfoMap[mat] == nil {
-			materializationsPerUnit[unit].InfoMap[mat] = &wasm.MaterializationInfo{
-				UnitInInfo:    false,
-				RuleToVariant: make(map[string]string),
-			}
-		}
-
-		// Add the variant if it exists
-		if variantResult.Variant() != nil {
-			materializationsPerUnit[unit].InfoMap[mat].RuleToVariant[variantResult.Rule()] = *variantResult.Variant()
-			materializationsPerUnit[unit].InfoMap[mat].UnitInInfo = true
-		}
+		materializations = append(materializations, protoResult)
 	}
 
 	// Create a new request with the updated materializations
 	return &wasm.ResolveWithStickyRequest{
-		ResolveRequest:          request.GetResolveRequest(),
-		MaterializationsPerUnit: materializationsPerUnit,
-		FailFastOnSticky:        request.GetFailFastOnSticky(),
-		NotProcessSticky:        request.GetNotProcessSticky(),
+		ResolveRequest:   request.GetResolveRequest(),
+		Materializations: materializations,
+		FailFastOnSticky: request.GetFailFastOnSticky(),
+		NotProcessSticky: request.GetNotProcessSticky(),
 	}, nil
+}
+
+func readResultToProto(result ReadResult) (*resolverinternal.ReadResult, error) {
+	switch v := result.(type) {
+	case *ReadResultVariant:
+		var variant string
+		if v.Variant() != nil {
+			variant = *v.Variant()
+		}
+		return &resolverinternal.ReadResult{
+			Result: &resolverinternal.ReadResult_VariantResult{
+				VariantResult: &resolverinternal.VariantData{
+					Materialization: v.Materialization(),
+					Unit:            v.Unit(),
+					Rule:            v.Rule(),
+					Variant:         variant,
+				},
+			},
+		}, nil
+	case *ReadResultInclusion:
+		return &resolverinternal.ReadResult{
+			Result: &resolverinternal.ReadResult_InclusionResult{
+				InclusionResult: &resolverinternal.InclusionData{
+					Materialization: v.Materialization(),
+					Unit:            v.Unit(),
+					IsIncluded:      v.Included(),
+				},
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown read result type: %T", result)
+	}
 }
 
 func (m *materializationSupportedResolver) FlushAllLogs() (err error) {
