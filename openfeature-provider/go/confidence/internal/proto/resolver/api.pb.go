@@ -40,6 +40,7 @@ type ResolveFlagsRequest struct {
 	// resolve, or delayed until `ApplyFlag` is called. A flag is typically
 	// applied when it is used, if this occurs much later than the resolve, then
 	// `apply` should likely be set to false.
+	// In a local resolve case it is encouraged to set this to `true`
 	Apply bool `protobuf:"varint,4,opt,name=apply,proto3" json:"apply,omitempty"`
 	// Information about the SDK used to initiate the request.
 	Sdk           *Sdk `protobuf:"bytes,5,opt,name=sdk,proto3" json:"sdk,omitempty"`
@@ -361,9 +362,7 @@ type ResolvedFlag struct {
 	// The schema of the value that was returned.
 	FlagSchema *types.FlagSchema_StructFlagSchema `protobuf:"bytes,4,opt,name=flag_schema,json=flagSchema,proto3" json:"flag_schema,omitempty"`
 	// The reason to why the flag could be resolved or not.
-	Reason ResolveReason `protobuf:"varint,5,opt,name=reason,proto3,enum=confidence.flags.resolver.v1.ResolveReason" json:"reason,omitempty"`
-	// Determines whether the flag should be applied in the clients
-	ShouldApply   bool `protobuf:"varint,6,opt,name=should_apply,json=shouldApply,proto3" json:"should_apply,omitempty"`
+	Reason        ResolveReason `protobuf:"varint,5,opt,name=reason,proto3,enum=confidence.flags.resolver.v1.ResolveReason" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -433,13 +432,6 @@ func (x *ResolvedFlag) GetReason() ResolveReason {
 	return ResolveReason_RESOLVE_REASON_UNSPECIFIED
 }
 
-func (x *ResolvedFlag) GetShouldApply() bool {
-	if x != nil {
-		return x.ShouldApply
-	}
-	return false
-}
-
 var File_confidence_flags_resolver_v1_api_proto protoreflect.FileDescriptor
 
 const file_confidence_flags_resolver_v1_api_proto_rawDesc = "" +
@@ -466,15 +458,16 @@ const file_confidence_flags_resolver_v1_api_proto_rawDesc = "" +
 	"\vAppliedFlag\x12\x12\n" +
 	"\x04flag\x18\x01 \x01(\tR\x04flag\x129\n" +
 	"\n" +
-	"apply_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tapplyTime\"\xac\x02\n" +
+	"apply_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tapplyTime\"\x89\x02\n" +
 	"\fResolvedFlag\x12\x12\n" +
 	"\x04flag\x18\x01 \x01(\tR\x04flag\x12\x18\n" +
 	"\avariant\x18\x02 \x01(\tR\avariant\x12-\n" +
 	"\x05value\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x05value\x12W\n" +
 	"\vflag_schema\x18\x04 \x01(\v26.confidence.flags.types.v1.FlagSchema.StructFlagSchemaR\n" +
 	"flagSchema\x12C\n" +
-	"\x06reason\x18\x05 \x01(\x0e2+.confidence.flags.resolver.v1.ResolveReasonR\x06reason\x12!\n" +
-	"\fshould_apply\x18\x06 \x01(\bR\vshouldApplyB\x99\x01\n" +
+	"\x06reason\x18\x05 \x01(\x0e2+.confidence.flags.resolver.v1.ResolveReasonR\x06reason2\x8e\x01\n" +
+	"\x13FlagResolverService\x12w\n" +
+	"\fResolveFlags\x121.confidence.flags.resolver.v1.ResolveFlagsRequest\x1a2.confidence.flags.resolver.v1.ResolveFlagsResponse\"\x00B\x99\x01\n" +
 	"(com.spotify.confidence.flags.resolver.v1B\bApiProtoP\x01Zagithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverb\x06proto3"
 
 var (
@@ -514,8 +507,10 @@ var file_confidence_flags_resolver_v1_api_proto_depIdxs = []int32{
 	6,  // 7: confidence.flags.resolver.v1.ResolvedFlag.value:type_name -> google.protobuf.Struct
 	9,  // 8: confidence.flags.resolver.v1.ResolvedFlag.flag_schema:type_name -> confidence.flags.types.v1.FlagSchema.StructFlagSchema
 	10, // 9: confidence.flags.resolver.v1.ResolvedFlag.reason:type_name -> confidence.flags.resolver.v1.ResolveReason
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
+	0,  // 10: confidence.flags.resolver.v1.FlagResolverService.ResolveFlags:input_type -> confidence.flags.resolver.v1.ResolveFlagsRequest
+	1,  // 11: confidence.flags.resolver.v1.FlagResolverService.ResolveFlags:output_type -> confidence.flags.resolver.v1.ResolveFlagsResponse
+	11, // [11:12] is the sub-list for method output_type
+	10, // [10:11] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -535,7 +530,7 @@ func file_confidence_flags_resolver_v1_api_proto_init() {
 			NumEnums:      0,
 			NumMessages:   6,
 			NumExtensions: 0,
-			NumServices:   0,
+			NumServices:   1,
 		},
 		GoTypes:           file_confidence_flags_resolver_v1_api_proto_goTypes,
 		DependencyIndexes: file_confidence_flags_resolver_v1_api_proto_depIdxs,

@@ -52,6 +52,30 @@ func newInMemoryMaterializationStore(logger *slog.Logger) *inMemoryMaterializati
 	}
 }
 
+// newInMemoryMaterializationStoreWithInclusions creates a store pre-populated with inclusion data.
+// This is useful for testing materialized segment criterion evaluation.
+// The initialInclusions map structure is: unit -> materialization -> included
+func newInMemoryMaterializationStoreWithInclusions(logger *slog.Logger, initialInclusions map[string]map[string]bool) *inMemoryMaterializationStore {
+	store := newInMemoryMaterializationStore(logger)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	for unit, materializations := range initialInclusions {
+		if store.storage[unit] == nil {
+			store.storage[unit] = make(map[string]*materializationData)
+		}
+		for materialization, included := range materializations {
+			store.storage[unit][materialization] = &materializationData{
+				included:      included,
+				ruleToVariant: make(map[string]string),
+			}
+		}
+	}
+
+	return store
+}
+
 // Read performs a batch read of materialization data.
 func (s *inMemoryMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]ReadResult, error) {
 	s.mu.Lock()

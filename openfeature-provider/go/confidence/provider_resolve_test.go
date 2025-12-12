@@ -282,8 +282,8 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		result, error := client.BooleanValueDetails(ctx, "sticky-test-flag.enabled", defaultValue, evalCtx)
 		if error == nil {
 			t.Error("Expected error when materializations missing, got nil")
-		} else if error.Error() != "error code: GENERAL: resolve failed: failed to handle missing materializations: materialization read not supported, falling back to remote resolution" {
-			t.Errorf("Expected 'GENERAL: resolve failed: failed to handle missing materializations: materialization read not supported, falling back to remote resolution', got: %v", error.Error())
+		} else if error.Error() != "error code: GENERAL: resolve failed: failed to handle missing materializations: materialization read not supported" {
+			t.Errorf("Expected 'GENERAL: resolve failed: failed to handle missing materializations: materialization read not supported', got: %v", error.Error())
 		}
 
 		if result.Value != defaultValue {
