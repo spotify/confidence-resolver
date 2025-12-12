@@ -118,13 +118,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         config,
         clientSecret,
         config.isUseRemoteMaterializationStore()
-            ? createRemoteMaterializationStore(clientSecret, config.getChannelFactory())
+            ? new RemoteMaterializationStore(clientSecret, config.getChannelFactory())
             : new UnsupportedMaterializationStore());
-  }
-
-  private static RemoteMaterializationStore createRemoteMaterializationStore(
-      String clientSecret, ChannelFactory channelFactory) {
-    return new RemoteMaterializationStore(clientSecret, channelFactory);
   }
 
   /**

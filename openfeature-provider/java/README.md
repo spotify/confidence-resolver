@@ -161,17 +161,50 @@ The provider supports **materializations** for two key use cases:
 
 1. **Custom Targeting via Materialized Segments**: Efficiently target precomputed sets of identifiers from datasets. Instead of evaluating complex targeting rules at runtime, materializations allow for fast lookups of whether a unit (user, session, etc.) is included in a target segment.
 
-**By default, materializations are managed by Confidence servers.** When sticky assignment data is needed, the provider makes a network call to Confidence, which maintains the sticky repository server-side with automatic 90-day TTL management. This requires no additional setup.
+### Materialization Storage Options
 
-### Custom Materialization Storage
+The provider offers three options for managing materialization data:
 
-Optionally, you can implement a custom `MaterializationStore` to manage materialization data in your own storage (Redis, database, etc.) to eliminate network calls and improve latency:
+#### 1. No Materialization Support (Default)
+
+By default, materializations are not supported. If a flag requires materialization data (sticky assignments or custom targeting), the evaluation will fail and return the default value.
 
 ```java
-// Optional: Custom storage for materialization data
+// Default behavior - no materialization support
+OpenFeatureLocalResolveProvider provider =
+    new OpenFeatureLocalResolveProvider("your-client-secret");
+```
+
+#### 2. Remote Materialization Store
+
+Enable remote materialization storage to have Confidence manage materialization data server-side with automatic 90-day TTL management. When sticky assignment data is needed, the provider makes a gRPC call to Confidence:
+
+```java
+// Enable remote materialization storage
+LocalProviderConfig config = LocalProviderConfig.builder()
+    .useRemoteMaterializationStore(true)
+    .build();
+
+OpenFeatureLocalResolveProvider provider =
+    new OpenFeatureLocalResolveProvider(config, "your-client-secret");
+```
+
+This option:
+- Requires network calls for materialization reads/writes
+- Automatically handles TTL and cleanup
+- Requires no additional infrastructure
+- Suitable for most production use cases
+
+#### 3. Custom Materialization Storage
+
+For advanced use cases requiring minimal latency, implement a custom `MaterializationStore` to manage materialization data in your own infrastructure (Redis, database, etc.):
+
+```java
+// Custom storage for materialization data
 MaterializationStore store = new RedisMaterializationStore(jedisPool);
 OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
-    clientSecret,
+    new LocalProviderConfig(),
+    "your-client-secret",
     store
 );
 ```
