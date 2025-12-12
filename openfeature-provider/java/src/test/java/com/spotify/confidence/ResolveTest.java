@@ -379,13 +379,9 @@ class ResolveTest {
                         .setSegment(name)
                         .setFullBitset(true)
                         .build()));
-    builder.addClients(
-        Client.newBuilder().setName(clientName).build());
+    builder.addClients(Client.newBuilder().setName(clientName).build());
     builder.addClientCredentials(
-        ClientCredential.newBuilder()
-            .setName(credentialName)
-            .setClientSecret(secret)
-            .build());
+        ClientCredential.newBuilder().setName(credentialName).setClientSecret(secret).build());
     return builder.build().toByteArray();
   }
 

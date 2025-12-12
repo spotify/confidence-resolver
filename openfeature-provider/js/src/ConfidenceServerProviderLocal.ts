@@ -134,8 +134,9 @@ export class ConfidenceServerProviderLocal implements Provider {
           version: VERSION,
         },
       },
-      materializationsPerUnit: {},
+      materializations: [],
       failFastOnSticky: true, // Always fail fast - use remote resolver for sticky assignments
+      notProcessSticky: false,
     };
 
     const response = await this.resolveWithStickyInternal(stickyRequest);
@@ -163,7 +164,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
 
     // Handle missing materializations by falling back to remote resolver
-    if (response.missingMaterializations) {
+    if (response.readOpsRequest) {
       return await this.remoteResolve(request.resolveRequest!);
     }
 

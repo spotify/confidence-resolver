@@ -7,7 +7,6 @@ ROOT := $(realpath $(CURDIR)/../..)
 INSTALL_STAMP := .install.stamp
 BUILD_STAMP := .build.stamp
 GEN_DIR := src/proto
-GEN_TS := $(GEN_DIR)/messages.ts $(GEN_DIR)/resolver/api.ts $(GEN_DIR)/types.ts $(GEN_DIR)/confidence/flags/resolver/v1/types.ts
 GEN_TS := $(GEN_DIR)/test-only.ts $(GEN_DIR)/confidence/wasm/messages.ts $(GEN_DIR)/confidence/wasm/wasm_api.ts $(GEN_DIR)/confidence/flags/resolver/v1/types.ts $(GEN_DIR)/confidence/flags/resolver/v1/api.ts $(GEN_DIR)/confidence/flags/resolver/v1/internal_api.ts $(GEN_DIR)/confidence/flags/types/v1/types.ts
 PROTO_SRC := proto/test-only.proto $(ROOT)/openfeature-provider/proto/confidence/wasm/messages.proto $(ROOT)/openfeature-provider/proto/confidence/wasm/wasm_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/types.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/internal_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/types/v1/types.proto
 SRC := $(shell find src -name '*.ts')

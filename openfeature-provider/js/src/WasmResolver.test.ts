@@ -21,8 +21,9 @@ const RESOLVE_REQUEST: ResolveWithStickyRequest = {
       visitor_id: 'tutorial_visitor',
     },
   },
-  materializationsPerUnit: {},
+  materializations: [],
   failFastOnSticky: false,
+  notProcessSticky: false,
 };
 
 const SET_STATE_REQUEST = { state: stateBytes, accountId: 'confidence-test' };
