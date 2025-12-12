@@ -297,6 +297,175 @@ func TestIntegration_OpenFeatureResolveStickyFlagMatStoreReadAndWrite(t *testing
 	openfeature.Shutdown()
 }
 
+func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test state with MaterializedSegmentCriterion
+	testState := tu.CreateStateWithMaterializedSegment()
+
+	// Create mock state provider
+	stateProvider := &mockStateProvider{
+		state:     testState,
+		accountID: "test-account",
+	}
+
+	SECRET := "test-secret"
+
+	// Create tracking logger
+	mockStub := &mockGrpcStubForIntegration{
+		onCallReceived: make(chan struct{}, 100),
+	}
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	trackingLogger := &trackingFlagLogger{
+		actualLogger:       actualGrpcLogger,
+		lastWriteCompleted: make(chan struct{}, 1),
+	}
+
+	t.Run("with unit in materialized segment", func(t *testing.T) {
+		// Create materialization store with unit in the materialized segment
+		initialInclusions := map[string]map[string]bool{
+			"tutorial_visitor": {
+				"materializedSegments/nicklas-custom-targeting": true,
+			},
+		}
+		matStore := newInMemoryMaterializationStoreWithInclusions(nil, initialInclusions)
+		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+
+		// Create provider with test state
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+		client := openfeature.NewClient("integration-test-mat-seg")
+
+		// Register with OpenFeature
+		err := openfeature.SetProviderAndWait(provider)
+		if err != nil {
+			t.Fatalf("Failed to set provider: %v", err)
+		}
+
+		evalCtx := openfeature.NewEvaluationContext(
+			"tutorial_visitor",
+			map[string]interface{}{
+				"user_id": "tutorial_visitor",
+			},
+		)
+
+		// Evaluate the custom-targeted-flag
+		result, _ := client.StringValueDetails(ctx, "custom-targeted-flag.message", "", evalCtx)
+		t.Logf("Evaluation result with unit in materialization: %+v", result)
+
+		// Verify that materialization store was read
+		readCalls := matStore.ReadCalls()
+		t.Logf("Number of read calls to materialization store: %d", len(readCalls))
+		for i, readOps := range readCalls {
+			t.Logf("Read call %d: %d operations", i, len(readOps))
+			for j, op := range readOps {
+				if inclOp, ok := op.(*ReadOpInclusion); ok {
+					t.Logf("  Op %d: ReadOpInclusion(unit=%s, mat=%s)", j, inclOp.Unit(), inclOp.Materialization())
+				} else if varOp, ok := op.(*ReadOpVariant); ok {
+					t.Logf("  Op %d: ReadOpVariant(unit=%s, mat=%s, rule=%s)", j, varOp.Unit(), varOp.Materialization(), varOp.Rule())
+				} else {
+					t.Logf("  Op %d: Unknown type %T", j, op)
+				}
+			}
+		}
+
+		// Should resolve to cake-exclamation variant
+		if got, want := result.Value, "Did someone say CAKE?!"; got != want {
+			t.Errorf("Expected message %q, got %q", want, got)
+		}
+		if got, want := result.Variant, "flags/custom-targeted-flag/variants/cake-exclamation"; got != want {
+			t.Errorf("Expected variant %q, got %q", want, got)
+		}
+
+		// Now shutdown
+		openfeature.Shutdown()
+	})
+
+	t.Run("with unit not in materialized segment", func(t *testing.T) {
+		// Create materialization store with unit NOT in the materialized segment
+		initialInclusions := map[string]map[string]bool{
+			"tutorial_visitor": {
+				"materializedSegments/nicklas-custom-targeting": false,
+			},
+		}
+		matStore := newInMemoryMaterializationStoreWithInclusions(nil, initialInclusions)
+		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+
+		// Create provider with test state
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+		client := openfeature.NewClient("integration-test-mat-seg-not-in")
+
+		// Register with OpenFeature
+		err := openfeature.SetProviderAndWait(provider)
+		if err != nil {
+			t.Fatalf("Failed to set provider: %v", err)
+		}
+
+		evalCtx := openfeature.NewEvaluationContext(
+			"tutorial_visitor",
+			map[string]interface{}{
+				"user_id": "tutorial_visitor",
+			},
+		)
+
+		// Evaluate the custom-targeted-flag
+		result, _ := client.StringValueDetails(ctx, "custom-targeted-flag.message", "", evalCtx)
+		t.Logf("Evaluation result with unit NOT in materialization: %+v", result)
+
+		// Should fall through to default variant
+		if got, want := result.Value, "nothing fun"; got != want {
+			t.Errorf("Expected message %q, got %q", want, got)
+		}
+		if got, want := result.Variant, "flags/custom-targeted-flag/variants/default"; got != want {
+			t.Errorf("Expected variant %q, got %q", want, got)
+		}
+
+		// Now shutdown
+		openfeature.Shutdown()
+	})
+
+	t.Run("without materialization context", func(t *testing.T) {
+		// Create empty materialization store (no context for tutorial_visitor)
+		matStore := newInMemoryMaterializationStore(nil)
+		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+
+		// Create provider with test state
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+		client := openfeature.NewClient("integration-test-mat-seg-no-ctx")
+
+		// Register with OpenFeature
+		err := openfeature.SetProviderAndWait(provider)
+		if err != nil {
+			t.Fatalf("Failed to set provider: %v", err)
+		}
+
+		evalCtx := openfeature.NewEvaluationContext(
+			"tutorial_visitor",
+			map[string]interface{}{
+				"user_id": "tutorial_visitor",
+			},
+		)
+
+		// Evaluate the custom-targeted-flag
+		result, _ := client.StringValueDetails(ctx, "custom-targeted-flag.message", "", evalCtx)
+		t.Logf("Evaluation result without materialization context: %+v", result)
+
+		// Should fall through to default variant (missing materialization causes rule to not match)
+		if got, want := result.Value, "nothing fun"; got != want {
+			t.Errorf("Expected message %q, got %q", want, got)
+		}
+		if got, want := result.Variant, "flags/custom-targeted-flag/variants/default"; got != want {
+			t.Errorf("Expected variant %q, got %q", want, got)
+		}
+
+		// Now shutdown
+		openfeature.Shutdown()
+	})
+}
+
 // createProviderWithTestState creates a provider with mock state provider and tracking logger
 func createProviderWithTestState(
 	ctx context.Context,

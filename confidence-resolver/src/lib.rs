@@ -772,20 +772,23 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 continue;
             }
 
+            let targeting_key = if !rule.targeting_key_selector.is_empty() {
+                rule.targeting_key_selector.as_str()
+            } else {
+                TARGETING_KEY
+            };
+
+            let unit: String = match self.get_targeting_key(targeting_key) {
+                Ok(Some(u)) => u,
+                Ok(None) => continue,
+                Err(_) => return Err("Targeting key error".to_string()),
+            };
+
+            // Check rule-level materialization_spec
             if let Some(materialization_spec) = &rule.materialization_spec {
                 let rule_name = &rule.name.as_str();
                 let read_materialization = materialization_spec.read_materialization.as_str();
                 if !read_materialization.is_empty() {
-                    let targeting_key = if !rule.targeting_key_selector.is_empty() {
-                        rule.targeting_key_selector.as_str()
-                    } else {
-                        TARGETING_KEY
-                    };
-                    let unit: String = match self.get_targeting_key(targeting_key) {
-                        Ok(Some(u)) => u,
-                        Ok(None) => continue,
-                        Err(_) => return Err("Targeting key error".to_string()),
-                    };
                     missing_materializations.push(ReadOp {
                         op: Some(read_op::Op::VariantReadOp(VariantReadOp {
                             unit: unit.to_string(),
@@ -795,6 +798,21 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     });
                     continue;
                 }
+            }
+
+            // Check segment for MaterializedSegmentCriterion
+            let materialized_segments =
+                self.find_materialized_segments_in_segment(&rule.segment, &mut HashSet::new());
+
+            for materialized_segment_name in materialized_segments {
+                missing_materializations.push(ReadOp {
+                    op: Some(read_op::Op::InclusionReadOp(
+                        proto::confidence::flags::resolver::v1::InclusionReadOp {
+                            unit: unit.clone(),
+                            materialization: materialized_segment_name,
+                        },
+                    )),
+                });
             }
         }
         Ok(missing_materializations)
@@ -878,7 +896,12 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                 {
                                     materialization_matched = true;
                                 } else {
-                                    materialization_matched = self.segment_match(segment, &unit)?;
+                                    materialization_matched =
+                                        self.segment_match_with_materializations(
+                                            segment,
+                                            &unit,
+                                            &materializations,
+                                        )?;
                                 }
 
                                 if materialization_matched {
@@ -934,7 +957,12 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                 {
                                     materialization_matched = true;
                                 } else {
-                                    materialization_matched = self.segment_match(segment, &unit)?;
+                                    materialization_matched =
+                                        self.segment_match_with_materializations(
+                                            segment,
+                                            &unit,
+                                            &materializations,
+                                        )?;
                                 }
                             }
                             None => {
@@ -948,7 +976,9 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 }
             }
 
-            if !materialization_matched && !self.segment_match(segment, &unit)? {
+            if !materialization_matched
+                && !self.segment_match_with_materializations(segment, &unit, &materializations)?
+            {
                 // ResolveReason::SEGMENT_NOT_MATCH
                 continue;
             }
@@ -1081,8 +1111,60 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         &NULL
     }
 
+    fn find_materialized_segments_in_segment(
+        &self,
+        segment_name: &str,
+        visited: &mut HashSet<String>,
+    ) -> Vec<String> {
+        if visited.contains(segment_name) {
+            return vec![];
+        }
+        visited.insert(segment_name.to_string());
+
+        let Some(segment) = self.state.segments.get(segment_name) else {
+            return vec![];
+        };
+
+        let Some(targeting) = &segment.targeting else {
+            return vec![];
+        };
+
+        let mut results = Vec::new();
+        for criterion in targeting.criteria.values() {
+            let Some(criterion_type) = &criterion.criterion else {
+                continue;
+            };
+
+            match criterion_type {
+                criterion::Criterion::Attribute(_) => {
+                    // No materialization needed
+                }
+                criterion::Criterion::Segment(segment_criterion) => {
+                    // Recursively check nested segment
+                    let nested = self
+                        .find_materialized_segments_in_segment(&segment_criterion.segment, visited);
+                    results.extend(nested);
+                }
+                criterion::Criterion::MaterializedSegment(mat_seg_criterion) => {
+                    // Found a materialized segment!
+                    results.push(mat_seg_criterion.materialized_segment.clone());
+                }
+            }
+        }
+        results
+    }
+
     pub fn segment_match(&self, segment: &Segment, unit: &str) -> Fallible<bool> {
-        self.segment_match_internal(segment, unit, &mut HashSet::new())
+        self.segment_match_internal(segment, unit, &mut HashSet::new(), &vec![])
+    }
+
+    pub fn segment_match_with_materializations(
+        &self,
+        segment: &Segment,
+        unit: &str,
+        materializations: &Vec<ReadResult>,
+    ) -> Fallible<bool> {
+        self.segment_match_internal(segment, unit, &mut HashSet::new(), materializations)
     }
 
     fn segment_match_internal(
@@ -1090,13 +1172,14 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         segment: &Segment,
         unit: &str,
         visited: &mut HashSet<String>,
+        materializations: &Vec<ReadResult>,
     ) -> Fallible<bool> {
         if visited.contains(&segment.name) {
             fail!("circular segment dependency found");
         }
         visited.insert(segment.name.clone());
 
-        if !self.targeting_match(segment, unit, visited)? {
+        if !self.targeting_match(segment, unit, visited, materializations)? {
             return Ok(false);
         }
 
@@ -1117,6 +1200,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         segment: &Segment,
         unit: &str,
         visited: &mut HashSet<String>,
+        materializations: &Vec<ReadResult>,
     ) -> Fallible<bool> {
         let Some(targeting) = &segment.targeting else {
             return Ok(true);
@@ -1145,7 +1229,33 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         return Ok(false);
                     };
 
-                    self.segment_match_internal(ref_segment, unit, visited)
+                    self.segment_match_internal(ref_segment, unit, visited, materializations)
+                }
+                criterion::Criterion::MaterializedSegment(materialized_segment_criterion) => {
+                    let materialized_segment_name =
+                        &materialized_segment_criterion.materialized_segment;
+
+                    // Get materialization info for this unit and materialized segment
+                    let inclusion_result = materializations.iter().find_map(|result| {
+                        if let Some(read_result::Result::InclusionResult(inclusion_data)) =
+                            &result.result
+                        {
+                            if inclusion_data.unit == unit
+                                && inclusion_data.materialization == *materialized_segment_name
+                            {
+                                return Some(inclusion_data);
+                            }
+                        }
+                        None
+                    });
+
+                    if let Some(inclusion) = inclusion_result {
+                        Ok(inclusion.is_included)
+                    } else {
+                        // No materialization info available - return false (segment doesn't match)
+                        // Missing materializations are detected upstream in collect_missing_materializations_for_flag
+                        Ok(false)
+                    }
                 }
             }
         };
