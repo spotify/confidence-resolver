@@ -532,7 +532,8 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             // We hit a rule that needs materializations - collect what's missing
                             if request.fail_fast_on_sticky {
                                 // Collect missing materializations for this flag
-                                let missing = self.collect_missing_materializations_for_flag(flag)?;
+                                let missing =
+                                    self.collect_missing_materializations_for_flag(flag)?;
                                 Ok(ResolveWithStickyResponse::with_read_materialization_ops(
                                     missing,
                                 ))
@@ -896,17 +897,19 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                 {
                                     materialization_matched = true;
                                 } else {
-                                    materialization_matched =
-                                        match self.segment_match_with_materializations(
+                                    materialization_matched = match self
+                                        .segment_match_with_materializations(
                                             segment,
                                             &unit,
                                             &materializations,
                                         ) {
-                                            Ok(matched) => matched,
-                                            Err(_) => {
-                                                return Err(ResolveFlagError::missing_materializations());
-                                            }
-                                        };
+                                        Ok(matched) => matched,
+                                        Err(_) => {
+                                            return Err(
+                                                ResolveFlagError::missing_materializations(),
+                                            );
+                                        }
+                                    };
                                 }
 
                                 if materialization_matched {
@@ -962,17 +965,19 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                 {
                                     materialization_matched = true;
                                 } else {
-                                    materialization_matched =
-                                        match self.segment_match_with_materializations(
+                                    materialization_matched = match self
+                                        .segment_match_with_materializations(
                                             segment,
                                             &unit,
                                             &materializations,
                                         ) {
-                                            Ok(matched) => matched,
-                                            Err(_) => {
-                                                return Err(ResolveFlagError::missing_materializations());
-                                            }
-                                        };
+                                        Ok(matched) => matched,
+                                        Err(_) => {
+                                            return Err(
+                                                ResolveFlagError::missing_materializations(),
+                                            );
+                                        }
+                                    };
                                 }
                             }
                             None => {
@@ -1561,7 +1566,8 @@ mod tests {
     use crate::proto::confidence::flags::resolver::v1::{ResolveFlagsResponse, Sdk};
 
     const EXAMPLE_STATE: &[u8] = include_bytes!("../test-payloads/resolver_state.pb");
-    const EXAMPLE_STATE_2: &[u8] = include_bytes!("../test-payloads/resolver_state_with_custom_targeting_flag.pb");
+    const EXAMPLE_STATE_2: &[u8] =
+        include_bytes!("../test-payloads/resolver_state_with_custom_targeting_flag.pb");
     const SECRET: &str = "mkjJruAATQWjeY7foFIWfVAcBWnci2YF";
 
     const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
@@ -3373,7 +3379,8 @@ mod tests {
             &ENCRYPTION_KEY,
         );
 
-        let result = resolver.find_materialized_segments_in_segment(&segment.name, &mut HashSet::new());
+        let result =
+            resolver.find_materialized_segments_in_segment(&segment.name, &mut HashSet::new());
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], "materializedSegments/test-mat");
@@ -3455,7 +3462,8 @@ mod tests {
             &ENCRYPTION_KEY,
         );
 
-        let result = resolver.find_materialized_segments_in_segment(&parent_segment.name, &mut HashSet::new());
+        let result = resolver
+            .find_materialized_segments_in_segment(&parent_segment.name, &mut HashSet::new());
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], "materializedSegments/nested-mat");
@@ -3527,13 +3535,14 @@ mod tests {
             )),
         }];
 
-        let matches = resolver.segment_match_with_materializations(
-            &segment,
-            "test-user",
-            &materializations
-        ).unwrap();
+        let matches = resolver
+            .segment_match_with_materializations(&segment, "test-user", &materializations)
+            .unwrap();
 
-        assert!(matches, "Segment should match when unit is included in materialization");
+        assert!(
+            matches,
+            "Segment should match when unit is included in materialization"
+        );
     }
 
     #[test]
@@ -3601,13 +3610,14 @@ mod tests {
             )),
         }];
 
-        let matches = resolver.segment_match_with_materializations(
-            &segment,
-            "test-user",
-            &materializations
-        ).unwrap();
+        let matches = resolver
+            .segment_match_with_materializations(&segment, "test-user", &materializations)
+            .unwrap();
 
-        assert!(!matches, "Segment should not match when unit is not included in materialization");
+        assert!(
+            !matches,
+            "Segment should not match when unit is not included in materialization"
+        );
     }
 
     #[test]
@@ -3668,13 +3678,13 @@ mod tests {
         let materializations = vec![];
 
         // When materialization data is needed but not provided, we should get an error
-        let result = resolver.segment_match_with_materializations(
-            &segment,
-            "test-user",
-            &materializations
-        );
+        let result =
+            resolver.segment_match_with_materializations(&segment, "test-user", &materializations);
 
-        assert!(result.is_err(), "Should return error when materialization data is required but not provided");
+        assert!(
+            result.is_err(),
+            "Should return error when materialization data is required but not provided"
+        );
     }
 
     #[test]
@@ -3875,9 +3885,19 @@ mod tests {
         // and NOT request materializations for rule 2
         match resolve_result {
             Ok(result) => {
-                assert_eq!(result.resolved_value.flag.name, "flags/custom-targeted-flag");
                 assert_eq!(
-                    result.resolved_value.assignment_match.as_ref().unwrap().variant.unwrap().name,
+                    result.resolved_value.flag.name,
+                    "flags/custom-targeted-flag"
+                );
+                assert_eq!(
+                    result
+                        .resolved_value
+                        .assignment_match
+                        .as_ref()
+                        .unwrap()
+                        .variant
+                        .unwrap()
+                        .name,
                     "flags/custom-targeted-flag/variants/default"
                 );
                 assert_eq!(result.resolved_value.reason, ResolveReason::Match);
