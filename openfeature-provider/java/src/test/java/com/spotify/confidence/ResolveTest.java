@@ -259,6 +259,52 @@ class ResolveTest {
   }
 
   @Test
+  public void testResolveFlagWithMaterializationsWithUnsupportedStore() {
+    // Use the UnsupportedMaterializationStore to test default behavior
+    final var wasmResolverApi =
+        new SwapWasmResolverApi(
+            new WasmFlagLogger() {
+              @Override
+              public void write(WriteFlagLogsRequest request) {}
+
+              @Override
+              public void writeSync(WriteFlagLogsRequest request) {}
+
+              @Override
+              public void shutdown() {}
+            },
+            new byte[0],
+            "",
+            new UnsupportedMaterializationStore());
+
+    wasmResolverApi.updateStateAndFlushLogs(exampleStateWithMaterializationBytes, ACCOUNT);
+
+    // Attempting to resolve a flag that requires materializations should throw
+    // MaterializationNotSupportedException
+    assertThatExceptionOfType(MaterializationNotSupportedException.class)
+        .isThrownBy(
+            () ->
+                wasmResolverApi
+                    .resolveWithSticky(
+                        ResolveWithStickyRequest.newBuilder()
+                            .setFailFastOnSticky(false)
+                            .setResolveRequest(
+                                ResolveFlagsRequest.newBuilder()
+                                    .addAllFlags(List.of(flag1))
+                                    .setClientSecret(secret.getSecret())
+                                    .setEvaluationContext(
+                                        Structs.of(
+                                            "targeting_key",
+                                            Values.of("foo"),
+                                            "bar",
+                                            Values.of(Struct.newBuilder().build())))
+                                    .setApply(true))
+                            .build())
+                    .toCompletableFuture()
+                    .join());
+  }
+
+  @Test
   public void testResolveFlagWithMaterializationsWithMockedStoreContainingVariant() {
     useStateWithFlagsWithMaterialization();
     when(mockMaterializationStore.write(any())).thenReturn(CompletableFuture.completedFuture(null));
