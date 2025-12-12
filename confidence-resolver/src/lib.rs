@@ -515,25 +515,8 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             }
         }
 
-        // Check upfront if we have all needed materializations
-        if !request.not_process_sticky {
-            let needed_materializations = self.collect_missing_materializations(flags_to_resolve.clone())?;
-
-            if !needed_materializations.is_empty() {
-                let missing_materializations: Vec<ReadOp> = needed_materializations
-                    .into_iter()
-                    .filter(|read_op| !is_materialization_provided(read_op, &request.materializations))
-                    .collect();
-
-                if !missing_materializations.is_empty() {
-                    return Ok(ResolveWithStickyResponse::with_read_materialization_ops(
-                        missing_materializations,
-                    ));
-                }
-            }
-        }
-
         let mut resolve_results = Vec::with_capacity(flags_to_resolve.len());
+        let mut has_missing_materializations = false;
 
         for flag in flags_to_resolve.clone() {
             let resolve_result = self.resolve_flag(flag, request.materializations.clone());
@@ -546,11 +529,31 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             if request.not_process_sticky {
                                 continue;
                             }
-                            // This shouldn't happen since we checked upfront, but handle it anyway
-                            Err("Unexpected missing materializations".to_string())
+                            // We hit a rule that needs materializations - collect what's missing
+                            if request.fail_fast_on_sticky {
+                                // Collect missing materializations for this flag
+                                let missing = self.collect_missing_materializations_for_flag(flag)?;
+                                Ok(ResolveWithStickyResponse::with_read_materialization_ops(
+                                    missing,
+                                ))
+                            } else {
+                                has_missing_materializations = true;
+                                break;
+                            }
                         }
                     };
                 }
+            }
+        }
+
+        if has_missing_materializations {
+            let result = self.collect_missing_materializations(flags_to_resolve);
+            if let Ok(missing) = result {
+                return Ok(ResolveWithStickyResponse::with_read_materialization_ops(
+                    missing,
+                ));
+            } else {
+                return Err("Could not collect missing materializations".to_string());
             }
         }
 
@@ -894,11 +897,16 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                     materialization_matched = true;
                                 } else {
                                     materialization_matched =
-                                        self.segment_match_with_materializations(
+                                        match self.segment_match_with_materializations(
                                             segment,
                                             &unit,
                                             &materializations,
-                                        )?;
+                                        ) {
+                                            Ok(matched) => matched,
+                                            Err(_) => {
+                                                return Err(ResolveFlagError::missing_materializations());
+                                            }
+                                        };
                                 }
 
                                 if materialization_matched {
@@ -955,11 +963,16 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                     materialization_matched = true;
                                 } else {
                                     materialization_matched =
-                                        self.segment_match_with_materializations(
+                                        match self.segment_match_with_materializations(
                                             segment,
                                             &unit,
                                             &materializations,
-                                        )?;
+                                        ) {
+                                            Ok(matched) => matched,
+                                            Err(_) => {
+                                                return Err(ResolveFlagError::missing_materializations());
+                                            }
+                                        };
                                 }
                             }
                             None => {
@@ -973,11 +986,20 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 }
             }
 
-            if !materialization_matched
-                && !self.segment_match_with_materializations(segment, &unit, &materializations)?
-            {
-                // ResolveReason::SEGMENT_NOT_MATCH
-                continue;
+            if !materialization_matched {
+                match self.segment_match_with_materializations(segment, &unit, &materializations) {
+                    Ok(true) => {
+                        // Segment matches, continue with assignment
+                    }
+                    Ok(false) => {
+                        // Segment doesn't match, try next rule
+                        continue;
+                    }
+                    Err(_) => {
+                        // Error during segment matching (likely missing materialization data)
+                        return Err(ResolveFlagError::missing_materializations());
+                    }
+                }
             }
             let bucket_count = spec.bucket_count;
             let variant_salt = segment_name.split("/").nth(1).or_fail()?;
@@ -1206,9 +1228,10 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     if let Some(inclusion) = inclusion_result {
                         Ok(inclusion.is_included)
                     } else {
-                        // No materialization info available - cannot evaluate
-                        // Return false, missing materializations will be caught by collect_missing_materializations
-                        Ok(false)
+                        // No materialization info available
+                        // If we have an empty materializations list, we're in a mode where we should request them
+                        // Return an error to trigger materialization collection
+                        fail!("Missing materialization data")
                     }
                 }
             }
@@ -1514,27 +1537,6 @@ pub enum ResolveReason {
     FlagArchived = 4,
     // The flag could not be resolved because the targeting key field was invalid
     TargetingKeyError = 5,
-}
-
-/// Check if a requested ReadOp is satisfied by the provided materializations
-fn is_materialization_provided(read_op: &ReadOp, materializations: &[ReadResult]) -> bool {
-    materializations.iter().any(|mat| {
-        match (&read_op.op, &mat.result) {
-            (
-                Some(read_op::Op::InclusionReadOp(needed)),
-                Some(read_result::Result::InclusionResult(provided)),
-            ) => needed.unit == provided.unit && needed.materialization == provided.materialization,
-            (
-                Some(read_op::Op::VariantReadOp(needed)),
-                Some(read_result::Result::VariantResult(provided)),
-            ) => {
-                needed.unit == provided.unit
-                    && needed.materialization == provided.materialization
-                    && needed.rule == provided.rule
-            }
-            _ => false,
-        }
-    })
 }
 
 pub fn hash(key: &str) -> u128 {
@@ -3665,13 +3667,14 @@ mod tests {
         // No materialization data provided
         let materializations = vec![];
 
-        let matches = resolver.segment_match_with_materializations(
+        // When materialization data is needed but not provided, we should get an error
+        let result = resolver.segment_match_with_materializations(
             &segment,
             "test-user",
             &materializations
-        ).unwrap();
+        );
 
-        assert!(!matches, "Segment should not match when no materialization data is available");
+        assert!(result.is_err(), "Should return error when materialization data is required but not provided");
     }
 
     #[test]
@@ -3832,6 +3835,54 @@ mod tests {
                 }
                 other => panic!("Expected Success, got: {:?}", other),
             }
+        }
+    }
+
+    #[test]
+    fn test_resolve_flag_early_rule_match_skips_materialization() {
+        // This test verifies that if an earlier rule matches without needing materializations,
+        // we don't request materializations for later rules.
+        // The test payload has:
+        // - Rule 1: Requires materialized segment → cake variant
+        // - Rule 2: No targeting (matches everyone) → default variant
+        // If Rule 2 is evaluated first (by reordering), it should match without needing materializations
+
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
+            "confidence-test",
+        )
+        .unwrap();
+
+        let secret = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx";
+
+        // Get the flag and manually reverse the rules to test early match
+        let flag = state.flags.get("flags/custom-targeted-flag").unwrap();
+
+        // Create a modified flag with reversed rule order
+        let mut modified_flag = flag.clone();
+        modified_flag.rules.reverse(); // Now default rule is first, materialized segment rule is second
+
+        // Create a resolver with this modified flag
+        let context_json = r#"{"user_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(secret, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        // Resolve the modified flag without any materialization data
+        let resolve_result = resolver.resolve_flag(&modified_flag, vec![]);
+
+        // Should succeed with the default variant (from rule 1, which is now first)
+        // and NOT request materializations for rule 2
+        match resolve_result {
+            Ok(result) => {
+                assert_eq!(result.resolved_value.flag.name, "flags/custom-targeted-flag");
+                assert_eq!(
+                    result.resolved_value.assignment_match.as_ref().unwrap().variant.unwrap().name,
+                    "flags/custom-targeted-flag/variants/default"
+                );
+                assert_eq!(result.resolved_value.reason, ResolveReason::Match);
+            }
+            Err(err) => panic!("Expected success, got error: {:?}", err),
         }
     }
 }
