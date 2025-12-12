@@ -475,7 +475,7 @@ type Segment struct {
 	// A human-friendly name for the segment.
 	DisplayName string `protobuf:"bytes,12,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	// The targeting that this segment adheres to.
-	Targeting *Segment_Targeting `protobuf:"bytes,2,opt,name=targeting,proto3" json:"targeting,omitempty"`
+	Targeting *types.Targeting `protobuf:"bytes,2,opt,name=targeting,proto3" json:"targeting,omitempty"`
 	// How much of the total population that is allocated to this segment,
 	// and the coordination with other segments.
 	Allocation *Segment_Allocation `protobuf:"bytes,3,opt,name=allocation,proto3" json:"allocation,omitempty"`
@@ -529,7 +529,7 @@ func (x *Segment) GetDisplayName() string {
 	return ""
 }
 
-func (x *Segment) GetTargeting() *Segment_Targeting {
+func (x *Segment) GetTargeting() *types.Targeting {
 	if x != nil {
 		return x.Targeting
 	}
@@ -1562,52 +1562,6 @@ func (*Flag_Rule_Assignment_ClientDefaultAssignment) Descriptor() ([]byte, []int
 	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{1, 1, 2, 2}
 }
 
-// Targeting criteria
-type Segment_Targeting struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Condition expression
-	Condition     *Condition `protobuf:"bytes,1,opt,name=condition,proto3" json:"condition,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Segment_Targeting) Reset() {
-	*x = Segment_Targeting{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[17]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Segment_Targeting) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Segment_Targeting) ProtoMessage() {}
-
-func (x *Segment_Targeting) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[17]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Segment_Targeting.ProtoReflect.Descriptor instead.
-func (*Segment_Targeting) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2, 0}
-}
-
-func (x *Segment_Targeting) GetCondition() *Condition {
-	if x != nil {
-		return x.Condition
-	}
-	return nil
-}
-
 // Allocation and coordination of the segment.
 type Segment_Allocation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1623,7 +1577,7 @@ type Segment_Allocation struct {
 
 func (x *Segment_Allocation) Reset() {
 	*x = Segment_Allocation{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[18]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1635,7 +1589,7 @@ func (x *Segment_Allocation) String() string {
 func (*Segment_Allocation) ProtoMessage() {}
 
 func (x *Segment_Allocation) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[18]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1648,7 +1602,7 @@ func (x *Segment_Allocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Segment_Allocation.ProtoReflect.Descriptor instead.
 func (*Segment_Allocation) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2, 1}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2, 0}
 }
 
 func (x *Segment_Allocation) GetProportion() string {
@@ -1684,7 +1638,7 @@ type Segment_BitsetAllocation struct {
 
 func (x *Segment_BitsetAllocation) Reset() {
 	*x = Segment_BitsetAllocation{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[19]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1696,7 +1650,7 @@ func (x *Segment_BitsetAllocation) String() string {
 func (*Segment_BitsetAllocation) ProtoMessage() {}
 
 func (x *Segment_BitsetAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[19]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1709,7 +1663,7 @@ func (x *Segment_BitsetAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Segment_BitsetAllocation.ProtoReflect.Descriptor instead.
 func (*Segment_BitsetAllocation) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2, 2}
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{2, 1}
 }
 
 func (x *Segment_BitsetAllocation) GetBitset() []byte {
@@ -1727,7 +1681,7 @@ type Condition_True struct {
 
 func (x *Condition_True) Reset() {
 	*x = Condition_True{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[20]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1739,7 +1693,7 @@ func (x *Condition_True) String() string {
 func (*Condition_True) ProtoMessage() {}
 
 func (x *Condition_True) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[20]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1763,7 +1717,7 @@ type Condition_False struct {
 
 func (x *Condition_False) Reset() {
 	*x = Condition_False{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[21]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1775,7 +1729,7 @@ func (x *Condition_False) String() string {
 func (*Condition_False) ProtoMessage() {}
 
 func (x *Condition_False) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[21]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1800,7 +1754,7 @@ type Condition_And struct {
 
 func (x *Condition_And) Reset() {
 	*x = Condition_And{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[22]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1812,7 +1766,7 @@ func (x *Condition_And) String() string {
 func (*Condition_And) ProtoMessage() {}
 
 func (x *Condition_And) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[22]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1844,7 +1798,7 @@ type Condition_Or struct {
 
 func (x *Condition_Or) Reset() {
 	*x = Condition_Or{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[23]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1856,7 +1810,7 @@ func (x *Condition_Or) String() string {
 func (*Condition_Or) ProtoMessage() {}
 
 func (x *Condition_Or) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[23]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1888,7 +1842,7 @@ type Condition_Not struct {
 
 func (x *Condition_Not) Reset() {
 	*x = Condition_Not{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[24]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1900,7 +1854,7 @@ func (x *Condition_Not) String() string {
 func (*Condition_Not) ProtoMessage() {}
 
 func (x *Condition_Not) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[24]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1934,7 +1888,7 @@ type Condition_Comparison struct {
 
 func (x *Condition_Comparison) Reset() {
 	*x = Condition_Comparison{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[25]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1946,7 +1900,7 @@ func (x *Condition_Comparison) String() string {
 func (*Condition_Comparison) ProtoMessage() {}
 
 func (x *Condition_Comparison) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[25]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1994,7 +1948,7 @@ type Condition_ContextFieldComparison struct {
 
 func (x *Condition_ContextFieldComparison) Reset() {
 	*x = Condition_ContextFieldComparison{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[26]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2006,7 +1960,7 @@ func (x *Condition_ContextFieldComparison) String() string {
 func (*Condition_ContextFieldComparison) ProtoMessage() {}
 
 func (x *Condition_ContextFieldComparison) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[26]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2054,7 +2008,7 @@ type ClientCredential_ClientSecret struct {
 
 func (x *ClientCredential_ClientSecret) Reset() {
 	*x = ClientCredential_ClientSecret{}
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[27]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2066,7 +2020,7 @@ func (x *ClientCredential_ClientSecret) String() string {
 func (*ClientCredential_ClientSecret) ProtoMessage() {}
 
 func (x *ClientCredential_ClientSecret) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[27]
+	mi := &file_confidence_flags_admin_v1_resolver_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2093,7 +2047,7 @@ var File_confidence_flags_admin_v1_resolver_proto protoreflect.FileDescriptor
 
 const file_confidence_flags_admin_v1_resolver_proto_rawDesc = "" +
 	"\n" +
-	"(confidence/flags/admin/v1/resolver.proto\x12\x19confidence.flags.admin.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a%confidence/flags/types/v1/types.proto\"\x8d\x05\n" +
+	"(confidence/flags/admin/v1/resolver.proto\x12\x19confidence.flags.admin.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a%confidence/flags/types/v1/types.proto\x1a&confidence/flags/types/v1/target.proto\"\x8d\x05\n" +
 	"\rResolverState\x125\n" +
 	"\x05flags\x18\x01 \x03(\v2\x1f.confidence.flags.admin.v1.FlagR\x05flags\x12R\n" +
 	"\x13segments_no_bitsets\x18\x02 \x03(\v2\".confidence.flags.admin.v1.SegmentR\x11segmentsNoBitsets\x12O\n" +
@@ -2159,17 +2113,15 @@ const file_confidence_flags_admin_v1_resolver_proto_rawDesc = "" +
 	"\x11STATE_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
 	"\x06ACTIVE\x10\x01\x12\f\n" +
-	"\bARCHIVED\x10\x02\"\xb6\x04\n" +
+	"\bARCHIVED\x10\x02\"\xdd\x03\n" +
 	"\aSegment\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
-	"\fdisplay_name\x18\f \x01(\tR\vdisplayName\x12J\n" +
-	"\ttargeting\x18\x02 \x01(\v2,.confidence.flags.admin.v1.Segment.TargetingR\ttargeting\x12M\n" +
+	"\fdisplay_name\x18\f \x01(\tR\vdisplayName\x12B\n" +
+	"\ttargeting\x18\x02 \x01(\v2$.confidence.flags.types.v1.TargetingR\ttargeting\x12M\n" +
 	"\n" +
 	"allocation\x18\x03 \x01(\v2-.confidence.flags.admin.v1.Segment.AllocationR\n" +
 	"allocation\x12`\n" +
-	"\x11bitset_allocation\x18\x06 \x01(\v23.confidence.flags.admin.v1.Segment.BitsetAllocationR\x10bitsetAllocation\x1aO\n" +
-	"\tTargeting\x12B\n" +
-	"\tcondition\x18\x01 \x01(\v2$.confidence.flags.admin.v1.ConditionR\tcondition\x1az\n" +
+	"\x11bitset_allocation\x18\x06 \x01(\v23.confidence.flags.admin.v1.Segment.BitsetAllocationR\x10bitsetAllocation\x1az\n" +
 	"\n" +
 	"Allocation\x12\x1e\n" +
 	"\n" +
@@ -2267,7 +2219,7 @@ func file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP() []byte {
 }
 
 var file_confidence_flags_admin_v1_resolver_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_confidence_flags_admin_v1_resolver_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_confidence_flags_admin_v1_resolver_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_confidence_flags_admin_v1_resolver_proto_goTypes = []any{
 	(ResolverState_Region)(0),                      // 0: confidence.flags.admin.v1.ResolverState.Region
 	(Flag_State)(0),                                // 1: confidence.flags.admin.v1.Flag.State
@@ -2290,18 +2242,18 @@ var file_confidence_flags_admin_v1_resolver_proto_goTypes = []any{
 	(*Flag_Rule_Assignment_VariantAssignment)(nil),                // 18: confidence.flags.admin.v1.Flag.Rule.Assignment.VariantAssignment
 	(*Flag_Rule_Assignment_FallthroughAssignment)(nil),            // 19: confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignment
 	(*Flag_Rule_Assignment_ClientDefaultAssignment)(nil),          // 20: confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignment
-	(*Segment_Targeting)(nil),                                     // 21: confidence.flags.admin.v1.Segment.Targeting
-	(*Segment_Allocation)(nil),                                    // 22: confidence.flags.admin.v1.Segment.Allocation
-	(*Segment_BitsetAllocation)(nil),                              // 23: confidence.flags.admin.v1.Segment.BitsetAllocation
-	(*Condition_True)(nil),                                        // 24: confidence.flags.admin.v1.Condition.True
-	(*Condition_False)(nil),                                       // 25: confidence.flags.admin.v1.Condition.False
-	(*Condition_And)(nil),                                         // 26: confidence.flags.admin.v1.Condition.And
-	(*Condition_Or)(nil),                                          // 27: confidence.flags.admin.v1.Condition.Or
-	(*Condition_Not)(nil),                                         // 28: confidence.flags.admin.v1.Condition.Not
-	(*Condition_Comparison)(nil),                                  // 29: confidence.flags.admin.v1.Condition.Comparison
-	(*Condition_ContextFieldComparison)(nil),                      // 30: confidence.flags.admin.v1.Condition.ContextFieldComparison
-	(*ClientCredential_ClientSecret)(nil),                         // 31: confidence.flags.admin.v1.ClientCredential.ClientSecret
-	(*types.FlagSchema_StructFlagSchema)(nil),                     // 32: confidence.flags.types.v1.FlagSchema.StructFlagSchema
+	(*Segment_Allocation)(nil),                                    // 21: confidence.flags.admin.v1.Segment.Allocation
+	(*Segment_BitsetAllocation)(nil),                              // 22: confidence.flags.admin.v1.Segment.BitsetAllocation
+	(*Condition_True)(nil),                                        // 23: confidence.flags.admin.v1.Condition.True
+	(*Condition_False)(nil),                                       // 24: confidence.flags.admin.v1.Condition.False
+	(*Condition_And)(nil),                                         // 25: confidence.flags.admin.v1.Condition.And
+	(*Condition_Or)(nil),                                          // 26: confidence.flags.admin.v1.Condition.Or
+	(*Condition_Not)(nil),                                         // 27: confidence.flags.admin.v1.Condition.Not
+	(*Condition_Comparison)(nil),                                  // 28: confidence.flags.admin.v1.Condition.Comparison
+	(*Condition_ContextFieldComparison)(nil),                      // 29: confidence.flags.admin.v1.Condition.ContextFieldComparison
+	(*ClientCredential_ClientSecret)(nil),                         // 30: confidence.flags.admin.v1.ClientCredential.ClientSecret
+	(*types.FlagSchema_StructFlagSchema)(nil),                     // 31: confidence.flags.types.v1.FlagSchema.StructFlagSchema
+	(*types.Targeting)(nil),                                       // 32: confidence.flags.types.v1.Targeting
 	(*structpb.Struct)(nil),                                       // 33: google.protobuf.Struct
 	(*structpb.Value)(nil),                                        // 34: google.protobuf.Value
 }
@@ -2312,21 +2264,21 @@ var file_confidence_flags_admin_v1_resolver_proto_depIdxs = []int32{
 	8,  // 3: confidence.flags.admin.v1.ResolverState.clients:type_name -> confidence.flags.admin.v1.Client
 	9,  // 4: confidence.flags.admin.v1.ResolverState.client_credentials:type_name -> confidence.flags.admin.v1.ClientCredential
 	0,  // 5: confidence.flags.admin.v1.ResolverState.region:type_name -> confidence.flags.admin.v1.ResolverState.Region
-	32, // 6: confidence.flags.admin.v1.Flag.schema:type_name -> confidence.flags.types.v1.FlagSchema.StructFlagSchema
+	31, // 6: confidence.flags.admin.v1.Flag.schema:type_name -> confidence.flags.types.v1.FlagSchema.StructFlagSchema
 	11, // 7: confidence.flags.admin.v1.Flag.variants:type_name -> confidence.flags.admin.v1.Flag.Variant
 	1,  // 8: confidence.flags.admin.v1.Flag.state:type_name -> confidence.flags.admin.v1.Flag.State
 	12, // 9: confidence.flags.admin.v1.Flag.rules:type_name -> confidence.flags.admin.v1.Flag.Rule
-	21, // 10: confidence.flags.admin.v1.Segment.targeting:type_name -> confidence.flags.admin.v1.Segment.Targeting
-	22, // 11: confidence.flags.admin.v1.Segment.allocation:type_name -> confidence.flags.admin.v1.Segment.Allocation
-	23, // 12: confidence.flags.admin.v1.Segment.bitset_allocation:type_name -> confidence.flags.admin.v1.Segment.BitsetAllocation
-	24, // 13: confidence.flags.admin.v1.Condition.true_condition:type_name -> confidence.flags.admin.v1.Condition.True
-	25, // 14: confidence.flags.admin.v1.Condition.false_condition:type_name -> confidence.flags.admin.v1.Condition.False
-	26, // 15: confidence.flags.admin.v1.Condition.and:type_name -> confidence.flags.admin.v1.Condition.And
-	27, // 16: confidence.flags.admin.v1.Condition.or:type_name -> confidence.flags.admin.v1.Condition.Or
-	28, // 17: confidence.flags.admin.v1.Condition.not:type_name -> confidence.flags.admin.v1.Condition.Not
-	29, // 18: confidence.flags.admin.v1.Condition.comparison:type_name -> confidence.flags.admin.v1.Condition.Comparison
-	30, // 19: confidence.flags.admin.v1.Condition.context_field_comparison:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison
-	31, // 20: confidence.flags.admin.v1.ClientCredential.client_secret:type_name -> confidence.flags.admin.v1.ClientCredential.ClientSecret
+	32, // 10: confidence.flags.admin.v1.Segment.targeting:type_name -> confidence.flags.types.v1.Targeting
+	21, // 11: confidence.flags.admin.v1.Segment.allocation:type_name -> confidence.flags.admin.v1.Segment.Allocation
+	22, // 12: confidence.flags.admin.v1.Segment.bitset_allocation:type_name -> confidence.flags.admin.v1.Segment.BitsetAllocation
+	23, // 13: confidence.flags.admin.v1.Condition.true_condition:type_name -> confidence.flags.admin.v1.Condition.True
+	24, // 14: confidence.flags.admin.v1.Condition.false_condition:type_name -> confidence.flags.admin.v1.Condition.False
+	25, // 15: confidence.flags.admin.v1.Condition.and:type_name -> confidence.flags.admin.v1.Condition.And
+	26, // 16: confidence.flags.admin.v1.Condition.or:type_name -> confidence.flags.admin.v1.Condition.Or
+	27, // 17: confidence.flags.admin.v1.Condition.not:type_name -> confidence.flags.admin.v1.Condition.Not
+	28, // 18: confidence.flags.admin.v1.Condition.comparison:type_name -> confidence.flags.admin.v1.Condition.Comparison
+	29, // 19: confidence.flags.admin.v1.Condition.context_field_comparison:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison
+	30, // 20: confidence.flags.admin.v1.ClientCredential.client_secret:type_name -> confidence.flags.admin.v1.ClientCredential.ClientSecret
 	33, // 21: confidence.flags.admin.v1.Flag.Variant.value:type_name -> google.protobuf.Struct
 	14, // 22: confidence.flags.admin.v1.Flag.Rule.assignment_spec:type_name -> confidence.flags.admin.v1.Flag.Rule.AssignmentSpec
 	13, // 23: confidence.flags.admin.v1.Flag.Rule.materialization_spec:type_name -> confidence.flags.admin.v1.Flag.Rule.MaterializationSpec
@@ -2336,18 +2288,17 @@ var file_confidence_flags_admin_v1_resolver_proto_depIdxs = []int32{
 	19, // 27: confidence.flags.admin.v1.Flag.Rule.Assignment.fallthrough:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignment
 	20, // 28: confidence.flags.admin.v1.Flag.Rule.Assignment.client_default:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignment
 	16, // 29: confidence.flags.admin.v1.Flag.Rule.Assignment.bucket_ranges:type_name -> confidence.flags.admin.v1.Flag.Rule.BucketRange
-	7,  // 30: confidence.flags.admin.v1.Segment.Targeting.condition:type_name -> confidence.flags.admin.v1.Condition
-	7,  // 31: confidence.flags.admin.v1.Condition.And.conditions:type_name -> confidence.flags.admin.v1.Condition
-	7,  // 32: confidence.flags.admin.v1.Condition.Or.conditions:type_name -> confidence.flags.admin.v1.Condition
-	7,  // 33: confidence.flags.admin.v1.Condition.Not.condition:type_name -> confidence.flags.admin.v1.Condition
-	2,  // 34: confidence.flags.admin.v1.Condition.Comparison.operator:type_name -> confidence.flags.admin.v1.Condition.Comparison.Operator
-	34, // 35: confidence.flags.admin.v1.Condition.Comparison.value:type_name -> google.protobuf.Value
-	3,  // 36: confidence.flags.admin.v1.Condition.ContextFieldComparison.operator:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison.Operator
-	37, // [37:37] is the sub-list for method output_type
-	37, // [37:37] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	37, // [37:37] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	7,  // 30: confidence.flags.admin.v1.Condition.And.conditions:type_name -> confidence.flags.admin.v1.Condition
+	7,  // 31: confidence.flags.admin.v1.Condition.Or.conditions:type_name -> confidence.flags.admin.v1.Condition
+	7,  // 32: confidence.flags.admin.v1.Condition.Not.condition:type_name -> confidence.flags.admin.v1.Condition
+	2,  // 33: confidence.flags.admin.v1.Condition.Comparison.operator:type_name -> confidence.flags.admin.v1.Condition.Comparison.Operator
+	34, // 34: confidence.flags.admin.v1.Condition.Comparison.value:type_name -> google.protobuf.Value
+	3,  // 35: confidence.flags.admin.v1.Condition.ContextFieldComparison.operator:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison.Operator
+	36, // [36:36] is the sub-list for method output_type
+	36, // [36:36] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_confidence_flags_admin_v1_resolver_proto_init() }
@@ -2382,7 +2333,7 @@ func file_confidence_flags_admin_v1_resolver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_flags_admin_v1_resolver_proto_rawDesc), len(file_confidence_flags_admin_v1_resolver_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   28,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
