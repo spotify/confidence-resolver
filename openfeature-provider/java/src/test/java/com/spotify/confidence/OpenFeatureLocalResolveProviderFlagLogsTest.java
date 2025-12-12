@@ -4,14 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.spotify.confidence.flags.resolver.v1.FlagAssigned;
-import com.spotify.confidence.flags.resolver.v1.ResolveFlagsRequest;
-import com.spotify.confidence.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsRequest;
 import dev.openfeature.sdk.Client;
 import dev.openfeature.sdk.EvaluationContext;
 import dev.openfeature.sdk.MutableContext;
 import dev.openfeature.sdk.OpenFeatureAPI;
-import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,23 +33,6 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
   private CapturingWasmFlagLogger capturingLogger;
   private OpenFeatureLocalResolveProvider provider;
 
-  /**
-   * A no-op ResolverFallback for testing that never returns results. Since we're testing local
-   * resolution with real state, this fallback should never be called.
-   */
-  private static class NoOpResolverFallback implements RemoteResolver {
-
-    @Override
-    public CompletableFuture<ResolveFlagsResponse> resolve(ResolveFlagsRequest request) {
-      return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-    }
-
-    @Override
-    public void close() {
-      // No-op
-    }
-  }
-
   @BeforeAll
   static void beforeAll() {
     System.setProperty("CONFIDENCE_NUMBER_OF_WASM_INSTANCES", "1");
@@ -73,8 +53,7 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
             stateProvider,
             FLAG_CLIENT_SECRET,
             new UnsupportedMaterializationStore(),
-            capturingLogger,
-            new NoOpResolverFallback());
+            capturingLogger);
 
     OpenFeatureAPI.getInstance().setProviderAndWait(provider);
 

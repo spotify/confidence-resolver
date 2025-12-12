@@ -39,9 +39,9 @@ public class ChannelFactoryTest {
     new OpenFeatureLocalResolveProvider(new LocalProviderConfig(customFactory), "clientsecret");
 
     assertEquals(
-        2,
+        1,
         factoryCallCount.get(),
-        "ChannelFactory should have been called once for flag logger and once for remote resolver, but was called "
+        "ChannelFactory should have been called once for flag logger, but was called "
             + factoryCallCount.get()
             + " times");
 
@@ -50,7 +50,7 @@ public class ChannelFactoryTest {
     assertTrue(
         targetsReceived.get(0).contains("grpc") || targetsReceived.get(0).contains("edge"),
         "Target should be a gRPC endpoint, got: " + targetsReceived.get(0));
-    assertEquals(2, interceptorCounts.size(), "Interceptors should have been called");
+    assertEquals(1, interceptorCounts.size(), "Interceptors should have been called");
   }
 
   @Test

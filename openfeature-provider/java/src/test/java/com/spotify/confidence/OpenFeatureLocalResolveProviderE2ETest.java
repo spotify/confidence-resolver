@@ -26,7 +26,9 @@ class OpenFeatureLocalResolveProviderE2ETest {
   @BeforeAll
   static void setup() {
     final var provider =
-        new OpenFeatureLocalResolveProvider(new LocalProviderConfig(), FLAG_CLIENT_SECRET);
+        new OpenFeatureLocalResolveProvider(
+            LocalProviderConfig.builder().useRemoteMaterializationStore(true).build(),
+            FLAG_CLIENT_SECRET);
     final var start = System.currentTimeMillis();
     OpenFeatureAPI.getInstance().setProviderAndWait(provider);
     System.out.println("OpenFeatureAPI started: " + (System.currentTimeMillis() - start));
@@ -97,7 +99,7 @@ class OpenFeatureLocalResolveProviderE2ETest {
   }
 
   @Test
-  void shouldResolveFlagWithStickyResolve() {
+  void shouldResolveFlagWithStickyResolveAndRemoteMaterializationStore() {
     final EvaluationContext stickyContext = new MutableContext("test-a").add("sticky", true);
 
     final FlagEvaluationDetails<Double> details =
