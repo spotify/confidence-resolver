@@ -15,7 +15,11 @@ jobs:
     outputs:
       cloudflare_resolver_release_created: ${{ steps.releasemanifest.outputs['confidence-cloudflare-resolver--release_created'] }}
       java_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/java--release_created'] }}
+      java_provider_tag_name: ${{ steps.releasemanifest.outputs['openfeature-provider/java--tag_name'] }}
       js_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/js--release_created'] }}
+      js_provider_tag_name: ${{ steps.releasemanifest.outputs['openfeature-provider/js--tag_name'] }}
+      go_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/go--release_created'] }}
+      go_provider_tag_name: ${{ steps.releasemanifest.outputs['openfeature-provider/go--tag_name'] }}
       ruby_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/ruby--release_created'] }}
     steps:
       - name: Checkout
@@ -36,7 +40,69 @@ jobs:
           echo "=== Release Please Outputs ==="
           echo "All outputs (JSON):"
           echo '${{ toJSON(steps.releasemanifest.outputs) }}'
-          
+
+  publish-wasm-binary:
+    needs: release
+    if: |
+      needs.release.outputs.java_provider_release_created == 'true' ||
+      needs.release.outputs.js_provider_release_created == 'true' ||
+      needs.release.outputs.go_provider_release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write  # Required for GitHub attestations
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract WASM binary from Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: wasm-rust-guest.artifact
+          outputs: type=local,dest=./wasm-artifacts
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+
+      - name: Generate SHA-256 checksum
+        run: |
+          cd wasm-artifacts
+          sha256sum confidence_resolver.wasm > confidence_resolver.wasm.sha256
+          cat confidence_resolver.wasm.sha256
+
+      - name: Attest WASM binary
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'wasm-artifacts/confidence_resolver.wasm'
+
+      - name: Determine release tags for upload
+        id: determine_tags
+        run: |
+          TAGS=""
+          if [ "${{ needs.release.outputs.java_provider_release_created }}" == "true" ]; then
+            TAGS="$TAGS ${{ needs.release.outputs.java_provider_tag_name }}"
+          fi
+          if [ "${{ needs.release.outputs.js_provider_release_created }}" == "true" ]; then
+            TAGS="$TAGS ${{ needs.release.outputs.js_provider_tag_name }}"
+          fi
+          if [ "${{ needs.release.outputs.go_provider_release_created }}" == "true" ]; then
+            TAGS="$TAGS ${{ needs.release.outputs.go_provider_tag_name }}"
+          fi
+          echo "First tag: $(echo $TAGS | awk '{print $1}')"
+          echo "release_tag=$(echo $TAGS | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Upload WASM to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ steps.determine_tags.outputs.release_tag }} \
+            wasm-artifacts/confidence_resolver.wasm \
+            wasm-artifacts/confidence_resolver.wasm.sha256 \
+            --clobber
+
   publish-cloudflare-deployer-image:
     needs: release
     if: ${{ needs.release.outputs.cloudflare_resolver_release_created == 'true' }}
@@ -98,7 +164,7 @@ jobs:
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
-        
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
