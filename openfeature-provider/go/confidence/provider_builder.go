@@ -68,7 +68,10 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	stateProvider := NewFlagsAdminStateFetcherWithTransport(config.ClientSecret, logger, transport)
 	flagLogger := fl.NewGrpcWasmFlagLogger(flagLoggerService, config.ClientSecret, logger)
 	materializationStore := config.MaterializationStore
-	if materializationStore == nil && config.UseRemoteMaterializationStore {
+	if materializationStore == nil {
+		materializationStore = newUnsupportedMaterializationStore()
+	}
+	if config.UseRemoteMaterializationStore {
 		materializationStore = newRemoteMaterializationStore(resolverv1.NewInternalFlagLoggerServiceClient(conn), config.ClientSecret)
 	}
 

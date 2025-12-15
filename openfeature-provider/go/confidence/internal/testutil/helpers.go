@@ -8,9 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	admin "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
+	typesv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/types"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -72,23 +73,174 @@ func LoadTestAccountID(t *testing.T) string {
 	return strings.TrimSpace(string(data))
 }
 
+// CreateStateWithMaterializedSegment creates a test state with a flag using MaterializedSegmentCriterion
+func CreateStateWithMaterializedSegment() []byte {
+	clientName := "clients/test-client"
+	credentialName := "clients/test-client/credentials/test-credential"
+
+	// Create a segment with MaterializedSegmentCriterion
+	segment := &adminv1.Segment{
+		Name: "segments/custom-targeting-segment",
+		Targeting: &typesv1.Targeting{
+			Criteria: map[string]*typesv1.Targeting_Criterion{
+				"mat-criterion": {
+					Criterion: &typesv1.Targeting_Criterion_MaterializedSegment{
+						MaterializedSegment: &typesv1.Targeting_Criterion_MaterializedSegmentCriterion{
+							MaterializedSegment: "materializedSegments/nicklas-custom-targeting",
+						},
+					},
+				},
+			},
+			Expression: &typesv1.Expression{
+				Expression: &typesv1.Expression_Ref{
+					Ref: "mat-criterion",
+				},
+			},
+		},
+	}
+
+	// Create a default segment for the fallback rule
+	defaultSegment := &adminv1.Segment{
+		Name: "segments/always-true",
+	}
+
+	// Build bitsets for each segment
+	bitsets := []*adminv1.ResolverState_PackedBitset{
+		{
+			Segment: "segments/custom-targeting-segment",
+			Bitset: &adminv1.ResolverState_PackedBitset_FullBitset{
+				FullBitset: true,
+			},
+		},
+		{
+			Segment: "segments/always-true",
+			Bitset: &adminv1.ResolverState_PackedBitset_FullBitset{
+				FullBitset: true,
+			},
+		},
+	}
+
+	state := &adminv1.ResolverState{
+		Flags: []*adminv1.Flag{
+			{
+				Name: "flags/custom-targeted-flag",
+				Variants: []*adminv1.Flag_Variant{
+					{
+						Name: "flags/custom-targeted-flag/variants/cake-exclamation",
+						Value: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"message": structpb.NewStringValue("Did someone say CAKE?!"),
+							},
+						},
+					},
+					{
+						Name: "flags/custom-targeted-flag/variants/default",
+						Value: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"message": structpb.NewStringValue("nothing fun"),
+							},
+						},
+					},
+				},
+				State:   adminv1.Flag_ACTIVE,
+				Clients: []string{clientName},
+				Rules: []*adminv1.Flag_Rule{
+					{
+						Name:                 "flags/custom-targeted-flag/rules/custom-targeting",
+						Segment:              segment.Name,
+						TargetingKeySelector: "user_id",
+						Enabled:              true,
+						AssignmentSpec: &adminv1.Flag_Rule_AssignmentSpec{
+							BucketCount: 2,
+							Assignments: []*adminv1.Flag_Rule_Assignment{
+								{
+									AssignmentId: "variant-assignment",
+									Assignment: &adminv1.Flag_Rule_Assignment_Variant{
+										Variant: &adminv1.Flag_Rule_Assignment_VariantAssignment{
+											Variant: "flags/custom-targeted-flag/variants/cake-exclamation",
+										},
+									},
+									BucketRanges: []*adminv1.Flag_Rule_BucketRange{
+										{
+											Lower: 0,
+											Upper: 2,
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						Name:                 "flags/custom-targeted-flag/rules/default-rule",
+						Segment:              defaultSegment.Name,
+						TargetingKeySelector: "user_id",
+						Enabled:              true,
+						AssignmentSpec: &adminv1.Flag_Rule_AssignmentSpec{
+							BucketCount: 2,
+							Assignments: []*adminv1.Flag_Rule_Assignment{
+								{
+									AssignmentId: "default-assignment",
+									Assignment: &adminv1.Flag_Rule_Assignment_Variant{
+										Variant: &adminv1.Flag_Rule_Assignment_VariantAssignment{
+											Variant: "flags/custom-targeted-flag/variants/default",
+										},
+									},
+									BucketRanges: []*adminv1.Flag_Rule_BucketRange{
+										{
+											Lower: 0,
+											Upper: 2,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		SegmentsNoBitsets: []*adminv1.Segment{segment, defaultSegment},
+		Clients: []*adminv1.Client{
+			{
+				Name: clientName,
+			},
+		},
+		Bitsets: bitsets,
+		ClientCredentials: []*adminv1.ClientCredential{
+			{
+				Name: credentialName,
+				Credential: &adminv1.ClientCredential_ClientSecret_{
+					ClientSecret: &adminv1.ClientCredential_ClientSecret{
+						Secret: "test-secret",
+					},
+				},
+			},
+		},
+	}
+
+	data, err := gproto.Marshal(state)
+	if err != nil {
+		panic("Failed to create state with materialized segment: " + err.Error())
+	}
+	return data
+}
+
 // Helper function to create minimal valid resolver state for testing
 func CreateMinimalResolverState() []byte {
 	clientName := "clients/test-client"
 	credentialName := "clients/test-client/credentials/test-credential"
 
-	state := &admin.ResolverState{
-		Flags: []*admin.Flag{},
-		Clients: []*admin.Client{
+	state := &adminv1.ResolverState{
+		Flags: []*adminv1.Flag{},
+		Clients: []*adminv1.Client{
 			{
 				Name: clientName,
 			},
 		},
-		ClientCredentials: []*admin.ClientCredential{
+		ClientCredentials: []*adminv1.ClientCredential{
 			{
 				Name: credentialName, // Must start with client name
-				Credential: &admin.ClientCredential_ClientSecret_{
-					ClientSecret: &admin.ClientCredential_ClientSecret{
+				Credential: &adminv1.ClientCredential_ClientSecret_{
+					ClientSecret: &adminv1.ClientCredential_ClientSecret{
 						Secret: "test-secret",
 					},
 				},
@@ -104,27 +256,27 @@ func CreateMinimalResolverState() []byte {
 
 // Helper to create a resolver state with a flag that requires materializations
 func CreateStateWithStickyFlag() []byte {
-	segments := []*admin.Segment{
+	segments := []*adminv1.Segment{
 		{
 			Name: "segments/always-true",
 		},
 	}
 
 	// Build bitsets for each segment
-	bitsets := make([]*admin.ResolverState_PackedBitset, 0, len(segments))
+	bitsets := make([]*adminv1.ResolverState_PackedBitset, 0, len(segments))
 	for _, segment := range segments {
-		bitsets = append(bitsets, &admin.ResolverState_PackedBitset{
+		bitsets = append(bitsets, &adminv1.ResolverState_PackedBitset{
 			Segment: segment.Name,
-			Bitset: &admin.ResolverState_PackedBitset_FullBitset{
+			Bitset: &adminv1.ResolverState_PackedBitset_FullBitset{
 				FullBitset: true,
 			},
 		})
 	}
-	state := &admin.ResolverState{
-		Flags: []*admin.Flag{
+	state := &adminv1.ResolverState{
+		Flags: []*adminv1.Flag{
 			{
 				Name: "flags/sticky-test-flag",
-				Variants: []*admin.Flag_Variant{
+				Variants: []*adminv1.Flag_Variant{
 					{
 						Name: "flags/sticky-test-flag/variants/on",
 						Value: &structpb.Struct{
@@ -142,26 +294,26 @@ func CreateStateWithStickyFlag() []byte {
 						},
 					},
 				},
-				State: admin.Flag_ACTIVE,
+				State: adminv1.Flag_ACTIVE,
 				// Associate this flag with the test client
 				Clients: []string{"clients/test-client"},
-				Rules: []*admin.Flag_Rule{
+				Rules: []*adminv1.Flag_Rule{
 					{
 						Name:                 "flags/sticky-test-flag/rules/sticky-rule",
 						Segment:              segments[0].Name,
 						TargetingKeySelector: "user_id",
 						Enabled:              true,
-						AssignmentSpec: &admin.Flag_Rule_AssignmentSpec{
+						AssignmentSpec: &adminv1.Flag_Rule_AssignmentSpec{
 							BucketCount: 2,
-							Assignments: []*admin.Flag_Rule_Assignment{
+							Assignments: []*adminv1.Flag_Rule_Assignment{
 								{
 									AssignmentId: "variant-assignment",
-									Assignment: &admin.Flag_Rule_Assignment_Variant{
-										Variant: &admin.Flag_Rule_Assignment_VariantAssignment{
+									Assignment: &adminv1.Flag_Rule_Assignment_Variant{
+										Variant: &adminv1.Flag_Rule_Assignment_VariantAssignment{
 											Variant: "flags/sticky-test-flag/variants/on",
 										},
 									},
-									BucketRanges: []*admin.Flag_Rule_BucketRange{
+									BucketRanges: []*adminv1.Flag_Rule_BucketRange{
 										{
 											Lower: 0,
 											Upper: 2,
@@ -171,10 +323,10 @@ func CreateStateWithStickyFlag() []byte {
 							},
 						},
 						// This rule requires a materialization named "experiment_v1"
-						MaterializationSpec: &admin.Flag_Rule_MaterializationSpec{
+						MaterializationSpec: &adminv1.Flag_Rule_MaterializationSpec{
 							ReadMaterialization:  "experiment_v1",
 							WriteMaterialization: "experiment_v1",
-							Mode: &admin.Flag_Rule_MaterializationSpec_MaterializationReadMode{
+							Mode: &adminv1.Flag_Rule_MaterializationSpec_MaterializationReadMode{
 								MaterializationMustMatch:     false,
 								SegmentTargetingCanBeIgnored: false,
 							},
@@ -184,19 +336,19 @@ func CreateStateWithStickyFlag() []byte {
 			},
 		},
 		SegmentsNoBitsets: segments,
-		Clients: []*admin.Client{
+		Clients: []*adminv1.Client{
 			{
 				Name: "clients/test-client",
 			},
 		},
 		// All-one bitset for each segment
 		Bitsets: bitsets,
-		ClientCredentials: []*admin.ClientCredential{
+		ClientCredentials: []*adminv1.ClientCredential{
 			{
 				// ClientCredential name must start with the client name
 				Name: "clients/test-client/credentials/test-credential",
-				Credential: &admin.ClientCredential_ClientSecret_{
-					ClientSecret: &admin.ClientCredential_ClientSecret{
+				Credential: &adminv1.ClientCredential_ClientSecret_{
+					ClientSecret: &adminv1.ClientCredential_ClientSecret{
 						Secret: "test-secret",
 					},
 				},
@@ -252,7 +404,6 @@ func CreateTutorialFeatureResponse() *resolver.ResolveFlagsResponse {
 				Value: &structpb.Struct{Fields: map[string]*structpb.Value{
 					"enabled": structpb.NewBoolValue(true),
 				}},
-				ShouldApply: true,
 			},
 		},
 		ResolveId: "test-resolve-id",
