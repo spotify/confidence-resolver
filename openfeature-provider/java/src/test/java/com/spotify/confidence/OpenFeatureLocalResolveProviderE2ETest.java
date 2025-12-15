@@ -113,4 +113,33 @@ class OpenFeatureLocalResolveProviderE2ETest {
     assertEquals("flags/web-sdk-e2e-flag/variants/sticky", details.getVariant());
     assertEquals("RESOLVE_REASON_MATCH", details.getReason());
   }
+
+  @Test
+  void shouldResolveFlagWithCustomTargetingAndRemoteMaterializationStore() {
+    final FlagEvaluationDetails<String> detailsIncluded =
+        client.getStringDetails(
+            "custom-targeted-flag.message",
+            "default",
+            new MutableContext().add("user_id", "user-a"));
+
+    // The flag has a rule with a materialized segment targeting. The users `user-a`, `user-b`,
+    // `user-c` should get the cake-exclamation variant.
+    // If this test breaks it could mean that the rule was removed or that the bigtable
+    // materialization was cleaned out.
+    assertEquals("Did someone say CAKE?!", detailsIncluded.getValue());
+    assertEquals(
+        "flags/custom-targeted-flag/variants/cake-exclamation", detailsIncluded.getVariant());
+    assertEquals("RESOLVE_REASON_MATCH", detailsIncluded.getReason());
+
+    final FlagEvaluationDetails<String> detailsExcluded =
+        client.getStringDetails(
+            "custom-targeted-flag.message",
+            "default",
+            new MutableContext().add("user_id", "user-x"));
+
+    // `user-x` falls through to be assigned to the default variant
+    assertEquals("nothing fun", detailsExcluded.getValue());
+    assertEquals("flags/custom-targeted-flag/variants/default", detailsExcluded.getVariant());
+    assertEquals("RESOLVE_REASON_MATCH", detailsExcluded.getReason());
+  }
 }
