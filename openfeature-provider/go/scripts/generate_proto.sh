@@ -42,6 +42,7 @@ protoc --proto_path=../proto \
        --go-grpc_out=confidence/internal/proto \
        --go-grpc_opt=module=github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto \
        confidence/flags/types/v1/types.proto \
+       confidence/flags/types/v1/target.proto \
        confidence/flags/resolver/v1/types.proto \
        confidence/flags/resolver/v1/api.proto \
        confidence/flags/resolver/v1/internal_api.proto \

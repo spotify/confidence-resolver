@@ -20,7 +20,7 @@ func newUnsupportedMaterializationStore() *unsupportedMaterializationStore {
 // Read always returns MaterializationNotSupportedError to trigger gRPC fallback.
 func (u *unsupportedMaterializationStore) Read(ctx context.Context, ops []ReadOp) ([]ReadResult, error) {
 	return nil, &MaterializationNotSupportedError{
-		Message: "materialization read not supported, falling back to remote resolution",
+		Message: "materialization read not supported",
 	}
 }
 

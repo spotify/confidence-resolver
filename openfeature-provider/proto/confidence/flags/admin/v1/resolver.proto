@@ -4,6 +4,7 @@ package confidence.flags.admin.v1;
 
 import "google/protobuf/struct.proto";
 import "confidence/flags/types/v1/types.proto";
+import "confidence/flags/types/v1/target.proto";
 
 option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin";
 option java_package = "com.spotify.confidence.flags.admin.v1";
@@ -210,7 +211,7 @@ message Segment {
   string display_name = 12;
 
   // The targeting that this segment adheres to.
-  Targeting targeting = 2;
+  flags.types.v1.Targeting targeting = 2;
 
   // How much of the total population that is allocated to this segment,
   // and the coordination with other segments.
@@ -218,12 +219,6 @@ message Segment {
 
   // A bitset representing the buckets that are allocated for this segment.
   BitsetAllocation bitset_allocation = 6;
-
-  // Targeting criteria
-  message Targeting {
-    // Condition expression
-    Condition condition = 1;
-  }
 
   // Allocation and coordination of the segment.
   message Allocation {

@@ -179,6 +179,50 @@ func (*ResolveWithStickyResponse_Success_) isResolveWithStickyResponse_ResolveRe
 
 func (*ResolveWithStickyResponse_ReadOpsRequest) isResolveWithStickyResponse_ResolveResult() {}
 
+type LogMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogMessage) Reset() {
+	*x = LogMessage{}
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogMessage) ProtoMessage() {}
+
+func (x *LogMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogMessage.ProtoReflect.Descriptor instead.
+func (*LogMessage) Descriptor() ([]byte, []int) {
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *LogMessage) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 // Successful resolution with materialization updates
 type ResolveWithStickyResponse_Success struct {
 	state    protoimpl.MessageState         `protogen:"open.v1"`
@@ -191,7 +235,7 @@ type ResolveWithStickyResponse_Success struct {
 
 func (x *ResolveWithStickyResponse_Success) Reset() {
 	*x = ResolveWithStickyResponse_Success{}
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[2]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -203,7 +247,7 @@ func (x *ResolveWithStickyResponse_Success) String() string {
 func (*ResolveWithStickyResponse_Success) ProtoMessage() {}
 
 func (x *ResolveWithStickyResponse_Success) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[2]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -249,7 +293,10 @@ const file_confidence_wasm_wasm_api_proto_rawDesc = "" +
 	"\aSuccess\x12N\n" +
 	"\bresponse\x18\x01 \x01(\v22.confidence.flags.resolver.v1.ResolveFlagsResponseR\bresponse\x12b\n" +
 	"\x17materialization_updates\x18\x03 \x03(\v2).confidence.flags.resolver.v1.VariantDataR\x16materializationUpdatesB\x10\n" +
-	"\x0eresolve_resultB\x99\x01\n" +
+	"\x0eresolve_result\"&\n" +
+	"\n" +
+	"LogMessage\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessageB\x99\x01\n" +
 	"(com.spotify.confidence.flags.resolver.v1B\fWasmApiProtoP\x01Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
 
 var (
@@ -264,24 +311,25 @@ func file_confidence_wasm_wasm_api_proto_rawDescGZIP() []byte {
 	return file_confidence_wasm_wasm_api_proto_rawDescData
 }
 
-var file_confidence_wasm_wasm_api_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_confidence_wasm_wasm_api_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_confidence_wasm_wasm_api_proto_goTypes = []any{
 	(*ResolveWithStickyRequest)(nil),               // 0: confidence.flags.resolver.v1.ResolveWithStickyRequest
 	(*ResolveWithStickyResponse)(nil),              // 1: confidence.flags.resolver.v1.ResolveWithStickyResponse
-	(*ResolveWithStickyResponse_Success)(nil),      // 2: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success
-	(*resolver.ResolveFlagsRequest)(nil),           // 3: confidence.flags.resolver.v1.ResolveFlagsRequest
-	(*resolverinternal.ReadResult)(nil),            // 4: confidence.flags.resolver.v1.ReadResult
-	(*resolverinternal.ReadOperationsRequest)(nil), // 5: confidence.flags.resolver.v1.ReadOperationsRequest
-	(*resolver.ResolveFlagsResponse)(nil),          // 6: confidence.flags.resolver.v1.ResolveFlagsResponse
-	(*resolverinternal.VariantData)(nil),           // 7: confidence.flags.resolver.v1.VariantData
+	(*LogMessage)(nil),                             // 2: confidence.flags.resolver.v1.LogMessage
+	(*ResolveWithStickyResponse_Success)(nil),      // 3: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success
+	(*resolver.ResolveFlagsRequest)(nil),           // 4: confidence.flags.resolver.v1.ResolveFlagsRequest
+	(*resolverinternal.ReadResult)(nil),            // 5: confidence.flags.resolver.v1.ReadResult
+	(*resolverinternal.ReadOperationsRequest)(nil), // 6: confidence.flags.resolver.v1.ReadOperationsRequest
+	(*resolver.ResolveFlagsResponse)(nil),          // 7: confidence.flags.resolver.v1.ResolveFlagsResponse
+	(*resolverinternal.VariantData)(nil),           // 8: confidence.flags.resolver.v1.VariantData
 }
 var file_confidence_wasm_wasm_api_proto_depIdxs = []int32{
-	3, // 0: confidence.flags.resolver.v1.ResolveWithStickyRequest.resolve_request:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
-	4, // 1: confidence.flags.resolver.v1.ResolveWithStickyRequest.materializations:type_name -> confidence.flags.resolver.v1.ReadResult
-	2, // 2: confidence.flags.resolver.v1.ResolveWithStickyResponse.success:type_name -> confidence.flags.resolver.v1.ResolveWithStickyResponse.Success
-	5, // 3: confidence.flags.resolver.v1.ResolveWithStickyResponse.read_ops_request:type_name -> confidence.flags.resolver.v1.ReadOperationsRequest
-	6, // 4: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success.response:type_name -> confidence.flags.resolver.v1.ResolveFlagsResponse
-	7, // 5: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success.materialization_updates:type_name -> confidence.flags.resolver.v1.VariantData
+	4, // 0: confidence.flags.resolver.v1.ResolveWithStickyRequest.resolve_request:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
+	5, // 1: confidence.flags.resolver.v1.ResolveWithStickyRequest.materializations:type_name -> confidence.flags.resolver.v1.ReadResult
+	3, // 2: confidence.flags.resolver.v1.ResolveWithStickyResponse.success:type_name -> confidence.flags.resolver.v1.ResolveWithStickyResponse.Success
+	6, // 3: confidence.flags.resolver.v1.ResolveWithStickyResponse.read_ops_request:type_name -> confidence.flags.resolver.v1.ReadOperationsRequest
+	7, // 4: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success.response:type_name -> confidence.flags.resolver.v1.ResolveFlagsResponse
+	8, // 5: confidence.flags.resolver.v1.ResolveWithStickyResponse.Success.materialization_updates:type_name -> confidence.flags.resolver.v1.VariantData
 	6, // [6:6] is the sub-list for method output_type
 	6, // [6:6] is the sub-list for method input_type
 	6, // [6:6] is the sub-list for extension type_name
@@ -304,7 +352,7 @@ func file_confidence_wasm_wasm_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_wasm_wasm_api_proto_rawDesc), len(file_confidence_wasm_wasm_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
