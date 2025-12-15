@@ -1,4 +1,4 @@
-import type {
+import {
   ErrorCode,
   EvaluationContext,
   JsonValue,
@@ -13,10 +13,17 @@ import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
 import { SdkId, ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import { isObject, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
 import { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
+import { MaterializationStore } from './materialization';
+import {
+  ReadOperationsRequest,
+  ReadOperationsResult,
+  ReadResult,
+  WriteOperationsRequest,
+} from './proto/confidence/flags/resolver/v1/internal_api';
 
 const logger = getLogger('provider');
 
@@ -27,6 +34,7 @@ export interface ProviderOptions {
   initializeTimeout?: number;
   flushInterval?: number;
   fetch?: typeof fetch;
+  materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
 }
 
 /**
@@ -62,7 +70,7 @@ export class ConfidenceServerProviderLocal implements Provider {
           ],
           'https://resolver.confidence.dev/*': [
             withRouter({
-              '*/v1/flags:resolve': [
+              '*/v1/materialization:readMaterializedOperations|*/v1/materialization:writeMaterializedOperations': [
                 withRetry({
                   maxAttempts: 3,
                   baseInterval: 100,
@@ -119,75 +127,60 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   // TODO test unknown flagClientSecret
   async evaluate<T>(flagKey: string, defaultValue: T, context: EvaluationContext): Promise<ResolutionDetails<T>> {
-    const [flagName, ...path] = flagKey.split('.');
+    try {
+      const [flagName, ...path] = flagKey.split('.');
 
-    // Build resolve request
-    // Always use sticky resolve request with remote fallback
-    const stickyRequest: ResolveWithStickyRequest = {
-      resolveRequest: {
-        flags: [`flags/${flagName}`],
-        evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
-        apply: true,
-        clientSecret: this.options.flagClientSecret,
-        sdk: {
-          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-          version: VERSION,
+      // Build resolve request
+      // Always use sticky resolve request with remote fallback
+      const stickyRequest: ResolveWithStickyRequest = {
+        resolveRequest: {
+          flags: [`flags/${flagName}`],
+          evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
+          apply: true,
+          clientSecret: this.options.flagClientSecret,
+          sdk: {
+            id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+            version: VERSION,
+          },
         },
-      },
-      materializations: [],
-      failFastOnSticky: true, // Always fail fast - use remote resolver for sticky assignments
-      notProcessSticky: false,
-    };
+        materializations: [],
+        failFastOnSticky: false,
+        notProcessSticky: false,
+      };
 
-    const response = await this.resolveWithStickyInternal(stickyRequest);
-    const result = this.extractValue(response.resolvedFlags[0], flagName, path, defaultValue);
+      const response = await this.resolveWithSticky(stickyRequest);
 
-    if (result.errorCode) {
-      logger.warn(`Flag evaluation for '${flagKey}' returned error code: ${result.errorCode}`);
+      return this.extractValue(response.resolvedFlags[0], flagName, path, defaultValue);
+    } catch (e) {
+      logger.warn(`Flag evaluation for '${flagKey}' failed`, e);
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: ErrorCode.GENERAL,
+        errorMessage: String(e),
+      };
     }
-
-    return result;
   }
 
-  /**
-   * Internal recursive method for resolving with sticky assignments.
-   *
-   * @private
-   */
-  private async resolveWithStickyInternal(request: ResolveWithStickyRequest): Promise<ResolveFlagsResponse> {
-    const response = this.resolver.resolveWithSticky(request);
+  private async resolveWithSticky(stickyRequest: ResolveWithStickyRequest): Promise<ResolveFlagsResponse> {
+    let stickyResponse = this.resolver.resolveWithSticky(stickyRequest);
 
-    if (response.success && response.success.response) {
-      this.flushAssigned();
-      const { response: flagsResponse } = response.success;
-      return flagsResponse;
+    if (stickyResponse.readOpsRequest) {
+      const { results: materializations } = await this.readMaterializations(stickyResponse.readOpsRequest);
+      stickyResponse = this.resolver.resolveWithSticky({ ...stickyRequest, materializations });
     }
 
-    // Handle missing materializations by falling back to remote resolver
-    if (response.readOpsRequest) {
-      return await this.remoteResolve(request.resolveRequest!);
+    if (!stickyResponse.success) {
+      // this shouldn't happen with failFast = false. Although it _could_ happen if the state changed and added a new read
+      throw new Error('Missing materializations');
     }
 
-    throw new Error('Invalid response: resolve result not set');
-  }
-
-  private async remoteResolve(request: ResolveFlagsRequest): Promise<ResolveFlagsResponse> {
-    const url = 'https://resolver.confidence.dev/v1/flags:resolve';
-
-    const resp = await this.fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(ResolveFlagsRequest.toJSON(request)),
-    });
-
-    if (!resp.ok) {
-      throw new Error(`Remote resolve failed: ${resp.status} ${resp.statusText}`);
+    const { materializationUpdates: storeVariantOp, response: resolveResponse } = stickyResponse.success;
+    if (storeVariantOp.length) {
+      // TODO should this be awaited?
+      await this.writeMaterializations({ storeVariantOp });
     }
-
-    const json = await resp.json();
-    return ResolveFlagsResponse.fromJSON(json);
+    return ResolveFlagsResponse.create(resolveResponse);
   }
 
   /**
@@ -296,6 +289,103 @@ export class ConfidenceServerProviderLocal implements Provider {
       logger.warn('Failed to send flag logs', err);
       throw err;
     }
+  }
+
+  private async readMaterializations(
+    readOpsReq: ReadOperationsRequest,
+    signal = this.main.signal,
+  ): Promise<ReadOperationsResult> {
+    const materializationStore = this.options.materializationStore;
+    if (materializationStore === 'CONFIDENCE_REMOTE_STORE') {
+      const response = await this.fetch(
+        'https://resolver.confidence.dev/v1/materialization:readMaterializedOperations',
+        {
+          method: 'post',
+          signal,
+          headers: {
+            'Content-Type': 'application/x-protobuf',
+            Authorization: `ClientSecret ${this.options.flagClientSecret}`,
+          },
+          body: ReadOperationsRequest.encode(readOpsReq).finish(),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to read materializations: ${response.status} ${response.statusText}`);
+      }
+      return ReadOperationsResult.decode(new Uint8Array(await response.arrayBuffer()));
+    }
+    if (materializationStore && typeof materializationStore.readMaterializations === 'function') {
+      const readOps = readOpsReq.ops.flatMap((op): MaterializationStore.ReadOp[] => {
+        if (op.inclusionReadOp) {
+          return [
+            {
+              op: 'inclusion',
+              ...op.inclusionReadOp,
+            },
+          ];
+        }
+        if (op.variantReadOp) {
+          return [
+            {
+              op: 'variant',
+              ...op.variantReadOp,
+            },
+          ];
+        }
+        return [];
+      });
+      const result = await materializationStore.readMaterializations(readOps);
+      return {
+        results: result.flatMap((readResult): ReadResult[] => {
+          if (readResult.op === 'inclusion') {
+            const { unit, materialization, included: isIncluded } = readResult;
+            return [{ inclusionResult: { unit, materialization, isIncluded } }];
+          }
+          if (readResult.op === 'variant') {
+            const { unit, materialization, rule, variant = '' } = readResult;
+            return [{ variantResult: { unit, materialization, rule, variant } }];
+          }
+          return [];
+        }),
+      };
+    }
+    throw new Error('Read materialization not supported');
+  }
+
+  private async writeMaterializations(
+    writeOpsRequest: WriteOperationsRequest,
+    signal = this.main.signal,
+  ): Promise<void> {
+    const materializationStore = this.options.materializationStore;
+    if (materializationStore === 'CONFIDENCE_REMOTE_STORE') {
+      const response = await this.fetch(
+        'https://resolver.confidence.dev/v1/materialization:writeMaterializedOperations',
+        {
+          method: 'post',
+          signal,
+          headers: {
+            'Content-Type': 'application/x-protobuf',
+            Authorization: `ClientSecret ${this.options.flagClientSecret}`,
+          },
+          body: WriteOperationsRequest.encode(writeOpsRequest).finish(),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to write materializations: ${response.status} ${response.statusText}`);
+      }
+      return;
+    }
+    if (materializationStore && typeof materializationStore.writeMaterializations === 'function') {
+      const writeOps = writeOpsRequest.storeVariantOp.map((variantData): MaterializationStore.WriteOp => {
+        return {
+          op: 'variant',
+          ...variantData,
+        };
+      });
+      await materializationStore.writeMaterializations(writeOps);
+      return;
+    }
+    throw new Error('Write materialization not supported');
   }
 
   private static convertReason(reason: ResolveReason): ResolutionReason {

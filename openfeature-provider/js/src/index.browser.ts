@@ -1,5 +1,6 @@
 import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
 import { WasmResolver } from './WasmResolver';
+export * from './materialization';
 
 const wasmUrl = new URL('confidence_resolver.wasm', import.meta.url);
 
