@@ -9,6 +9,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,7 +57,9 @@ public class RemoteMaterializationStore implements MaterializationStore {
   private final InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub stub;
   private final Duration readTimeout;
   private final Duration writeTimeout;
-  private final String clientSecret;
+  private final ExecutorService executor;
+  private final boolean shouldShutdownExecutor;
+  private ManagedChannel channel;
 
   /**
    * Creates a new RemoteMaterializationStore with the given client secret.
@@ -78,27 +82,29 @@ public class RemoteMaterializationStore implements MaterializationStore {
    * @param channelFactory the factory to use for creating gRPC channels
    */
   public RemoteMaterializationStore(String clientSecret, ChannelFactory channelFactory) {
-    this.clientSecret = clientSecret;
     this.stub = createAuthStub(channelFactory, clientSecret);
     this.readTimeout = getReadTimeout();
     this.writeTimeout = getWriteTimeout();
+    this.executor = Executors.newCachedThreadPool();
+    this.shouldShutdownExecutor = true;
   }
 
   @VisibleForTesting
   RemoteMaterializationStore(
       InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub stub,
-      String clientSecret,
       Duration readTimeout,
-      Duration writeTimeout) {
+      Duration writeTimeout,
+      ExecutorService executor) {
     this.stub = stub;
-    this.clientSecret = clientSecret;
     this.readTimeout = readTimeout;
     this.writeTimeout = writeTimeout;
+    this.executor = executor;
+    this.shouldShutdownExecutor = false;
   }
 
-  private static InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub createAuthStub(
+  private InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub createAuthStub(
       ChannelFactory channelFactory, String clientSecret) {
-    ManagedChannel channel = createConfidenceChannel(channelFactory);
+    this.channel = createConfidenceChannel(channelFactory);
     return InternalFlagLoggerServiceGrpc.newBlockingStub(channel)
         .withInterceptors(
             new ClientInterceptor() {
@@ -184,7 +190,8 @@ public class RemoteMaterializationStore implements MaterializationStore {
             logger.error("Failed to read materialized operations", e);
             throw new RuntimeException("Failed to read materialized operations", e);
           }
-        });
+        },
+        executor);
   }
 
   @Override
@@ -214,7 +221,15 @@ public class RemoteMaterializationStore implements MaterializationStore {
             logger.error("Failed to write materialized operations", e);
             throw new RuntimeException("Failed to write materialized operations", e);
           }
-        });
+        },
+        executor);
+  }
+
+  public void shutdown() {
+    this.channel.shutdown();
+    if (shouldShutdownExecutor) {
+      this.executor.shutdown();
+    }
   }
 
   private com.spotify.confidence.flags.resolver.v1.ReadOp readOpToProto(ReadOp op) {

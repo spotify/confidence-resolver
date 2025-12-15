@@ -179,7 +179,7 @@ OpenFeatureLocalResolveProvider provider =
 
 #### 2. Remote Materialization Store
 
-Enable remote materialization storage to have Confidence manage materialization data server-side with automatic 90-day TTL management. When sticky assignment data is needed, the provider makes a gRPC call to Confidence:
+Enable remote materialization storage to have Confidence manage materialization data server-side. When sticky assignment data or materialized segment targeting data is needed, the provider makes a gRPC call to Confidence:
 
 ```java
 // Enable remote materialization storage
@@ -191,11 +191,15 @@ OpenFeatureLocalResolveProvider provider =
     new OpenFeatureLocalResolveProvider(config, "your-client-secret");
 ```
 
+**⚠️ Important Performance Impact**: This option fundamentally changes how the provider operates:
+- **Without materialization (default)**: Flag evaluation requires **zero network calls** - all evaluations happen locally with minimal latency
+- **With remote materialization**: Flag evaluation **requires network calls** to Confidence for materialization reads/writes, adding latency to each evaluation
+
 This option:
-- Requires network calls for materialization reads/writes
+- Requires network calls for materialization reads/writes during flag evaluation
 - Automatically handles TTL and cleanup
 - Requires no additional infrastructure
-- Suitable for most production use cases
+- Suitable for production use cases where sticky assignments or materialized segment targeting are required
 
 #### 3. Custom Materialization Storage
 

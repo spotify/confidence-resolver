@@ -10,6 +10,7 @@ import io.grpc.StatusRuntimeException;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -25,7 +26,10 @@ class RemoteMaterializationStoreTest {
     when(mockStub.withDeadlineAfter(anyLong(), any())).thenReturn(mockStub);
     store =
         new RemoteMaterializationStore(
-            mockStub, "test-secret", Duration.ofSeconds(2), Duration.ofSeconds(5));
+            mockStub,
+            Duration.ofSeconds(2),
+            Duration.ofSeconds(5),
+            Executors.newCachedThreadPool());
   }
 
   @Test

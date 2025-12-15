@@ -311,6 +311,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       Thread.currentThread().interrupt();
     }
 
+    // if we created the materialization store ourselves we are responsible for shutting it down
+    if (materializationStore instanceof RemoteMaterializationStore remoteMaterializationStore) {
+      remoteMaterializationStore.shutdown();
+    }
+
     // wasmResolveApi.close() flushes logs and calls flagLogger.shutdown() which waits for pending
     // writes
     this.wasmResolveApi.close();
