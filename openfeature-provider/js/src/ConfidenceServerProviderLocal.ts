@@ -130,8 +130,6 @@ export class ConfidenceServerProviderLocal implements Provider {
     try {
       const [flagName, ...path] = flagKey.split('.');
 
-      // Build resolve request
-      // Always use sticky resolve request with remote fallback
       const stickyRequest: ResolveWithStickyRequest = {
         resolveRequest: {
           flags: [`flags/${flagName}`],
@@ -151,6 +149,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       const response = await this.resolveWithSticky(stickyRequest);
 
       return this.extractValue(response.resolvedFlags[0], flagName, path, defaultValue);
+      
     } catch (e) {
       logger.warn(`Flag evaluation for '${flagKey}' failed`, e);
       return {
@@ -159,6 +158,8 @@ export class ConfidenceServerProviderLocal implements Provider {
         errorCode: ErrorCode.GENERAL,
         errorMessage: String(e),
       };
+    } finally {
+      this.flushAssigned();
     }
   }
 

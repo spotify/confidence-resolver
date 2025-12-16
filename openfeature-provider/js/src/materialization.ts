@@ -40,7 +40,7 @@ export namespace MaterializationStore {
       readonly variant: string;
     }
   }
-  export type WriteOp = WriteOp.Variant | never;
+  export type WriteOp = WriteOp.Variant;
 }
 export interface MaterializationStore {
   readMaterializations(readOps: MaterializationStore.ReadOp[]): Promise<MaterializationStore.ReadResult[]>;

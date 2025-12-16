@@ -1,10 +1,7 @@
 import { vi } from 'vitest';
-import { AccessToken } from './LocalResolver';
 import { abortableSleep, isObject, TimeUnit } from './util';
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
-import { HashProvider } from './HashProvider';
 
 type PayloadFactory = (req: Request) => BodyInit | null;
 type ByteStream = ReadableStream<Uint8Array<ArrayBuffer>>;
@@ -111,41 +108,23 @@ class ServerMock extends RequestDispatcher<EndpointMock> {
   }
 }
 
-class IamServerMock extends ServerMock {
-  readonly token: EndpointMock;
-
-  constructor() {
-    let nextToken = 1;
-    const tokenEndpoint = new EndpointMock(() =>
-      JSON.stringify({
-        accessToken: `token${nextToken++}`,
-        expiresIn: 60 * 60,
-      } satisfies AccessToken),
-    );
-    super({ '/v1/oauth/token': tokenEndpoint });
-    this.token = tokenEndpoint;
-  }
-}
-
 class ResolverServerMock extends ServerMock {
   readonly flagLogs: EndpointMock;
-  readonly flagsResolve: EndpointMock;
+  readonly readMaterializations: EndpointMock;
+  readonly writeMaterializations: EndpointMock;
 
   constructor() {
     const flagLogs = new EndpointMock();
-    const flagsResolve = new EndpointMock(() =>
-      JSON.stringify({
-        resolvedFlags: [],
-        resolveToken: new Uint8Array(),
-        resolveId: 'resolve-default',
-      } satisfies ResolveFlagsResponse),
-    );
+    const readMaterializations = new EndpointMock();
+    const writeMaterializations = new EndpointMock();
     super({
       '/v1/clientFlagLogs:write': flagLogs,
-      '/v1/flags:resolve': flagsResolve,
+      '/v1/materialization:readMaterializedOperations': readMaterializations,
+      '/v1/materialization:writeMaterializedOperations': writeMaterializations,
     });
     this.flagLogs = flagLogs;
-    this.flagsResolve = flagsResolve;
+    this.readMaterializations = readMaterializations;
+    this.writeMaterializations = writeMaterializations;
   }
 }
 
