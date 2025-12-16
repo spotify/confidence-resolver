@@ -60,7 +60,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
   private final ChannelFactory channelFactory;
-  private final RemoteResolver grpcFlagResolver;
 
   private static long getPollIntervalSeconds() {
     return Optional.ofNullable(System.getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"))
@@ -115,7 +114,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    *     authentication
    */
   public OpenFeatureLocalResolveProvider(LocalProviderConfig config, String clientSecret) {
-    this(config, clientSecret, new UnsupportedMaterializationStore());
+    this(
+        config,
+        clientSecret,
+        config.isUseRemoteMaterializationStore()
+            ? new RemoteMaterializationStore(clientSecret, config.getChannelFactory())
+            : new UnsupportedMaterializationStore());
   }
 
   /**
@@ -160,7 +164,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
     this.wasmResolveApi = new ThreadLocalSwapWasmResolverApi(wasmFlagLogger, materializationStore);
     this.channelFactory = config.getChannelFactory();
-    this.grpcFlagResolver = new ConfidenceGrpcFlagResolver(this.channelFactory);
   }
 
   /**
@@ -179,13 +182,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       AccountStateProvider accountStateProvider,
       String clientSecret,
       MaterializationStore materializationStore,
-      WasmFlagLogger wasmFlagLogger,
-      RemoteResolver remoteResolver) {
+      WasmFlagLogger wasmFlagLogger) {
     this.materializationStore = materializationStore;
     this.clientSecret = clientSecret;
     this.stateProvider = accountStateProvider;
     this.wasmResolveApi = new ThreadLocalSwapWasmResolverApi(wasmFlagLogger, materializationStore);
-    this.grpcFlagResolver = remoteResolver;
     this.channelFactory = new LocalProviderConfig().getChannelFactory();
   }
 
@@ -293,7 +294,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     log.debug("Shutting down scheduled executors");
     flagsFetcherExecutor.shutdown();
     logPollExecutor.shutdown();
-    this.grpcFlagResolver.close();
 
     try {
       if (!flagsFetcherExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
@@ -309,6 +309,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       flagsFetcherExecutor.shutdownNow();
       logPollExecutor.shutdownNow();
       Thread.currentThread().interrupt();
+    }
+
+    // if we created the materialization store ourselves we are responsible for shutting it down
+    if (materializationStore instanceof RemoteMaterializationStore remoteMaterializationStore) {
+      remoteMaterializationStore.shutdown();
     }
 
     // wasmResolveApi.close() flushes logs and calls flagLogger.shutdown() which waits for pending
@@ -350,19 +355,15 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                       .build())
               .build();
 
-      try {
-        resolveFlagResponse =
-            wasmResolveApi
-                .resolveWithSticky(
-                    ResolveWithStickyRequest.newBuilder()
-                        .setResolveRequest(req)
-                        .setFailFastOnSticky(false)
-                        .build())
-                .toCompletableFuture()
-                .get();
-      } catch (MaterializationNotSupportedException e) {
-        resolveFlagResponse = remoteResolve(req).get();
-      }
+      resolveFlagResponse =
+          wasmResolveApi
+              .resolveWithSticky(
+                  ResolveWithStickyRequest.newBuilder()
+                      .setResolveRequest(req)
+                      .setFailFastOnSticky(false)
+                      .build())
+              .toCompletableFuture()
+              .get();
 
       if (resolveFlagResponse.getResolvedFlagsList().isEmpty()) {
         log.warn("No active flag '{}' was found", flagPath.getFlag());
@@ -411,13 +412,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException(e);
     }
-  }
-
-  private CompletableFuture<ResolveFlagsResponse> remoteResolve(ResolveFlagsRequest req) {
-    if (req.getFlagsList().isEmpty()) {
-      return CompletableFuture.completedFuture(ResolveFlagsResponse.newBuilder().build());
-    }
-    return grpcFlagResolver.resolve(req);
   }
 
   private static void handleStatusRuntimeException(StatusRuntimeException e) {
