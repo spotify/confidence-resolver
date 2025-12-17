@@ -320,11 +320,12 @@ export class ConfidenceServerProviderLocal implements Provider {
     throw new Error('Read materialization not supported');
   }
 
-  private async writeMaterializations(writeOpsRequest: WriteOperationsRequest): Promise<void> {
+  private writeMaterializations(writeOpsRequest: WriteOperationsRequest): void {
     const materializationStore = this.materializationStore;
     if (materializationStore && typeof materializationStore.writeMaterializations === 'function') {
-      await materializationStore.writeMaterializations(writeOpsFromProto(writeOpsRequest));
-      return;
+      materializationStore.writeMaterializations(writeOpsFromProto(writeOpsRequest)).catch(e => {
+        logger.warn('Failed to write materialization', e);
+      });
     }
     throw new Error('Write materialization not supported');
   }
