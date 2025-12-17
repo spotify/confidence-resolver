@@ -153,3 +153,11 @@ export function abortablePromise<T>(promise: Promise<T>, signal?: AbortSignal | 
 export function isObject(value: unknown): value is {} {
   return typeof value === 'object' && value !== null;
 }
+
+export function hasKey<K extends string>(obj: object, key: K): obj is { [P in K]: unknown } {
+  return key in obj;
+}
+
+export function castStringToEnum<E extends string>(value: `${E}`): E {
+  return value as E;
+}

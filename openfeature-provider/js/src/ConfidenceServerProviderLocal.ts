@@ -1,4 +1,4 @@
-import {
+import type {
   ErrorCode,
   EvaluationContext,
   JsonValue,
@@ -13,7 +13,7 @@ import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
 import { SdkId, ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { isObject, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import { castStringToEnum, hasKey, isObject, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
 import { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -174,7 +174,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       return {
         value: defaultValue,
         reason: 'ERROR',
-        errorCode: ErrorCode.GENERAL,
+        errorCode: castStringToEnum<ErrorCode>('GENERAL'),
         errorMessage: String(e),
       };
     } finally {
@@ -211,7 +211,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       return {
         value: defaultValue,
         reason: 'ERROR',
-        errorCode: 'FLAG_NOT_FOUND' as ErrorCode,
+        errorCode: castStringToEnum<ErrorCode>('FLAG_NOT_FOUND'),
       };
     }
 
@@ -228,7 +228,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         return {
           value: defaultValue,
           reason: 'ERROR',
-          errorCode: 'TYPE_MISMATCH' as ErrorCode,
+          errorCode: castStringToEnum<ErrorCode>('TYPE_MISMATCH'),
         };
       }
       value = value[step];
@@ -238,7 +238,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       return {
         value: defaultValue,
         reason: 'ERROR',
-        errorCode: 'TYPE_MISMATCH' as ErrorCode,
+        errorCode: castStringToEnum<ErrorCode>('TYPE_MISMATCH'),
       };
     }
 
@@ -390,10 +390,6 @@ export class ConfidenceServerProviderLocal implements Provider {
   ): Promise<ResolutionDetails<string>> {
     return Promise.resolve(this.evaluate(flagKey, defaultValue, context));
   }
-}
-
-function hasKey<K extends string>(obj: object, key: K): obj is { [P in K]: unknown } {
-  return key in obj;
 }
 
 function isAssignableTo<T>(value: unknown, schema: T): value is T {
