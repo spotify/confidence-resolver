@@ -52,9 +52,35 @@ export namespace MaterializationStore {
   }
   export type WriteOp = WriteOp.Variant;
 }
+/**
+ * Interface for storing and retrieving materialization data.
+ *
+ * Implementations can use any storage backend (e.g., Redis, BigTable, Cassandra, DynamoDB,
+ * or simple key-value stores) as long as they fulfill this contract.
+ *
+ * @see The README for conceptual documentation on sticky assignments and materialized segments.
+ */
 export interface MaterializationStore {
+  /**
+   * Reads materialization data for the given operations.
+   *
+   * For `variant` operations, returns the stored variant assignment (if any) for a unit/materialization/rule combination.
+   * For `inclusion` operations, returns whether a unit is included in a materialized segment.
+   *
+   * @param readOps - The read operations to perform.
+   * @returns Results for each operation. The order of results does not need to match the order of operations;
+   *          callers match results to operations using the `unit`, `materialization`, and `op` fields.
+   */
   readMaterializations(readOps: MaterializationStore.ReadOp[]): Promise<MaterializationStore.ReadResult[]>;
 
+  /**
+   * Persists variant assignments for sticky bucketing.
+   *
+   * This method is optional. Omit it for read-only stores that only serve pre-populated
+   * materialized segments without supporting runtime sticky assignment writes.
+   *
+   * @param writeOps - The variant assignments to persist.
+   */
   writeMaterializations?(writeOps: MaterializationStore.WriteOp[]): Promise<void>;
 }
 

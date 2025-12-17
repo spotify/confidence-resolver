@@ -138,15 +138,72 @@ The provider periodically:
 
 ---
 
-## Sticky Assignments
+## Materialization Stores
 
-The provider supports **Sticky Assignments** for consistent variant assignments across flag evaluations.
+Materialization stores provide persistent storage for sticky variant assignments and custom targeting segments. This enables two key use cases:
 
-**📖 See the [Integration Guide: Sticky Assignments](../INTEGRATION_GUIDE.md#sticky-assignments)** for:
-- How sticky assignments work
-- Server-managed storage (zero configuration)
-- Latency considerations
-- Custom storage options (currently Java-only, coming soon to JavaScript)
+1. **Sticky Assignments**: Maintain consistent variant assignments across evaluations even when targeting attributes change. This enables pausing intake (stopping new users from entering an experiment) while keeping existing users in their assigned variants.
+
+2. **Custom Targeting via Materialized Segments**: Precomputed sets of identifiers from datasets that should be targeted. Instead of evaluating complex targeting rules at runtime, materializations allow efficient lookup of whether a unit (user, session, etc.) is included in a target segment.
+
+### Default Behavior
+
+⚠️ Warning: If your flags rely on sticky assignments or materialized segments, the default SDK behaviour will prevent those rules from being applied and your evaluations will fall back to default values. For production workloads that need sticky behavior or segment lookups, implement and configure a real `MaterializationStore` (e.g., Redis, DynamoDB, or a key-value store) to avoid unexpected fallbacks and ensure consistent variant assignment.
+
+### Remote Materialization Store
+
+For quick setup without managing your own storage infrastructure, enable the built-in remote materialization store:
+
+```ts
+const provider = createConfidenceServerProvider({
+  flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+  materializationStore: 'CONFIDENCE_REMOTE_STORE',
+});
+```
+
+**When to use**:
+- You need sticky assignments or materialized segments but don't want to manage storage infrastructure
+- Quick prototyping or getting started
+- Lower-volume applications where network latency is acceptable
+
+**Trade-offs**:
+- Additional network calls during flag resolution (adds latency)
+- Lower performance compared to local storage implementations (Redis, DynamoDB, etc.)
+
+### Custom Implementations
+
+For improved latency and reduced network calls, implement the `MaterializationStore` interface to store materialization data in your infrastructure:
+
+```ts
+import { MaterializationStore } from '@spotify-confidence/openfeature-server-provider-local';
+
+class MyRedisStore implements MaterializationStore {
+  async readMaterializations(readOps: MaterializationStore.ReadOp[]): Promise<MaterializationStore.ReadResult[]> {
+    // Load materialization data from Redis
+  }
+
+  async writeMaterializations(writeOps: MaterializationStore.WriteOp[]): Promise<void> {
+    // Store materialization data to Redis
+  }
+}
+
+const provider = createConfidenceServerProvider({
+  flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+  materializationStore: new MyRedisStore(),
+});
+```
+
+For read-only stores (e.g., pre-populated materialized segments without sticky assignment writes), omit the `writeMaterializations` method.
+
+### When to Use Materialization Stores
+
+Consider implementing a materialization store if:
+- You need to support sticky variant assignments for experiments
+- You use materialized segments for custom targeting
+- You want to minimize network latency during flag resolution
+- You have high-volume flag evaluations
+
+If you don't use sticky assignments or materialized segments, the default behavior is sufficient.
 
 ---
 
