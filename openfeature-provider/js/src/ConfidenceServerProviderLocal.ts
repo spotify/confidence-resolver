@@ -8,12 +8,12 @@ import type {
   ResolutionDetails,
   ResolutionReason,
 } from '@openfeature/server-sdk';
-import { ResolveFlagsRequest, ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
+import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
 import { SdkId, ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, hasKey, isObject, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import { castStringToEnum, hasKey, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
 import { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -198,7 +198,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     const { materializationUpdates: storeVariantOp, response: resolveResponse } = stickyResponse.success;
     if (storeVariantOp.length) {
       // TODO should this be awaited?
-      await this.writeMaterializations({ storeVariantOp });
+      this.writeMaterializations({ storeVariantOp });
     }
     return ResolveFlagsResponse.create(resolveResponse);
   }
