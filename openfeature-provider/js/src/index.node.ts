@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
 import { WasmResolver } from './WasmResolver';
-export { MaterializationStore } from './materialization';
+export type { MaterializationStore } from './materialization';
 
 const wasmPath = require.resolve('./confidence_resolver.wasm');
 const buffer = await fs.readFile(wasmPath);

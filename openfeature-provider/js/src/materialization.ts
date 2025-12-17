@@ -88,7 +88,7 @@ export class ConfidenceRemoteMaterializationStore implements MaterializationStor
   constructor(
     private flagClientSecret: string,
     private fetch: Fetch = globalThis.fetch,
-    private signal?: AbortSignal,
+    private signal?: AbortSignal | undefined,
   ) {}
 
   async readMaterializations(readOps: MaterializationStore.ReadOp[]): Promise<MaterializationStore.ReadResult[]> {
