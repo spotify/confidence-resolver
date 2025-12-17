@@ -318,10 +318,9 @@ describe('remote materialization for sticky assignments', () => {
           ],
           resolveToken: new Uint8Array(),
           resolveId: 'remote-resolve-456',
-        }
-      }
-    })
-
+        },
+      },
+    });
 
     const result = await provider.resolveObjectEvaluation(
       'my-flag',
@@ -333,9 +332,9 @@ describe('remote materialization for sticky assignments', () => {
     );
     expect(result.reason).toEqual('MATCH');
     expect(result.variant).toBe('flags/my-flag/variants/control');
-    
+
     // Remote store should have been called
-    expect(net.resolver.readMaterializations.calls).toBe(1)
+    expect(net.resolver.readMaterializations.calls).toBe(1);
   });
 
   it('retries remote read materialization on transient errors', async () => {
@@ -360,9 +359,9 @@ describe('remote materialization for sticky assignments', () => {
           ],
           resolveToken: new Uint8Array(),
           resolveId: 'remote-resolve-456',
-        }
-      }
-    })
+        },
+      },
+    });
 
     // First two calls fail, third succeeds
     net.resolver.readMaterializations.status = 503;
@@ -397,8 +396,8 @@ describe('remote materialization for sticky assignments', () => {
           ],
           resolveToken: new Uint8Array(),
           resolveId: 'remote-resolve-456',
-        }
-      }
+        },
+      },
     });
 
     const result = await advanceTimersUntil(
@@ -406,8 +405,7 @@ describe('remote materialization for sticky assignments', () => {
     );
 
     expect(net.resolver.writeMaterializations.calls).toBe(1);
-
-  })
+  });
 });
 
 describe('SDK telemetry', () => {
