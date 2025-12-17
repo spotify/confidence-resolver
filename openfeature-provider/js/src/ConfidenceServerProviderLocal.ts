@@ -17,7 +17,13 @@ import { isObject, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './
 import { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
-import { MaterializationStore } from './materialization';
+import {
+  ConfidenceRemoteMaterializationStore,
+  MaterializationStore,
+  readOpsFromProto,
+  readResultToProto,
+  writeOpsFromProto,
+} from './materialization';
 import {
   ReadOperationsRequest,
   ReadOperationsResult,
@@ -52,6 +58,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
   private readonly flushInterval: number;
+  private readonly materializationStore: MaterializationStore | null;
   private stateEtag: string | null = null;
 
   // TODO Maybe pass in a resolver factory, so that we can initialize it in initialize and transition to fatal if not.
@@ -96,6 +103,19 @@ export class ConfidenceServerProviderLocal implements Provider {
       ],
       options.fetch ?? fetch,
     );
+    if (options.materializationStore) {
+      if (options.materializationStore === 'CONFIDENCE_REMOTE_STORE') {
+        this.materializationStore = new ConfidenceRemoteMaterializationStore(
+          options.flagClientSecret,
+          this.fetch,
+          this.main.signal,
+        );
+      } else {
+        this.materializationStore = options.materializationStore;
+      }
+    } else {
+      this.materializationStore = null;
+    }
   }
 
   async initialize(context?: EvaluationContext): Promise<void> {
@@ -149,7 +169,6 @@ export class ConfidenceServerProviderLocal implements Provider {
       const response = await this.resolveWithSticky(stickyRequest);
 
       return this.extractValue(response.resolvedFlags[0], flagName, path, defaultValue);
-      
     } catch (e) {
       logger.warn(`Flag evaluation for '${flagKey}' failed`, e);
       return {
@@ -292,98 +311,19 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
   }
 
-  private async readMaterializations(
-    readOpsReq: ReadOperationsRequest,
-    signal = this.main.signal,
-  ): Promise<ReadOperationsResult> {
-    const materializationStore = this.options.materializationStore;
-    if (materializationStore === 'CONFIDENCE_REMOTE_STORE') {
-      const response = await this.fetch(
-        'https://resolver.confidence.dev/v1/materialization:readMaterializedOperations',
-        {
-          method: 'post',
-          signal,
-          headers: {
-            'Content-Type': 'application/x-protobuf',
-            Authorization: `ClientSecret ${this.options.flagClientSecret}`,
-          },
-          body: ReadOperationsRequest.encode(readOpsReq).finish(),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(`Failed to read materializations: ${response.status} ${response.statusText}`);
-      }
-      return ReadOperationsResult.decode(new Uint8Array(await response.arrayBuffer()));
-    }
+  private async readMaterializations(readOpsReq: ReadOperationsRequest): Promise<ReadOperationsResult> {
+    const materializationStore = this.materializationStore;
     if (materializationStore && typeof materializationStore.readMaterializations === 'function') {
-      const readOps = readOpsReq.ops.flatMap((op): MaterializationStore.ReadOp[] => {
-        if (op.inclusionReadOp) {
-          return [
-            {
-              op: 'inclusion',
-              ...op.inclusionReadOp,
-            },
-          ];
-        }
-        if (op.variantReadOp) {
-          return [
-            {
-              op: 'variant',
-              ...op.variantReadOp,
-            },
-          ];
-        }
-        return [];
-      });
-      const result = await materializationStore.readMaterializations(readOps);
-      return {
-        results: result.flatMap((readResult): ReadResult[] => {
-          if (readResult.op === 'inclusion') {
-            const { unit, materialization, included: isIncluded } = readResult;
-            return [{ inclusionResult: { unit, materialization, isIncluded } }];
-          }
-          if (readResult.op === 'variant') {
-            const { unit, materialization, rule, variant = '' } = readResult;
-            return [{ variantResult: { unit, materialization, rule, variant } }];
-          }
-          return [];
-        }),
-      };
+      const result = await materializationStore.readMaterializations(readOpsFromProto(readOpsReq));
+      return readResultToProto(result);
     }
     throw new Error('Read materialization not supported');
   }
 
-  private async writeMaterializations(
-    writeOpsRequest: WriteOperationsRequest,
-    signal = this.main.signal,
-  ): Promise<void> {
-    const materializationStore = this.options.materializationStore;
-    if (materializationStore === 'CONFIDENCE_REMOTE_STORE') {
-      const response = await this.fetch(
-        'https://resolver.confidence.dev/v1/materialization:writeMaterializedOperations',
-        {
-          method: 'post',
-          signal,
-          headers: {
-            'Content-Type': 'application/x-protobuf',
-            Authorization: `ClientSecret ${this.options.flagClientSecret}`,
-          },
-          body: WriteOperationsRequest.encode(writeOpsRequest).finish(),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(`Failed to write materializations: ${response.status} ${response.statusText}`);
-      }
-      return;
-    }
+  private async writeMaterializations(writeOpsRequest: WriteOperationsRequest): Promise<void> {
+    const materializationStore = this.materializationStore;
     if (materializationStore && typeof materializationStore.writeMaterializations === 'function') {
-      const writeOps = writeOpsRequest.storeVariantOp.map((variantData): MaterializationStore.WriteOp => {
-        return {
-          op: 'variant',
-          ...variantData,
-        };
-      });
-      await materializationStore.writeMaterializations(writeOps);
+      await materializationStore.writeMaterializations(writeOpsFromProto(writeOpsRequest));
       return;
     }
     throw new Error('Write materialization not supported');
