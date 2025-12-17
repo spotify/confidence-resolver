@@ -250,7 +250,6 @@ describe('network error modes', () => {
   });
 });
 
-// TODO Fix!
 describe('remote materialization for sticky assignments', () => {
   const RESOLVE_REASON_MATCH = 1;
 
