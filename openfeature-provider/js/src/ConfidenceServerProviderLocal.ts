@@ -327,6 +327,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       materializationStore.writeMaterializations(writeOpsFromProto(writeOpsRequest)).catch(e => {
         logger.warn('Failed to write materialization', e);
       });
+      return;
     }
     throw new Error('Write materialization not supported');
   }
