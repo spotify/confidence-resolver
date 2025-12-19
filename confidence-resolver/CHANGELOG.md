@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.8.0...confidence_resolver-v0.9.0) (2025-12-19)
+
+
+### Features
+
+* add support for materialized segment targeting criteria ([#201](https://github.com/spotify/confidence-resolver/issues/201)) ([cdcfc86](https://github.com/spotify/confidence-resolver/commit/cdcfc8629400a268b3e3fe124ae0fbce8967182e))
+
 ## [0.8.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.7.0...confidence_resolver-v0.8.0) (2025-12-02)
 
 
