@@ -21,6 +21,8 @@ export interface Logger {
   getLogger(name: string): Logger;
 }
 
+export type LoggerFactory = (name: string) => Logger;
+
 class LoggerImpl implements Logger {
   private readonly childLoggers = new Map<string, LoggerImpl>();
 
@@ -62,8 +64,8 @@ class LoggerImpl implements Logger {
   }
 }
 
-export const logger = new LoggerImpl('cnfd');
-export const getLogger = logger.getLogger.bind(logger);
+export const logger: Logger = new LoggerImpl('cnfd');
+export const getLogger: LoggerFactory = logger.getLogger.bind(logger);
 
 async function loadDebug(): Promise<Debug | null> {
   try {

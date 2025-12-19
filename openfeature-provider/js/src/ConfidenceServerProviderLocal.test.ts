@@ -8,6 +8,7 @@ import {
 import { abortableSleep, TimeUnit, timeoutSignal } from './util';
 import { advanceTimersUntil, NetworkMock } from './test-helpers';
 import { sha256Hex } from './hash';
+import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 
 vi.mock(import('./hash'), async () => {
   const { sha256Hex } = await import('./test-helpers');
@@ -36,6 +37,7 @@ beforeEach(() => {
   provider = new ConfidenceServerProviderLocal(mockedWasmResolver, {
     flagClientSecret: 'flagClientSecret',
     fetch: net.fetch,
+    materializationStore: 'CONFIDENCE_REMOTE_STORE',
   });
 });
 
@@ -248,7 +250,7 @@ describe('network error modes', () => {
   });
 });
 
-describe('remote resolver fallback for sticky assignments', () => {
+describe('remote materialization for sticky assignments', () => {
   const RESOLVE_REASON_MATCH = 1;
 
   it('resolves locally when WASM has all materialization data', async () => {
@@ -280,50 +282,44 @@ describe('remote resolver fallback for sticky assignments', () => {
     expect(result.value).toBe(true);
     expect(result.variant).toBe('variant-a');
 
-    // Should use failFastOnSticky: true (fallback strategy)
     expect(mockedWasmResolver.resolveWithSticky).toHaveBeenCalledWith({
       resolveRequest: expect.objectContaining({
         flags: ['flags/test-flag'],
         clientSecret: 'flagClientSecret',
       }),
       materializations: [],
-      failFastOnSticky: true,
+      failFastOnSticky: false,
       notProcessSticky: false,
     });
 
     // No remote call needed
-    expect(net.resolver.flagsResolve.calls).toBe(0);
+    expect(net.resolver.readMaterializations.calls).toBe(0);
   });
 
-  it('falls back to remote resolver when WASM reports missing materializations', async () => {
+  it('reads materializations from remote when WASM reports missing materializations', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
     // WASM resolver reports missing materialization
-    mockedWasmResolver.resolveWithSticky.mockReturnValue({
+    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
       readOpsRequest: { ops: [{ variantReadOp: { unit: 'user-456', rule: 'rule-1', materialization: 'mat-v1' } }] },
     });
-
-    // Configure remote resolver response
-    net.resolver.flagsResolve.handler = () => {
-      return new Response(
-        JSON.stringify({
+    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
+      success: {
+        materializationUpdates: [],
+        response: {
           resolvedFlags: [
             {
               flag: 'flags/my-flag',
               variant: 'flags/my-flag/variants/control',
               value: { color: 'blue', size: 10 },
-              reason: 'RESOLVE_REASON_MATCH',
+              reason: ResolveReason.RESOLVE_REASON_MATCH,
             },
           ],
-          resolveToken: '',
+          resolveToken: new Uint8Array(),
           resolveId: 'remote-resolve-456',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
         },
-      );
-    };
+      },
+    });
 
     const result = await provider.resolveObjectEvaluation(
       'my-flag',
@@ -333,40 +329,43 @@ describe('remote resolver fallback for sticky assignments', () => {
         country: 'SE',
       },
     );
-
-    expect(result.value).toEqual({ color: 'blue', size: 10 });
+    expect(result.reason).toEqual('MATCH');
     expect(result.variant).toBe('flags/my-flag/variants/control');
 
-    // Remote resolver should have been called
-    expect(net.resolver.flagsResolve.calls).toBe(1);
-
-    // Verify auth header was added
-    const lastRequest = net.resolver.flagsResolve.requests[0];
-    expect(lastRequest.method).toBe('POST');
+    // Remote store should have been called
+    expect(net.resolver.readMaterializations.calls).toBe(1);
   });
 
-  it('retries remote resolve on transient errors', async () => {
+  it('retries remote read materialization on transient errors', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
-    mockedWasmResolver.resolveWithSticky.mockReturnValue({
+    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
       readOpsRequest: {
         ops: [{ variantReadOp: { unit: 'user-1', rule: 'rule-1', materialization: 'mat-1' } }],
       },
     });
+    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
+      success: {
+        materializationUpdates: [],
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/test-flag',
+              variant: 'flags/my-flag/variants/control',
+              value: { ok: true },
+              reason: ResolveReason.RESOLVE_REASON_MATCH,
+            },
+          ],
+          resolveToken: new Uint8Array(),
+          resolveId: 'remote-resolve-456',
+        },
+      },
+    });
 
     // First two calls fail, third succeeds
-    net.resolver.flagsResolve.status = 503;
+    net.resolver.readMaterializations.status = 503;
     setTimeout(() => {
-      net.resolver.flagsResolve.status = 200;
-      net.resolver.flagsResolve.handler = () =>
-        new Response(
-          JSON.stringify({
-            resolvedFlags: [{ flag: 'test-flag', variant: 'v1', value: { ok: true }, reason: 'RESOLVE_REASON_MATCH' }],
-            resolveToken: '',
-            resolveId: 'resolved',
-          }),
-          { status: 200 },
-        );
+      net.resolver.readMaterializations.status = 200;
     }, 300);
 
     const result = await advanceTimersUntil(
@@ -375,8 +374,39 @@ describe('remote resolver fallback for sticky assignments', () => {
 
     expect(result.value).toBe(true);
     // Should have retried multiple times
-    expect(net.resolver.flagsResolve.calls).toBeGreaterThan(1);
-    expect(net.resolver.flagsResolve.calls).toBeLessThanOrEqual(3);
+    expect(net.resolver.readMaterializations.calls).toBeGreaterThan(1);
+    expect(net.resolver.readMaterializations.calls).toBeLessThanOrEqual(3);
+  });
+
+  it('writes materializations to remote when WASM reports materialization updates', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
+      success: {
+        materializationUpdates: [{ unit: 'u1', materialization: 'm1', rule: 'r1', variant: 'v1' }],
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/test-flag',
+              variant: 'flags/my-flag/variants/control',
+              value: { ok: true },
+              reason: ResolveReason.RESOLVE_REASON_MATCH,
+            },
+          ],
+          resolveToken: new Uint8Array(),
+          resolveId: 'remote-resolve-456',
+        },
+      },
+    });
+
+    await advanceTimersUntil(
+      expect(provider.resolveBooleanEvaluation('test-flag.ok', false, { targetingKey: 'user-1' })).resolves.toEqual(
+        expect.objectContaining({ value: true }),
+      ),
+    );
+
+    // SDK doesn't wait for writes so need we need to wait here.
+    await advanceTimersUntil(() => net.resolver.writeMaterializations.calls === 1);
   });
 });
 
@@ -410,18 +440,15 @@ describe('SDK telemetry', () => {
     });
 
     // Verify SDK information is included in the resolve request
-    expect(mockedWasmResolver.resolveWithSticky).toHaveBeenCalledWith({
-      resolveRequest: expect.objectContaining({
-        flags: ['flags/test-flag'],
-        clientSecret: 'flagClientSecret',
-        sdk: expect.objectContaining({
-          id: 22, // SDK_ID_JS_LOCAL_SERVER_PROVIDER
-          version: expect.stringMatching(/^\d+\.\d+\.\d+$/), // Semantic version format
+    expect(mockedWasmResolver.resolveWithSticky).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolveRequest: expect.objectContaining({
+          sdk: expect.objectContaining({
+            id: 22, // SDK_ID_JS_LOCAL_SERVER_PROVIDER
+            version: expect.stringMatching(/^\d+\.\d+\.\d+$/), // Semantic version format
+          }),
         }),
       }),
-      materializations: [],
-      failFastOnSticky: true,
-      notProcessSticky: false,
-    });
+    );
   });
 });

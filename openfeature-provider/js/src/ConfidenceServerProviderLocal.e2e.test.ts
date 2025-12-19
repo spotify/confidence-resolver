@@ -9,6 +9,7 @@ const module = new WebAssembly.Module(moduleBytes);
 const resolver = new WasmResolver(module);
 const confidenceProvider = new ConfidenceServerProviderLocal(resolver, {
   flagClientSecret: 'ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv',
+  materializationStore: 'CONFIDENCE_REMOTE_STORE',
 });
 
 describe('ConfidenceServerProvider E2E tests', () => {
