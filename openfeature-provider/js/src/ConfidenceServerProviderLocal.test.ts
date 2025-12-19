@@ -336,8 +336,7 @@ describe('remote materialization for sticky assignments', () => {
     expect(net.resolver.readMaterializations.calls).toBe(1);
   });
 
-  // we're currently not retrying read materialization
-  it.skip('retries remote read materialization on transient errors', async () => {
+  it('retries remote read materialization on transient errors', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
     mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({

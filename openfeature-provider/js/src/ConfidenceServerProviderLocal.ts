@@ -77,13 +77,19 @@ export class ConfidenceServerProviderLocal implements Provider {
           ],
           'https://resolver.confidence.dev/*': [
             withRouter({
-              '*/v1/materialization:readMaterializedOperations': [withTimeout(200 * TimeUnit.MILLISECOND)],
+              '*/v1/materialization:readMaterializedOperations': [
+                withRetry({
+                  maxAttempts: 3,
+                  baseInterval: 100,
+                }),
+                withTimeout(0.5 * TimeUnit.SECOND),
+              ],
               '*/v1/materialization:writeMaterializedOperations': [
                 withRetry({
                   maxAttempts: 3,
                   baseInterval: 100,
                 }),
-                withTimeout(1 * TimeUnit.SECOND),
+                withTimeout(0.5 * TimeUnit.SECOND),
               ],
               '*/v1/clientFlagLogs:write': [
                 withRetry({
