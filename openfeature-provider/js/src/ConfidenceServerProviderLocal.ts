@@ -27,9 +27,9 @@ import {
 import {
   ReadOperationsRequest,
   ReadOperationsResult,
-  ReadResult,
   WriteOperationsRequest,
 } from './proto/confidence/flags/resolver/v1/internal_api';
+import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
 
 const logger = getLogger('provider');
 
@@ -277,7 +277,6 @@ export class ConfidenceServerProviderLocal implements Provider {
 
     // Parse SetResolverStateRequest from response
     const bytes = new Uint8Array(await resp.arrayBuffer());
-    const { SetResolverStateRequest } = await import('./proto/confidence/wasm/messages');
 
     this.resolver.setResolverState(SetResolverStateRequest.decode(bytes));
   }
