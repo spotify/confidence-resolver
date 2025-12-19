@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.4.0...openfeature-provider/go/v0.5.0) (2025-12-19)
+
+
+### Features
+
+* add support for materialized segment targeting criteria ([#201](https://github.com/spotify/confidence-resolver/issues/201)) ([cdcfc86](https://github.com/spotify/confidence-resolver/commit/cdcfc8629400a268b3e3fe124ae0fbce8967182e))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.11 to 0.1.12
+
 ## [0.4.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.3.0...openfeature-provider/go/v0.4.0) (2025-12-11)
 
 

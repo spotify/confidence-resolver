@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.4.0...openfeature-provider-js-v0.5.0) (2025-12-19)
+
+
+### Features
+
+* pluggable materialization ([#211](https://github.com/spotify/confidence-resolver/issues/211)) ([96aea72](https://github.com/spotify/confidence-resolver/commit/96aea72a2dce2e02fdfa4374e4fa245f0efc177b))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.11 to 0.1.12
+
 ## [0.4.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.3.0...openfeature-provider-js-v0.4.0) (2025-12-11)
 
 
