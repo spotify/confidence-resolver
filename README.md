@@ -63,6 +63,15 @@ Notes:
 - Each target starts a dedicated mock server container and a one-shot bench container, then tears everything down.
 - Use `docker compose up ... go-bench` or `... js-bench` to run them individually without Make.
 
+## Supply Chain Security
+
+This repository implements **binary provenance** for the WASM binary embedded in provider packages. All releases include:
+- Cryptographically attested WASM binaries (via GitHub attestations)
+- SHA-256 checksums published to GitHub releases
+- Deterministic builds using pinned toolchains and Docker
+
+See [SECURITY.md](SECURITY.md) for verification instructions and detailed security policies.
+
 ## License
 
 See `LICENSE` for details.
