@@ -24,6 +24,10 @@ import java.util.List;
  *
  * <p><strong>Channel Lifecycle:</strong> Channels created by this factory must be shut down by the
  * caller when they are no longer needed. The factory does not manage channel lifecycles.
+ *
+ * <p><strong>Note:</strong> The gRPC types ({@code ManagedChannel}, {@code ClientInterceptor}) used
+ * in this interface are shaded to {@code com.spotify.confidence.shaded.io.grpc.*}. Implementations
+ * must use these shaded types rather than standard gRPC imports.
  */
 public interface ChannelFactory {
   /**
