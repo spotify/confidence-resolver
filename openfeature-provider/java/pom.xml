@@ -129,6 +129,7 @@
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java-util</artifactId>
       <version>${protobuf.version}</version>
+      <scope>test</scope>
     </dependency>
     
     <!-- Test dependencies -->
@@ -174,11 +175,6 @@
     </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
-      <artifactId>grpc-services</artifactId>
-      <version>${grpc.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.grpc</groupId>
       <artifactId>grpc-testing</artifactId>
       <version>${grpc.version}</version>
       <scope>test</scope>
@@ -202,25 +198,10 @@
       </exclusions>
     </dependency>
     <dependency>
-      <groupId>com.github.ben-manes.caffeine</groupId>
-      <artifactId>caffeine</artifactId>
-      <version>3.2.0</version>
-    </dependency>
-    <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
       <version>3.18.0</version>
       <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>io.dropwizard.metrics</groupId>
-      <artifactId>metrics-core</artifactId>
-      <version>4.2.32</version>
-    </dependency>
-    <dependency>
-      <groupId>com.auth0</groupId>
-      <artifactId>java-jwt</artifactId>
-      <version>4.5.0</version>
     </dependency>
     <dependency>
       <groupId>dev.openfeature</groupId>
@@ -384,6 +365,40 @@
             <goals>
               <goal>check</goal>
             </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Dependency analysis - detect unused/undeclared deps -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.8.1</version>
+        <executions>
+          <execution>
+            <id>analyze-deps</id>
+            <goals>
+              <goal>analyze-only</goal>
+            </goals>
+            <configuration>
+              <failOnWarning>true</failOnWarning>
+              <ignoreNonCompile>true</ignoreNonCompile>
+              <!-- Deps used via reflection/runtime or transitives from test deps -->
+              <ignoredUsedUndeclaredDependencies>
+                <ignoredUsedUndeclaredDependency>io.grpc:grpc-core</ignoredUsedUndeclaredDependency>
+                <!-- Transitive from logback-classic -->
+                <ignoredUsedUndeclaredDependency>ch.qos.logback:logback-core</ignoredUsedUndeclaredDependency>
+                <!-- Transitive from grpc-testing -->
+                <ignoredUsedUndeclaredDependency>io.grpc:grpc-inprocess</ignoredUsedUndeclaredDependency>
+              </ignoredUsedUndeclaredDependencies>
+              <!-- Deps that are runtime/SPI - not directly imported but required -->
+              <ignoredUnusedDeclaredDependencies>
+                <!-- gRPC transport implementation -->
+                <ignoredUnusedDeclaredDependency>io.grpc:grpc-netty-shaded</ignoredUnusedDeclaredDependency>
+                <!-- Required by generated gRPC stubs -->
+                <ignoredUnusedDeclaredDependency>javax.annotation:javax.annotation-api</ignoredUnusedDeclaredDependency>
+              </ignoredUnusedDeclaredDependencies>
+            </configuration>
           </execution>
         </executions>
       </plugin>
