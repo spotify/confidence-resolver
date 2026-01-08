@@ -9,7 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.spotify.confidence.flags.resolver.v1.*;
+import com.spotify.confidence.sdk.flags.resolver.v1.*;
 import io.grpc.ClientInterceptor;
 import io.grpc.ManagedChannel;
 import java.time.Duration;

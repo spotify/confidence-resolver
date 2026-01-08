@@ -3,8 +3,8 @@ package com.spotify.confidence.sdk;
 import static com.spotify.confidence.sdk.GrpcUtil.createConfidenceChannel;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.spotify.confidence.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
-import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
+import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import io.grpc.*;
 import java.time.Duration;
 import java.util.ArrayList;

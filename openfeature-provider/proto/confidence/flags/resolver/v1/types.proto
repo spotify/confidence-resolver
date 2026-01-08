@@ -3,7 +3,7 @@ syntax = "proto3";
 package confidence.flags.resolver.v1;
 
 option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver";
-option java_package = "com.spotify.confidence.flags.resolver.v1";
+option java_package = "com.spotify.confidence.sdk.flags.resolver.v1";
 option java_multiple_files = true;
 option java_outer_classname = "TypesProto";
 

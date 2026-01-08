@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import com.spotify.confidence.flags.resolver.v1.*;
+import com.spotify.confidence.sdk.flags.resolver.v1.*;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import java.time.Duration;
@@ -45,7 +45,7 @@ class RemoteMaterializationStoreTest {
     ReadOperationsResult mockResponse =
         ReadOperationsResult.newBuilder()
             .addResults(
-                com.spotify.confidence.flags.resolver.v1.ReadResult.newBuilder()
+                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
                     .setVariantResult(
                         VariantData.newBuilder()
                             .setMaterialization("exp_v1")
@@ -80,7 +80,7 @@ class RemoteMaterializationStoreTest {
     ReadOperationsResult mockResponse =
         ReadOperationsResult.newBuilder()
             .addResults(
-                com.spotify.confidence.flags.resolver.v1.ReadResult.newBuilder()
+                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
                     .setInclusionResult(
                         InclusionData.newBuilder()
                             .setMaterialization("segment_v1")
@@ -224,7 +224,7 @@ class RemoteMaterializationStoreTest {
     ReadOperationsResult mockResponse =
         ReadOperationsResult.newBuilder()
             .addResults(
-                com.spotify.confidence.flags.resolver.v1.ReadResult.newBuilder()
+                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
                     .setVariantResult(
                         VariantData.newBuilder()
                             .setMaterialization("exp_v1")
@@ -234,7 +234,7 @@ class RemoteMaterializationStoreTest {
                             .build())
                     .build())
             .addResults(
-                com.spotify.confidence.flags.resolver.v1.ReadResult.newBuilder()
+                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
                     .setInclusionResult(
                         InclusionData.newBuilder()
                             .setMaterialization("segment_v1")
@@ -281,7 +281,7 @@ class RemoteMaterializationStoreTest {
     ReadOperationsResult mockResponse =
         ReadOperationsResult.newBuilder()
             .addResults(
-                com.spotify.confidence.flags.resolver.v1.ReadResult.newBuilder()
+                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
                     .setVariantResult(
                         VariantData.newBuilder()
                             .setMaterialization("exp_v1")

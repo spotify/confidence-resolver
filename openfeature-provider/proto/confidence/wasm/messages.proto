@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package confidence.wasm;
 
-option java_package = "com.spotify.confidence.wasm";
+option java_package = "com.spotify.confidence.sdk.wasm";
 option java_multiple_files = false;
 option java_outer_classname = "Messages";
 option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm";

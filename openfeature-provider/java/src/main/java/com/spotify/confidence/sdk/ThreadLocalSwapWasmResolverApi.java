@@ -1,7 +1,7 @@
 package com.spotify.confidence.sdk;
 
-import com.spotify.confidence.flags.resolver.v1.ResolveFlagsResponse;
-import com.spotify.confidence.flags.resolver.v1.ResolveWithStickyRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
 import com.spotify.futures.CompletableFutures;
 import java.util.ArrayList;
 import java.util.Map;

@@ -30,7 +30,9 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   private final AtomicReference<String> etagHolder = new AtomicReference<>();
   private final AtomicReference<byte[]> rawResolverStateHolder =
       new AtomicReference<>(
-          com.spotify.confidence.flags.admin.v1.ResolverState.newBuilder().build().toByteArray());
+          com.spotify.confidence.sdk.flags.admin.v1.ResolverState.newBuilder()
+              .build()
+              .toByteArray());
   private String accountId = "";
 
   public FlagsAdminStateFetcher(String clientSecret, HttpClientFactory httpClientFactory) {
@@ -80,7 +82,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
 
         // Parse SetResolverStateRequest from CDN response
         final var stateRequest =
-            com.spotify.confidence.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
+            com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
         this.accountId = stateRequest.getAccountId();
 
         // Store the state bytes (already in bytes format)
