@@ -3,7 +3,7 @@
   "confidence-cloudflare-resolver": "0.4.2",
   "wasm-msg": "0.2.1",
   "wasm/rust-guest": "0.1.12",
-  "openfeature-provider/java": "0.10.1",
+  "openfeature-provider/java": "0.11.0",
   "openfeature-provider/js": "0.5.0",
   "openfeature-provider/go": "0.5.0",
   "openfeature-provider/ruby": "0.1.1"

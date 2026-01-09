@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.10.1...openfeature-provider-java-v0.11.0) (2026-01-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **java:** move provider to com.spotify.confidence.sdk package ([#215](https://github.com/spotify/confidence-resolver/issues/215))
+
+### Features
+
+* **java:** shade gRPC/protobuf to avoid version conflicts ([#217](https://github.com/spotify/confidence-resolver/issues/217)) ([7abdec8](https://github.com/spotify/confidence-resolver/commit/7abdec85ae26e9642850501579338ac4a4255a26))
+
+
+### Code Refactoring
+
+* **java:** move provider to com.spotify.confidence.sdk package ([#215](https://github.com/spotify/confidence-resolver/issues/215)) ([d4c53f2](https://github.com/spotify/confidence-resolver/commit/d4c53f26ebbe21de71ebdc37cf03dec803aea7bc))
+
 ## [0.10.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.10.0...openfeature-provider-java-v0.10.1) (2025-12-19)
 
 
