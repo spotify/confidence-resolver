@@ -15,11 +15,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * End-to-end tests for OpenFeatureLocalResolveProvider.
+ * Integration tests for OpenFeatureLocalResolveProvider.
  *
- * <p>These tests verify the provider against real Confidence service flags.
+ * <p>These tests verify the provider against real Confidence service flags and run against the
+ * shaded JAR to verify shading is correct.
  */
-class OpenFeatureLocalResolveProviderE2ETest {
+class OpenFeatureLocalResolveProviderIT {
   private static final String FLAG_CLIENT_SECRET = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
   private static Client client;
 

@@ -280,7 +280,7 @@
 
       <!-- Makefile copies local WASM into resources; no download/clean plugin needed -->
       
-      <!-- JUnit 5 -->
+      <!-- JUnit 5 - Unit tests -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
@@ -288,6 +288,30 @@
         <configuration>
           <useModulePath>false</useModulePath>
         </configuration>
+      </plugin>
+
+      <!-- Integration tests - run against shaded JAR to verify shading works -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <useModulePath>false</useModulePath>
+          <!-- Load main classes from the shaded JAR instead of target/classes -->
+          <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
+          <!-- Exclude the original unshaded artifact from classpath -->
+          <classpathDependencyExcludes>
+            <classpathDependencyExclude>${project.groupId}:${project.artifactId}</classpathDependencyExclude>
+          </classpathDependencyExcludes>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
 
       <!-- Generate sources JAR -->
@@ -416,8 +440,10 @@
             </goals>
             <configuration>
               <createDependencyReducedPom>true</createDependencyReducedPom>
-              <promoteTransitiveDependencies>true</promoteTransitiveDependencies>
+              <dependencyReducedPomLocation>${project.build.directory}/dependency-reduced-pom.xml</dependencyReducedPomLocation>
+              <promoteTransitiveDependencies>false</promoteTransitiveDependencies>
               <shadeTestJar>false</shadeTestJar>
+              <minimizeJar>true</minimizeJar>
 
               <artifactSet>
                 <includes>
@@ -440,71 +466,71 @@
               <relocations>
                 <relocation>
                   <pattern>io.grpc</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.io.grpc</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.io.grpc</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.protobuf</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.protobuf</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.protobuf</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.common</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.common</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.common</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.thirdparty</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.thirdparty</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.thirdparty</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.api</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.api</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.api</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.cloud</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.cloud</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.cloud</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.geo</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.geo</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.geo</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.logging</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.logging</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.logging</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.longrunning</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.longrunning</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.longrunning</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.rpc</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.rpc</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.rpc</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.type</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.type</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.type</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.gson</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.gson</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.gson</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>io.perfmark</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.io.perfmark</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.io.perfmark</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>javax.annotation</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.javax.annotation</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.javax.annotation</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.errorprone</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.errorprone</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.errorprone</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>com.google.j2objc</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.com.google.j2objc</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.j2objc</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>org.checkerframework</pattern>
-                  <shadedPattern>com.spotify.confidence.shaded.org.checkerframework</shadedPattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.org.checkerframework</shadedPattern>
                 </relocation>
               </relocations>
 
