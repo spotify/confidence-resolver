@@ -3,7 +3,7 @@ package com.spotify.confidence.sdk;
 import static com.spotify.confidence.sdk.GrpcUtil.createConfidenceChannel;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.spotify.confidence.flags.resolver.v1.*;
+import com.spotify.confidence.sdk.flags.resolver.v1.*;
 import io.grpc.*;
 import java.time.Duration;
 import java.util.*;
@@ -163,7 +163,7 @@ public class RemoteMaterializationStore implements MaterializationStore {
         () -> {
           try {
             // Convert ReadOps to proto format
-            List<com.spotify.confidence.flags.resolver.v1.ReadOp> protoOps =
+            List<com.spotify.confidence.sdk.flags.resolver.v1.ReadOp> protoOps =
                 new ArrayList<>(ops.size());
             for (ReadOp op : ops) {
               protoOps.add(readOpToProto(op));
@@ -180,7 +180,7 @@ public class RemoteMaterializationStore implements MaterializationStore {
 
             // Convert proto results to Java types
             List<ReadResult> results = new ArrayList<>(response.getResultsCount());
-            for (com.spotify.confidence.flags.resolver.v1.ReadResult protoResult :
+            for (com.spotify.confidence.sdk.flags.resolver.v1.ReadResult protoResult :
                 response.getResultsList()) {
               results.add(protoToReadResult(protoResult));
             }
@@ -232,9 +232,9 @@ public class RemoteMaterializationStore implements MaterializationStore {
     }
   }
 
-  private com.spotify.confidence.flags.resolver.v1.ReadOp readOpToProto(ReadOp op) {
-    com.spotify.confidence.flags.resolver.v1.ReadOp.Builder builder =
-        com.spotify.confidence.flags.resolver.v1.ReadOp.newBuilder();
+  private com.spotify.confidence.sdk.flags.resolver.v1.ReadOp readOpToProto(ReadOp op) {
+    com.spotify.confidence.sdk.flags.resolver.v1.ReadOp.Builder builder =
+        com.spotify.confidence.sdk.flags.resolver.v1.ReadOp.newBuilder();
 
     if (op instanceof ReadOp.Variant variant) {
       builder.setVariantReadOp(
@@ -256,7 +256,8 @@ public class RemoteMaterializationStore implements MaterializationStore {
     return builder.build();
   }
 
-  private ReadResult protoToReadResult(com.spotify.confidence.flags.resolver.v1.ReadResult proto) {
+  private ReadResult protoToReadResult(
+      com.spotify.confidence.sdk.flags.resolver.v1.ReadResult proto) {
     if (proto.hasVariantResult()) {
       VariantData variantData = proto.getVariantResult();
       Optional<String> variant =

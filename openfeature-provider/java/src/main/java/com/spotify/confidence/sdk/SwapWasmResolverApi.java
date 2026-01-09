@@ -1,6 +1,6 @@
 package com.spotify.confidence.sdk;
 
-import com.spotify.confidence.flags.resolver.v1.*;
+import com.spotify.confidence.sdk.flags.resolver.v1.*;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;

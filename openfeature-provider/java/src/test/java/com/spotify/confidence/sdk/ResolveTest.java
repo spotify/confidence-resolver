@@ -9,12 +9,12 @@ import static org.mockito.Mockito.*;
 import com.google.protobuf.Struct;
 import com.google.protobuf.util.Structs;
 import com.google.protobuf.util.Values;
-import com.spotify.confidence.flags.admin.v1.Client;
-import com.spotify.confidence.flags.admin.v1.ClientCredential;
-import com.spotify.confidence.flags.admin.v1.Flag;
-import com.spotify.confidence.flags.admin.v1.Segment;
-import com.spotify.confidence.flags.resolver.v1.*;
-import com.spotify.confidence.flags.types.v1.FlagSchema;
+import com.spotify.confidence.sdk.flags.admin.v1.Client;
+import com.spotify.confidence.sdk.flags.admin.v1.ClientCredential;
+import com.spotify.confidence.sdk.flags.admin.v1.Flag;
+import com.spotify.confidence.sdk.flags.admin.v1.Segment;
+import com.spotify.confidence.sdk.flags.resolver.v1.*;
+import com.spotify.confidence.sdk.flags.types.v1.FlagSchema;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -412,7 +412,7 @@ class ResolveTest {
   }
 
   private static byte[] buildResolverStateBytes(Map<String, Flag> flagsMap) {
-    final var builder = com.spotify.confidence.flags.admin.v1.ResolverState.newBuilder();
+    final var builder = com.spotify.confidence.sdk.flags.admin.v1.ResolverState.newBuilder();
     builder.addAllFlags(flagsMap.values());
     builder.addAllSegmentsNoBitsets(segments.values());
     // All-one bitset for each segment
@@ -421,7 +421,8 @@ class ResolveTest {
         .forEach(
             name ->
                 builder.addBitsets(
-                    com.spotify.confidence.flags.admin.v1.ResolverState.PackedBitset.newBuilder()
+                    com.spotify.confidence.sdk.flags.admin.v1.ResolverState.PackedBitset
+                        .newBuilder()
                         .setSegment(name)
                         .setFullBitset(true)
                         .build()));

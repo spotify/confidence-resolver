@@ -13,8 +13,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
-/** End-to-end tests that verify WriteFlagLogs successfully sends to the real backend. */
-class OpenFeatureLocalResolveProviderFlagLogsE2ETest {
+/**
+ * Integration tests that verify WriteFlagLogs successfully sends to the real backend. These tests
+ * run against the shaded JAR to verify shading is correct.
+ */
+class OpenFeatureLocalResolveProviderFlagLogsIT {
   private static final String FLAG_CLIENT_SECRET = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
   private static final String TARGETING_KEY = "test-a";
 

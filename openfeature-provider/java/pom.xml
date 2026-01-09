@@ -280,7 +280,7 @@
 
       <!-- Makefile copies local WASM into resources; no download/clean plugin needed -->
       
-      <!-- JUnit 5 -->
+      <!-- JUnit 5 - Unit tests -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
@@ -288,6 +288,30 @@
         <configuration>
           <useModulePath>false</useModulePath>
         </configuration>
+      </plugin>
+
+      <!-- Integration tests - run against shaded JAR to verify shading works -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <useModulePath>false</useModulePath>
+          <!-- Load main classes from the shaded JAR instead of target/classes -->
+          <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
+          <!-- Exclude the original unshaded artifact from classpath -->
+          <classpathDependencyExcludes>
+            <classpathDependencyExclude>${project.groupId}:${project.artifactId}</classpathDependencyExclude>
+          </classpathDependencyExcludes>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
 
       <!-- Generate sources JAR -->
@@ -398,6 +422,134 @@
                 <!-- Required by generated gRPC stubs -->
                 <ignoredUnusedDeclaredDependency>javax.annotation:javax.annotation-api</ignoredUnusedDeclaredDependency>
               </ignoredUnusedDeclaredDependencies>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Shade gRPC/protobuf/guava to avoid version conflicts with consumers -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>true</createDependencyReducedPom>
+              <dependencyReducedPomLocation>${project.build.directory}/dependency-reduced-pom.xml</dependencyReducedPomLocation>
+              <promoteTransitiveDependencies>false</promoteTransitiveDependencies>
+              <shadeTestJar>false</shadeTestJar>
+              <minimizeJar>true</minimizeJar>
+
+              <artifactSet>
+                <includes>
+                  <include>io.grpc:*</include>
+                  <include>com.google.protobuf:*</include>
+                  <include>com.google.guava:*</include>
+                  <include>com.google.api.grpc:proto-google-common-protos</include>
+                  <include>com.google.code.findbugs:jsr305</include>
+                  <include>org.checkerframework:checker-qual</include>
+                  <include>com.google.errorprone:error_prone_annotations</include>
+                  <include>com.google.j2objc:j2objc-annotations</include>
+                  <include>com.google.android:annotations</include>
+                  <include>org.codehaus.mojo:animal-sniffer-annotations</include>
+                  <include>io.perfmark:perfmark-api</include>
+                  <include>com.google.code.gson:gson</include>
+                  <include>javax.annotation:javax.annotation-api</include>
+                </includes>
+              </artifactSet>
+
+              <relocations>
+                <relocation>
+                  <pattern>io.grpc</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.io.grpc</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.protobuf</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.protobuf</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.common</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.common</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.thirdparty</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.thirdparty</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.api</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.api</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.cloud</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.cloud</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.geo</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.geo</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.logging</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.logging</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.longrunning</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.longrunning</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.rpc</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.rpc</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.type</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.type</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.gson</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.gson</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>io.perfmark</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.io.perfmark</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>javax.annotation</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.javax.annotation</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.errorprone</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.errorprone</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.google.j2objc</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.com.google.j2objc</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.checkerframework</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.shaded.org.checkerframework</shadedPattern>
+                </relocation>
+              </relocations>
+
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"/>
+              </transformers>
             </configuration>
           </execution>
         </executions>

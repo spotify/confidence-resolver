@@ -33,15 +33,8 @@ test: $(BUILD_STAMP)
 	mvn -q test -Dtest='!**/*E2ETest'
 
 test-e2e: $(BUILD_STAMP)
-	@if [ ! -f .env.test ]; then \
-		echo "Warning: .env.test file not found. E2E tests may fail."; \
-	fi
-	@if [ -f .env.test ]; then \
-		export $$(cat .env.test | xargs) && mvn -q test -Dtest='**/*E2ETest'; \
-	else \
-		mvn -q test -Dtest='**/*E2ETest'; \
-	fi
-
+	mvn -q verify -Dsurefire.skip=true
+	
 clean:
 	mvn -q clean
 	rm -f $(BUILD_STAMP)

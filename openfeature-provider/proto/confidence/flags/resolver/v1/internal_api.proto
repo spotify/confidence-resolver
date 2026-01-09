@@ -8,7 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "confidence/flags/resolver/v1/types.proto";
 
 option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal";
-option java_package = "com.spotify.confidence.flags.resolver.v1";
+option java_package = "com.spotify.confidence.sdk.flags.resolver.v1";
 option java_multiple_files = true;
 option java_outer_classname = "InternalApiProto";
 

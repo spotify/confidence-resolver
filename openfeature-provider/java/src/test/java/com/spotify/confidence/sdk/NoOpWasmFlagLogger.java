@@ -1,6 +1,6 @@
 package com.spotify.confidence.sdk;
 
-import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 
 /**
  * A no-op implementation of WasmFlagLogger used when flag logging is not needed, typically in test

@@ -3,9 +3,9 @@ package com.spotify.confidence.sdk;
 import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.spotify.confidence.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
-import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsRequest;
-import com.spotify.confidence.flags.resolver.v1.WriteFlagLogsResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
+import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsResponse;
 import com.sun.net.httpserver.HttpServer;
 import dev.openfeature.sdk.*;
 import dev.openfeature.sdk.exceptions.FlagNotFoundError;
@@ -70,7 +70,7 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
 
             // Wrap it in a SetResolverStateRequest as the CDN does
             final var stateRequest =
-                com.spotify.confidence.wasm.Messages.SetResolverStateRequest.newBuilder()
+                com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.newBuilder()
                     .setState(com.google.protobuf.ByteString.copyFrom(rawState))
                     .setAccountId(ACCOUNT_NAME)
                     .build();
@@ -238,7 +238,8 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
         new ImmutableContext(
             "tutorial_visitor", Map.of("visitor_id", new Value("tutorial_visitor")));
 
-    // Perform multiple flag resolutions across multiple threads to ensure all WASM instances
+    // Perform multiple flag resolutions across multiple threads to ensure all WASM
+    // instances
     // have log data
     final int numThreads = Runtime.getRuntime().availableProcessors();
     final int resolutionsPerThread = 5;
@@ -271,7 +272,8 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
     provider.shutdown();
 
     // Verify that log requests were made during shutdown
-    // Note: The exact number depends on batching, but there should be at least some logs
+    // Note: The exact number depends on batching, but there should be at least some
+    // logs
     final int logRequestsAfterShutdown = mockFlagLoggerService.getRequestCount();
     assertThat(logRequestsAfterShutdown).isGreaterThanOrEqualTo(logRequestsBeforeShutdown);
 
@@ -306,7 +308,8 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
           new ImmutableContext(
               "tutorial_visitor", Map.of("visitor_id", new Value("tutorial_visitor")));
 
-      // Perform multiple flag resolutions across multiple threads to ensure all WASM instances
+      // Perform multiple flag resolutions across multiple threads to ensure all WASM
+      // instances
       // have log data
       final int numThreads = Runtime.getRuntime().availableProcessors();
       final int resolutionsPerThread = 5;
@@ -347,7 +350,8 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
           ProviderState.NOT_READY, OpenFeatureAPI.getInstance().getClient().getProviderState());
 
       // Verify that log requests were made during shutdown
-      // Note: The exact number depends on batching, but there should be at least some logs
+      // Note: The exact number depends on batching, but there should be at least some
+      // logs
       final int logRequestsAfterShutdown = mockFlagLoggerService.getRequestCount();
       assertThat(logRequestsAfterShutdown).isGreaterThanOrEqualTo(logRequestsBeforeShutdown);
 
