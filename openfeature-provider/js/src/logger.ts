@@ -70,6 +70,9 @@ export const getLogger: LoggerFactory = logger.getLogger.bind(logger);
 async function loadDebug(): Promise<Debug | null> {
   try {
     const { default: debug } = await import('debug');
+    if (typeof debug !== 'function') {
+      return null;
+    }
     return debug;
   } catch (e) {
     // debug not available
