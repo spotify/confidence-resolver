@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.5.0...openfeature-provider-js-v0.5.1) (2026-01-12)
+
+
+### Bug Fixes
+
+* **js:** handle missing debug package under nextjs ([#219](https://github.com/spotify/confidence-resolver/issues/219)) ([c4d49fc](https://github.com/spotify/confidence-resolver/commit/c4d49fc6486931e902848f11245c2a4d02af98ff))
+
 ## [0.5.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.4.0...openfeature-provider-js-v0.5.0) (2025-12-19)
 
 
