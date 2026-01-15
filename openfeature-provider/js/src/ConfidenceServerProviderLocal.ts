@@ -33,11 +33,15 @@ import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
 
 const logger = getLogger('provider');
 
+export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
 export const DEFAULT_FLUSH_INTERVAL = 10_000;
 export interface ProviderOptions {
   flagClientSecret: string;
   initializeTimeout?: number;
+  /** Interval in milliseconds between state polling updates. Defaults to 30000ms. */
+  stateUpdateInterval?: number;
+  /** Interval in milliseconds between log flushes. Defaults to 10000ms. */
   flushInterval?: number;
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
@@ -57,13 +61,21 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
+  private readonly stateUpdateInterval: number;
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
   private stateEtag: string | null = null;
 
   // TODO Maybe pass in a resolver factory, so that we can initialize it in initialize and transition to fatal if not.
   constructor(private resolver: LocalResolver, private options: ProviderOptions) {
+    this.stateUpdateInterval = options.stateUpdateInterval ?? DEFAULT_STATE_INTERVAL;
+    if (!Number.isInteger(this.stateUpdateInterval) || this.stateUpdateInterval < 1000) {
+      throw new Error(`stateUpdateInterval must be an integer >= 1000 (1s), currently: ${this.stateUpdateInterval}`);
+    }
     this.flushInterval = options.flushInterval ?? DEFAULT_FLUSH_INTERVAL;
+    if (!Number.isInteger(this.flushInterval) || this.flushInterval < 1000) {
+      throw new Error(`flushInterval must be an integer >= 1000 (1s), currently: ${this.flushInterval}`);
+    }
     this.fetch = Fetch.create(
       [
         withRouter({
@@ -71,7 +83,7 @@ export class ConfidenceServerProviderLocal implements Provider {
             withRetry({
               maxAttempts: Infinity,
               baseInterval: 500,
-              maxInterval: DEFAULT_STATE_INTERVAL,
+              maxInterval: this.stateUpdateInterval,
             }),
             withStallTimeout(500),
           ],
@@ -130,7 +142,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     const signal = this.main.signal;
     const initialUpdateSignal = AbortSignal.any([
       signal,
-      timeoutSignal(this.options.initializeTimeout ?? DEFAULT_STATE_INTERVAL),
+      timeoutSignal(this.options.initializeTimeout ?? DEFAULT_INITIALIZE_TIMEOUT),
     ]);
     try {
       // TODO set schedulers irrespective of failure
@@ -138,7 +150,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       await this.updateState(initialUpdateSignal);
       scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
       // TODO Better with fixed delay so we don't do a double fetch when we're behind. Alt, skip if in progress
-      scheduleWithFixedInterval(signal => this.updateState(signal), DEFAULT_STATE_INTERVAL, { signal });
+      scheduleWithFixedInterval(signal => this.updateState(signal), this.stateUpdateInterval, { signal });
       this.status = 'READY' as ProviderStatus;
     } catch (e: unknown) {
       this.status = 'ERROR' as ProviderStatus;
