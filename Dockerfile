@@ -511,6 +511,38 @@ RUN --mount=type=secret,id=rubygem_api_key \
     gem push pkg/*.gem
 
 # ==============================================================================
+# OpenFeature Provider (Rust) - Test
+# ==============================================================================
+FROM rust-test-base AS openfeature-provider-rust.test
+
+WORKDIR /workspace/openfeature-provider/rust
+RUN make test
+
+# ==============================================================================
+# OpenFeature Provider (Rust) - E2E Test
+# ==============================================================================
+FROM rust-test-base AS openfeature-provider-rust.test_e2e
+
+WORKDIR /workspace/openfeature-provider/rust
+RUN make test-e2e
+
+# ==============================================================================
+# OpenFeature Provider (Rust) - Lint
+# ==============================================================================
+FROM rust-test-base AS openfeature-provider-rust.lint
+
+WORKDIR /workspace/openfeature-provider/rust
+RUN make lint
+
+# ==============================================================================
+# OpenFeature Provider (Rust) - Build
+# ==============================================================================
+FROM rust-test-base AS openfeature-provider-rust.build
+
+WORKDIR /workspace/openfeature-provider/rust
+RUN make build
+
+# ==============================================================================
 # OpenFeature Provider (Java) - Build and test
 # ==============================================================================
 FROM eclipse-temurin:17-jdk AS openfeature-provider-java-base
@@ -594,6 +626,8 @@ COPY --from=openfeature-provider-java.test /app/pom.xml /markers/test-openfeatur
 COPY --from=openfeature-provider-java.test_e2e /app/pom.xml /markers/test-openfeature-java-e2e
 COPY --from=openfeature-provider-go.test /app/go.mod /markers/test-openfeature-go
 COPY --from=openfeature-provider-ruby.test /app/Gemfile /markers/test-openfeature-ruby
+COPY --from=openfeature-provider-rust.test /workspace/Cargo.toml /markers/test-openfeature-rust
+COPY --from=openfeature-provider-rust.test_e2e /workspace/Cargo.toml /markers/test-openfeature-rust-e2e
 
 # Force validation stages to run
 COPY --from=openfeature-provider-go.validate-wasm /built/confidence_resolver.wasm /markers/validate-wasm-go
@@ -607,6 +641,7 @@ COPY --from=wasm-msg.lint /workspace/Cargo.toml /markers/lint-wasm-msg
 COPY --from=wasm-rust-guest.lint /workspace/Cargo.toml /markers/lint-guest
 COPY --from=openfeature-provider-go.lint /app/go.mod /markers/lint-openfeature-go
 COPY --from=openfeature-provider-ruby.lint /app/Gemfile /markers/lint-openfeature-ruby
+COPY --from=openfeature-provider-rust.lint /workspace/Cargo.toml /markers/lint-openfeature-rust
 COPY --from=confidence-cloudflare-resolver.lint /workspace/Cargo.toml /markers/lint-cloudflare
 
 # Force build stages to run
@@ -615,3 +650,4 @@ COPY --from=openfeature-provider-js.build /app/dist/index.node.js /artifacts/ope
 COPY --from=openfeature-provider-java.build /app/target/*.jar /artifacts/openfeature-java/
 COPY --from=openfeature-provider-go.build /app/.build.stamp /artifacts/openfeature-go/
 COPY --from=openfeature-provider-ruby.build /app/.build.stamp /artifacts/openfeature-ruby/
+COPY --from=openfeature-provider-rust.build /workspace/openfeature-provider/rust/.build.stamp /artifacts/openfeature-rust/
