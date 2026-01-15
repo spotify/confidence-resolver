@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.5.1...openfeature-provider-js-v0.6.0) (2026-01-15)
+
+
+### Features
+
+* **js:** add stateUpdateInterval option for configurable state polling ([#224](https://github.com/spotify/confidence-resolver/issues/224)) ([5687847](https://github.com/spotify/confidence-resolver/commit/56878478d3d508870ac0f3172f897c8728e8a85d))
+
+
+### Bug Fixes
+
+* prevent split bundle ([#212](https://github.com/spotify/confidence-resolver/issues/212)) ([80cfd0d](https://github.com/spotify/confidence-resolver/commit/80cfd0d0128af4c65b1ae50539f2b1d0d959c02e))
+
 ## [0.5.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.5.0...openfeature-provider-js-v0.5.1) (2026-01-12)
 
 
