@@ -6,6 +6,9 @@ pub mod provider;
 pub mod state;
 mod version;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use error::Error;
 pub use materialization::{
     ConfidenceRemoteMaterializationStore, MaterializationStore, ReadOpType, ReadResultType, WriteOp,

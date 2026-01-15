@@ -304,3 +304,421 @@ pub fn write_ops_from_proto(variant_data: &[VariantData]) -> Vec<WriteOp> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== ReadOpType tests ====================
+
+    #[test]
+    fn test_read_op_type_variant() {
+        let op = ReadOpType::Variant {
+            unit: "user-123".to_string(),
+            materialization: "experiment_v1".to_string(),
+            rule: "my-rule".to_string(),
+        };
+
+        if let ReadOpType::Variant {
+            unit,
+            materialization,
+            rule,
+        } = op
+        {
+            assert_eq!(unit, "user-123");
+            assert_eq!(materialization, "experiment_v1");
+            assert_eq!(rule, "my-rule");
+        } else {
+            panic!("Expected Variant");
+        }
+    }
+
+    #[test]
+    fn test_read_op_type_inclusion() {
+        let op = ReadOpType::Inclusion {
+            unit: "user-123".to_string(),
+            materialization: "segment_v1".to_string(),
+        };
+
+        if let ReadOpType::Inclusion {
+            unit,
+            materialization,
+        } = op
+        {
+            assert_eq!(unit, "user-123");
+            assert_eq!(materialization, "segment_v1");
+        } else {
+            panic!("Expected Inclusion");
+        }
+    }
+
+    // ==================== ReadResultType tests ====================
+
+    #[test]
+    fn test_read_result_type_variant_with_value() {
+        let result = ReadResultType::Variant {
+            unit: "user-123".to_string(),
+            materialization: "experiment_v1".to_string(),
+            rule: "my-rule".to_string(),
+            variant: Some("variant-a".to_string()),
+        };
+
+        if let ReadResultType::Variant {
+            unit,
+            materialization,
+            rule,
+            variant,
+        } = result
+        {
+            assert_eq!(unit, "user-123");
+            assert_eq!(materialization, "experiment_v1");
+            assert_eq!(rule, "my-rule");
+            assert_eq!(variant, Some("variant-a".to_string()));
+        } else {
+            panic!("Expected Variant");
+        }
+    }
+
+    #[test]
+    fn test_read_result_type_variant_without_value() {
+        let result = ReadResultType::Variant {
+            unit: "user-123".to_string(),
+            materialization: "experiment_v1".to_string(),
+            rule: "my-rule".to_string(),
+            variant: None,
+        };
+
+        if let ReadResultType::Variant { variant, .. } = result {
+            assert_eq!(variant, None);
+        } else {
+            panic!("Expected Variant");
+        }
+    }
+
+    #[test]
+    fn test_read_result_type_inclusion() {
+        let result = ReadResultType::Inclusion {
+            unit: "user-123".to_string(),
+            materialization: "segment_v1".to_string(),
+            included: true,
+        };
+
+        if let ReadResultType::Inclusion {
+            unit,
+            materialization,
+            included,
+        } = result
+        {
+            assert_eq!(unit, "user-123");
+            assert_eq!(materialization, "segment_v1");
+            assert!(included);
+        } else {
+            panic!("Expected Inclusion");
+        }
+    }
+
+    // ==================== WriteOp tests ====================
+
+    #[test]
+    fn test_write_op() {
+        let op = WriteOp {
+            unit: "user-123".to_string(),
+            materialization: "experiment_v1".to_string(),
+            rule: "my-rule".to_string(),
+            variant: "variant-a".to_string(),
+        };
+
+        assert_eq!(op.unit, "user-123");
+        assert_eq!(op.materialization, "experiment_v1");
+        assert_eq!(op.rule, "my-rule");
+        assert_eq!(op.variant, "variant-a");
+    }
+
+    // ==================== Conversion function tests ====================
+
+    #[test]
+    fn test_read_ops_to_proto_variant() {
+        let ops = vec![ReadOpType::Variant {
+            unit: "user-1".to_string(),
+            materialization: "mat-1".to_string(),
+            rule: "rule-1".to_string(),
+        }];
+
+        let proto = read_ops_to_proto(ops);
+
+        assert_eq!(proto.ops.len(), 1);
+        if let Some(read_op::Op::VariantReadOp(v)) = &proto.ops[0].op {
+            assert_eq!(v.unit, "user-1");
+            assert_eq!(v.materialization, "mat-1");
+            assert_eq!(v.rule, "rule-1");
+        } else {
+            panic!("Expected VariantReadOp");
+        }
+    }
+
+    #[test]
+    fn test_read_ops_to_proto_inclusion() {
+        let ops = vec![ReadOpType::Inclusion {
+            unit: "user-1".to_string(),
+            materialization: "mat-1".to_string(),
+        }];
+
+        let proto = read_ops_to_proto(ops);
+
+        assert_eq!(proto.ops.len(), 1);
+        if let Some(read_op::Op::InclusionReadOp(i)) = &proto.ops[0].op {
+            assert_eq!(i.unit, "user-1");
+            assert_eq!(i.materialization, "mat-1");
+        } else {
+            panic!("Expected InclusionReadOp");
+        }
+    }
+
+    #[test]
+    fn test_read_ops_from_proto() {
+        let proto = ReadOperationsRequest {
+            ops: vec![
+                ReadOp {
+                    op: Some(read_op::Op::VariantReadOp(VariantReadOp {
+                        unit: "user-1".to_string(),
+                        materialization: "mat-1".to_string(),
+                        rule: "rule-1".to_string(),
+                    })),
+                },
+                ReadOp {
+                    op: Some(read_op::Op::InclusionReadOp(InclusionReadOp {
+                        unit: "user-2".to_string(),
+                        materialization: "mat-2".to_string(),
+                    })),
+                },
+            ],
+        };
+
+        let ops = read_ops_from_proto(&proto);
+
+        assert_eq!(ops.len(), 2);
+
+        if let ReadOpType::Variant {
+            unit,
+            materialization,
+            rule,
+        } = &ops[0]
+        {
+            assert_eq!(unit, "user-1");
+            assert_eq!(materialization, "mat-1");
+            assert_eq!(rule, "rule-1");
+        } else {
+            panic!("Expected Variant");
+        }
+
+        if let ReadOpType::Inclusion {
+            unit,
+            materialization,
+        } = &ops[1]
+        {
+            assert_eq!(unit, "user-2");
+            assert_eq!(materialization, "mat-2");
+        } else {
+            panic!("Expected Inclusion");
+        }
+    }
+
+    #[test]
+    fn test_read_results_to_proto_variant() {
+        let results = vec![ReadResultType::Variant {
+            unit: "user-1".to_string(),
+            materialization: "mat-1".to_string(),
+            rule: "rule-1".to_string(),
+            variant: Some("variant-a".to_string()),
+        }];
+
+        let proto = read_results_to_proto(results);
+
+        assert_eq!(proto.len(), 1);
+        if let Some(read_result::Result::VariantResult(v)) = &proto[0].result {
+            assert_eq!(v.unit, "user-1");
+            assert_eq!(v.materialization, "mat-1");
+            assert_eq!(v.rule, "rule-1");
+            assert_eq!(v.variant, "variant-a");
+        } else {
+            panic!("Expected VariantResult");
+        }
+    }
+
+    #[test]
+    fn test_read_results_to_proto_variant_empty() {
+        let results = vec![ReadResultType::Variant {
+            unit: "user-1".to_string(),
+            materialization: "mat-1".to_string(),
+            rule: "rule-1".to_string(),
+            variant: None,
+        }];
+
+        let proto = read_results_to_proto(results);
+
+        if let Some(read_result::Result::VariantResult(v)) = &proto[0].result {
+            assert_eq!(v.variant, ""); // None becomes empty string
+        } else {
+            panic!("Expected VariantResult");
+        }
+    }
+
+    #[test]
+    fn test_read_results_to_proto_inclusion() {
+        let results = vec![ReadResultType::Inclusion {
+            unit: "user-1".to_string(),
+            materialization: "mat-1".to_string(),
+            included: true,
+        }];
+
+        let proto = read_results_to_proto(results);
+
+        assert_eq!(proto.len(), 1);
+        if let Some(read_result::Result::InclusionResult(i)) = &proto[0].result {
+            assert_eq!(i.unit, "user-1");
+            assert_eq!(i.materialization, "mat-1");
+            assert!(i.is_included);
+        } else {
+            panic!("Expected InclusionResult");
+        }
+    }
+
+    #[test]
+    fn test_write_ops_from_proto() {
+        let variant_data = vec![
+            VariantData {
+                unit: "user-1".to_string(),
+                materialization: "mat-1".to_string(),
+                rule: "rule-1".to_string(),
+                variant: "variant-a".to_string(),
+            },
+            VariantData {
+                unit: "user-2".to_string(),
+                materialization: "mat-2".to_string(),
+                rule: "rule-2".to_string(),
+                variant: "variant-b".to_string(),
+            },
+        ];
+
+        let ops = write_ops_from_proto(&variant_data);
+
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0].unit, "user-1");
+        assert_eq!(ops[0].variant, "variant-a");
+        assert_eq!(ops[1].unit, "user-2");
+        assert_eq!(ops[1].variant, "variant-b");
+    }
+
+    #[test]
+    fn test_write_ops_to_proto() {
+        let ops = vec![
+            WriteOp {
+                unit: "user-1".to_string(),
+                materialization: "mat-1".to_string(),
+                rule: "rule-1".to_string(),
+                variant: "variant-a".to_string(),
+            },
+        ];
+
+        let proto = write_ops_to_proto(ops);
+
+        assert_eq!(proto.store_variant_op.len(), 1);
+        assert_eq!(proto.store_variant_op[0].unit, "user-1");
+        assert_eq!(proto.store_variant_op[0].materialization, "mat-1");
+        assert_eq!(proto.store_variant_op[0].rule, "rule-1");
+        assert_eq!(proto.store_variant_op[0].variant, "variant-a");
+    }
+
+    #[test]
+    fn test_read_results_from_proto() {
+        let proto_result = ReadOperationsResult {
+            results: vec![
+                ReadResult {
+                    result: Some(read_result::Result::VariantResult(VariantData {
+                        unit: "user-1".to_string(),
+                        materialization: "mat-1".to_string(),
+                        rule: "rule-1".to_string(),
+                        variant: "variant-a".to_string(),
+                    })),
+                },
+                ReadResult {
+                    result: Some(read_result::Result::InclusionResult(InclusionData {
+                        unit: "user-2".to_string(),
+                        materialization: "mat-2".to_string(),
+                        is_included: false,
+                    })),
+                },
+            ],
+        };
+
+        let results = read_results_from_proto(proto_result);
+
+        assert_eq!(results.len(), 2);
+
+        if let ReadResultType::Variant { unit, variant, .. } = &results[0] {
+            assert_eq!(unit, "user-1");
+            assert_eq!(variant.as_deref(), Some("variant-a"));
+        } else {
+            panic!("Expected Variant");
+        }
+
+        if let ReadResultType::Inclusion { unit, included, .. } = &results[1] {
+            assert_eq!(unit, "user-2");
+            assert!(!included);
+        } else {
+            panic!("Expected Inclusion");
+        }
+    }
+
+    #[test]
+    fn test_read_results_from_proto_empty_variant() {
+        let proto_result = ReadOperationsResult {
+            results: vec![ReadResult {
+                result: Some(read_result::Result::VariantResult(VariantData {
+                    unit: "user-1".to_string(),
+                    materialization: "mat-1".to_string(),
+                    rule: "rule-1".to_string(),
+                    variant: "".to_string(), // Empty string
+                })),
+            }],
+        };
+
+        let results = read_results_from_proto(proto_result);
+
+        if let ReadResultType::Variant { variant, .. } = &results[0] {
+            assert_eq!(*variant, None); // Empty string becomes None
+        } else {
+            panic!("Expected Variant");
+        }
+    }
+
+    #[test]
+    fn test_read_results_from_proto_skips_none() {
+        let proto_result = ReadOperationsResult {
+            results: vec![
+                ReadResult { result: None },
+                ReadResult {
+                    result: Some(read_result::Result::VariantResult(VariantData {
+                        unit: "user-1".to_string(),
+                        materialization: "mat-1".to_string(),
+                        rule: "rule-1".to_string(),
+                        variant: "variant-a".to_string(),
+                    })),
+                },
+            ],
+        };
+
+        let results = read_results_from_proto(proto_result);
+
+        // Only one result (the None is skipped)
+        assert_eq!(results.len(), 1);
+    }
+
+    // ==================== ConfidenceRemoteMaterializationStore tests ====================
+
+    #[test]
+    fn test_confidence_remote_store_creation() {
+        let store = ConfidenceRemoteMaterializationStore::new("test-secret".to_string());
+        assert!(store.is_ok());
+    }
+}
