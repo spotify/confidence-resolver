@@ -54,7 +54,8 @@ pub struct WriteOp {
 #[async_trait]
 pub trait MaterializationStore: Send + Sync {
     /// Reads materialization data for the given operations.
-    async fn read_materializations(&self, read_ops: Vec<ReadOpType>) -> Result<Vec<ReadResultType>>;
+    async fn read_materializations(&self, read_ops: Vec<ReadOpType>)
+        -> Result<Vec<ReadResultType>>;
 
     /// Persists variant assignments for sticky bucketing.
     /// This method is optional - implementations may return Ok(()) if write is not supported.
@@ -83,7 +84,10 @@ impl ConfidenceRemoteMaterializationStore {
 
 #[async_trait]
 impl MaterializationStore for ConfidenceRemoteMaterializationStore {
-    async fn read_materializations(&self, read_ops: Vec<ReadOpType>) -> Result<Vec<ReadResultType>> {
+    async fn read_materializations(
+        &self,
+        read_ops: Vec<ReadOpType>,
+    ) -> Result<Vec<ReadResultType>> {
         let request = read_ops_to_proto(read_ops);
         let body = request.encode_to_vec();
 
@@ -91,7 +95,10 @@ impl MaterializationStore for ConfidenceRemoteMaterializationStore {
             .client
             .post("https://resolver.confidence.dev/v1/materialization:readMaterializedOperations")
             .header("Content-Type", "application/x-protobuf")
-            .header("Authorization", format!("ClientSecret {}", self.client_secret))
+            .header(
+                "Authorization",
+                format!("ClientSecret {}", self.client_secret),
+            )
             .body(body)
             .send()
             .await
@@ -110,8 +117,8 @@ impl MaterializationStore for ConfidenceRemoteMaterializationStore {
             .await
             .map_err(|e| Error::Http(e.to_string()))?;
 
-        let result = ReadOperationsResult::decode(bytes)
-            .map_err(|e| Error::Proto(e.to_string()))?;
+        let result =
+            ReadOperationsResult::decode(bytes).map_err(|e| Error::Proto(e.to_string()))?;
 
         Ok(read_results_from_proto(result))
     }
@@ -128,7 +135,10 @@ impl MaterializationStore for ConfidenceRemoteMaterializationStore {
             .client
             .post("https://resolver.confidence.dev/v1/materialization:writeMaterializedOperations")
             .header("Content-Type", "application/x-protobuf")
-            .header("Authorization", format!("ClientSecret {}", self.client_secret))
+            .header(
+                "Authorization",
+                format!("ClientSecret {}", self.client_secret),
+            )
             .body(body)
             .send()
             .await

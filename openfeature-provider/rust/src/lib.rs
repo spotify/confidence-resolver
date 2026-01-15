@@ -8,8 +8,7 @@ mod version;
 
 pub use error::Error;
 pub use materialization::{
-    ConfidenceRemoteMaterializationStore, MaterializationStore, ReadOpType, ReadResultType,
-    WriteOp,
+    ConfidenceRemoteMaterializationStore, MaterializationStore, ReadOpType, ReadResultType, WriteOp,
 };
 pub use provider::{ConfidenceProvider, MaterializationStoreConfig, ProviderOptions};
 pub use version::VERSION;

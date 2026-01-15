@@ -51,7 +51,10 @@ impl LogSender {
             .client
             .post(FLAG_LOGS_URL)
             .header("Content-Type", "application/x-protobuf")
-            .header("Authorization", format!("ClientSecret {}", self.client_secret))
+            .header(
+                "Authorization",
+                format!("ClientSecret {}", self.client_secret),
+            )
             .body(logs.to_vec())
             .send()
             .await?;

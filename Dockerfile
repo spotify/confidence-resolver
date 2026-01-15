@@ -48,6 +48,7 @@ COPY wasm/rust-guest/Cargo.toml ./wasm/rust-guest/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
+COPY openfeature-provider/rust/Cargo.toml ./openfeature-provider/rust/
 
 # Copy proto files (needed by build.rs)
 COPY confidence-resolver/protos ./confidence-resolver/protos/
@@ -100,6 +101,7 @@ COPY wasm/proto/ ./wasm/proto/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
+COPY openfeature-provider/rust/Cargo.toml ./openfeature-provider/rust/
 
 # Touch files to ensure rebuild (dependencies are cached)
 RUN find . -type f -name "*.rs" -exec touch {} +
@@ -154,6 +156,7 @@ COPY wasm/proto/ ./wasm/proto/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
+COPY openfeature-provider/rust/Cargo.toml ./openfeature-provider/rust/
 
 # Copy data directory (needed by confidence-cloudflare-resolver include_str! macros)
 COPY data/ ./data/

@@ -111,8 +111,9 @@ impl StateFetcher {
 
         // Parse response body
         let bytes = response.bytes().await?;
-        let request = SetResolverStateRequest::decode(bytes)
-            .map_err(|e| Error::StateParse(format!("Failed to decode SetResolverStateRequest: {}", e)))?;
+        let request = SetResolverStateRequest::decode(bytes).map_err(|e| {
+            Error::StateParse(format!("Failed to decode SetResolverStateRequest: {}", e))
+        })?;
 
         // Parse the inner ResolverState
         let state_pb = ResolverStatePb::decode(request.state)

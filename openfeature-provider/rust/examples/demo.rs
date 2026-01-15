@@ -33,7 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set the provider on the OpenFeature singleton
     println!("Setting provider on OpenFeature...");
-    OpenFeature::singleton_mut().await.set_provider(provider).await;
+    OpenFeature::singleton_mut()
+        .await
+        .set_provider(provider)
+        .await;
 
     println!("Provider initialized successfully!");
     println!();

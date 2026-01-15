@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use open_feature::provider::{FeatureProvider, ProviderMetadata, ProviderStatus, ResolutionDetails};
+use open_feature::provider::{
+    FeatureProvider, ProviderMetadata, ProviderStatus, ResolutionDetails,
+};
 use open_feature::{
     EvaluationContext, EvaluationContextFieldValue, EvaluationError, EvaluationErrorCode,
     EvaluationReason, EvaluationResult, StructValue, Value,
@@ -151,7 +153,9 @@ impl ConfidenceProvider {
             state_poll_interval_ms: options
                 .state_poll_interval_ms
                 .unwrap_or(DEFAULT_STATE_POLL_INTERVAL_MS),
-            flush_interval_ms: options.flush_interval_ms.unwrap_or(DEFAULT_FLUSH_INTERVAL_MS),
+            flush_interval_ms: options
+                .flush_interval_ms
+                .unwrap_or(DEFAULT_FLUSH_INTERVAL_MS),
             assign_flush_interval_ms: options
                 .assign_flush_interval_ms
                 .unwrap_or(DEFAULT_ASSIGN_FLUSH_INTERVAL_MS),
@@ -286,7 +290,6 @@ impl ConfidenceProvider {
                 ),
                 version: VERSION.to_string(),
             }),
-            ..Default::default()
         };
 
         // Determine if sticky processing is enabled (based on materialization store)
@@ -314,14 +317,16 @@ impl ConfidenceProvider {
 
         // Resolve with sticky loop
         let success = loop {
-            let response = resolver.resolve_flags_sticky(&sticky_request).map_err(|e| {
-                EvaluationError::builder()
-                    .code(EvaluationErrorCode::General(format!(
-                        "Failed to resolve: {}",
-                        e
-                    )))
-                    .build()
-            })?;
+            let response = resolver
+                .resolve_flags_sticky(&sticky_request)
+                .map_err(|e| {
+                    EvaluationError::builder()
+                        .code(EvaluationErrorCode::General(format!(
+                            "Failed to resolve: {}",
+                            e
+                        )))
+                        .build()
+                })?;
 
             match response.resolve_result {
                 Some(ProtoResolveResult::Success(s)) => break s,
@@ -344,7 +349,9 @@ impl ConfidenceProvider {
                 }
                 None => {
                     return Err(EvaluationError::builder()
-                        .code(EvaluationErrorCode::General("No resolve result".to_string()))
+                        .code(EvaluationErrorCode::General(
+                            "No resolve result".to_string(),
+                        ))
                         .build());
                 }
             }
