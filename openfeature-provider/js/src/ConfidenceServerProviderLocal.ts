@@ -33,6 +33,7 @@ import {
 
 const logger = getLogger('provider');
 
+export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
 export const DEFAULT_FLUSH_INTERVAL = 10_000;
 export interface ProviderOptions {
@@ -68,7 +69,13 @@ export class ConfidenceServerProviderLocal implements Provider {
   // TODO Maybe pass in a resolver factory, so that we can initialize it in initialize and transition to fatal if not.
   constructor(private resolver: LocalResolver, private options: ProviderOptions) {
     this.stateUpdateInterval = options.stateUpdateInterval ?? DEFAULT_STATE_INTERVAL;
+    if (!Number.isInteger(this.stateUpdateInterval) || this.stateUpdateInterval < 1000) {
+      throw new Error(`stateUpdateInterval must be an integer >= 1000 (1s), currently: ${this.stateUpdateInterval}`);
+    }
     this.flushInterval = options.flushInterval ?? DEFAULT_FLUSH_INTERVAL;
+    if (!Number.isInteger(this.flushInterval) || this.flushInterval < 1000) {
+      throw new Error(`flushInterval must be an integer >= 1000 (1s), currently: ${this.flushInterval}`);
+    }
     this.fetch = Fetch.create(
       [
         withRouter({
@@ -135,7 +142,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     const signal = this.main.signal;
     const initialUpdateSignal = AbortSignal.any([
       signal,
-      timeoutSignal(this.options.initializeTimeout ?? this.stateUpdateInterval),
+      timeoutSignal(this.options.initializeTimeout ?? DEFAULT_INITIALIZE_TIMEOUT),
     ]);
     try {
       // TODO set schedulers irrespective of failure
