@@ -35,11 +35,25 @@ pub enum Error {
 
     /// HTTP request failed.
     #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(String),
 
     /// Configuration error.
     #[error("configuration error: {0}")]
     Configuration(String),
+
+    /// Protobuf encoding/decoding error.
+    #[error("protobuf error: {0}")]
+    Proto(String),
+
+    /// Materialization store error.
+    #[error("materialization error: {0}")]
+    Materialization(String),
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Error::Http(e.to_string())
+    }
 }
 
 /// Result type alias for the provider.

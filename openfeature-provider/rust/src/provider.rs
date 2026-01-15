@@ -14,13 +14,17 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    ResolveFlagsRequest, ResolveReason, ResolveWithStickyRequest, Sdk, SdkId,
+    resolve_with_sticky_response::ResolveResult as ProtoResolveResult, ReadOperationsRequest,
+    ReadResult, ResolveFlagsRequest, ResolveReason, ResolveWithStickyRequest, Sdk, SdkId,
 };
 use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
 
 use crate::error::{Error, Result};
 use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER};
 use crate::logger::LogManager;
+use crate::materialization::{
+    read_ops_from_proto, read_results_to_proto, write_ops_from_proto, MaterializationStore,
+};
 use crate::state::{SharedState, StateFetcher};
 use crate::VERSION;
 
@@ -36,8 +40,15 @@ const DEFAULT_ASSIGN_FLUSH_INTERVAL_MS: u64 = 100;
 /// Encryption key for resolve tokens (null encryption for local provider).
 const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 
+/// Materialization store configuration.
+pub enum MaterializationStoreConfig {
+    /// Use the Confidence remote materialization store.
+    ConfidenceRemote,
+    /// Use a custom materialization store.
+    Custom(Arc<dyn MaterializationStore>),
+}
+
 /// Configuration options for the Confidence provider.
-#[derive(Clone)]
 pub struct ProviderOptions {
     /// The client secret for authentication.
     pub client_secret: String,
@@ -49,6 +60,9 @@ pub struct ProviderOptions {
     pub flush_interval_ms: Option<u64>,
     /// Interval for flushing assign logs in milliseconds.
     pub assign_flush_interval_ms: Option<u64>,
+    /// Materialization store for sticky resolution.
+    /// If not set, sticky resolution is disabled.
+    pub materialization_store: Option<MaterializationStoreConfig>,
 }
 
 impl ProviderOptions {
@@ -60,6 +74,7 @@ impl ProviderOptions {
             state_poll_interval_ms: None,
             flush_interval_ms: None,
             assign_flush_interval_ms: None,
+            materialization_store: None,
         }
     }
 
@@ -74,18 +89,34 @@ impl ProviderOptions {
         self.state_poll_interval_ms = Some(interval_ms);
         self
     }
+
+    /// Enable sticky resolution with the Confidence remote materialization store.
+    pub fn with_confidence_materialization_store(mut self) -> Self {
+        self.materialization_store = Some(MaterializationStoreConfig::ConfidenceRemote);
+        self
+    }
+
+    /// Enable sticky resolution with a custom materialization store.
+    pub fn with_materialization_store(mut self, store: Arc<dyn MaterializationStore>) -> Self {
+        self.materialization_store = Some(MaterializationStoreConfig::Custom(store));
+        self
+    }
 }
 
 /// OpenFeature provider for Confidence using native Rust resolver.
 pub struct ConfidenceProvider {
     metadata: ProviderMetadata,
-    options: ProviderOptions,
+    client_secret: String,
     state: Arc<SharedState>,
     state_fetcher: Arc<StateFetcher>,
     log_manager: Arc<LogManager>,
+    materialization_store: Option<Arc<dyn MaterializationStore>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     background_tasks: Vec<JoinHandle<()>>,
     status: ProviderStatus,
+    state_poll_interval_ms: u64,
+    flush_interval_ms: u64,
+    assign_flush_interval_ms: u64,
 }
 
 impl ConfidenceProvider {
@@ -94,15 +125,36 @@ impl ConfidenceProvider {
         let state_fetcher = Arc::new(StateFetcher::new(options.client_secret.clone())?);
         let log_manager = Arc::new(LogManager::new(options.client_secret.clone())?);
 
+        // Create materialization store if configured
+        let materialization_store: Option<Arc<dyn MaterializationStore>> =
+            match options.materialization_store {
+                Some(MaterializationStoreConfig::ConfidenceRemote) => {
+                    use crate::materialization::ConfidenceRemoteMaterializationStore;
+                    Some(Arc::new(ConfidenceRemoteMaterializationStore::new(
+                        options.client_secret.clone(),
+                    )?))
+                }
+                Some(MaterializationStoreConfig::Custom(store)) => Some(store),
+                None => None,
+            };
+
         Ok(Self {
             metadata: ProviderMetadata::new("confidence-local-resolver"),
-            options,
+            client_secret: options.client_secret,
             state: Arc::new(SharedState::new()),
             state_fetcher,
             log_manager,
+            materialization_store,
             shutdown_tx: None,
             background_tasks: Vec::new(),
             status: ProviderStatus::NotReady,
+            state_poll_interval_ms: options
+                .state_poll_interval_ms
+                .unwrap_or(DEFAULT_STATE_POLL_INTERVAL_MS),
+            flush_interval_ms: options.flush_interval_ms.unwrap_or(DEFAULT_FLUSH_INTERVAL_MS),
+            assign_flush_interval_ms: options
+                .assign_flush_interval_ms
+                .unwrap_or(DEFAULT_ASSIGN_FLUSH_INTERVAL_MS),
         })
     }
 
@@ -150,18 +202,9 @@ impl ConfidenceProvider {
         let state_fetcher = Arc::clone(&self.state_fetcher);
         let log_manager = Arc::clone(&self.log_manager);
 
-        let state_poll_interval = self
-            .options
-            .state_poll_interval_ms
-            .unwrap_or(DEFAULT_STATE_POLL_INTERVAL_MS);
-        let flush_interval = self
-            .options
-            .flush_interval_ms
-            .unwrap_or(DEFAULT_FLUSH_INTERVAL_MS);
-        let assign_flush_interval = self
-            .options
-            .assign_flush_interval_ms
-            .unwrap_or(DEFAULT_ASSIGN_FLUSH_INTERVAL_MS);
+        let state_poll_interval = self.state_poll_interval_ms;
+        let flush_interval = self.flush_interval_ms;
+        let assign_flush_interval = self.assign_flush_interval_ms;
 
         // Spawn combined background task
         let task = tokio::spawn(async move {
@@ -210,7 +253,7 @@ impl ConfidenceProvider {
     }
 
     /// Resolve a flag with the given key and evaluation context.
-    fn resolve_flag(
+    async fn resolve_flag(
         &self,
         flag_key: &str,
         context: &EvaluationContext,
@@ -234,7 +277,7 @@ impl ConfidenceProvider {
             flags: vec![format!("flags/{}", flag_name)],
             evaluation_context: Some(proto_context.clone()),
             apply: true,
-            client_secret: self.options.client_secret.clone(),
+            client_secret: self.client_secret.clone(),
             sdk: Some(Sdk {
                 sdk: Some(
                     confidence_resolver::proto::confidence::flags::resolver::v1::sdk::Sdk::Id(
@@ -246,21 +289,20 @@ impl ConfidenceProvider {
             ..Default::default()
         };
 
-        // Create sticky request (without materializations for now)
-        let sticky_request = ResolveWithStickyRequest {
+        // Determine if sticky processing is enabled (based on materialization store)
+        let not_process_sticky = self.materialization_store.is_none();
+
+        // Create sticky request
+        let mut sticky_request = ResolveWithStickyRequest {
             resolve_request: Some(request),
             materializations: vec![],
             fail_fast_on_sticky: false,
-            not_process_sticky: true,
+            not_process_sticky,
         };
 
         // Get resolver
         let resolver = state
-            .get_resolver::<NativeHost>(
-                &self.options.client_secret,
-                proto_context,
-                &ENCRYPTION_KEY,
-            )
+            .get_resolver::<NativeHost>(&self.client_secret, proto_context, &ENCRYPTION_KEY)
             .map_err(|e| {
                 EvaluationError::builder()
                     .code(EvaluationErrorCode::General(format!(
@@ -270,33 +312,49 @@ impl ConfidenceProvider {
                     .build()
             })?;
 
-        // Resolve
-        let response = resolver.resolve_flags_sticky(&sticky_request).map_err(|e| {
-            EvaluationError::builder()
-                .code(EvaluationErrorCode::General(format!(
-                    "Failed to resolve: {}",
-                    e
-                )))
-                .build()
-        })?;
+        // Resolve with sticky loop
+        let success = loop {
+            let response = resolver.resolve_flags_sticky(&sticky_request).map_err(|e| {
+                EvaluationError::builder()
+                    .code(EvaluationErrorCode::General(format!(
+                        "Failed to resolve: {}",
+                        e
+                    )))
+                    .build()
+            })?;
 
-        // Extract result
-        use confidence_resolver::proto::confidence::flags::resolver::v1::resolve_with_sticky_response::ResolveResult as ProtoResolveResult;
-        let success = match response.resolve_result {
-            Some(ProtoResolveResult::Success(s)) => s,
-            Some(ProtoResolveResult::ReadOpsRequest(_)) => {
-                return Err(EvaluationError::builder()
-                    .code(EvaluationErrorCode::General(
-                        "Missing materializations".to_string(),
-                    ))
-                    .build());
-            }
-            None => {
-                return Err(EvaluationError::builder()
-                    .code(EvaluationErrorCode::General("No resolve result".to_string()))
-                    .build());
+            match response.resolve_result {
+                Some(ProtoResolveResult::Success(s)) => break s,
+                Some(ProtoResolveResult::ReadOpsRequest(read_ops_request)) => {
+                    // Fetch materializations from store
+                    let materializations = self
+                        .read_materializations(&read_ops_request)
+                        .await
+                        .map_err(|e| {
+                            EvaluationError::builder()
+                                .code(EvaluationErrorCode::General(format!(
+                                    "Failed to read materializations: {}",
+                                    e
+                                )))
+                                .build()
+                        })?;
+
+                    // Re-resolve with materializations
+                    sticky_request.materializations = materializations;
+                }
+                None => {
+                    return Err(EvaluationError::builder()
+                        .code(EvaluationErrorCode::General("No resolve result".to_string()))
+                        .build());
+                }
             }
         };
+
+        // Handle materialization updates (writes)
+        if !success.materialization_updates.is_empty() {
+            self.write_materializations(&success.materialization_updates)
+                .await;
+        }
 
         let flags_response = success.response.ok_or_else(|| {
             EvaluationError::builder()
@@ -337,6 +395,33 @@ impl ConfidenceProvider {
             reason: EvaluationReason::TargetingMatch,
         })
     }
+
+    /// Read materializations from the store.
+    async fn read_materializations(
+        &self,
+        read_ops_request: &ReadOperationsRequest,
+    ) -> Result<Vec<ReadResult>> {
+        let store = self.materialization_store.as_ref().ok_or_else(|| {
+            Error::Materialization("No materialization store configured".to_string())
+        })?;
+
+        let read_ops = read_ops_from_proto(read_ops_request);
+        let results = store.read_materializations(read_ops).await?;
+        Ok(read_results_to_proto(results))
+    }
+
+    /// Write materializations to the store (fire and forget).
+    async fn write_materializations(
+        &self,
+        materialization_updates: &[confidence_resolver::proto::confidence::flags::resolver::v1::VariantData],
+    ) {
+        if let Some(ref store) = self.materialization_store {
+            let write_ops = write_ops_from_proto(materialization_updates);
+            if let Err(e) = store.write_materializations(write_ops).await {
+                tracing::warn!("Failed to write materializations: {}", e);
+            }
+        }
+    }
 }
 
 struct ResolveResult {
@@ -372,7 +457,7 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<bool>> {
-        let result = self.resolve_flag(flag_key, evaluation_context)?;
+        let result = self.resolve_flag(flag_key, evaluation_context).await?;
 
         // If no variant assigned (no match), return default with the reason
         if result.variant.is_none() {
@@ -404,7 +489,7 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<i64>> {
-        let result = self.resolve_flag(flag_key, evaluation_context)?;
+        let result = self.resolve_flag(flag_key, evaluation_context).await?;
 
         let value = extract_number_value(&result.value)
             .map(|v| v as i64)
@@ -428,7 +513,7 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<f64>> {
-        let result = self.resolve_flag(flag_key, evaluation_context)?;
+        let result = self.resolve_flag(flag_key, evaluation_context).await?;
 
         let value = extract_number_value(&result.value).ok_or_else(|| {
             EvaluationError::builder()
@@ -450,7 +535,7 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<String>> {
-        let result = self.resolve_flag(flag_key, evaluation_context)?;
+        let result = self.resolve_flag(flag_key, evaluation_context).await?;
 
         let value = extract_string_value(&result.value).ok_or_else(|| {
             EvaluationError::builder()
@@ -472,7 +557,7 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<StructValue>> {
-        let result = self.resolve_flag(flag_key, evaluation_context)?;
+        let result = self.resolve_flag(flag_key, evaluation_context).await?;
 
         let value = result
             .value
