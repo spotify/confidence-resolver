@@ -17,6 +17,9 @@ interface ResolverApi {
 
   void init(byte[] state, String accountId);
 
+  /** Returns true if the resolver has been initialized with valid state. */
+  boolean isInitialized();
+
   /**
    * Updates the resolver state and flushes any pending logs.
    *

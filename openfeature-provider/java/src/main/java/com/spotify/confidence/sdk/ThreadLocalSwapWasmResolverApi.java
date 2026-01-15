@@ -26,6 +26,7 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
   // Pre-initialized resolver instances mapped by core index
   private final Map<Integer, SwapWasmResolverApi> resolverInstances = new ConcurrentHashMap<>();
   private final int numInstances;
+  private volatile boolean initialized = false;
   private final AtomicInteger nextInstanceIndex = new AtomicInteger(0);
   private final ThreadLocal<Integer> threadInstanceIndex =
       new ThreadLocal<>() {
@@ -71,6 +72,12 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
                           resolverInstances.put(i, instance);
                         })));
     CompletableFutures.allAsList(futures).join();
+    initialized = true;
+  }
+
+  @Override
+  public boolean isInitialized() {
+    return initialized;
   }
 
   /**
