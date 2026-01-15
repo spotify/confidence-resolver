@@ -50,6 +50,7 @@ import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-
 const provider = createConfidenceServerProvider({
   flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
   // initializeTimeout?: number
+  // stateUpdateInterval?: number
   // flushInterval?: number
   // fetch?: typeof fetch (Node <18 or custom transport)
 });
@@ -129,12 +130,13 @@ if (details.errorCode) {
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
 - `initializeTimeout` (number, optional): Max ms to wait for initial state fetch. Defaults to 30_000.
+- `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
 - `fetch` (optional): Custom `fetch` implementation. Required for Node < 18; for Node 18+ you can omit.
 
 The provider periodically:
-- Refreshes resolver state (default every 30s)
-- Flushes flag evaluation logs to the backend
+- Refreshes resolver state (configurable via `stateUpdateInterval`, default every 30s)
+- Flushes flag evaluation logs to the backend (configurable via `flushInterval`, default every 10s)
 
 ---
 
