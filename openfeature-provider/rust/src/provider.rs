@@ -592,10 +592,10 @@ fn parse_flag_path(flag_key: &str) -> (&str, Option<String>) {
 fn convert_evaluation_context(ctx: &EvaluationContext) -> Struct {
     let mut fields = HashMap::new();
 
-    // Add targeting key as visitor_id (Confidence uses visitor_id for targeting)
+    // Add targeting key as targeting_key (matching the JS provider behavior)
     if let Some(ref key) = ctx.targeting_key {
         fields.insert(
-            "visitor_id".to_string(),
+            "targeting_key".to_string(),
             ProtoValue {
                 kind: Some(value::Kind::StringValue(key.clone())),
             },
