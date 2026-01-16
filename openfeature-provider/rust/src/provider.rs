@@ -32,7 +32,7 @@ use crate::state::{SharedState, StateFetcher};
 use crate::VERSION;
 
 /// Default interval for polling state updates (30 seconds).
-const DEFAULT_STATE_POLL_INTERVAL:Duration = Duration::from_secs(30);
+const DEFAULT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Default interval for flushing all logs (10 seconds).
 const DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_secs(10);
@@ -125,7 +125,6 @@ pub struct ConfidenceProvider {
 impl ConfidenceProvider {
     /// Create a new Confidence provider.
     pub fn new(options: ProviderOptions) -> Result<Self> {
-        
         let state_fetcher = Arc::new(StateFetcher::new(options.client_secret.clone())?);
         let log_manager = Arc::new(LogManager::new(options.client_secret.clone())?);
 
@@ -155,9 +154,7 @@ impl ConfidenceProvider {
             state_poll_interval: options
                 .state_poll_interval
                 .unwrap_or(DEFAULT_STATE_POLL_INTERVAL),
-            flush_interval: options
-                .flush_interval
-                .unwrap_or(DEFAULT_FLUSH_INTERVAL),
+            flush_interval: options.flush_interval.unwrap_or(DEFAULT_FLUSH_INTERVAL),
             assign_flush_interval: options
                 .assign_flush_interval
                 .unwrap_or(DEFAULT_ASSIGN_FLUSH_INTERVAL),
@@ -215,12 +212,9 @@ impl ConfidenceProvider {
         // Spawn combined background task
         let task = tokio::spawn(async move {
             let mut shutdown_rx = shutdown_rx;
-            let mut state_interval =
-                tokio::time::interval(state_poll_interval);
-            let mut flush_interval =
-                tokio::time::interval(flush_interval);
-            let mut assign_interval =
-                tokio::time::interval(assign_flush_interval);
+            let mut state_interval = tokio::time::interval(state_poll_interval);
+            let mut flush_interval = tokio::time::interval(flush_interval);
+            let mut assign_interval = tokio::time::interval(assign_flush_interval);
 
             loop {
                 tokio::select! {
@@ -1280,13 +1274,15 @@ mod tests {
 
     #[test]
     fn test_provider_options_with_initialize_timeout() {
-        let options = ProviderOptions::new("test-secret").with_initialize_timeout(Duration::from_secs(5));
+        let options =
+            ProviderOptions::new("test-secret").with_initialize_timeout(Duration::from_secs(5));
         assert_eq!(options.initialize_timeout, Some(Duration::from_secs(5)));
     }
 
     #[test]
     fn test_provider_options_with_state_poll_interval() {
-        let options = ProviderOptions::new("test-secret").with_state_poll_interval(Duration::from_secs(60));
+        let options =
+            ProviderOptions::new("test-secret").with_state_poll_interval(Duration::from_secs(60));
         assert_eq!(options.state_poll_interval, Some(Duration::from_secs(60)));
     }
 

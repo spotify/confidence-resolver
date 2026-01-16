@@ -10,9 +10,7 @@ mod version;
 pub mod test_utils;
 
 pub use error::Error;
-pub use materialization::{
-    MaterializationStore, ReadOpType, ReadResultType, WriteOp,
-};
+pub use materialization::{MaterializationStore, ReadOpType, ReadResultType, WriteOp};
 pub use provider::{ConfidenceProvider, MaterializationStoreConfig, ProviderOptions};
 pub use version::VERSION;
 
