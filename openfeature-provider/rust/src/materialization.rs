@@ -63,13 +63,13 @@ pub trait MaterializationStore: Send + Sync {
 }
 
 /// Remote materialization store that calls the Confidence API.
-pub struct ConfidenceRemoteMaterializationStore {
+pub(crate) struct ConfidenceRemoteMaterializationStore {
     client: reqwest::Client,
     client_secret: String,
 }
 
 impl ConfidenceRemoteMaterializationStore {
-    pub fn new(client_secret: String) -> Result<Self> {
+    pub(crate) fn new(client_secret: String) -> Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(500))
             .build()

@@ -11,7 +11,7 @@ pub mod test_utils;
 
 pub use error::Error;
 pub use materialization::{
-    ConfidenceRemoteMaterializationStore, MaterializationStore, ReadOpType, ReadResultType, WriteOp,
+    MaterializationStore, ReadOpType, ReadResultType, WriteOp,
 };
 pub use provider::{ConfidenceProvider, MaterializationStoreConfig, ProviderOptions};
 pub use version::VERSION;

@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -31,13 +32,13 @@ use crate::state::{SharedState, StateFetcher};
 use crate::VERSION;
 
 /// Default interval for polling state updates (30 seconds).
-const DEFAULT_STATE_POLL_INTERVAL_MS: u64 = 30_000;
+const DEFAULT_STATE_POLL_INTERVAL:Duration = Duration::from_secs(30);
 
 /// Default interval for flushing all logs (10 seconds).
-const DEFAULT_FLUSH_INTERVAL_MS: u64 = 10_000;
+const DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Default interval for flushing assign logs (100 ms).
-const DEFAULT_ASSIGN_FLUSH_INTERVAL_MS: u64 = 100;
+const DEFAULT_ASSIGN_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Encryption key for resolve tokens (null encryption for local provider).
 const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
@@ -54,14 +55,14 @@ pub enum MaterializationStoreConfig {
 pub struct ProviderOptions {
     /// The client secret for authentication.
     pub client_secret: String,
-    /// Timeout for initialization in milliseconds.
-    pub initialize_timeout_ms: Option<u64>,
-    /// Interval for polling state updates in milliseconds.
-    pub state_poll_interval_ms: Option<u64>,
-    /// Interval for flushing logs in milliseconds.
-    pub flush_interval_ms: Option<u64>,
-    /// Interval for flushing assign logs in milliseconds.
-    pub assign_flush_interval_ms: Option<u64>,
+    /// Timeout for initialization.
+    pub initialize_timeout: Option<Duration>,
+    /// Interval for polling state updates.
+    pub state_poll_interval: Option<Duration>,
+    /// Interval for flushing logs.
+    pub flush_interval: Option<Duration>,
+    /// Interval for flushing assign logs.
+    pub assign_flush_interval: Option<Duration>,
     /// Materialization store for sticky resolution.
     /// If not set, sticky resolution is disabled.
     pub materialization_store: Option<MaterializationStoreConfig>,
@@ -72,23 +73,23 @@ impl ProviderOptions {
     pub fn new(client_secret: impl Into<String>) -> Self {
         Self {
             client_secret: client_secret.into(),
-            initialize_timeout_ms: None,
-            state_poll_interval_ms: None,
-            flush_interval_ms: None,
-            assign_flush_interval_ms: None,
+            initialize_timeout: None,
+            state_poll_interval: None,
+            flush_interval: None,
+            assign_flush_interval: None,
             materialization_store: None,
         }
     }
 
     /// Set the initialization timeout.
-    pub fn with_initialize_timeout(mut self, timeout_ms: u64) -> Self {
-        self.initialize_timeout_ms = Some(timeout_ms);
+    pub fn with_initialize_timeout(mut self, timeout_ms: Duration) -> Self {
+        self.initialize_timeout = Some(timeout_ms);
         self
     }
 
     /// Set the state poll interval.
-    pub fn with_state_poll_interval(mut self, interval_ms: u64) -> Self {
-        self.state_poll_interval_ms = Some(interval_ms);
+    pub fn with_state_poll_interval(mut self, interval_ms: Duration) -> Self {
+        self.state_poll_interval = Some(interval_ms);
         self
     }
 
@@ -116,14 +117,15 @@ pub struct ConfidenceProvider {
     shutdown_tx: Option<oneshot::Sender<()>>,
     background_tasks: Vec<JoinHandle<()>>,
     status: ProviderStatus,
-    state_poll_interval_ms: u64,
-    flush_interval_ms: u64,
-    assign_flush_interval_ms: u64,
+    state_poll_interval: Duration,
+    flush_interval: Duration,
+    assign_flush_interval: Duration,
 }
 
 impl ConfidenceProvider {
     /// Create a new Confidence provider.
     pub fn new(options: ProviderOptions) -> Result<Self> {
+        
         let state_fetcher = Arc::new(StateFetcher::new(options.client_secret.clone())?);
         let log_manager = Arc::new(LogManager::new(options.client_secret.clone())?);
 
@@ -150,15 +152,15 @@ impl ConfidenceProvider {
             shutdown_tx: None,
             background_tasks: Vec::new(),
             status: ProviderStatus::NotReady,
-            state_poll_interval_ms: options
-                .state_poll_interval_ms
-                .unwrap_or(DEFAULT_STATE_POLL_INTERVAL_MS),
-            flush_interval_ms: options
-                .flush_interval_ms
-                .unwrap_or(DEFAULT_FLUSH_INTERVAL_MS),
-            assign_flush_interval_ms: options
-                .assign_flush_interval_ms
-                .unwrap_or(DEFAULT_ASSIGN_FLUSH_INTERVAL_MS),
+            state_poll_interval: options
+                .state_poll_interval
+                .unwrap_or(DEFAULT_STATE_POLL_INTERVAL),
+            flush_interval: options
+                .flush_interval
+                .unwrap_or(DEFAULT_FLUSH_INTERVAL),
+            assign_flush_interval: options
+                .assign_flush_interval
+                .unwrap_or(DEFAULT_ASSIGN_FLUSH_INTERVAL),
         })
     }
 
@@ -206,19 +208,19 @@ impl ConfidenceProvider {
         let state_fetcher = Arc::clone(&self.state_fetcher);
         let log_manager = Arc::clone(&self.log_manager);
 
-        let state_poll_interval = self.state_poll_interval_ms;
-        let flush_interval = self.flush_interval_ms;
-        let assign_flush_interval = self.assign_flush_interval_ms;
+        let state_poll_interval = self.state_poll_interval;
+        let flush_interval = self.flush_interval;
+        let assign_flush_interval = self.assign_flush_interval;
 
         // Spawn combined background task
         let task = tokio::spawn(async move {
             let mut shutdown_rx = shutdown_rx;
             let mut state_interval =
-                tokio::time::interval(std::time::Duration::from_millis(state_poll_interval));
+                tokio::time::interval(state_poll_interval);
             let mut flush_interval =
-                tokio::time::interval(std::time::Duration::from_millis(flush_interval));
+                tokio::time::interval(flush_interval);
             let mut assign_interval =
-                tokio::time::interval(std::time::Duration::from_millis(assign_flush_interval));
+                tokio::time::interval(assign_flush_interval);
 
             loop {
                 tokio::select! {
@@ -1270,22 +1272,22 @@ mod tests {
     fn test_provider_options_new() {
         let options = ProviderOptions::new("test-secret");
         assert_eq!(options.client_secret, "test-secret");
-        assert!(options.initialize_timeout_ms.is_none());
-        assert!(options.state_poll_interval_ms.is_none());
-        assert!(options.flush_interval_ms.is_none());
+        assert!(options.initialize_timeout.is_none());
+        assert!(options.state_poll_interval.is_none());
+        assert!(options.flush_interval.is_none());
         assert!(options.materialization_store.is_none());
     }
 
     #[test]
     fn test_provider_options_with_initialize_timeout() {
-        let options = ProviderOptions::new("test-secret").with_initialize_timeout(5000);
-        assert_eq!(options.initialize_timeout_ms, Some(5000));
+        let options = ProviderOptions::new("test-secret").with_initialize_timeout(Duration::from_secs(5));
+        assert_eq!(options.initialize_timeout, Some(Duration::from_secs(5)));
     }
 
     #[test]
     fn test_provider_options_with_state_poll_interval() {
-        let options = ProviderOptions::new("test-secret").with_state_poll_interval(60000);
-        assert_eq!(options.state_poll_interval_ms, Some(60000));
+        let options = ProviderOptions::new("test-secret").with_state_poll_interval(Duration::from_secs(60));
+        assert_eq!(options.state_poll_interval, Some(Duration::from_secs(60)));
     }
 
     #[test]
