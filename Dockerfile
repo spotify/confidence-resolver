@@ -346,6 +346,24 @@ FROM openfeature-provider-js-base AS openfeature-provider-js.build
 
 RUN make build
 
+# Verify no bundle splitting occurred
+RUN set -e; \
+    echo "Verifying no bundle splitting in JS artifacts..."; \
+    UNEXPECTED_FILES=$(find dist -name '*.js' ! -name 'index.node.js' ! -name 'index.browser.js' | head -10); \
+    if [ -n "$UNEXPECTED_FILES" ]; then \
+      echo ""; \
+      echo "❌ ERROR: Bundle splitting detected!"; \
+      echo ""; \
+      echo "Found unexpected JavaScript files in dist/:"; \
+      echo "$UNEXPECTED_FILES"; \
+      echo ""; \
+      echo "Only index.node.js and index.browser.js should be present."; \
+      echo "Check tsdown.config.ts configuration to prevent code splitting."; \
+      echo ""; \
+      exit 1; \
+    fi; \
+    echo "✅ No bundle splitting detected - only expected files present"
+
 # ==============================================================================
 # Pack OpenFeature Provider (JS) - Create tarball for publishing
 # ==============================================================================
