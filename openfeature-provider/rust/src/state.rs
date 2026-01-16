@@ -260,7 +260,12 @@ mod tests {
 
         // After update, account ID is set
         let (state, _) = create_minimal_state();
-        shared_state.update(state, "custom-account-id".to_string()).await;
-        assert_eq!(shared_state.account_id().await, Some("custom-account-id".to_string()));
+        shared_state
+            .update(state, "custom-account-id".to_string())
+            .await;
+        assert_eq!(
+            shared_state.account_id().await,
+            Some("custom-account-id".to_string())
+        );
     }
 }

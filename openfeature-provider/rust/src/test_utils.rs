@@ -13,7 +13,9 @@ use prost::Message;
 use confidence_resolver::proto::confidence::flags::admin::v1::{
     flag, Flag, ResolverState, Segment,
 };
-use confidence_resolver::proto::confidence::iam::v1::{client_credential, Client, ClientCredential};
+use confidence_resolver::proto::confidence::iam::v1::{
+    client_credential, Client, ClientCredential,
+};
 use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
 use confidence_resolver::ResolverState as ResolverStateRuntime;
 
@@ -315,10 +317,7 @@ pub struct UnsupportedMaterializationStore;
 
 #[async_trait]
 impl MaterializationStore for UnsupportedMaterializationStore {
-    async fn read_materializations(
-        &self,
-        _ops: Vec<ReadOpType>,
-    ) -> Result<Vec<ReadResultType>> {
+    async fn read_materializations(&self, _ops: Vec<ReadOpType>) -> Result<Vec<ReadResultType>> {
         Err(crate::error::Error::Materialization(
             "materialization read not supported".to_string(),
         ))
@@ -367,10 +366,7 @@ impl Default for MockMaterializationStore {
 
 #[async_trait]
 impl MaterializationStore for MockMaterializationStore {
-    async fn read_materializations(
-        &self,
-        _ops: Vec<ReadOpType>,
-    ) -> Result<Vec<ReadResultType>> {
+    async fn read_materializations(&self, _ops: Vec<ReadOpType>) -> Result<Vec<ReadResultType>> {
         let results = self.read_results.lock().await;
         Ok(results.clone())
     }

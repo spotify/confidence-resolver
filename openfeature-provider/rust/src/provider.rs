@@ -927,7 +927,10 @@ mod tests {
         };
         let result = proto_value_to_openfeature(&proto_value);
         if let Some(Value::Struct(s)) = result {
-            assert_eq!(s.fields.get("key"), Some(&Value::String("value".to_string())));
+            assert_eq!(
+                s.fields.get("key"),
+                Some(&Value::String("value".to_string()))
+            );
         } else {
             panic!("Expected struct value");
         }

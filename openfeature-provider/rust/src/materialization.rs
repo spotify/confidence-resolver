@@ -611,14 +611,12 @@ mod tests {
 
     #[test]
     fn test_write_ops_to_proto() {
-        let ops = vec![
-            WriteOp {
-                unit: "user-1".to_string(),
-                materialization: "mat-1".to_string(),
-                rule: "rule-1".to_string(),
-                variant: "variant-a".to_string(),
-            },
-        ];
+        let ops = vec![WriteOp {
+            unit: "user-1".to_string(),
+            materialization: "mat-1".to_string(),
+            rule: "rule-1".to_string(),
+            variant: "variant-a".to_string(),
+        }];
 
         let proto = write_ops_to_proto(ops);
 
