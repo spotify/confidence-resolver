@@ -233,7 +233,7 @@ The provider logs at different levels:
 // Do NOT rely on OpenFeature::singleton_mut().await.shutdown().await
 ```
 
-> **Why?** Due to an [upstream issue in the OpenFeature Rust SDK](TODO: add issue link), calling the OpenFeature shutdown may not properly wait for the provider shutdown to complete. This can result in loss of exposure logs and other telemetry data. Shutting down the provider directly ensures proper cleanup.
+> **Why?** Due to an [upstream issue in the OpenFeature Rust SDK](https://github.com/open-feature/rust-sdk/issues/124), calling the OpenFeature shutdown may not properly wait for the provider shutdown to complete. This can result in loss of exposure logs and other telemetry data. Shutting down the provider directly ensures proper cleanup.
 
 ### What Happens During Shutdown?
 
