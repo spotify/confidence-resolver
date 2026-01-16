@@ -179,11 +179,93 @@ impl Default for SharedState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::{create_minimal_state, create_state_with_flag};
 
     #[test]
     fn test_hash_client_secret() {
         let hash = StateFetcher::hash_client_secret("test-secret");
         // SHA-256 produces 64 hex characters
         assert_eq!(hash.len(), 64);
+    }
+
+    #[test]
+    fn test_hash_client_secret_consistency() {
+        // Same input should produce same hash
+        let hash1 = StateFetcher::hash_client_secret("my-secret");
+        let hash2 = StateFetcher::hash_client_secret("my-secret");
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_client_secret_different_inputs() {
+        // Different inputs should produce different hashes
+        let hash1 = StateFetcher::hash_client_secret("secret-1");
+        let hash2 = StateFetcher::hash_client_secret("secret-2");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_shared_state_new() {
+        let state = SharedState::new();
+        assert!(!state.is_initialized());
+        assert!(state.get().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_shared_state_update() {
+        let shared_state = SharedState::new();
+        assert!(!shared_state.is_initialized());
+
+        let (state, account_id) = create_minimal_state();
+        shared_state.update(state, account_id.clone()).await;
+
+        assert!(shared_state.is_initialized());
+        assert!(shared_state.get().is_some());
+        assert_eq!(shared_state.account_id().await, Some(account_id));
+    }
+
+    #[tokio::test]
+    async fn test_shared_state_update_with_flag() {
+        let shared_state = SharedState::new();
+
+        let (state, account_id) = create_state_with_flag();
+        shared_state.update(state, account_id).await;
+
+        let retrieved_state = shared_state.get().unwrap();
+        assert_eq!(retrieved_state.flags.len(), 1);
+        assert!(retrieved_state.flags.contains_key("flags/test-flag"));
+    }
+
+    #[tokio::test]
+    async fn test_shared_state_update_replaces_previous() {
+        let shared_state = SharedState::new();
+
+        // First update with minimal state
+        let (state1, account_id1) = create_minimal_state();
+        shared_state.update(state1, account_id1).await;
+        assert_eq!(shared_state.get().unwrap().flags.len(), 0);
+
+        // Second update with state containing a flag
+        let (state2, account_id2) = create_state_with_flag();
+        shared_state.update(state2, account_id2).await;
+        assert_eq!(shared_state.get().unwrap().flags.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_shared_state_account_id() {
+        let shared_state = SharedState::new();
+
+        // Initially no account ID
+        assert_eq!(shared_state.account_id().await, None);
+
+        // After update, account ID is set
+        let (state, _) = create_minimal_state();
+        shared_state
+            .update(state, "custom-account-id".to_string())
+            .await;
+        assert_eq!(
+            shared_state.account_id().await,
+            Some("custom-account-id".to_string())
+        );
     }
 }
