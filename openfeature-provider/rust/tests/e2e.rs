@@ -182,6 +182,31 @@ async fn e2e_tests() {
         );
     }
 
+    // Test: should return caller's default when flag doesn't exist
+    // This verifies the .unwrap_or() pattern works correctly
+    {
+        let bool_default = client
+            .get_bool_value("nonexistent-flag", Some(&context()), None)
+            .await
+            .unwrap_or(true);
+        assert!(bool_default, "Expected caller's default of true");
+
+        let int_default = client
+            .get_int_value("nonexistent-flag", Some(&context()), None)
+            .await
+            .unwrap_or(999);
+        assert_eq!(int_default, 999, "Expected caller's default of 999");
+
+        let string_default = client
+            .get_string_value("nonexistent-flag", Some(&context()), None)
+            .await
+            .unwrap_or_else(|_| "my-fallback".to_string());
+        assert_eq!(
+            string_default, "my-fallback",
+            "Expected caller's default string"
+        );
+    }
+
     // Shutdown
     OpenFeature::singleton_mut().await.shutdown().await;
 }
