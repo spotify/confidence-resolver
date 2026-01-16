@@ -466,14 +466,9 @@ impl FeatureProvider for ConfidenceProvider {
     ) -> EvaluationResult<ResolutionDetails<bool>> {
         let result = self.resolve_flag(flag_key, evaluation_context).await?;
 
-        // If no variant assigned (no match), return default with the reason
+        // If no variant assigned (no match), return error so caller can use their default
         if result.variant.is_none() {
-            return Ok(ResolutionDetails {
-                value: false, // default value
-                variant: None,
-                reason: Some(result.reason),
-                flag_metadata: None,
-            });
+            return Err(no_variant_matched_error(&result.reason));
         }
 
         let value = extract_bool_value(&result.value).ok_or_else(|| {
@@ -497,6 +492,11 @@ impl FeatureProvider for ConfidenceProvider {
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<i64>> {
         let result = self.resolve_flag(flag_key, evaluation_context).await?;
+
+        // If no variant assigned (no match), return error so caller can use their default
+        if result.variant.is_none() {
+            return Err(no_variant_matched_error(&result.reason));
+        }
 
         let value = extract_number_value(&result.value)
             .map(|v| v as i64)
@@ -522,6 +522,11 @@ impl FeatureProvider for ConfidenceProvider {
     ) -> EvaluationResult<ResolutionDetails<f64>> {
         let result = self.resolve_flag(flag_key, evaluation_context).await?;
 
+        // If no variant assigned (no match), return error so caller can use their default
+        if result.variant.is_none() {
+            return Err(no_variant_matched_error(&result.reason));
+        }
+
         let value = extract_number_value(&result.value).ok_or_else(|| {
             EvaluationError::builder()
                 .code(EvaluationErrorCode::TypeMismatch)
@@ -543,6 +548,11 @@ impl FeatureProvider for ConfidenceProvider {
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<String>> {
         let result = self.resolve_flag(flag_key, evaluation_context).await?;
+
+        // If no variant assigned (no match), return error so caller can use their default
+        if result.variant.is_none() {
+            return Err(no_variant_matched_error(&result.reason));
+        }
 
         let value = extract_string_value(&result.value).ok_or_else(|| {
             EvaluationError::builder()
@@ -566,6 +576,11 @@ impl FeatureProvider for ConfidenceProvider {
     ) -> EvaluationResult<ResolutionDetails<StructValue>> {
         let result = self.resolve_flag(flag_key, evaluation_context).await?;
 
+        // If no variant assigned (no match), return error so caller can use their default
+        if result.variant.is_none() {
+            return Err(no_variant_matched_error(&result.reason));
+        }
+
         let value = result
             .value
             .map(|s| proto_struct_to_openfeature(&s))
@@ -581,6 +596,20 @@ impl FeatureProvider for ConfidenceProvider {
 }
 
 // Helper functions
+
+/// Create an error for when no variant was matched (e.g., no segment match).
+/// This allows the caller to use their own default via `.unwrap_or(default)`.
+fn no_variant_matched_error(reason: &EvaluationReason) -> EvaluationError {
+    let message = match reason {
+        EvaluationReason::Default => "No targeting rule matched",
+        EvaluationReason::Disabled => "Flag is disabled",
+        _ => "No variant assigned",
+    };
+    EvaluationError::builder()
+        .code(EvaluationErrorCode::General(message.to_string()))
+        .message(message)
+        .build()
+}
 
 fn parse_flag_path(flag_key: &str) -> (&str, Option<String>) {
     match flag_key.split_once('.') {
@@ -1283,5 +1312,138 @@ mod tests {
 
         use open_feature::provider::FeatureProvider;
         assert!(matches!(provider.status(), ProviderStatus::NotReady));
+    }
+
+    // ==================== no_variant_matched_error tests ====================
+
+    #[test]
+    fn test_no_variant_matched_error_default_reason() {
+        let error = no_variant_matched_error(&EvaluationReason::Default);
+        assert_eq!(error.message, Some("No targeting rule matched".to_string()));
+    }
+
+    #[test]
+    fn test_no_variant_matched_error_disabled_reason() {
+        let error = no_variant_matched_error(&EvaluationReason::Disabled);
+        assert_eq!(error.message, Some("Flag is disabled".to_string()));
+    }
+
+    #[test]
+    fn test_no_variant_matched_error_other_reason() {
+        let error = no_variant_matched_error(&EvaluationReason::Unknown);
+        assert_eq!(error.message, Some("No variant assigned".to_string()));
+    }
+
+    // ==================== Provider resolve error tests ====================
+    // Tests that verify provider returns errors when no variant matches,
+    // allowing callers to use their own defaults via .unwrap_or()
+
+    async fn setup_provider_with_minimal_state() -> ConfidenceProvider {
+        use crate::test_utils::{create_minimal_state, TEST_CLIENT_SECRET};
+
+        let options = ProviderOptions::new(TEST_CLIENT_SECRET);
+        let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
+
+        // Set minimal state (no flags configured)
+        let (state, account_id) = create_minimal_state();
+        provider.state.update(state, account_id).await;
+
+        provider
+    }
+
+    #[tokio::test]
+    async fn test_resolve_bool_returns_error_when_no_variant() {
+        use open_feature::provider::FeatureProvider;
+
+        let provider = setup_provider_with_minimal_state().await;
+
+        let ctx = EvaluationContext::default().with_targeting_key("test-user");
+        let result = provider.resolve_bool_value("nonexistent-flag", &ctx).await;
+
+        // Should return an error, allowing caller to use .unwrap_or(default)
+        assert!(result.is_err(), "Expected error when flag not found");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_int_returns_error_when_no_variant() {
+        use open_feature::provider::FeatureProvider;
+
+        let provider = setup_provider_with_minimal_state().await;
+
+        let ctx = EvaluationContext::default().with_targeting_key("test-user");
+        let result = provider.resolve_int_value("nonexistent-flag", &ctx).await;
+
+        assert!(result.is_err(), "Expected error when flag not found");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_float_returns_error_when_no_variant() {
+        use open_feature::provider::FeatureProvider;
+
+        let provider = setup_provider_with_minimal_state().await;
+
+        let ctx = EvaluationContext::default().with_targeting_key("test-user");
+        let result = provider.resolve_float_value("nonexistent-flag", &ctx).await;
+
+        assert!(result.is_err(), "Expected error when flag not found");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_string_returns_error_when_no_variant() {
+        use open_feature::provider::FeatureProvider;
+
+        let provider = setup_provider_with_minimal_state().await;
+
+        let ctx = EvaluationContext::default().with_targeting_key("test-user");
+        let result = provider
+            .resolve_string_value("nonexistent-flag", &ctx)
+            .await;
+
+        assert!(result.is_err(), "Expected error when flag not found");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_struct_returns_error_when_no_variant() {
+        use open_feature::provider::FeatureProvider;
+
+        let provider = setup_provider_with_minimal_state().await;
+
+        let ctx = EvaluationContext::default().with_targeting_key("test-user");
+        let result = provider
+            .resolve_struct_value("nonexistent-flag", &ctx)
+            .await;
+
+        assert!(result.is_err(), "Expected error when flag not found");
+    }
+
+    #[tokio::test]
+    async fn test_caller_can_use_unwrap_or_for_default() {
+        use open_feature::provider::FeatureProvider;
+
+        let provider = setup_provider_with_minimal_state().await;
+
+        let ctx = EvaluationContext::default().with_targeting_key("test-user");
+
+        // Demonstrate the intended usage pattern: caller provides their own default
+        let bool_value = provider
+            .resolve_bool_value("nonexistent-flag", &ctx)
+            .await
+            .map(|r| r.value)
+            .unwrap_or(true); // Caller's default
+        assert!(bool_value, "Should use caller's default of true");
+
+        let int_value = provider
+            .resolve_int_value("nonexistent-flag", &ctx)
+            .await
+            .map(|r| r.value)
+            .unwrap_or(42); // Caller's default
+        assert_eq!(int_value, 42, "Should use caller's default of 42");
+
+        let string_value = provider
+            .resolve_string_value("nonexistent-flag", &ctx)
+            .await
+            .map(|r| r.value)
+            .unwrap_or_else(|_| "my-default".to_string()); // Caller's default
+        assert_eq!(string_value, "my-default", "Should use caller's default");
     }
 }
