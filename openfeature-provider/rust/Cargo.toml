@@ -1,0 +1,59 @@
+[package]
+name = "spotify-confidence-openfeature-provider"
+version = "0.1.0"
+edition = "2021"
+description = "OpenFeature provider for Confidence using native Rust resolver"
+license = "Apache-2.0"
+repository = "https://github.com/spotify/confidence-resolver"
+keywords = ["openfeature", "feature-flags", "confidence"]
+categories = ["development-tools"]
+
+[lib]
+name = "spotify_confidence_openfeature_provider"
+
+[dependencies]
+# Core resolver
+confidence_resolver = { path = "../../confidence-resolver", version = "0.9.0" }
+
+# OpenFeature SDK
+open-feature = "0.2.7"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "time", "sync", "macros"] }
+
+# HTTP client for state fetching and log sending
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+# Cryptography for CDN URL hash
+sha2 = "0.10"
+hex = "0.4"
+
+# Protobuf and bytes
+prost = "0.12"
+bytes = "1.4"
+
+# Concurrent state management
+arc-swap = "1.7"
+
+# Error handling
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+
+# Async trait for OpenFeature provider
+async-trait = "0.1"
+
+# Randomness (for Host trait)
+rand = "0.9"
+
+# Time (for Host trait - use chrono from confidence_resolver)
+chrono = { version = "0.4", features = ["clock"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = "0.3"
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"

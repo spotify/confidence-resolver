@@ -23,5 +23,3 @@ services:
     depends_on:
       - mock-support
     command: ["-mock-http", "http://mock-support:8081", "-flag", "tutorial-feature", "-client-secret", "mkjJruAATQWjeY7foFIWfVAcBWnci2YF"]
-
-

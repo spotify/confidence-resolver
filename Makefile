@@ -43,6 +43,7 @@ test:
 	$(MAKE) -C openfeature-provider/java test
 	$(MAKE) -C openfeature-provider/go test
 	$(MAKE) -C openfeature-provider/ruby test
+	$(MAKE) -C openfeature-provider/rust test
 
 integration-test:
 	$(MAKE) -C wasm/python-host run
@@ -55,13 +56,15 @@ lint:
 	$(MAKE) -C confidence-cloudflare-resolver lint
 	$(MAKE) -C openfeature-provider/go lint
 	$(MAKE) -C openfeature-provider/ruby lint
-	cargo fmt --check -p wasm-msg -p rust-guest -p confidence_resolver -p confidence-cloudflare-resolver
+	$(MAKE) -C openfeature-provider/rust lint
+	cargo fmt --check -p wasm-msg -p rust-guest -p confidence_resolver -p confidence-cloudflare-resolver -p spotify-confidence-openfeature-provider
 
 build: wasm/confidence_resolver.wasm
 	$(MAKE) -C openfeature-provider/js build
 	$(MAKE) -C openfeature-provider/java build
 	$(MAKE) -C openfeature-provider/go build
 	$(MAKE) -C openfeature-provider/ruby build
+	$(MAKE) -C openfeature-provider/rust build
 
 all: lint test build
 	@echo "✅ All checks passed!"
@@ -73,6 +76,7 @@ clean:
 	$(MAKE) -C openfeature-provider/java clean
 	$(MAKE) -C openfeature-provider/go clean
 	$(MAKE) -C openfeature-provider/ruby clean
+	$(MAKE) -C openfeature-provider/rust clean
 
 .PHONY: js-build
 js-build:

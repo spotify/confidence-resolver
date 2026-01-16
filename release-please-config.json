@@ -62,6 +62,13 @@
       "extra-files": [
         "lib/confidence/openfeature/version.rb"
       ]
+    },
+    "openfeature-provider/rust": {
+      "path": "openfeature-provider/rust",
+      "release-type": "rust",
+      "changelog-path": "CHANGELOG.md",
+      "initial-version": "0.1.0",
+      "extra-files": ["src/version.rs"]
     }
   }
 }
