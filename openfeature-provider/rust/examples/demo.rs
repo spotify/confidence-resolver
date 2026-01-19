@@ -9,7 +9,7 @@
 //! ```
 
 use open_feature::{EvaluationContext, OpenFeature, StructValue};
-use spotify_confidence_openfeature_provider::{ConfidenceProvider, ProviderOptions};
+use spotify_confidence_openfeature_provider_local::{ConfidenceProvider, ProviderOptions};
 
 // Configuration - replace with your actual values
 const CLIENT_SECRET: &str = "CLIENT_SECRET";

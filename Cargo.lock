@@ -1837,7 +1837,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "spotify-confidence-openfeature-provider"
+name = "spotify-confidence-openfeature-provider-local"
 version = "0.1.0"
 dependencies = [
  "arc-swap",

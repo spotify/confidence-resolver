@@ -13,10 +13,12 @@ jobs:
   release:
     runs-on: ubuntu-latest
     outputs:
+      confidence_resolver_release_created: ${{ steps.releasemanifest.outputs['confidence-resolver--release_created'] }}
       cloudflare_resolver_release_created: ${{ steps.releasemanifest.outputs['confidence-cloudflare-resolver--release_created'] }}
       java_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/java--release_created'] }}
       js_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/js--release_created'] }}
       ruby_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/ruby--release_created'] }}
+      rust_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/rust--release_created'] }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -197,3 +199,66 @@ jobs:
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
           secret-files: |
             rubygem_api_key=/tmp/rubygem_api_key.txt
+
+  publish-confidence-resolver-release:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: deployment
+    if: ${{ needs.release.outputs.confidence_resolver_release_created == 'true' }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cargo login
+        run: cargo login ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Publish to crates.io
+        working-directory: confidence-resolver
+        run: cargo publish
+
+  publish-rust-provider-release:
+    needs: [release, publish-confidence-resolver-release]
+    runs-on: ubuntu-latest
+    environment: deployment
+    if: |
+      always() &&
+      needs.release.outputs.rust_provider_release_created == 'true' &&
+      (needs.publish-confidence-resolver-release.result == 'success' || needs.publish-confidence-resolver-release.result == 'skipped')
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cargo login
+        run: cargo login ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Wait for crates.io index update
+        if: ${{ needs.publish-confidence-resolver-release.result == 'success' }}
+        run: sleep 30
+
+      - name: Publish to crates.io
+        working-directory: openfeature-provider/rust
+        run: cargo publish

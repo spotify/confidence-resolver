@@ -20,7 +20,7 @@ Add this dependency to your `Cargo.toml`:
 <!-- x-release-please-start-version -->
 ```toml
 [dependencies]
-spotify-confidence-openfeature-provider = "0.1.0"
+spotify-confidence-openfeature-provider-local = "0.1.0"
 ```
 <!-- x-release-please-end -->
 
@@ -44,7 +44,7 @@ You'll need a **client secret** from Confidence to use this provider.
 
 ```rust
 use open_feature::{EvaluationContext, OpenFeature};
-use spotify_confidence_openfeature_provider::{ConfidenceProvider, ProviderOptions};
+use spotify_confidence_openfeature_provider_local::{ConfidenceProvider, ProviderOptions};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -142,7 +142,7 @@ match details {
 The `ProviderOptions` struct contains all configuration options for the provider:
 
 ```rust
-use spotify_confidence_openfeature_provider::ProviderOptions;
+use spotify_confidence_openfeature_provider_local::ProviderOptions;
 
 let options = ProviderOptions::new("your-client-secret")
     .with_initialize_timeout(10_000)      // Max ms to wait for initial state fetch
@@ -279,7 +279,7 @@ For improved latency and reduced network calls, implement the `MaterializationSt
 ```rust
 use async_trait::async_trait;
 use std::sync::Arc;
-use spotify_confidence_openfeature_provider::{
+use spotify_confidence_openfeature_provider_local::{
     MaterializationStore, ReadOpType, ReadResultType, WriteOp,
     ProviderOptions,
 };
@@ -293,7 +293,7 @@ impl MaterializationStore for MyRedisStore {
     async fn read_materializations(
         &self,
         read_ops: Vec<ReadOpType>,
-    ) -> Result<Vec<ReadResultType>, spotify_confidence_openfeature_provider::Error> {
+    ) -> Result<Vec<ReadResultType>, spotify_confidence_openfeature_provider_local::Error> {
         // Load materialization data from Redis
         todo!()
     }
@@ -301,7 +301,7 @@ impl MaterializationStore for MyRedisStore {
     async fn write_materializations(
         &self,
         write_ops: Vec<WriteOp>,
-    ) -> Result<(), spotify_confidence_openfeature_provider::Error> {
+    ) -> Result<(), spotify_confidence_openfeature_provider_local::Error> {
         // Store materialization data to Redis
         todo!()
     }
