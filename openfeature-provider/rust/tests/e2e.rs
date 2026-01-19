@@ -5,7 +5,7 @@
 //! Run with: cargo test --test e2e
 
 use open_feature::{EvaluationContext, EvaluationReason, OpenFeature, StructValue, Value};
-use spotify_confidence_openfeature_provider::{ConfidenceProvider, ProviderOptions};
+use spotify_confidence_openfeature_provider_local::{ConfidenceProvider, ProviderOptions};
 
 const CLIENT_SECRET: &str = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
 const TARGETING_KEY: &str = "test-a"; // control variant

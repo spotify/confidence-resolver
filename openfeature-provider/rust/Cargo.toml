@@ -1,19 +1,22 @@
 [package]
-name = "spotify-confidence-openfeature-provider"
+name = "spotify-confidence-openfeature-provider-local"
 version = "0.1.0"
 edition = "2021"
 description = "OpenFeature provider for Confidence using native Rust resolver"
 license = "Apache-2.0"
 repository = "https://github.com/spotify/confidence-resolver"
-keywords = ["openfeature", "feature-flags", "confidence"]
+homepage = "https://confidence.spotify.com/"
+readme = "README.md"
+keywords = ["openfeature", "feature-flags", "confidence", "local-resolver"]
 categories = ["development-tools"]
+include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE"]
 
 [lib]
-name = "spotify_confidence_openfeature_provider"
+name = "spotify_confidence_openfeature_provider_local"
 
 [dependencies]
 # Core resolver
-confidence_resolver = { path = "../../confidence-resolver", version = "0.9.0" }
+confidence_resolver = "0.9.0"
 
 # OpenFeature SDK
 open-feature = "0.2.7"
