@@ -15,8 +15,8 @@ include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE"]
 name = "spotify_confidence_openfeature_provider_local"
 
 [dependencies]
-# Core resolver
-confidence_resolver = "0.9.0"
+# Core resolver (path for local dev, version for crates.io publish)
+confidence_resolver = { path = "../../confidence-resolver", version = "0.9.0" }
 
 # OpenFeature SDK
 open-feature = "0.2.7"
