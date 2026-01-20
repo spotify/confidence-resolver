@@ -23,7 +23,7 @@ import {
   TimeUnit,
 } from './util';
 import { LocalResolver } from './LocalResolver';
-import { sha256Hex } from './hash';
+import { sha256Bytes, sha256Hex } from './hash';
 import { getLogger } from './logger';
 import {
   ConfidenceRemoteMaterializationStore,
@@ -157,6 +157,10 @@ export class ConfidenceServerProviderLocal implements Provider {
       timeoutSignal(this.options.initializeTimeout ?? DEFAULT_INITIALIZE_TIMEOUT),
     ]);
     try {
+      // Derive encryption key from client secret (first 16 bytes of SHA-256)
+      const hashBytes = await sha256Bytes(this.options.flagClientSecret);
+      this.resolver.setEncryptionKey({ encryptionKey: hashBytes.slice(0, 16) });
+
       // TODO set schedulers irrespective of failure
       // TODO if 403 here,
       await this.updateState(initialUpdateSignal);

@@ -280,3 +280,21 @@ export async function sha256Hex(input: string): Promise<string> {
   // Pad to 64 hex chars (SHA-256 size)
   return Math.abs(hash).toString(16).padStart(64, '0');
 }
+
+export async function sha256Bytes(input: string): Promise<Uint8Array> {
+  // Simple deterministic hash bytes for testing - just convert string to bytes
+  // This avoids the async crypto.subtle.digest that doesn't play well with fake timers
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    const char = input.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  // Create 32-byte array (SHA-256 size)
+  const bytes = new Uint8Array(32);
+  const absHash = Math.abs(hash);
+  for (let i = 0; i < 4; i++) {
+    bytes[i] = (absHash >> (i * 8)) & 0xff;
+  }
+  return bytes;
+}

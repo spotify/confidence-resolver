@@ -14,6 +14,11 @@ message SetResolverStateRequest {
     string account_id = 2;
 }
 
+// 16-byte AES-128 encryption key derived from client secret (SHA-256 first 16 bytes)
+message SetEncryptionKeyRequest {
+    bytes encryption_key = 1;
+}
+
 message Request {
     bytes data = 1;
 }

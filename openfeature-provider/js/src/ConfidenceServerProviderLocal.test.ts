@@ -11,13 +11,15 @@ import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 
 vi.mock(import('./hash'), async () => {
-  const { sha256Hex } = await import('./test-helpers');
+  const { sha256Hex, sha256Bytes } = await import('./test-helpers');
   return {
     sha256Hex,
+    sha256Bytes,
   };
 });
 
 const mockedWasmResolver: MockedObject<LocalResolver> = {
+  setEncryptionKey: vi.fn(),
   resolveWithSticky: vi.fn(),
   setResolverState: vi.fn(),
   flushLogs: vi.fn().mockReturnValue(new Uint8Array(100)),

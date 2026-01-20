@@ -23,7 +23,7 @@ use wasm_msg::WasmResult;
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/rust_guest.rs"));
 }
-use crate::proto::SetResolverStateRequest;
+use crate::proto::{SetEncryptionKeyRequest, SetResolverStateRequest};
 use confidence_resolver::{
     proto::{
         confidence::flags::admin::v1::ResolverState as ResolverStatePb,
@@ -55,10 +55,11 @@ impl
 
 const LOG_TARGET_BYTES: usize = 4 * 1024 * 1024; // 4 mb
 const VOID: Void = Void {};
-const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
+const DEFAULT_ENCRYPTION_KEY: [u8; 16] = [0; 16];
 
 // TODO simplify by assuming single threaded?
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
+static ENCRYPTION_KEY: ArcSwapOption<Bytes> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
 
@@ -179,7 +180,22 @@ fn get_resolver_state() -> Result<Arc<ResolverState>, String> {
         .ok_or_else(|| "Resolver state not set".to_string())
 }
 
+/// Gets the encryption key, falling back to default if not set.
+fn get_encryption_key() -> Arc<Bytes> {
+    let guard = ENCRYPTION_KEY.load();
+    guard
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(Bytes::from_static(&DEFAULT_ENCRYPTION_KEY)))
+}
+
 wasm_msg_guest! {
+    fn set_encryption_key(request: SetEncryptionKeyRequest) -> WasmResult<Void> {
+        let key = Bytes::copy_from_slice(&request.encryption_key);
+        ENCRYPTION_KEY.store(Some(Arc::new(key)));
+        Ok(VOID)
+    }
+
     fn set_resolver_state(request: SetResolverStateRequest) -> WasmResult<Void> {
         let state_pb = ResolverStatePb::decode(request.state.as_slice())
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
@@ -190,16 +206,18 @@ wasm_msg_guest! {
 
     fn resolve_with_sticky(request: ResolveWithStickyRequest) -> WasmResult<ResolveWithStickyResponse> {
         let resolver_state = get_resolver_state()?;
+        let encryption_key = get_encryption_key();
         let resolve_request = &request.resolve_request.clone().unwrap();
         let evaluation_context = resolve_request.evaluation_context.clone().unwrap();
-        let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
+        let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &encryption_key)?;
         resolver.resolve_flags_sticky(&request)
     }
 
     fn resolve(request: ResolveFlagsRequest) -> WasmResult<ResolveFlagsResponse> {
         let resolver_state = get_resolver_state()?;
+        let encryption_key = get_encryption_key();
         let evaluation_context = request.evaluation_context.as_ref().cloned().unwrap_or_default();
-        let resolver = resolver_state.get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &ENCRYPTION_KEY)?;
+        let resolver = resolver_state.get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &encryption_key)?;
         resolver.resolve_flags(&request)
     }
 
@@ -222,9 +240,10 @@ wasm_msg_guest! {
 
     fn apply_flags(request: ApplyFlagsRequest) -> WasmResult<Void> {
         let resolver_state = get_resolver_state()?;
+        let encryption_key = get_encryption_key();
         // Use empty evaluation context - the real one is extracted from the resolve token
         let evaluation_context = Struct::default();
-        let resolver = match resolver_state.get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &ENCRYPTION_KEY) {
+        let resolver = match resolver_state.get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &encryption_key) {
             Ok(r) => r,
             Err(_) => {
                 // State may have changed and client_secret is no longer valid.

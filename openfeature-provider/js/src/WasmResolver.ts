@@ -1,5 +1,5 @@
 import { BinaryWriter } from '@bufbuild/protobuf/wire';
-import { Request, Response, Void, SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import { Request, Response, Void, SetEncryptionKeyRequest, SetResolverStateRequest } from './proto/confidence/wasm/messages';
 import { Timestamp } from './proto/google/protobuf/timestamp';
 import { ResolveWithStickyRequest, ResolveWithStickyResponse } from './proto/confidence/wasm/wasm_api';
 import { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
@@ -16,6 +16,7 @@ export type Codec<T> = {
 const EXPORT_FN_NAMES = [
   'wasm_msg_alloc',
   'wasm_msg_free',
+  'wasm_msg_guest_set_encryption_key',
   'wasm_msg_guest_resolve_with_sticky',
   'wasm_msg_guest_set_resolver_state',
   'wasm_msg_guest_bounded_flush_logs',
@@ -58,6 +59,12 @@ export class UnsafeWasmResolver implements LocalResolver {
     const { exports } = new WebAssembly.Instance(module, imports);
     verifyExports(exports);
     this.exports = exports;
+  }
+
+  setEncryptionKey(request: SetEncryptionKeyRequest): void {
+    const reqPtr = this.transferRequest(request, SetEncryptionKeyRequest);
+    const resPtr = this.exports.wasm_msg_guest_set_encryption_key(reqPtr);
+    this.consumeResponse(resPtr, Void);
   }
 
   resolveWithSticky(request: ResolveWithStickyRequest): ResolveWithStickyResponse {
@@ -141,6 +148,7 @@ export const DEFAULT_DELEGATE_FACTORY: DelegateFactory = module => new UnsafeWas
 export class WasmResolver implements LocalResolver {
   private delegate: LocalResolver;
   private currentState?: { state: Uint8Array; accountId: string };
+  private currentEncryptionKey?: Uint8Array;
   private bufferedLogs: Uint8Array[] = [];
 
   constructor(private readonly module: WebAssembly.Module, private delegateFactory = DEFAULT_DELEGATE_FACTORY) {
@@ -156,9 +164,17 @@ export class WasmResolver implements LocalResolver {
     }
 
     this.delegate = this.delegateFactory(this.module);
+    if (this.currentEncryptionKey) {
+      this.delegate.setEncryptionKey({ encryptionKey: this.currentEncryptionKey });
+    }
     if (this.currentState) {
       this.delegate.setResolverState(this.currentState);
     }
+  }
+
+  setEncryptionKey(request: SetEncryptionKeyRequest): void {
+    this.currentEncryptionKey = request.encryptionKey;
+    this.delegate.setEncryptionKey(request);
   }
 
   resolveWithSticky(request: ResolveWithStickyRequest): ResolveWithStickyResponse {
