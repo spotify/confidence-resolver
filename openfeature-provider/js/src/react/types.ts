@@ -22,7 +22,7 @@ export interface FlagBundle {
  * Function type for applying/exposing a flag
  * @public
  */
-export type ApplyFn = (flagName: string) => void;
+export type ApplyFn = (flagName: string) => Promise<void>;
 
 /**
  * Result of createFlagBundle with a pre-bound apply function

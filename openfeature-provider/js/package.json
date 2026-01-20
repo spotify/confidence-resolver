@@ -29,6 +29,7 @@
     },
     "./react": {
       "types": "./dist/index.react.d.ts",
+      "import": "./dist/index.react.js",
       "default": "./dist/index.react.js"
     },
     "./package.json": "./package.json"

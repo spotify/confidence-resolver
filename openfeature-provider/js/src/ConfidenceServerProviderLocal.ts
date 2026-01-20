@@ -376,8 +376,8 @@ export class ConfidenceServerProviderLocal implements Provider {
       resolveId: response.resolveId,
     };
 
-    // Create a pre-bound apply function that captures the resolveToken
-    const applyFlag = (flagName: string): void => {
+    // Create a pre-bound async apply function that captures the resolveToken
+    const applyFlag = async (flagName: string): Promise<void> => {
       this.applyFlag(bundle.resolveToken, flagName);
     };
 
