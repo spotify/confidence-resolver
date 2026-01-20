@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use prost::Message;
 
@@ -5,6 +7,7 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::{
     read_op, read_result, InclusionData, InclusionReadOp, ReadOp, ReadOperationsRequest,
     ReadResult, VariantData, VariantReadOp,
 };
+use reqwest_middleware::ClientWithMiddleware;
 
 use crate::error::{Error, Result};
 
@@ -62,19 +65,15 @@ pub trait MaterializationStore: Send + Sync {
     async fn write_materializations(&self, write_ops: Vec<WriteOp>) -> Result<()>;
 }
 
+const MATERIALIZATION_READ_TIMEOUT: Duration = Duration::from_millis(500);
 /// Remote materialization store that calls the Confidence API.
 pub(crate) struct ConfidenceRemoteMaterializationStore {
-    client: reqwest::Client,
+    client: ClientWithMiddleware,
     client_secret: String,
 }
 
 impl ConfidenceRemoteMaterializationStore {
-    pub(crate) fn new(client_secret: String) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(500))
-            .build()
-            .map_err(|e| Error::Http(e.to_string()))?;
-
+    pub(crate) fn new(client: ClientWithMiddleware, client_secret: String) -> Result<Self> {
         Ok(Self {
             client,
             client_secret,
@@ -100,6 +99,7 @@ impl MaterializationStore for ConfidenceRemoteMaterializationStore {
                 format!("ClientSecret {}", self.client_secret),
             )
             .body(body)
+            .timeout(MATERIALIZATION_READ_TIMEOUT)
             .send()
             .await
             .map_err(|e| Error::Http(e.to_string()))?;
@@ -307,6 +307,9 @@ pub fn write_ops_from_proto(variant_data: &[VariantData]) -> Vec<WriteOp> {
 
 #[cfg(test)]
 mod tests {
+    use reqwest::Client;
+    use reqwest_middleware::ClientBuilder;
+
     use super::*;
 
     // ==================== ReadOpType tests ====================
@@ -716,7 +719,10 @@ mod tests {
 
     #[test]
     fn test_confidence_remote_store_creation() {
-        let store = ConfidenceRemoteMaterializationStore::new("test-secret".to_string());
+        let store = ConfidenceRemoteMaterializationStore::new(
+            ClientBuilder::new(Client::new()).build(),
+            "test-secret".to_string(),
+        );
         assert!(store.is_ok());
     }
 }
