@@ -7,6 +7,7 @@ OpenFeature provider for the Spotify Confidence resolver (local mode, powered by
 - Automatic state refresh and batched flag log flushing
 - Pluggable `fetch` with retries, timeouts and routing
 - Optional logging using `debug`
+- Lightweight React integration for Next.js (~1KB bundle)
 
 ## Requirements
 - Node.js 18+ (built-in `fetch`) or provide a compatible `fetch`
@@ -254,7 +255,109 @@ yarn add debug
 
 ## Using in browsers
 
-The package exports a browser ESM build that compiles the WASM via streaming and uses the global `fetch`. Integrate it with your OpenFeature SDK variant for the web similarly to Node, then register the provider before evaluation. Credentials must be available to the runtime (e.g. through your app’s configuration layer).
+The package exports a browser ESM build that compiles the WASM via streaming and uses the global `fetch`. Integrate it with your OpenFeature SDK variant for the web similarly to Node, then register the provider before evaluation. Credentials must be available to the runtime (e.g. through your app's configuration layer).
+
+---
+
+## React Integration (Next.js)
+
+For React/Next.js applications, a lightweight React module is available that consumes pre-resolved flags without bundling the WASM resolver (~1KB vs ~110KB).
+
+### Installation
+
+```bash
+yarn add @spotify-confidence/openfeature-server-provider-local react
+```
+
+### Server Component Setup
+
+```tsx
+// app/layout.tsx
+import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local';
+import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react';
+
+const provider = createConfidenceServerProvider({
+  flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+});
+
+export default async function Layout({ children }) {
+  // Resolve flags on the server with apply: false
+  const { bundle, applyFlag } = await provider.createFlagBundle({
+    targetingKey: 'user-123',
+  });
+
+  // Wrap applyFlag in a server action for client-side exposure logging
+  async function apply(flagName: string) {
+    'use server';
+    applyFlag(flagName);
+  }
+
+  return (
+    <ConfidenceProvider bundle={bundle} apply={apply}>
+      {children}
+    </ConfidenceProvider>
+  );
+}
+```
+
+### Client Component - Auto Exposure
+
+By default, `useFlag` automatically logs exposure when the component mounts:
+
+```tsx
+'use client';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react';
+
+export function FeatureButton() {
+  const enabled = useFlag('my-feature.enabled', false);
+  return enabled ? <NewButton /> : <OldButton />;
+}
+```
+
+### Client Component - Manual Exposure
+
+For cases where you want to control when exposure is logged (e.g., only when a user interacts with a feature):
+
+```tsx
+'use client';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react';
+
+export function Checkout() {
+  const { value: discountEnabled, expose } = useFlag(
+    'checkout.discount',
+    false,
+    { skipExposure: true }
+  );
+
+  const handlePurchase = () => {
+    if (discountEnabled) {
+      expose(); // Log exposure only when user interacts
+      applyDiscount();
+    }
+    completePurchase();
+  };
+
+  return <button onClick={handlePurchase}>Buy Now</button>;
+}
+```
+
+### API Reference
+
+#### `createFlagBundle(context, flags?)`
+
+Creates a bundle of pre-resolved flag values for client-side consumption.
+
+- `context`: Evaluation context with `targetingKey` and optional attributes
+- `flags` (optional): Array of specific flag names to resolve. If omitted, resolves all flags.
+- Returns: `{ bundle, applyFlag }` where `applyFlag` is pre-bound to the resolve token
+
+#### `useFlag(flagName, defaultValue, options?)`
+
+React hook for accessing flag values.
+
+- `flagName`: Name of the flag to access
+- `defaultValue`: Default value if flag is not found
+- `options.skipExposure`: When `true`, returns `{ value, expose }` for manual exposure control
 
 ---
 
