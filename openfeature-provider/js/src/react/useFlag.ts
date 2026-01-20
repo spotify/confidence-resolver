@@ -20,11 +20,7 @@ export function useFlag<T>(flagName: string, defaultValue: T): T;
 export function useFlag<T>(flagName: string, defaultValue: T, options: UseFlagOptionsAuto): T;
 
 // Overload: manual exposure - returns { value, expose }
-export function useFlag<T>(
-  flagName: string,
-  defaultValue: T,
-  options: UseFlagOptionsManual,
-): ManualExposureResult<T>;
+export function useFlag<T>(flagName: string, defaultValue: T, options: UseFlagOptionsManual): ManualExposureResult<T>;
 
 /**
  * React hook for accessing Confidence feature flag values.

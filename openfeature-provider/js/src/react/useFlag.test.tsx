@@ -23,11 +23,12 @@ describe('useFlag', () => {
 
   const wrapper =
     (bundle: FlagBundle) =>
-    ({ children }: { children: React.ReactNode }) => (
-      <ConfidenceProvider bundle={bundle} apply={mockApply}>
-        {children}
-      </ConfidenceProvider>
-    );
+    ({ children }: { children: React.ReactNode }) =>
+      (
+        <ConfidenceProvider bundle={bundle} apply={mockApply}>
+          {children}
+        </ConfidenceProvider>
+      );
 
   describe('without provider', () => {
     it('returns default value when no provider is present', () => {
@@ -101,10 +102,9 @@ describe('useFlag', () => {
         },
       });
 
-      const { result } = renderHook(
-        () => useFlag('config-flag', { enabled: false, limit: 0, name: '' }),
-        { wrapper: wrapper(bundle) },
-      );
+      const { result } = renderHook(() => useFlag('config-flag', { enabled: false, limit: 0, name: '' }), {
+        wrapper: wrapper(bundle),
+      });
 
       expect(result.current).toEqual({ enabled: true, limit: 100, name: 'test' });
     });
