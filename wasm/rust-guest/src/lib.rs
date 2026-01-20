@@ -28,7 +28,8 @@ use confidence_resolver::{
     proto::{
         confidence::flags::admin::v1::ResolverState as ResolverStatePb,
         confidence::flags::resolver::v1::{
-            ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse, ResolveWithStickyResponse, Sdk,
+            ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse,
+            ResolveWithStickyResponse, Sdk,
         },
         google::{Struct, Timestamp},
     },
