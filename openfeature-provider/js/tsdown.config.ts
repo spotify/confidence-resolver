@@ -29,4 +29,18 @@ export default defineConfig([
     platform: 'browser',
     ...base,
   },
+  {
+    // React entry - lightweight, no WASM or protobuf dependency
+    entry: './src/index.react.ts',
+    platform: 'browser',
+    minify: 'dce-only',
+    dts: {
+      oxc: true,
+    },
+    define: {
+      __ASSERT__: 'false',
+      __TEST__: 'false',
+    },
+    external: ['react', 'react/jsx-runtime'],
+  },
 ]);

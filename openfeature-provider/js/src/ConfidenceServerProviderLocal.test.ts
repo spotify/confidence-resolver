@@ -22,6 +22,7 @@ const mockedWasmResolver: MockedObject<LocalResolver> = {
   setResolverState: vi.fn(),
   flushLogs: vi.fn().mockReturnValue(new Uint8Array(100)),
   flushAssigned: vi.fn().mockReturnValue(new Uint8Array(50)),
+  applyFlags: vi.fn(),
 };
 
 let provider: ConfidenceServerProviderLocal;
@@ -448,6 +449,147 @@ describe('SDK telemetry', () => {
             version: expect.stringMatching(/^\d+\.\d+\.\d+$/), // Semantic version format
           }),
         }),
+      }),
+    );
+  });
+});
+
+describe('createFlagBundle', () => {
+  const RESOLVE_REASON_MATCH = 1;
+
+  it('creates a bundle with resolved flags and returns pre-bound applyFlag function', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    const resolveToken = new Uint8Array([1, 2, 3, 4]);
+    mockedWasmResolver.resolveWithSticky.mockReturnValue({
+      success: {
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/feature-a',
+              variant: 'flags/feature-a/variants/enabled',
+              value: { enabled: true, color: 'blue' },
+              reason: RESOLVE_REASON_MATCH,
+            },
+            {
+              flag: 'flags/feature-b',
+              variant: 'flags/feature-b/variants/control',
+              value: { limit: 100 },
+              reason: RESOLVE_REASON_MATCH,
+            },
+          ],
+          resolveToken,
+          resolveId: 'resolve-bundle-123',
+        },
+        materializationUpdates: [],
+      },
+    });
+
+    const result = await provider.createFlagBundle({ targetingKey: 'user-456' });
+
+    // Verify bundle structure
+    expect(result.bundle.resolveId).toBe('resolve-bundle-123');
+    expect(result.bundle.resolveToken).toBe('AQIDBA=='); // base64 of [1,2,3,4]
+    expect(result.bundle.flags).toEqual({
+      'feature-a': {
+        value: { enabled: true, color: 'blue' },
+        variant: 'flags/feature-a/variants/enabled',
+        reason: 'MATCH',
+      },
+      'feature-b': {
+        value: { limit: 100 },
+        variant: 'flags/feature-b/variants/control',
+        reason: 'MATCH',
+      },
+    });
+
+    // Verify resolve request was made with apply: false
+    expect(mockedWasmResolver.resolveWithSticky).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolveRequest: expect.objectContaining({
+          apply: false,
+          evaluationContext: { targeting_key: 'user-456' },
+        }),
+      }),
+    );
+
+    // Verify applyFlag function works
+    result.applyFlag('feature-a');
+
+    expect(mockedWasmResolver.applyFlags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flags: [{ flag: 'flags/feature-a', applyTime: expect.any(Date) }],
+        clientSecret: 'flagClientSecret',
+        resolveToken,
+      }),
+    );
+  });
+
+  it('resolves specific flags when flag names are provided', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.resolveWithSticky.mockReturnValue({
+      success: {
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/my-flag',
+              variant: 'flags/my-flag/variants/test',
+              value: { active: true },
+              reason: RESOLVE_REASON_MATCH,
+            },
+          ],
+          resolveToken: new Uint8Array(),
+          resolveId: 'resolve-123',
+        },
+        materializationUpdates: [],
+      },
+    });
+
+    await provider.createFlagBundle({ targetingKey: 'user-789' }, ['my-flag', 'other-flag']);
+
+    expect(mockedWasmResolver.resolveWithSticky).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolveRequest: expect.objectContaining({
+          flags: ['flags/my-flag', 'flags/other-flag'],
+        }),
+      }),
+    );
+  });
+});
+
+describe('applyFlag', () => {
+  it('calls resolver.applyFlags with correct parameters', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    const resolveToken = 'dGVzdC10b2tlbg=='; // base64 of "test-token"
+
+    provider.applyFlag(resolveToken, 'my-feature');
+
+    expect(mockedWasmResolver.applyFlags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flags: [{ flag: 'flags/my-feature', applyTime: expect.any(Date) }],
+        clientSecret: 'flagClientSecret',
+        resolveToken: expect.any(Uint8Array),
+        sendTime: expect.any(Date),
+        sdk: expect.objectContaining({
+          id: 22, // SDK_ID_JS_LOCAL_SERVER_PROVIDER
+        }),
+      }),
+    );
+  });
+
+  it('correctly decodes base64 resolve token', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    // base64 of [1, 2, 3, 4]
+    const resolveToken = 'AQIDBA==';
+
+    provider.applyFlag(resolveToken, 'test-flag');
+
+    expect(mockedWasmResolver.applyFlags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolveToken: new Uint8Array([1, 2, 3, 4]),
       }),
     );
   });

@@ -8,12 +8,20 @@ import type {
   ResolutionDetails,
   ResolutionReason,
 } from '@openfeature/server-sdk';
-import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
+import { ApplyFlagsRequest, ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
 import { SdkId, ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, hasKey, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import {
+  base64FromBytes,
+  bytesFromBase64,
+  castStringToEnum,
+  hasKey,
+  scheduleWithFixedInterval,
+  timeoutSignal,
+  TimeUnit,
+} from './util';
 import { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -30,6 +38,10 @@ import {
   WriteOperationsRequest,
 } from './proto/confidence/flags/resolver/v1/internal_api';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import type { FlagBundle, FlagBundleResult, ResolvedFlagValue } from './react/types';
+
+// Re-export types for consumers
+export type { FlagBundle, FlagBundleResult, ResolvedFlagValue } from './react/types';
 
 const logger = getLogger('provider');
 
@@ -306,6 +318,92 @@ export class ConfidenceServerProviderLocal implements Provider {
     if (writeFlagLogRequest.length > 0) {
       await this.sendFlagLogs(writeFlagLogRequest);
     }
+  }
+
+  /**
+   * Creates a bundle of pre-resolved flag values for client-side consumption.
+   * The bundle can be passed to client components without including the WASM resolver.
+   *
+   * @param context - The evaluation context for flag resolution
+   * @param flags - Optional list of specific flag names to resolve. If not provided, resolves all flags.
+   * @returns A FlagBundleResult containing the bundle and a pre-bound applyFlag function
+   *
+   * @example
+   * ```typescript
+   * const { bundle, applyFlag } = await provider.createFlagBundle({ targetingKey: 'user-123' });
+   * // Pass bundle to client, call applyFlag('my-flag') when flag is accessed
+   * ```
+   */
+  async createFlagBundle(context: EvaluationContext, flags?: string[]): Promise<FlagBundleResult> {
+    const flagNames = flags?.map(f => `flags/${f}`) ?? [];
+
+    // TODO: Evaluate whether we should use sticky resolve here or a simpler resolve.
+    // Sticky resolve handles materialization for consistent variant assignment across sessions,
+    // but for bundle creation we may want different behavior.
+    const stickyRequest: ResolveWithStickyRequest = {
+      resolveRequest: {
+        flags: flagNames,
+        evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
+        apply: false, // Don't apply yet - will be applied when client accesses
+        clientSecret: this.options.flagClientSecret,
+        sdk: {
+          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+          version: VERSION,
+        },
+      },
+      materializations: [],
+      failFastOnSticky: false,
+      notProcessSticky: false,
+    };
+
+    const response = await this.resolveWithSticky(stickyRequest);
+
+    // Convert resolved flags to bundle format
+    const resolvedFlags: Record<string, ResolvedFlagValue> = {};
+    for (const flag of response.resolvedFlags) {
+      // Extract flag name from "flags/my-flag" format
+      const flagName = flag.flag.replace(/^flags\//, '');
+      resolvedFlags[flagName] = {
+        value: flag.value,
+        variant: flag.variant || undefined,
+        reason: ConfidenceServerProviderLocal.convertReason(flag.reason),
+      };
+    }
+
+    const bundle: FlagBundle = {
+      flags: resolvedFlags,
+      resolveToken: base64FromBytes(response.resolveToken),
+      resolveId: response.resolveId,
+    };
+
+    // Create a pre-bound apply function that captures the resolveToken
+    const applyFlag = (flagName: string): void => {
+      this.applyFlag(bundle.resolveToken, flagName);
+    };
+
+    return { bundle, applyFlag };
+  }
+
+  /**
+   * Applies a flag that was previously resolved with apply: false.
+   * This logs the assignment event for the flag.
+   *
+   * @param resolveToken - The base64-encoded resolve token from createFlagBundle
+   * @param flagName - The name of the flag to apply
+   */
+  applyFlag(resolveToken: string, flagName: string): void {
+    const request: ApplyFlagsRequest = {
+      flags: [{ flag: `flags/${flagName}`, applyTime: new Date() }],
+      clientSecret: this.options.flagClientSecret,
+      resolveToken: bytesFromBase64(resolveToken),
+      sendTime: new Date(),
+      sdk: {
+        id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+        version: VERSION,
+      },
+    };
+
+    this.resolver.applyFlags(request);
   }
 
   private async sendFlagLogs(encodedWriteFlagLogRequest: Uint8Array, signal = this.main.signal): Promise<void> {
