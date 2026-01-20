@@ -198,25 +198,60 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   @Override
   public void initialize(EvaluationContext evaluationContext) {
     stateProvider.reload();
-    final byte[] state = stateProvider.provide();
-    final String accountId = stateProvider.accountId();
-    wasmResolveApi.init(state, accountId);
+    final AtomicReference<byte[]> resolverStateProtobuf =
+        new AtomicReference<>(stateProvider.provide());
+    final AtomicReference<String> accountIdRef = new AtomicReference<>(stateProvider.accountId());
+
+    // Only initialize WASM and set READY if we got valid state (non-empty accountId)
+    if (!accountIdRef.get().isEmpty()) {
+      wasmResolveApi.init(resolverStateProtobuf.get(), accountIdRef.get());
+      this.state.set(ProviderState.READY);
+    } else {
+      log.warn(
+          "Initial state load failed, provider starting in NOT_READY state, serving default values.");
+    }
+
     final long pollIntervalSeconds = getPollIntervalSeconds();
-    final AtomicReference<byte[]> resolverStateProtobuf = new AtomicReference<>(state);
-    flagsFetcherExecutor.scheduleAtFixedRate(
+    scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
+
+    logPollExecutor.scheduleAtFixedRate(
+        () -> {
+          if (wasmResolveApi.isInitialized()) {
+            wasmResolveApi.updateStateAndFlushLogs(resolverStateProtobuf.get(), accountIdRef.get());
+          }
+        },
+        POLL_LOG_INTERVAL.getSeconds(),
+        POLL_LOG_INTERVAL.getSeconds(),
+        TimeUnit.SECONDS);
+  }
+
+  private void scheduleStateRefresh(
+      AtomicReference<byte[]> resolverStateProtobuf,
+      AtomicReference<String> accountIdRef,
+      long pollIntervalSeconds) {
+    if (flagsFetcherExecutor.isShutdown()) {
+      return;
+    }
+
+    // Use short retry interval (1s) when not initialized, normal interval otherwise
+    long delaySeconds = wasmResolveApi.isInitialized() ? pollIntervalSeconds : 1;
+
+    flagsFetcherExecutor.schedule(
         () -> {
           stateProvider.reload();
           resolverStateProtobuf.set(stateProvider.provide());
+          accountIdRef.set(stateProvider.accountId());
+
+          if (!accountIdRef.get().isEmpty() && !wasmResolveApi.isInitialized()) {
+            wasmResolveApi.init(resolverStateProtobuf.get(), accountIdRef.get());
+            this.state.set(ProviderState.READY);
+            log.info("Provider recovered and is now READY");
+          }
+
+          scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
         },
-        pollIntervalSeconds,
-        pollIntervalSeconds,
+        delaySeconds,
         TimeUnit.SECONDS);
-    logPollExecutor.scheduleAtFixedRate(
-        () -> wasmResolveApi.updateStateAndFlushLogs(resolverStateProtobuf.get(), accountId),
-        POLL_LOG_INTERVAL.getSeconds(),
-        POLL_LOG_INTERVAL.getSeconds(),
-        TimeUnit.SECONDS);
-    this.state.set(ProviderState.READY);
   }
 
   @Override

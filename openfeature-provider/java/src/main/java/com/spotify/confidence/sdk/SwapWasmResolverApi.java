@@ -36,6 +36,11 @@ class SwapWasmResolverApi implements ResolverApi {
   }
 
   @Override
+  public boolean isInitialized() {
+    return true; // Always initialized since constructor sets up the instance
+  }
+
+  @Override
   public void updateStateAndFlushLogs(byte[] state, String accountId) {
     // Create new instance with updated state
     final WasmResolveApi newInstance = new WasmResolveApi(flagLogger);
