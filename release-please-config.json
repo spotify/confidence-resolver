@@ -67,6 +67,7 @@
       "path": "openfeature-provider/rust",
       "release-type": "rust",
       "changelog-path": "CHANGELOG.md",
+      "component": "openfeature-provider/rust",
       "initial-version": "0.1.0",
       "extra-files": ["src/version.rs"]
     }
