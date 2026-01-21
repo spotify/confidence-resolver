@@ -218,8 +218,8 @@ RUN make lint
 # ==============================================================================
 FROM confidence-cloudflare-resolver.build AS confidence-cloudflare-resolver.deployer
 
-# Install Node.js, npm, jq, and git for deployment
-RUN apk add --no-cache nodejs npm jq git
+# Install Node.js, npm, jq, git, and bash for deployment
+RUN apk add --no-cache nodejs npm jq git bash
 
 # Install Wrangler CLI
 RUN npm install -g wrangler@latest
