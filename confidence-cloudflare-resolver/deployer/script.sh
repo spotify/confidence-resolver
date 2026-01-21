@@ -8,14 +8,15 @@ set -euo pipefail
 CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:=}
 CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:=}
 RESOLVE_TOKEN_ENCRYPTION_KEY=${RESOLVE_TOKEN_ENCRYPTION_KEY:=}
-CONFIDENCE_ACCOUNT_ID=${CONFIDENCE_ACCOUNT_ID:=}
 CONFIDENCE_RESOLVER_ALLOWED_ORIGIN=${CONFIDENCE_RESOLVER_ALLOWED_ORIGIN:=}
 CONFIDENCE_RESOLVER_STATE_URL=${CONFIDENCE_RESOLVER_STATE_URL:=}
 CONFIDENCE_RESOLVER_STATE_ETAG_URL=${CONFIDENCE_RESOLVER_STATE_ETAG_URL:=}
-CONFIDENCE_CLIENT_ID=${CONFIDENCE_CLIENT_ID:=}
 CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
 NO_DEPLOY=${NO_DEPLOY:=}
 FORCE_DEPLOY=${FORCE_DEPLOY:=}
+
+# CDN base URL for fetching resolver state
+CDN_BASE_URL="https://confidence-resolver-state-cdn.spotifycdn.com"
 
 if test -z "$CLOUDFLARE_API_TOKEN"; then
     echo "CLOUDFLARE_API_TOKEN must be set"
@@ -27,76 +28,17 @@ if test -z "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
     exit 1
 fi
 
-if test -z "$CONFIDENCE_ACCOUNT_ID"; then
-    echo "CONFIDENCE_ACCOUNT_ID must be set"
+if test -z "$CONFIDENCE_CLIENT_SECRET"; then
+    echo "CONFIDENCE_CLIENT_SECRET must be set"
     exit 1
 fi
 
+# Build CDN URL from SHA256 hash of client secret (if not explicitly provided)
 if test -z "$CONFIDENCE_RESOLVER_STATE_URL"; then
-    # Ensure jq is available for JSON parsing
-    if ! command -v jq >/dev/null 2>&1; then
-        echo "jq is required but not installed. Please install jq (e.g., brew install jq) or provide CONFIDENCE_RESOLVER_STATE_URL"
-        exit 1
-    fi
-
-    # Ensure credentials are provided
-    if test -z "$CONFIDENCE_CLIENT_ID" || test -z "$CONFIDENCE_CLIENT_SECRET"; then
-        echo "CONFIDENCE_CLIENT_ID and CONFIDENCE_CLIENT_SECRET must be set when CONFIDENCE_RESOLVER_STATE_URL is not provided"
-        exit 1
-    fi
-
-    fetch_access_token() {
-        local url="https://iam.confidence.dev/v1/oauth/token"
-        local resp http_status body token
-        resp=$(curl -s -w "%{http_code}" -H "Content-Type: application/json" \
-            -d "{\"clientId\":\"$CONFIDENCE_CLIENT_ID\",\"clientSecret\":\"$CONFIDENCE_CLIENT_SECRET\",\"grantType\":\"client_credentials\"}" \
-            "${url}")
-        http_status="${resp: -3}"
-        body="${resp%???}"
-        if [ "$http_status" -eq 200 ] && [ -n "$body" ]; then
-            token=$(printf "%s" "$body" | jq -r '.accessToken // .access_token // empty')
-            if [ -n "$token" ]; then
-                printf "%s" "$token"
-                return 0
-            fi
-        else
-            echo "⚠️ Failed to request access token from iam.confidence.dev: HTTP ${http_status}" >&2
-        fi
-        return 1
-    }
-
-    fetch_resolver_state_url() {
-        local token
-        if ! token=$(fetch_access_token); then
-            echo "❌ Unable to obtain access token from IAM API"
-            return 1
-        fi
-
-        # HTTP using REST transcoding
-        local url="https://resolver.confidence.dev/v1/resolverState:resolverStateUri"
-        local resp
-        resp=$(curl -s -w "%{http_code}" -H "Authorization: Bearer ${token}" "${url}")
-        local http_status="${resp: -3}"
-        local body="${resp%???}"
-
-        if [ "$http_status" -eq 200 ] && [ -n "$body" ]; then
-            local signed_uri
-            signed_uri=$(printf "%s" "$body" | jq -r '.signedUri // .signed_uri // empty')
-            if [ -n "$signed_uri" ]; then
-                CONFIDENCE_RESOLVER_STATE_URL="$signed_uri"
-                echo "⤵️ Retrieved resolver state URL from resolver.confidence.dev"
-                return 0
-            fi
-        else
-            echo "⚠️ Failed to fetch resolver state URL from resolver.confidence.dev: HTTP ${http_status}" >&2
-        fi
-        return 1
-    }
-
-    if ! fetch_resolver_state_url; then
-        echo "❌ Unable to obtain resolver state URL from API. Please set CONFIDENCE_RESOLVER_STATE_URL explicitly"
-        exit 1
-    fi
+    # Compute SHA256 hash of client secret
+    SECRET_HASH=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sha256sum | cut -d' ' -f1)
+    CONFIDENCE_RESOLVER_STATE_URL="${CDN_BASE_URL}/${SECRET_HASH}"
+    echo "📦 Using CDN URL for state: ${CDN_BASE_URL}/<sha256>"
 fi
 
 mkdir -p data
@@ -104,7 +46,6 @@ RESPONSE_FILE="data/resolver_state_current.pb"
 ETAG_TOML=""
 ALLOWED_ORIGIN_TOML=""
 VERSION_TOML=""
-CLIENT_ID_TOML=""
 CLIENT_SECRET_TOML=""
 
 EXTRA_HEADER=()
@@ -211,7 +152,6 @@ else
     exit 1
 fi
 
-echo -n "$CONFIDENCE_ACCOUNT_ID" > data/account_id
 echo -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" > data/encryption_key
 
 # Function to check if a file exists and is not empty
@@ -226,14 +166,13 @@ check_file() {
 
 # Verify all required files
 check_file "data/resolver_state_current.pb"
-check_file "data/account_id"
 check_file "data/encryption_key"
 
 echo "🚀 All files successfully created and verified"
 
 cd confidence-cloudflare-resolver
 
-echo "🏁 Starting CloudFlare deployment for $CONFIDENCE_ACCOUNT_ID"
+echo "🏁 Starting CloudFlare deployment"
 echo "☁️ CloudFlare API token: ${CLOUDFLARE_API_TOKEN:0:5}.."
 echo "☁️ CloudFlare account ID: $CLOUDFLARE_ACCOUNT_ID"
 
@@ -259,24 +198,20 @@ if [ -n "$DEPLOYER_VERSION" ]; then
     VERSION_TOML=$(printf '%s' "$DEPLOYER_VERSION" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
 fi
 
-# Prepare CONFIDENCE_CLIENT_ID and CONFIDENCE_CLIENT_SECRET for TOML (escape quotes and backslashes)
-if [ -n "$CONFIDENCE_CLIENT_ID" ]; then
-    CLIENT_ID_TOML=$(printf '%s' "$CONFIDENCE_CLIENT_ID" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
-fi
+# Prepare CONFIDENCE_CLIENT_SECRET for TOML (escape quotes and backslashes)
 if [ -n "$CONFIDENCE_CLIENT_SECRET" ]; then
     CLIENT_SECRET_TOML=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
 fi
 
 # Update [vars] table with ALLOWED_ORIGIN, RESOLVER_STATE_ETAG and RESOLVER_VERSION, without duplicating the table
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_ID_TOML" ] || [ -n "$CLIENT_SECRET_TOML" ]; then
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^DEPLOYER_VERSION *= *.*$/d' wrangler.toml || true
-    sed -i.tmp '/^CONFIDENCE_CLIENT_ID *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_id="${CLIENT_ID_TOML}" -v client_secret="${CLIENT_SECRET_TOML}" '
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -284,7 +219,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (allowed != "") print "ALLOWED_ORIGIN = \"" allowed "\""
                 if (etag != "") print "RESOLVER_STATE_ETAG = \"" etag "\""
                 if (version != "") print "DEPLOYER_VERSION = \"" version "\""
-                if (client_id != "") print "CONFIDENCE_CLIENT_ID = \"" client_id "\""
                 if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
                 inserted=1
             }
@@ -298,9 +232,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     fi
     if [ -n "$DEPLOYER_VERSION" ]; then
         echo "✅ DEPLOYER_VERSION set to \"$DEPLOYER_VERSION\" in wrangler.toml"
-    fi
-    if [ -n "$CLIENT_ID_TOML" ]; then
-        echo "✅ CONFIDENCE_CLIENT_ID set in wrangler.toml"
     fi
     if [ -n "$CLIENT_SECRET_TOML" ]; then
         echo "✅ CONFIDENCE_CLIENT_SECRET set in wrangler.toml"

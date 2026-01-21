@@ -9,6 +9,7 @@ use worker::*;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use bytes::Bytes;
+use prost::Message;
 use serde_json::from_slice;
 use serde_json::json;
 
@@ -20,8 +21,18 @@ static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
 use confidence_resolver::Client;
 use once_cell::sync::Lazy;
 
-const ACCOUNT_ID: &str = include_str!("../../data/account_id");
-const STATE_JSON: &[u8] = include_bytes!("../../data/resolver_state_current.pb");
+/// SetResolverStateRequest message from the CDN.
+/// This matches the protobuf message format returned by the CDN.
+#[derive(Clone, PartialEq, Message)]
+pub struct SetResolverStateRequest {
+    #[prost(bytes = "bytes", tag = "1")]
+    pub state: Bytes,
+    #[prost(string, tag = "2")]
+    pub account_id: String,
+}
+
+/// The CDN response containing both the state and account_id
+const CDN_STATE_BYTES: &[u8] = include_bytes!("../../data/resolver_state_current.pb");
 const ENCRYPTION_KEY_BASE64: &str = include_str!("../../data/encryption_key");
 
 use confidence::flags::resolver::v1::Sdk;
@@ -31,11 +42,17 @@ use std::sync::{LazyLock, OnceLock};
 
 static FLAGS_LOGS_QUEUE: OnceLock<Queue> = OnceLock::new();
 
-static CONFIDENCE_CLIENT_ID: OnceLock<String> = OnceLock::new();
 static CONFIDENCE_CLIENT_SECRET: OnceLock<String> = OnceLock::new();
 
+/// Parsed CDN state request containing both state and account_id
+static CDN_STATE_REQUEST: Lazy<SetResolverStateRequest> = Lazy::new(|| {
+    SetResolverStateRequest::decode(Bytes::from_static(CDN_STATE_BYTES))
+        .expect("Failed to decode SetResolverStateRequest from CDN state")
+});
+
 static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
-    ResolverState::from_proto(STATE_JSON.to_owned().try_into().unwrap(), ACCOUNT_ID).unwrap()
+    let cdn_request = &*CDN_STATE_REQUEST;
+    ResolverState::from_proto(cdn_request.state.to_vec().try_into().unwrap(), &cdn_request.account_id).unwrap()
 });
 
 trait ResponseExt {
@@ -75,12 +92,7 @@ impl Host for H {
     }
 }
 
-fn set_client_creds(env: &Env) {
-    if let Ok(var) = env.var("CONFIDENCE_CLIENT_ID") {
-        let _ = CONFIDENCE_CLIENT_ID.set(var.to_string());
-    } else {
-        console_log!("no confidence client id provided");
-    }
+fn set_client_secret(env: &Env) {
     if let Ok(var) = env.var("CONFIDENCE_CLIENT_SECRET") {
         let _ = CONFIDENCE_CLIENT_SECRET.set(var.to_string());
     } else {
@@ -99,7 +111,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         }
     }
 
-    set_client_creds(&env);
+    set_client_secret(&env);
 
     let allowed_origin_env = env
         .var("ALLOWED_ORIGIN")
@@ -235,7 +247,7 @@ pub async fn consume_flag_logs_queue(
     env: Env,
     _ctx: Context,
 ) -> Result<()> {
-    set_client_creds(&env);
+    set_client_secret(&env);
 
     if let Ok(messages) = message_batch.messages() {
         let logs: Vec<WriteFlagLogsRequest> = messages
@@ -251,7 +263,6 @@ pub async fn consume_flag_logs_queue(
             .collect();
         let req = flag_logger::aggregate_batch(logs);
         send_flags_logs(
-            CONFIDENCE_CLIENT_ID.get().unwrap().as_str(),
             CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(),
             req,
         )
@@ -267,25 +278,12 @@ fn checkpoint() -> WriteFlagLogsRequest {
     req
 }
 
-fn get_token(client_id: &str, client_secret: &str) -> String {
-    let combined = format!("{}:{}", client_id, client_secret);
-    let encoded = STANDARD.encode(combined.as_bytes());
-    format!("Basic {}", encoded)
-}
-
-async fn send_flags_logs(
-    client_id: &str,
-    client_secret: &str,
-    message: WriteFlagLogsRequest,
-) -> Result<Response> {
-    let resolve_url = "https://resolver.confidence.dev/v1/flagLogs:write";
+async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {
+    let resolve_url = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
     let mut init = RequestInit::new();
     let headers = Headers::new();
     headers.set("Content-Type", "application/json")?;
-    headers.set(
-        "Authorization",
-        get_token(client_id, client_secret).as_str(),
-    )?;
+    headers.set("Authorization", &format!("ClientSecret {}", client_secret))?;
     init.with_headers(headers);
     init.with_method(Method::Post);
     let json = serde_json::to_string(&message)?;
