@@ -485,7 +485,7 @@ describe('createFlagBundle', () => {
       },
     });
 
-    const result = await provider.createFlagBundle({ targetingKey: 'user-456' });
+    const result = await provider.resolveFlagBundle({ targetingKey: 'user-456' });
 
     // Verify bundle structure
     expect(result.bundle.resolveId).toBe('resolve-bundle-123');
@@ -546,7 +546,7 @@ describe('createFlagBundle', () => {
       },
     });
 
-    await provider.createFlagBundle({ targetingKey: 'user-789' }, ['my-flag', 'other-flag']);
+    await provider.resolveFlagBundle({ targetingKey: 'user-789' }, 'my-flag', 'other-flag');
 
     expect(mockedWasmResolver.resolveWithSticky).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -555,6 +555,253 @@ describe('createFlagBundle', () => {
         }),
       }),
     );
+  });
+
+  it('includes ERROR entry for flags not found in response', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.resolveWithSticky.mockReturnValue({
+      success: {
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/found-flag',
+              variant: 'flags/found-flag/variants/test',
+              value: { enabled: true },
+              reason: RESOLVE_REASON_MATCH,
+            },
+          ],
+          resolveToken: new Uint8Array([1, 2, 3]),
+          resolveId: 'resolve-456',
+        },
+        materializationUpdates: [],
+      },
+    });
+
+    const result = await provider.resolveFlagBundle({ targetingKey: 'user-123' }, 'found-flag', 'missing-flag');
+
+    expect(result.bundle.flags['found-flag']).toEqual({
+      value: { enabled: true },
+      variant: 'flags/found-flag/variants/test',
+      reason: 'MATCH',
+    });
+
+    expect(result.bundle.flags['missing-flag']).toEqual({
+      value: undefined,
+      reason: 'ERROR',
+      errorCode: 'FLAG_NOT_FOUND',
+      errorMessage: "Flag 'missing-flag' was not found",
+    });
+  });
+});
+
+describe('type validation', () => {
+  const RESOLVE_REASON_MATCH = 1;
+
+  const mockResolveWithValue = (value: unknown) => {
+    mockedWasmResolver.resolveWithSticky.mockReturnValue({
+      success: {
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/my-flag',
+              variant: 'variant-a',
+              value,
+              reason: RESOLVE_REASON_MATCH,
+            },
+          ],
+          resolveToken: new Uint8Array(),
+          resolveId: 'resolve-123',
+        },
+        materializationUpdates: [],
+      },
+    });
+  };
+
+  it('returns default when flag value is string but default is boolean', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue('not-a-boolean');
+
+    const result = await provider.resolveBooleanEvaluation('my-flag', false, { targetingKey: 'user-1' });
+
+    expect(result.value).toBe(false);
+  });
+
+  it('returns default when flag value is number but default is string', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue(123);
+
+    const result = await provider.resolveStringEvaluation('my-flag', 'default', { targetingKey: 'user-1' });
+
+    expect(result.value).toBe('default');
+  });
+
+  it('returns default when flag value is boolean but default is number', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue(true);
+
+    const result = await provider.resolveNumberEvaluation('my-flag', 42, { targetingKey: 'user-1' });
+
+    expect(result.value).toBe(42);
+  });
+
+  it('returns default when object is missing required key', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ enabled: true });
+
+    const result = await provider.resolveObjectEvaluation(
+      'my-flag',
+      { enabled: false, limit: 10 },
+      { targetingKey: 'user-1' },
+    );
+
+    expect(result.value).toEqual({ enabled: false, limit: 10 });
+  });
+
+  it('returns default when object key has wrong type', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ enabled: 'yes', limit: 100 });
+
+    const result = await provider.resolveObjectEvaluation(
+      'my-flag',
+      { enabled: false, limit: 0 },
+      { targetingKey: 'user-1' },
+    );
+
+    expect(result.value).toEqual({ enabled: false, limit: 0 });
+  });
+
+  it('returns value when object has extra keys not in default', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ enabled: true, limit: 100, extra: 'included' });
+
+    const result = await provider.resolveObjectEvaluation(
+      'my-flag',
+      { enabled: false, limit: 0 },
+      { targetingKey: 'user-1' },
+    );
+
+    expect(result.value).toEqual({ enabled: true, limit: 100, extra: 'included' });
+  });
+
+  it('returns default when array is expected but string received', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ items: 'not-an-array' });
+
+    const result = await provider.resolveObjectEvaluation(
+      'my-flag',
+      { items: [] as string[] },
+      { targetingKey: 'user-1' },
+    );
+
+    expect(result.value).toEqual({ items: [] });
+  });
+
+  it('returns value when array items match expected type', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue(['a', 'b', 'c']);
+
+    const result = await provider.resolveObjectEvaluation('my-flag', ['default'], { targetingKey: 'user-1' });
+
+    expect(result.value).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns default when array items have wrong type', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue([1, 2, 3]);
+
+    const result = await provider.resolveObjectEvaluation('my-flag', ['default'], { targetingKey: 'user-1' });
+
+    expect(result.value).toEqual(['default']);
+  });
+
+  it('returns value for empty array when default is empty array', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue([]);
+
+    const result = await provider.resolveObjectEvaluation('my-flag', [] as string[], { targetingKey: 'user-1' });
+
+    expect(result.value).toEqual([]);
+  });
+
+  it('returns value for any array when default is empty array', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue([1, 2, 3]);
+
+    const result = await provider.resolveObjectEvaluation('my-flag', [] as number[], { targetingKey: 'user-1' });
+
+    expect(result.value).toEqual([1, 2, 3]);
+  });
+
+  it('returns null when both value and default are null', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue(null);
+
+    const result = await provider.resolveObjectEvaluation('my-flag', null, { targetingKey: 'user-1' });
+
+    expect(result.value).toBeNull();
+  });
+
+  it('returns default when value is object but default is null', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ enabled: true });
+
+    const result = await provider.resolveObjectEvaluation('my-flag', null, { targetingKey: 'user-1' });
+
+    expect(result.value).toBeNull();
+  });
+
+  it('returns default when value is null but default is object', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue(null);
+
+    const result = await provider.resolveObjectEvaluation('my-flag', { enabled: false }, { targetingKey: 'user-1' });
+
+    expect(result.value).toEqual({ enabled: false });
+  });
+
+  it('validates nested object types recursively', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ outer: { inner: 'wrong-type' } });
+
+    const result = await provider.resolveObjectEvaluation(
+      'my-flag',
+      { outer: { inner: 123 } },
+      { targetingKey: 'user-1' },
+    );
+
+    expect(result.value).toEqual({ outer: { inner: 123 } });
+  });
+
+  it('validates deeply nested structures correctly', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ level1: { level2: { level3: { value: 'deep' } } } });
+
+    const result = await provider.resolveObjectEvaluation(
+      'my-flag',
+      { level1: { level2: { level3: { value: '' } } } },
+      { targetingKey: 'user-1' },
+    );
+
+    expect(result.value).toEqual({ level1: { level2: { level3: { value: 'deep' } } } });
+  });
+
+  it('returns value with dot notation when nested type matches', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ enabled: true, limit: 100 });
+
+    const result = await provider.resolveBooleanEvaluation('my-flag.enabled', false, { targetingKey: 'user-1' });
+
+    expect(result.value).toBe(true);
+  });
+
+  it('returns default with dot notation when nested type mismatches', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockResolveWithValue({ enabled: 'yes', limit: 100 });
+
+    const result = await provider.resolveBooleanEvaluation('my-flag.enabled', false, { targetingKey: 'user-1' });
+
+    expect(result.value).toBe(false);
   });
 });
 

@@ -38,10 +38,7 @@ import {
   WriteOperationsRequest,
 } from './proto/confidence/flags/resolver/v1/internal_api';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
-import type { FlagBundle, FlagBundleResult, ResolvedFlagValue } from './react/types';
-
-// Re-export types for consumers
-export type { FlagBundle, FlagBundleResult, ResolvedFlagValue } from './react/types';
+import type { FlagBundle, FlagBundleResult, ResolvedFlagDetails } from './flagbundle.types';
 
 const logger = getLogger('provider');
 
@@ -321,25 +318,29 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   /**
-   * Creates a bundle of pre-resolved flag values for client-side consumption.
+   * Resolves a bundle of pre-resolved flag values for client-side consumption.
    * The bundle can be passed to client components without including the WASM resolver.
    *
+   * Flags that are requested but not found will be included in the bundle with
+   * `reason: 'ERROR'` and `errorCode: 'FLAG_NOT_FOUND'`.
+   *
    * @param context - The evaluation context for flag resolution
-   * @param flags - Optional list of specific flag names to resolve. If not provided, resolves all flags.
+   * @param flags - Specific flag names to resolve. If none provided, resolves all flags.
    * @returns A FlagBundleResult containing the bundle and a pre-bound applyFlag function
    *
    * @example
    * ```typescript
-   * const { bundle, applyFlag } = await provider.createFlagBundle({ targetingKey: 'user-123' });
-   * // Pass bundle to client, call applyFlag('my-flag') when flag is accessed
+   * const { bundle, applyFlag } = await provider.resolveFlagBundle(
+   *   { targetingKey: 'user-123' },
+   *   'feature-a',
+   *   'feature-b'
+   * );
+   * // Pass bundle to client, call applyFlag('feature-a') when flag is accessed
    * ```
    */
-  async createFlagBundle(context: EvaluationContext, flags?: string[]): Promise<FlagBundleResult> {
+  async resolveFlagBundle(context: EvaluationContext, ...flags: string[]): Promise<FlagBundleResult> {
     const flagNames = flags?.map(f => `flags/${f}`) ?? [];
 
-    // TODO: Evaluate whether we should use sticky resolve here or a simpler resolve.
-    // Sticky resolve handles materialization for consistent variant assignment across sessions,
-    // but for bundle creation we may want different behavior.
     const stickyRequest: ResolveWithStickyRequest = {
       resolveRequest: {
         flags: flagNames,
@@ -359,7 +360,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     const response = await this.resolveWithSticky(stickyRequest);
 
     // Convert resolved flags to bundle format
-    const resolvedFlags: Record<string, ResolvedFlagValue> = {};
+    const resolvedFlags: Record<string, ResolvedFlagDetails> = {};
     for (const flag of response.resolvedFlags) {
       // Extract flag name from "flags/my-flag" format
       const flagName = flag.flag.replace(/^flags\//, '');
@@ -370,9 +371,21 @@ export class ConfidenceServerProviderLocal implements Provider {
       };
     }
 
+    // Add ERROR entries for any requested flags that weren't in the response
+    for (const requestedFlag of flags) {
+      if (!(requestedFlag in resolvedFlags)) {
+        resolvedFlags[requestedFlag] = {
+          value: undefined,
+          reason: 'ERROR',
+          errorCode: 'FLAG_NOT_FOUND',
+          errorMessage: `Flag '${requestedFlag}' was not found`,
+        };
+      }
+    }
+
     const bundle: FlagBundle = {
       flags: resolvedFlags,
-      resolveToken: base64FromBytes(response.resolveToken),
+      resolveToken: base64FromBytes(response.resolveToken), // TODO keep this a byte array?
       resolveId: response.resolveId,
     };
 

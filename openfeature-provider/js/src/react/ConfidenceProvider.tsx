@@ -2,6 +2,8 @@
 import React, { createContext, useMemo } from 'react';
 import type { FlagBundle, ApplyFn } from './types';
 
+//TODO this should be a server component
+
 export interface ConfidenceContextValue {
   bundle: FlagBundle;
   apply: ApplyFn;

@@ -1,4 +1,10 @@
 /**
+ * Types for the Confidence OpenFeature provider.
+ * These types are used for the flag bundle API.
+ * @module
+ */
+
+/**
  * A resolved flag value with metadata
  * @public
  */
@@ -27,7 +33,7 @@ export interface FlagBundle {
 export type ApplyFn = (flagName: string) => Promise<void>;
 
 /**
- * Result of createFlagBundle with a pre-bound apply function
+ * Result of resolveFlagBundle with a pre-bound apply function
  * @public
  */
 export interface FlagBundleResult {
