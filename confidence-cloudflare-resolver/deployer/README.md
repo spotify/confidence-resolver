@@ -7,7 +7,7 @@ Docker container used to deploy the Confidence Rust resolver to CloudFlare.
 From the **root of the repository**, run:
 
 ```
-docker build -f confidence-cloudflare-resolver/deployer/Dockerfile -t <YOUR_IMAGE_NAME> .
+docker build --target confidence-cloudflare-resolver.deployer -t <YOUR_IMAGE_NAME> .
 ```
 
 # Usage
