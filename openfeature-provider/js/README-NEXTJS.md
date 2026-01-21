@@ -139,8 +139,11 @@ export default async function Page() {
   const context = { visitor_id: 'user-123' };
   const { bundle } = await getBundle(context);
 
-  // Bind the server action with the resolveToken
-  const apply = applyFlag.bind(null, bundle.resolveToken);
+  // Closure-based server action (resolveToken is encrypted)
+  async function apply(flagName: string) {
+    'use server';
+    await applyFlag(bundle.resolveToken, flagName);
+  }
 
   return (
     <ConfidenceProvider bundle={bundle} apply={apply}>
@@ -149,6 +152,27 @@ export default async function Page() {
   );
 }
 ```
+
+### Server Action Security
+
+Next.js automatically encrypts closed-over variables in server actions. The example above uses a closure so that `resolveToken` is encrypted when sent to the client.
+
+**Avoid using `.bind()`** for sensitive values:
+
+```tsx
+// ⚠️ Values passed via .bind() are NOT encrypted
+const apply = applyFlag.bind(null, bundle.resolveToken);
+
+// ✅ Closed-over values ARE encrypted
+async function apply(flagName: string) {
+  'use server';
+  await applyFlag(bundle.resolveToken, flagName);
+}
+```
+
+**Multi-server deployments:** Next.js generates a new encryption key per build. When self-hosting across multiple servers, set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` to ensure all instances use the same key.
+
+For more details, see the [Next.js Security Guide](https://nextjs.org/docs/app/guides/data-security).
 
 ---
 
