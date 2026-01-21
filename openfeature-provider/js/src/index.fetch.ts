@@ -1,26 +1,25 @@
-import fs from 'node:fs/promises';
 import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
-import { WasmResolver } from './WasmResolver';
 import { LocalResolver } from './LocalResolver';
+import { WasmResolver } from './WasmResolver';
 export type { MaterializationStore } from './materialization';
 
 let resolver: Promise<LocalResolver> | null = null;
+
 export interface ProviderOptionsExt extends ProviderOptions {
-  wasmPath?: string;
+  wasmUrl?: URL | string;
 }
 
 export function createConfidenceServerProvider({
-  wasmPath,
+  wasmUrl,
   ...options
 }: ProviderOptionsExt): ConfidenceServerProviderLocal {
   if (!resolver) {
-    resolver = createResolver(require.resolve('./confidence_resolver.wasm'));
+    resolver = createResolver(wasmUrl ?? new URL('confidence_resolver.wasm', import.meta.url));
   }
   return new ConfidenceServerProviderLocal(resolver, options);
 }
 
-async function createResolver(wasmPath: string): Promise<LocalResolver> {
-  const buffer = await fs.readFile(wasmPath);
-  const module = await WebAssembly.compile(buffer as BufferSource);
+async function createResolver(wasmUrl: URL | string): Promise<LocalResolver> {
+  const module = await WebAssembly.compileStreaming(fetch(wasmUrl));
   return new WasmResolver(module);
 }
