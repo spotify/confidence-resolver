@@ -1,13 +1,13 @@
 //! Log management for sending flag logs to the Confidence API.
 
 use prost::Message;
-use reqwest::Client;
+use reqwest_middleware::ClientWithMiddleware;
 
 use confidence_resolver::assign_logger::AssignLogger;
 use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
 use confidence_resolver::resolve_logger::ResolveLogger;
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::host::NativeHost;
 
 /// API endpoint for flag logs.
@@ -18,23 +18,13 @@ const LOG_TARGET_BYTES: usize = 4 * 1024 * 1024;
 
 /// Log sender that sends flag logs to the Confidence API.
 pub struct LogSender {
-    client: Client,
+    client: ClientWithMiddleware,
     client_secret: String,
 }
 
 impl LogSender {
-    /// Create a new log sender for the given client secret.
-    pub fn new(client_secret: String) -> Result<Self> {
-        Ok(Self {
-            client: Client::builder()
-                .build()
-                .map_err(|e| Error::Configuration(e.to_string()))?,
-            client_secret,
-        })
-    }
-
-    /// Create a new log sender with a custom HTTP client.
-    pub fn with_client(client_secret: String, client: Client) -> Self {
+    /// Create a new log sender with the given client and client secret.
+    pub fn new(client: ClientWithMiddleware, client_secret: String) -> Self {
         Self {
             client,
             client_secret,
@@ -76,17 +66,10 @@ pub struct LogManager {
 }
 
 impl LogManager {
-    /// Create a new log manager.
-    pub fn new(client_secret: String) -> Result<Self> {
-        Ok(Self {
-            sender: LogSender::new(client_secret)?,
-        })
-    }
-
-    /// Create a new log manager with a custom HTTP client.
-    pub fn with_client(client_secret: String, client: Client) -> Self {
+    /// Create a new log manager with the given client and client secret.
+    pub fn new(client: ClientWithMiddleware, client_secret: String) -> Self {
         Self {
-            sender: LogSender::with_client(client_secret, client),
+            sender: LogSender::new(client, client_secret),
         }
     }
 

@@ -13,6 +13,8 @@ use open_feature::{
     EvaluationContext, EvaluationContextFieldValue, EvaluationError, EvaluationErrorCode,
     EvaluationReason, EvaluationResult, StructValue, Value,
 };
+use reqwest::Client;
+use reqwest_middleware::ClientBuilder;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -23,6 +25,7 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::{
 use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
 
 use crate::error::{Error, Result};
+use crate::gateway::GatewayMiddleware;
 use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER};
 use crate::logger::LogManager;
 use crate::materialization::{
@@ -66,6 +69,10 @@ pub struct ProviderOptions {
     /// Materialization store for sticky resolution.
     /// If not set, sticky resolution is disabled.
     pub materialization_store: Option<MaterializationStoreConfig>,
+    /// When set, all requests will be sent to this URL instead of the default
+    /// Confidence endpoints. The original host is preserved in the `X-Forwarded-Host` header.
+    /// This is useful for routing through a proxy or mock server.
+    pub gateway_url: Option<String>,
 }
 
 impl ProviderOptions {
@@ -78,6 +85,7 @@ impl ProviderOptions {
             flush_interval: None,
             assign_flush_interval: None,
             materialization_store: None,
+            gateway_url: None,
         }
     }
 
@@ -104,6 +112,12 @@ impl ProviderOptions {
         self.materialization_store = Some(MaterializationStoreConfig::Custom(store));
         self
     }
+
+    /// Set a gateway URL to route all HTTP requests through.
+    pub fn with_gateway_url(mut self, url: impl Into<String>) -> Self {
+        self.gateway_url = Some(url.into());
+        self
+    }
 }
 
 /// OpenFeature provider for Confidence using native Rust resolver.
@@ -125,8 +139,21 @@ pub struct ConfidenceProvider {
 impl ConfidenceProvider {
     /// Create a new Confidence provider.
     pub fn new(options: ProviderOptions) -> Result<Self> {
-        let state_fetcher = Arc::new(StateFetcher::new(options.client_secret.clone())?);
-        let log_manager = Arc::new(LogManager::new(options.client_secret.clone())?);
+        let mut client_builder = ClientBuilder::new(Client::new());
+
+        if let Some(url) = options.gateway_url {
+            client_builder = client_builder.with(GatewayMiddleware::from_str(&url).unwrap());
+        }
+        let client = client_builder.build();
+
+        let state_fetcher = Arc::new(StateFetcher::new(
+            client.clone(),
+            options.client_secret.clone(),
+        ));
+        let log_manager = Arc::new(LogManager::new(
+            client.clone(),
+            options.client_secret.clone(),
+        ));
 
         // Create materialization store if configured
         let materialization_store: Option<Arc<dyn MaterializationStore>> =
@@ -134,6 +161,7 @@ impl ConfidenceProvider {
                 Some(MaterializationStoreConfig::ConfidenceRemote) => {
                     use crate::materialization::ConfidenceRemoteMaterializationStore;
                     Some(Arc::new(ConfidenceRemoteMaterializationStore::new(
+                        client.clone(),
                         options.client_secret.clone(),
                     )?))
                 }

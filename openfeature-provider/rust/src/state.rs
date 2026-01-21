@@ -5,7 +5,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwapOption;
 use bytes::Bytes;
 use prost::Message;
-use reqwest::Client;
+use reqwest_middleware::ClientWithMiddleware;
 use sha2::{Digest, Sha256};
 use tokio::sync::RwLock;
 
@@ -29,30 +29,15 @@ pub struct SetResolverStateRequest {
 
 /// State fetcher that retrieves resolver state from the CDN.
 pub struct StateFetcher {
-    client: Client,
+    client: ClientWithMiddleware,
     client_secret: String,
     cdn_url: String,
     etag: RwLock<Option<String>>,
 }
 
 impl StateFetcher {
-    /// Create a new state fetcher for the given client secret.
-    pub fn new(client_secret: String) -> Result<Self> {
-        let hash = Self::hash_client_secret(&client_secret);
-        let cdn_url = format!("{}/{}", CDN_BASE_URL, hash);
-
-        Ok(Self {
-            client: Client::builder()
-                .build()
-                .map_err(|e| Error::Configuration(e.to_string()))?,
-            client_secret,
-            cdn_url,
-            etag: RwLock::new(None),
-        })
-    }
-
-    /// Create a new state fetcher with a custom HTTP client.
-    pub fn with_client(client_secret: String, client: Client) -> Self {
+    /// Create a new state fetcher with the given client and client secret.
+    pub fn new(client: ClientWithMiddleware, client_secret: String) -> Self {
         let hash = Self::hash_client_secret(&client_secret);
         let cdn_url = format!("{}/{}", CDN_BASE_URL, hash);
 
@@ -86,7 +71,10 @@ impl StateFetcher {
             }
         }
 
-        let response = request.send().await?;
+        let response = request.send().await.map_err(|e| {
+            tracing::warn!("Failed to fetch state from {}: {}", self.cdn_url, e);
+            e
+        })?;
 
         // Check for 304 Not Modified
         if response.status() == reqwest::StatusCode::NOT_MODIFIED {
