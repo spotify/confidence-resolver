@@ -354,7 +354,7 @@ RUN make build
 # Verify no bundle splitting occurred
 RUN set -e; \
     echo "Verifying no bundle splitting in JS artifacts..."; \
-    UNEXPECTED_FILES=$(find dist -name '*.js' ! -name 'index.node.js' ! -name 'index.browser.js' | head -10); \
+    UNEXPECTED_FILES=$(find dist -name '*.js' ! -name 'index.node.js' ! -name 'index.inlined.js' ! -name 'index.fetch.js' | head -10); \
     if [ -n "$UNEXPECTED_FILES" ]; then \
       echo ""; \
       echo "❌ ERROR: Bundle splitting detected!"; \
