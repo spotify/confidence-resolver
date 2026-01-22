@@ -47,7 +47,7 @@ test: $(WASM_ARTIFACT) $(INSTALL_STAMP) $(GEN_TS)
 	yarn test --run --exclude='**/*.e2e.test.ts'
 
 test-e2e: $(WASM_ARTIFACT) $(INSTALL_STAMP) $(GEN_TS)
-	yarn test --run e2e.test
+	yarn workspace @spotify-confidence/openfeature-server-provider-local test --run e2e.test
 
 bench-local: $(BUILD_STAMP)
 	cd bench && DEBUG=* node bench.mjs -duration 30 -flag tutorial-feature -client-secret mkjJruAATQWjeY7foFIWfVAcBWnci2YF
