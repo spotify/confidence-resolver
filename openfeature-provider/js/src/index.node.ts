@@ -14,7 +14,7 @@ export function createConfidenceServerProvider({
   ...options
 }: ProviderOptionsExt): ConfidenceServerProviderLocal {
   if (!resolver) {
-    resolver = createResolver(require.resolve('./confidence_resolver.wasm'));
+    resolver = createResolver(wasmPath ?? require.resolve('./confidence_resolver.wasm'));
   }
   return new ConfidenceServerProviderLocal(resolver, options);
 }
