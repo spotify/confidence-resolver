@@ -1,101 +1,18 @@
 {
-  "name": "@spotify-confidence/openfeature-server-provider-local",
-  "version": "0.6.0",
-  "description": "Spotify Confidence Open Feature provider",
-  "type": "module",
-  "files": [
-    "dist",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE"
+  "name": "@spotify-confidence/js-packages",
+  "private": true,
+  "workspaces": [
+    "packages/*"
   ],
-  "main": "./dist/index.node.js",
-  "module": "./dist/index.browser.js",
-  "types": "./dist/index.node.d.ts",
-  "exports": {
-    ".": {
-      "node": {
-        "types": "./dist/index.node.d.ts",
-        "default": "./dist/index.node.js"
-      },
-      "browser": {
-        "types": "./dist/index.browser.d.ts",
-        "default": "./dist/index.browser.js"
-      },
-      "default": {
-        "types": "./dist/index.node.d.ts",
-        "default": "./dist/index.node.js"
-      }
-    },
-    "./react": {
-      "types": "./dist/index.react.d.ts",
-      "import": "./dist/index.react.js",
-      "default": "./dist/index.react.js"
-    },
-    "./package.json": "./package.json"
-  },
+  "packageManager": "yarn@4.6.0",
   "scripts": {
-    "build": "tsdown",
-    "dev": "tsdown --watch",
+    "build": "yarn workspaces foreach -A --topological run build",
+    "test": "yarn workspaces foreach -A run test",
     "format": "prettier --config prettier.config.cjs -w .",
-    "format:check": "prettier --config prettier.config.cjs -c .",
-    "test": "vitest",
-    "proto:gen": "rm -rf src/proto && mkdir -p src/proto && protoc --plugin=node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt useOptionals=messages --ts_proto_opt esModuleInterop=true --ts_proto_out src/proto -Iproto -I../../openfeature-provider/proto test-only.proto ../../openfeature-provider/proto/confidence/wasm/messages.proto ../../openfeature-provider/proto/confidence/wasm/wasm_api.proto ../../openfeature-provider/proto/confidence/flags/resolver/v1/types.proto ../../openfeature-provider/proto/confidence/flags/resolver/v1/api.proto ../../openfeature-provider/proto/confidence/flags/resolver/v1/internal_api.proto ../../openfeature-provider/proto/confidence/flags/types/v1/types.proto"
-  },
-  "dependencies": {
-    "@bufbuild/protobuf": "^2.9.0"
+    "format:check": "prettier --config prettier.config.cjs -c ."
   },
   "devDependencies": {
-    "@openfeature/core": "^1.9.0",
-    "@openfeature/server-sdk": "^1.19.0",
     "@spotify/prettier-config": "^15.0.0",
-    "@testing-library/dom": "^10.4.0",
-    "@testing-library/react": "^16.0.0",
-    "@types/debug": "^4",
-    "@types/node": "^24.0.1",
-    "@types/react": "^18.0.0",
-    "@vitest/coverage-v8": "^3.2.4",
-    "debug": "^4.4.3",
-    "dotenv": "^17.2.2",
-    "jsdom": "^26.1.0",
-    "prettier": "^2.8.8",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "rolldown": "1.0.0-beta.38",
-    "ts-proto": "^2.7.3",
-    "tsdown": "latest",
-    "vitest": "^3.2.4"
-  },
-  "peerDependencies": {
-    "debug": "^4.4.3",
-    "react": "^18.0.0 || ^19.0.0"
-  },
-  "peerDependenciesMeta": {
-    "debug": {
-      "optional": true
-    },
-    "react": {
-      "optional": true
-    }
-  },
-  "packageManager": "yarn@4.6.0",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/spotify/confidence-resolver",
-    "directory": "openfeature-provider/js"
-  },
-  "license": "Apache-2.0",
-  "keywords": [
-    "openfeature",
-    "feature-flags",
-    "confidence",
-    "spotify",
-    "wasm",
-    "provider"
-  ],
-  "author": "Spotify",
-  "bugs": {
-    "url": "https://github.com/spotify/confidence-resolver/issues"
-  },
-  "homepage": "https://github.com/spotify/confidence-resolver?tab=readme-ov-file#confidence-rust-flags-resolver"
+    "prettier": "^2.8.8"
+  }
 }

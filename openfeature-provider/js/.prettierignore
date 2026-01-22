@@ -1,9 +1,12 @@
 node_modules/
 dist/
-src/proto/
+**/dist/
+packages/server-provider/src/proto/
 .idea
 coverage/*
 *.log
 api/*
 CHANGELOG.md
 README.md
+packages/*/CHANGELOG.md
+packages/*/README.md

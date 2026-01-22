@@ -1,12 +1,14 @@
+import fs from 'node:fs/promises';
 import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
 import { WasmResolver } from './WasmResolver';
 
 export type { MaterializationStore } from './materialization';
-export type { FlagBundle, FlagBundleResult, ResolvedFlagDetails, ApplyFn } from './flagbundle.types';
+export type { FlagBundle, FlagBundleResult, ResolvedFlagDetails, ApplyFn } from './types';
 
-const wasmUrl = new URL('confidence_resolver.wasm', import.meta.url);
+const wasmPath = require.resolve('./confidence_resolver.wasm');
+const buffer = await fs.readFile(wasmPath);
 
-const module = await WebAssembly.compileStreaming(fetch(wasmUrl));
+const module = await WebAssembly.compile(buffer as BufferSource);
 const resolver = new WasmResolver(module);
 
 export function createConfidenceServerProvider(options: ProviderOptions): ConfidenceServerProviderLocal {

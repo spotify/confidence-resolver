@@ -1,0 +1,56 @@
+{
+  "name": "@spotify-confidence/react",
+  "version": "0.1.0",
+  "description": "React hooks and components for Confidence feature flags",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^18.0.0",
+    "jsdom": "^26.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsdown": "latest",
+    "vitest": "^3.2.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spotify/confidence-resolver",
+    "directory": "openfeature-provider/js/packages/react"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "react",
+    "feature-flags",
+    "confidence",
+    "spotify",
+    "hooks"
+  ],
+  "author": "Spotify",
+  "bugs": {
+    "url": "https://github.com/spotify/confidence-resolver/issues"
+  },
+  "homepage": "https://github.com/spotify/confidence-resolver?tab=readme-ov-file#confidence-rust-flags-resolver"
+}

@@ -16,7 +16,7 @@ import { WriteFlagLogsRequest } from './proto/test-only';
  * though full parsing of the nested messages would require additional proto definitions.
  */
 
-const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
+const moduleBytes = readFileSync(__dirname + '/../../../../../wasm/confidence_resolver.wasm');
 const FLAG_CLIENT_SECRET = 'ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv';
 const TARGETING_KEY = 'test-a';
 

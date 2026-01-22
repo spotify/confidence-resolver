@@ -1,16 +1,22 @@
-# Next.js Integration Guide
+# @spotify-confidence/react
 
-This guide covers integrating the Confidence OpenFeature provider with Next.js App Router using React Server Components.
+React hooks and components for Confidence feature flags.
 
 ## Overview
 
-A lightweight React module (`~1KB`) is available that consumes pre-resolved flags without bundling the WASM resolver (`~110KB`). Flags are resolved on the server and passed to client components via React Context.
+A lightweight React module (`~1KB`) that consumes pre-resolved flags without bundling the WASM resolver (`~110KB`). Flags are resolved on the server and passed to client components via React Context.
 
 ## Installation
 
 ```bash
-yarn add @spotify-confidence/openfeature-server-provider-local react
+# Client-side React package
+yarn add @spotify-confidence/react
+
+# Server-side provider (installed separately, typically in your backend or Next.js server code)
+yarn add @spotify-confidence/openfeature-server-provider-local
 ```
+
+Note: The packages are independent and have no runtime dependency on each other. The server-provider resolves flags and creates bundles that are passed to the React client components.
 
 ## Next.js 16 Configuration
 
@@ -38,7 +44,7 @@ If you need to use Turbopack, create local wrapper components that re-export the
 'use client';
 
 import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react';
-import type { FlagBundle, ApplyFn } from '@spotify-confidence/openfeature-server-provider-local/react';
+import type { FlagBundle, ApplyFn } from '@spotify-confidence/react';
 
 interface ConfidenceContextValue {
   bundle: FlagBundle;
@@ -106,7 +112,7 @@ export function getProvider() {
 
 export async function getBundle(context: Record<string, unknown>) {
   if (!provider) throw new Error('Provider not initialized');
-  return provider.createFlagBundle(context);
+  return provider.resolveFlagBundle(context);
 }
 ```
 
@@ -130,7 +136,7 @@ export async function applyFlag(resolveToken: string, flagName: string): Promise
 // app/page.tsx
 import { initializeConfidence, getBundle } from '@/lib/confidence';
 import { applyFlag } from '@/lib/actions';
-import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react';
+import { ConfidenceProvider } from '@spotify-confidence/react';
 import { MyClientComponent } from '@/components/MyClientComponent';
 
 export default async function Page() {
@@ -185,7 +191,7 @@ By default, `useFlag` automatically logs exposure when the component mounts:
 ```tsx
 'use client';
 
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react';
+import { useFlag } from '@spotify-confidence/react';
 
 export function FeatureButton() {
   const enabled = useFlag('my-feature.enabled', false);
@@ -200,10 +206,10 @@ For cases where you want to control when exposure is logged (e.g., only when a u
 ```tsx
 'use client';
 
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react';
+import { useFlagDetails } from '@spotify-confidence/react';
 
 export function Checkout() {
-  const { value: discountEnabled, expose } = useFlag('checkout.discount', false, { skipExposure: true });
+  const { value: discountEnabled, expose } = useFlagDetails('checkout.discount', false, { expose: false });
 
   const handlePurchase = () => {
     if (discountEnabled) {
@@ -221,7 +227,7 @@ export function Checkout() {
 
 ## API Reference
 
-### `createFlagBundle(context, flags?)`
+### `resolveFlagBundle(context, flags?)`
 
 Creates a bundle of pre-resolved flag values for client-side consumption.
 
@@ -229,10 +235,19 @@ Creates a bundle of pre-resolved flag values for client-side consumption.
 - `flags` (optional): Array of specific flag names to resolve. If omitted, resolves all flags.
 - Returns: `{ bundle, applyFlag }` where `applyFlag` is an async function pre-bound to the resolve token
 
-### `useFlag(flagName, defaultValue, options?)`
+### `useFlag(flagName, defaultValue)`
 
-React hook for accessing flag values.
+React hook for accessing flag values. Automatically logs exposure on mount.
 
-- `flagName`: Name of the flag to access
-- `defaultValue`: Default value if flag is not found
-- `options.skipExposure`: When `true`, returns `{ value, expose }` for manual exposure control
+- `flagName`: Name of the flag to access (supports dot notation for nested values)
+- `defaultValue`: Default value if flag is not found or type doesn't match
+- Returns: The flag value
+
+### `useFlagDetails(flagName, defaultValue, options?)`
+
+React hook for accessing flag values with optional manual exposure control.
+
+- `flagName`: Name of the flag to access (supports dot notation for nested values)
+- `defaultValue`: Default value if flag is not found or type doesn't match
+- `options.expose`: Set to `false` for manual exposure control
+- Returns: `{ value, expose? }` where `expose` is a function when using manual mode

@@ -17,6 +17,7 @@ jobs:
       cloudflare_resolver_release_created: ${{ steps.releasemanifest.outputs['confidence-cloudflare-resolver--release_created'] }}
       java_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/java--release_created'] }}
       js_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/js--release_created'] }}
+      js_react_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/js-react--release_created'] }}
       ruby_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/ruby--release_created'] }}
       rust_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/rust--release_created'] }}
     steps:
@@ -167,6 +168,41 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
       
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Publish to npm with OIDC
+        run: npm publish ./artifacts/package.tgz --provenance --access public
+
+  publish-js-react-provider-release:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: deployment
+    permissions:
+      id-token: write  # Required for npm OIDC publishing
+      contents: read
+    if: ${{ needs.release.outputs.js_react_provider_release_created == 'true' }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and extract package tarball with Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: openfeature-provider-js-react.artifact
+          outputs: type=local,dest=./artifacts
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Update npm
         run: npm install -g npm@latest
 

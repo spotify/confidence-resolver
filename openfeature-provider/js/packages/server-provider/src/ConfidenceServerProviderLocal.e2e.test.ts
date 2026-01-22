@@ -4,7 +4,7 @@ import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { readFileSync } from 'node:fs';
 import { WasmResolver } from './WasmResolver';
 
-const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
+const moduleBytes = readFileSync(__dirname + '/../../../../../wasm/confidence_resolver.wasm');
 const module = new WebAssembly.Module(moduleBytes);
 const resolver = new WasmResolver(module);
 const confidenceProvider = new ConfidenceServerProviderLocal(resolver, {

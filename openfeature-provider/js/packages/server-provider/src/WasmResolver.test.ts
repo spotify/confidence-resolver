@@ -5,8 +5,8 @@ import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
 
-const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
-const stateBytes = readFileSync(__dirname + '/../../../wasm/resolver_state.pb');
+const moduleBytes = readFileSync(__dirname + '/../../../../../wasm/confidence_resolver.wasm');
+const stateBytes = readFileSync(__dirname + '/../../../../../wasm/resolver_state.pb');
 
 const module = new WebAssembly.Module(moduleBytes);
 const CLIENT_SECRET = 'mkjJruAATQWjeY7foFIWfVAcBWnci2YF';

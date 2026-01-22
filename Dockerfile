@@ -284,7 +284,7 @@ FROM python-host-base AS python-host.test
 RUN make run
 
 # ==============================================================================
-# OpenFeature Provider (TypeScript) - Build and test
+# OpenFeature Provider (TypeScript) - Build and test (yarn workspaces)
 # ==============================================================================
 FROM node:20-alpine AS openfeature-provider-js-base
 
@@ -296,29 +296,47 @@ WORKDIR /app
 # Enable Corepack for Yarn
 RUN corepack enable
 
-# Copy package files for dependency caching
+# Copy workspace root package files for dependency caching
 COPY \
     openfeature-provider/js/Makefile \
     openfeature-provider/js/package.json \
     openfeature-provider/js/yarn.lock \
     openfeature-provider/js/.yarnrc.yml \
-    openfeature-provider/js/README.md \
-    openfeature-provider/js/CHANGELOG.md \
-    openfeature-provider/js/LICENSE \
     ./
-COPY openfeature-provider/js/proto ./proto
 
-# Copy proto files needed for proto generation
+# Copy package.json files for each workspace package
+COPY openfeature-provider/js/packages/server-provider/package.json ./packages/server-provider/
+COPY openfeature-provider/js/packages/react/package.json ./packages/react/
+
+# Copy proto files
+COPY openfeature-provider/js/proto ./proto
 COPY openfeature-provider/proto ../../../openfeature-provider/proto
 
 # Install dependencies (this layer will be cached)
 ENV IN_DOCKER_BUILD=1
 RUN make install
 
-# Copy source and config
-COPY openfeature-provider/js/src ./src/
-COPY openfeature-provider/js/tsconfig.json openfeature-provider/js/tsdown.config.ts openfeature-provider/js/vitest.config.ts ./
-COPY openfeature-provider/js/Makefile ./
+# Copy server-provider source and config
+COPY openfeature-provider/js/packages/server-provider/src ./packages/server-provider/src/
+COPY openfeature-provider/js/packages/server-provider/tsconfig.json \
+     openfeature-provider/js/packages/server-provider/tsdown.config.ts \
+     openfeature-provider/js/packages/server-provider/vitest.config.ts \
+     openfeature-provider/js/packages/server-provider/README.md \
+     openfeature-provider/js/packages/server-provider/CHANGELOG.md \
+     ./packages/server-provider/
+
+# Copy react package source and config
+COPY openfeature-provider/js/packages/react/src ./packages/react/src/
+COPY openfeature-provider/js/packages/react/tsconfig.json \
+     openfeature-provider/js/packages/react/tsdown.config.ts \
+     openfeature-provider/js/packages/react/vitest.config.ts \
+     openfeature-provider/js/packages/react/README.md \
+     openfeature-provider/js/packages/react/CHANGELOG.md \
+     ./packages/react/
+
+# Copy LICENSE for both packages
+COPY openfeature-provider/js/LICENSE ./packages/server-provider/
+COPY openfeature-provider/js/LICENSE ./packages/react/
 
 # Copy WASM module
 COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ../../../wasm/confidence_resolver.wasm
@@ -351,37 +369,63 @@ FROM openfeature-provider-js-base AS openfeature-provider-js.build
 
 RUN make build
 
-# Verify no bundle splitting occurred
+# Verify no bundle splitting occurred in server-provider
 RUN set -e; \
-    echo "Verifying no bundle splitting in JS artifacts..."; \
-    UNEXPECTED_FILES=$(find dist -name '*.js' ! -name 'index.node.js' ! -name 'index.browser.js' ! -name 'index.react.js' | head -10); \
+    echo "Verifying no bundle splitting in server-provider artifacts..."; \
+    UNEXPECTED_FILES=$(find packages/server-provider/dist -name '*.js' -o -name '*.mjs' | grep -v 'index.node.mjs' | grep -v 'index.browser.js' | head -10); \
     if [ -n "$UNEXPECTED_FILES" ]; then \
       echo ""; \
-      echo "❌ ERROR: Bundle splitting detected!"; \
+      echo "❌ ERROR: Bundle splitting detected in server-provider!"; \
       echo ""; \
-      echo "Found unexpected JavaScript files in dist/:"; \
+      echo "Found unexpected JavaScript files:"; \
       echo "$UNEXPECTED_FILES"; \
-      echo ""; \
-      echo "Only index.node.js, index.browser.js, and index.react.js should be present."; \
-      echo "Check tsdown.config.ts configuration to prevent code splitting."; \
-      echo ""; \
       exit 1; \
     fi; \
-    echo "✅ No bundle splitting detected - only expected files present"
+    echo "✅ No bundle splitting detected in server-provider"
+
+# Verify no bundle splitting occurred in react package
+RUN set -e; \
+    echo "Verifying no bundle splitting in react artifacts..."; \
+    UNEXPECTED_FILES=$(find packages/react/dist -name '*.js' | grep -v 'index.js' | head -10); \
+    if [ -n "$UNEXPECTED_FILES" ]; then \
+      echo ""; \
+      echo "❌ ERROR: Bundle splitting detected in react!"; \
+      echo ""; \
+      echo "Found unexpected JavaScript files:"; \
+      echo "$UNEXPECTED_FILES"; \
+      exit 1; \
+    fi; \
+    echo "✅ No bundle splitting detected in react"
 
 # ==============================================================================
-# Pack OpenFeature Provider (JS) - Create tarball for publishing
+# Pack OpenFeature Provider (JS server-provider) - Create tarball for publishing
 # ==============================================================================
 FROM openfeature-provider-js.build AS openfeature-provider-js.pack
 
+WORKDIR /app/packages/server-provider
 RUN yarn pack
 
 # ==============================================================================
-# Extract OpenFeature Provider (JS) package artifact
+# Pack OpenFeature Provider (JS react) - Create tarball for publishing
+# ==============================================================================
+FROM openfeature-provider-js.build AS openfeature-provider-js-react.pack
+
+WORKDIR /app/packages/react
+RUN yarn pack
+
+# ==============================================================================
+# Extract OpenFeature Provider (JS server-provider) package artifact
 # ==============================================================================
 FROM scratch AS openfeature-provider-js.artifact
 
-COPY --from=openfeature-provider-js.pack /app/package.tgz /package.tgz
+COPY --from=openfeature-provider-js.pack /app/packages/server-provider/package.tgz /package.tgz
+
+# ==============================================================================
+# Extract OpenFeature Provider (JS react) package artifact
+# ==============================================================================
+FROM scratch AS openfeature-provider-js-react.artifact
+
+COPY --from=openfeature-provider-js-react.pack /app/packages/react/package.tgz /package.tgz
 
 # ==============================================================================
 # OpenFeature Provider (Go) - Build and test
@@ -664,7 +708,8 @@ COPY --from=confidence-cloudflare-resolver.lint /workspace/Cargo.toml /markers/l
 
 # Force build stages to run
 COPY --from=confidence-cloudflare-resolver.build /workspace/Cargo.toml /markers/build-cloudflare
-COPY --from=openfeature-provider-js.build /app/dist/index.node.js /artifacts/openfeature-js/
+COPY --from=openfeature-provider-js.build /app/packages/server-provider/dist/index.node.mjs /artifacts/openfeature-js/
+COPY --from=openfeature-provider-js.build /app/packages/react/dist/index.js /artifacts/openfeature-js-react/
 COPY --from=openfeature-provider-java.build /app/target/*.jar /artifacts/openfeature-java/
 COPY --from=openfeature-provider-go.build /app/.build.stamp /artifacts/openfeature-go/
 COPY --from=openfeature-provider-ruby.build /app/.build.stamp /artifacts/openfeature-ruby/

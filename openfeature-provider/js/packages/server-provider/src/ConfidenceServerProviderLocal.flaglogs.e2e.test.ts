@@ -10,7 +10,7 @@ import { createCapturingLoggingBackend } from './test-helpers';
  * End-to-end tests that verify WriteFlagLogs successfully sends to the real backend.
  */
 
-const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
+const moduleBytes = readFileSync(__dirname + '/../../../../../wasm/confidence_resolver.wasm');
 const FLAG_CLIENT_SECRET = 'ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv';
 const TARGETING_KEY = 'test-a';
 

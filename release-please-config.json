@@ -41,10 +41,16 @@
       ]
     },
     "openfeature-provider/js": {
-      "path": "openfeature-provider/js",
-      "release-type": "rust",
+      "path": "openfeature-provider/js/packages/server-provider",
+      "release-type": "node",
       "changelog-path": "CHANGELOG.md",
       "extra-files": ["package.json", "src/version.ts"]
+    },
+    "openfeature-provider/js-react": {
+      "path": "openfeature-provider/js/packages/react",
+      "release-type": "node",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": ["package.json"]
     },
     "openfeature-provider/go": {
       "path": "openfeature-provider/go",

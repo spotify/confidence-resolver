@@ -38,7 +38,7 @@ import {
   WriteOperationsRequest,
 } from './proto/confidence/flags/resolver/v1/internal_api';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
-import type { FlagBundle, FlagBundleResult, ResolvedFlagDetails } from './flagbundle.types';
+import type { FlagBundle, FlagBundleResult, ResolvedFlagDetails } from './types';
 
 const logger = getLogger('provider');
 

@@ -1,4 +1,10 @@
 /**
+ * Types for the Confidence React package.
+ * These types are duplicated from the server-provider to avoid a runtime dependency.
+ * @module
+ */
+
+/**
  * A resolved flag value with metadata
  * @public
  */
@@ -27,7 +33,7 @@ export interface FlagBundle {
 export type ApplyFn = (flagName: string) => Promise<void>;
 
 /**
- * Result of createFlagBundle with a pre-bound apply function
+ * Result of resolveFlagBundle with a pre-bound apply function
  * @public
  */
 export interface FlagBundleResult {

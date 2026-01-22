@@ -1,7 +1,7 @@
 import process from 'node:process';
 import { setTimeout as sleep, setImmediate } from 'node:timers/promises';
 import { OpenFeature } from '@openfeature/server-sdk';
-import { createConfidenceServerProvider } from '../dist/index.node.js';
+import { createConfidenceServerProvider } from '../dist/index.node.mjs';
 
 function parseArgs(argv) {
   const args = {};
