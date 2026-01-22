@@ -28,7 +28,8 @@ use confidence_resolver::{
     proto::{
         confidence::flags::admin::v1::ResolverState as ResolverStatePb,
         confidence::flags::resolver::v1::{
-            ResolveFlagsRequest, ResolveFlagsResponse, ResolveWithStickyResponse, Sdk,
+            ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse,
+            ResolveWithStickyResponse, Sdk,
         },
         google::{Struct, Timestamp},
     },
@@ -219,8 +220,23 @@ wasm_msg_guest! {
         Ok(ASSIGN_LOGGER.checkpoint_with_limit(LOG_TARGET_BYTES, true))
     }
 
-
-
+    fn apply_flags(request: ApplyFlagsRequest) -> WasmResult<Void> {
+        let resolver_state = get_resolver_state()?;
+        // Use empty evaluation context - the real one is extracted from the resolve token
+        let evaluation_context = Struct::default();
+        let resolver = match resolver_state.get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &ENCRYPTION_KEY) {
+            Ok(r) => r,
+            Err(_) => {
+                // State may have changed and client_secret is no longer valid.
+                // This is not a fatal error - just skip the apply silently.
+                // The flag was already resolved successfully, we just can't log the apply event.
+                return Ok(VOID);
+            }
+        };
+        // Ignore apply errors - best effort logging
+        let _ = resolver.apply_flags(&request);
+        Ok(VOID)
+    }
 }
 
 // Declare the add function as a host function
