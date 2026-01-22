@@ -1,6 +1,6 @@
 [package]
 name = "rust-guest"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2021"
 
 [lib]
@@ -9,7 +9,7 @@ crate-type = ["cdylib"]  # This is required for WASM
 
 [dependencies]
 wasm-msg = { path = "../../wasm-msg", version = "0.2.1" }
-confidence_resolver = { path = "../../confidence-resolver", version = "0.9.0", default-features = false }
+confidence_resolver = { path = "../../confidence-resolver", version = "0.10.0", default-features = false }
 rand = { version = "0.9.1", default-features = false, features = ["alloc", "small_rng" ]}
 prost = { version = "0.12", default-features = false }
 prost-types = { version = "0.12", default-features = false }

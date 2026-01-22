@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.11.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.11.0...openfeature-provider-java-v0.11.1) (2026-01-22)
+
+
+### Bug Fixes
+
+* **java:** handle CDN failures gracefully during initialization ([#222](https://github.com/spotify/confidence-resolver/issues/222)) ([841354d](https://github.com/spotify/confidence-resolver/commit/841354d64396a2d36ed6a9ac0f620ab9d07690d7))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.12 to 0.1.13
+
 ## [0.11.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.10.1...openfeature-provider-java-v0.11.0) (2026-01-09)
 
 
