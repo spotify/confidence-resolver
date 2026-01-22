@@ -4,7 +4,7 @@ import { WasmResolver } from './WasmResolver';
 export type { MaterializationStore } from './materialization';
 
 // @ts-expect-error - wasm imported as data URL via bundler (configured in tsdown.config.ts)
-import wasmDataUrl from '../../../wasm/confidence_resolver.wasm';
+import wasmDataUrl from '../../../../../wasm/confidence_resolver.wasm';
 
 let resolver: Promise<LocalResolver> | null = null;
 

@@ -35,7 +35,7 @@ export default defineConfig([
   {
     entry: './src/index.fetch.ts',
     platform: 'neutral',
-    copy: ['../../wasm/confidence_resolver.wasm'],
+    copy: ['../../../../wasm/confidence_resolver.wasm'],
     ...base,
   },
 ]);
