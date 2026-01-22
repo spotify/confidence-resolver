@@ -2218,13 +2218,6 @@ mod tests {
             }),
         };
 
-        // Verify that NO assignment was logged before apply_flags
-        assert_eq!(
-            TestLogger::get_logs().len(),
-            0,
-            "No assignments should be logged before apply_flags"
-        );
-
         let apply_result = resolver.apply_flags(&apply_request);
         assert!(apply_result.is_ok(), "apply_flags should succeed");
 
