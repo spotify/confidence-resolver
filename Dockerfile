@@ -228,6 +228,9 @@ RUN npm install -g wrangler@latest
 ARG WORKER_BUILD_VERSION="0.1.11"
 RUN cargo install worker-build --locked --version ${WORKER_BUILD_VERSION}
 
+# Install wasm-bindgen-cli (required by worker-build, must match version in Cargo.lock)
+RUN cargo install wasm-bindgen-cli --version 0.2.100
+
 # Optionally pass the commit SHA at build time
 ARG COMMIT_SHA=""
 ENV COMMIT_SHA=${COMMIT_SHA}
