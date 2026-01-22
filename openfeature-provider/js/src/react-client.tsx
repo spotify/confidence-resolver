@@ -36,12 +36,21 @@ interface UseFlagOptionsManual {
   expose: false;
 }
 
+/**
+ * Details returned by useFlagDetails hook.
+ */
 export interface FlagDetails<T> {
+  /** The resolved flag value, or the default value if not found or type mismatch */
   value: T;
+  /** The variant name assigned (e.g., 'control', 'treatment') */
   variant?: string;
+  /** Resolution reason: 'MATCH', 'NO_MATCH', 'STALE', 'ERROR', etc. */
   reason: string;
+  /** Error code if resolution failed (e.g., 'FLAG_NOT_FOUND', 'TYPE_MISMATCH') */
   errorCode?: string;
+  /** Human-readable error message */
   errorMessage?: string;
+  /** Function to manually log exposure. Only present when using { expose: false } option. */
   expose?: () => void;
 }
 
@@ -91,22 +100,23 @@ export function useFlag<T>(flagName: string, defaultValue: T): T {
 }
 
 /**
- * React hook for accessing Confidence feature flag values with exposure control.
+ * React hook for accessing Confidence feature flag values with full details.
  *
+ * Returns the flag value along with variant, reason, and error information.
  * By default, automatically logs exposure when the component mounts.
- * Use `{ expose: false }` for manual exposure control - useful when you want
- * to log exposure only after a user interaction.
+ * Use `{ expose: false }` for manual exposure control.
  *
  * Supports dot notation to access nested properties within a flag value.
  *
  * @param flagName - The flag name, optionally with dot notation for nested access (e.g., 'my-flag.config.enabled')
  * @param defaultValue - Default value if flag or nested property is not found
  * @param options - Use `{ expose: false }` for manual exposure control
- * @returns Object with `value` and optional `expose` function (when using manual exposure)
+ * @returns Object with value, variant, reason, errorCode, errorMessage, and optional expose function
  *
- * @example Auto exposure (default)
+ * @example Auto exposure with full details
  * ```tsx
- * const { value: enabled } = useFlagDetails('my-feature', false);
+ * const { value, variant, reason } = useFlagDetails('my-feature', false);
+ * console.log(`Got ${value} from variant ${variant}, reason: ${reason}`);
  * ```
  *
  * @example Manual exposure
@@ -121,9 +131,12 @@ export function useFlag<T>(flagName: string, defaultValue: T): T {
  * };
  * ```
  *
- * @example Dot notation with manual exposure
+ * @example Error handling
  * ```tsx
- * const { value: maxItems, expose } = useFlagDetails('my-feature.config.maxItems', 10, { expose: false });
+ * const { value, errorCode } = useFlagDetails('my-feature', false);
+ * if (errorCode === 'FLAG_NOT_FOUND') {
+ *   console.warn('Flag not configured');
+ * }
  * ```
  */
 export function useFlagDetails<T>(

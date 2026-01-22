@@ -7,9 +7,10 @@ React hooks and components for using Confidence feature flags in Next.js applica
 This integration provides:
 
 - **Server Component** (`ConfidenceProvider`) - Resolves flags on the server and provides them to client components
-- **Client Hooks** (`useFlag`, `useFlagDetails`) - Access flag values in client components with automatic exposure logging
+- **Client Hooks** (`useFlag`, `useFlagDetails`, `useFlagNames`) - Access flag values in client components with automatic exposure logging
 - **Dot notation** - Access nested properties within flag values (e.g., `my-flag.config.enabled`)
 - **Manual exposure control** - Delay exposure logging until user interaction
+- **Full flag details** - Access variant, reason, and error information
 
 ## Installation
 
@@ -138,13 +139,13 @@ const enabled = useFlag('my-feature.config.enabled', false);
 
 ### useFlagDetails (Client Hook)
 
-Hook with manual exposure control. Use when you want to delay exposure logging until a user interaction.
+Hook that returns full flag details including variant, reason, and error information. Also supports manual exposure control.
 
 ```tsx
 import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-client';
 
-// Auto exposure (default) - same as useFlag
-const { value: enabled } = useFlagDetails('my-feature', false);
+// Auto exposure (default) - logs exposure on mount
+const { value, variant, reason } = useFlagDetails('my-feature', false);
 
 // Manual exposure - log when user interacts
 const { value: enabled, expose } = useFlagDetails('my-feature', false, { expose: false });
@@ -155,6 +156,12 @@ const handleClick = () => {
     doSomething();
   }
 };
+
+// Check for errors
+const { value, reason, errorCode } = useFlagDetails('my-feature', false);
+if (errorCode === 'FLAG_NOT_FOUND') {
+  console.warn('Flag not found, using default');
+}
 ```
 
 **Return Type:**
@@ -162,9 +169,31 @@ const handleClick = () => {
 ```ts
 interface FlagDetails<T> {
   value: T; // The resolved flag value
+  variant?: string; // The variant name (e.g., 'control', 'treatment')
+  reason: string; // Resolution reason: 'MATCH', 'NO_MATCH', 'ERROR', etc.
+  errorCode?: string; // Error code if resolution failed (e.g., 'FLAG_NOT_FOUND')
+  errorMessage?: string; // Human-readable error message
   expose?: () => void; // Function to manually log exposure (only when { expose: false })
 }
 ```
+
+### useFlagNames (Client Hook)
+
+Hook to get a list of all flag names available in the bundle.
+
+```tsx
+import { useFlagNames } from '@spotify-confidence/openfeature-server-provider-local/react-client';
+
+const flagNames = useFlagNames();
+// ['feature-a', 'feature-b', 'experiment-1']
+
+// Useful for debugging or dynamic flag iteration
+flagNames.forEach(name => {
+  console.log(`Flag available: ${name}`);
+});
+```
+
+Returns an empty array if no provider is present.
 
 ## Type Safety
 
