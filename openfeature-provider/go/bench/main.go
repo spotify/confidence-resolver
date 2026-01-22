@@ -110,7 +110,7 @@ func main() {
 	}
 
 	// Minimal evaluation context; you can extend with attributes to exercise targeting
-	evalCtx := openfeature.FlattenedContext{"targetingKey": "tutorial_visitor", "visitor_id": "tutorial_visitor", "sticky":false}
+	evalCtx := openfeature.FlattenedContext{"targetingKey": "tutorial_visitor", "visitor_id": "tutorial_visitor", "sticky": false}
 
 	// Prepare cancellation on SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)
