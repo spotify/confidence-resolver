@@ -55,6 +55,7 @@ export default defineConfig([
     entry: './src/react-server.tsx',
     platform: 'neutral',
     ...reactBase,
+    external: [...(reactBase.external || []), './react-client'],
   },
   // React client components
   {

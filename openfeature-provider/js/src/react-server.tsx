@@ -1,7 +1,13 @@
-import { OpenFeature } from '@openfeature/server-sdk';
+import { OpenFeature, Provider } from '@openfeature/server-sdk';
 import type { EvaluationContext } from '@openfeature/server-sdk';
-import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
+import type { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { ConfidenceClientProvider } from './react-client';
+
+const PROVIDER_NAME = 'ConfidenceServerProviderLocal';
+
+function isConfidenceServerProviderLocal(provider: Provider): provider is ConfidenceServerProviderLocal {
+  return provider?.metadata?.name === PROVIDER_NAME;
+}
 
 export interface ConfidenceProviderProps {
   /** The evaluation context for flag resolution */
@@ -26,10 +32,10 @@ export async function ConfidenceProvider({
 }: ConfidenceProviderProps): Promise<React.ReactElement> {
   const provider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
-  if (!(provider instanceof ConfidenceServerProviderLocal)) {
+  if (!isConfidenceServerProviderLocal(provider)) {
     throw new Error(
       `ConfidenceProvider requires a ConfidenceServerProviderLocal, but got ${
-        provider?.constructor?.name ?? 'undefined'
+        provider?.metadata?.name ?? 'undefined'
       }. ` + 'Make sure you have registered the provider with OpenFeature before rendering.',
     );
   }
@@ -41,7 +47,7 @@ export async function ConfidenceProvider({
 
     const serverProvider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
-    if (!(serverProvider instanceof ConfidenceServerProviderLocal)) {
+    if (!isConfidenceServerProviderLocal(serverProvider)) {
       throw new Error('ConfidenceServerProviderLocal not found');
     }
 
