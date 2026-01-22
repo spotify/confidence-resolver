@@ -160,7 +160,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                 match path.as_str() {
                     "flags:resolve" => {
                         let body_bytes: Vec<u8> = req.bytes().await?;
-                        let resolver_request: ResolveFlagsRequest = match from_slice(&body_bytes) {
+                        let mut resolver_request: ResolveFlagsRequest = match from_slice(&body_bytes) {
                             Ok(req) => req,
                             Err(e) => {
                                 return Response::error(
@@ -170,6 +170,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 .with_cors_headers(&allowed_origin);
                             }
                         };
+                        // Default apply to true for Cloudflare resolver
+                        resolver_request.apply = true;
                         let evaluation_context = resolver_request
                             .evaluation_context
                             .clone()

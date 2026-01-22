@@ -10,7 +10,6 @@ CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:=}
 RESOLVE_TOKEN_ENCRYPTION_KEY=${RESOLVE_TOKEN_ENCRYPTION_KEY:=}
 CONFIDENCE_RESOLVER_ALLOWED_ORIGIN=${CONFIDENCE_RESOLVER_ALLOWED_ORIGIN:=}
 CONFIDENCE_RESOLVER_STATE_URL=${CONFIDENCE_RESOLVER_STATE_URL:=}
-CONFIDENCE_RESOLVER_STATE_ETAG_URL=${CONFIDENCE_RESOLVER_STATE_ETAG_URL:=}
 CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
 NO_DEPLOY=${NO_DEPLOY:=}
 FORCE_DEPLOY=${FORCE_DEPLOY:=}
@@ -23,14 +22,44 @@ if test -z "$CLOUDFLARE_API_TOKEN"; then
     exit 1
 fi
 
+# Default RESOLVE_TOKEN_ENCRYPTION_KEY to empty if not set
 if test -z "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
-    echo "RESOLVE_TOKEN_ENCRYPTION_KEY must be set"
-    exit 1
+    RESOLVE_TOKEN_ENCRYPTION_KEY=""
+    echo "⚠️ RESOLVE_TOKEN_ENCRYPTION_KEY not set, using empty value"
 fi
 
 if test -z "$CONFIDENCE_CLIENT_SECRET"; then
     echo "CONFIDENCE_CLIENT_SECRET must be set"
     exit 1
+fi
+
+# Auto-detect Cloudflare account ID from token if not provided
+if test -z "$CLOUDFLARE_ACCOUNT_ID"; then
+    echo "🔍 Auto-detecting Cloudflare account ID from API token..."
+    ACCOUNTS_RESP=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts")
+    ACCOUNTS_STATUS="${ACCOUNTS_RESP: -3}"
+    ACCOUNTS_BODY="${ACCOUNTS_RESP%???}"
+
+    if [ "$ACCOUNTS_STATUS" = "200" ] && command -v jq >/dev/null 2>&1; then
+        ACCOUNT_COUNT=$(printf "%s" "$ACCOUNTS_BODY" | jq -r '.result | length')
+        if [ "$ACCOUNT_COUNT" = "1" ]; then
+            CLOUDFLARE_ACCOUNT_ID=$(printf "%s" "$ACCOUNTS_BODY" | jq -r '.result[0].id')
+            ACCOUNT_NAME=$(printf "%s" "$ACCOUNTS_BODY" | jq -r '.result[0].name')
+            echo "✅ Auto-detected account: $ACCOUNT_NAME ($CLOUDFLARE_ACCOUNT_ID)"
+        elif [ "$ACCOUNT_COUNT" = "0" ]; then
+            echo "❌ No Cloudflare accounts found for this API token"
+            exit 1
+        else
+            echo "❌ Multiple Cloudflare accounts found. Please set CLOUDFLARE_ACCOUNT_ID explicitly:"
+            printf "%s" "$ACCOUNTS_BODY" | jq -r '.result[] | "  - \(.name): \(.id)"'
+            exit 1
+        fi
+    else
+        echo "❌ Could not fetch Cloudflare accounts (HTTP $ACCOUNTS_STATUS)"
+        exit 1
+    fi
 fi
 
 # Build CDN URL from SHA256 hash of client secret (if not explicitly provided)
@@ -39,6 +68,32 @@ if test -z "$CONFIDENCE_RESOLVER_STATE_URL"; then
     SECRET_HASH=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sha256sum | cut -d' ' -f1)
     CONFIDENCE_RESOLVER_STATE_URL="${CDN_BASE_URL}/${SECRET_HASH}"
     echo "📦 Using CDN URL for state: ${CDN_BASE_URL}/<sha256>"
+fi
+
+# Worker name from wrangler.toml
+WORKER_NAME="confidence-cloudflare-resolver"
+
+# Auto-detect Cloudflare resolver URL from workers subdomain
+CLOUDFLARE_RESOLVER_URL=""
+if test -n "$CLOUDFLARE_ACCOUNT_ID"; then
+    echo "🔍 Auto-detecting Cloudflare Workers subdomain..."
+    SUBDOMAIN_RESP=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain")
+    SUBDOMAIN_STATUS="${SUBDOMAIN_RESP: -3}"
+    SUBDOMAIN_BODY="${SUBDOMAIN_RESP%???}"
+
+    if [ "$SUBDOMAIN_STATUS" = "200" ] && command -v jq >/dev/null 2>&1; then
+        WORKERS_SUBDOMAIN=$(printf "%s" "$SUBDOMAIN_BODY" | jq -r '.result.subdomain // empty')
+        if [ -n "$WORKERS_SUBDOMAIN" ]; then
+            CLOUDFLARE_RESOLVER_URL="https://${WORKER_NAME}.${WORKERS_SUBDOMAIN}.workers.dev"
+            echo "✅ Auto-detected resolver URL: $CLOUDFLARE_RESOLVER_URL"
+        else
+            echo "⚠️ Could not extract subdomain from API response"
+        fi
+    else
+        echo "⚠️ Could not fetch workers subdomain (HTTP $SUBDOMAIN_STATUS). Skipping etag check."
+    fi
 fi
 
 mkdir -p data
@@ -53,10 +108,11 @@ EXTRA_HEADER=()
 # Try to fetch previous etag from deployed resolver endpoint if provided
 PREV_ETAG=""
 PREV_DEPLOYER_VERSION=""
-if [ -n "$CONFIDENCE_RESOLVER_STATE_ETAG_URL" ]; then
-    echo "🌐 Fetching etag and git version from $CONFIDENCE_RESOLVER_STATE_ETAG_URL"
+if [ -n "$CLOUDFLARE_RESOLVER_URL" ]; then
+    RESOLVER_STATE_ETAG_URL="${CLOUDFLARE_RESOLVER_URL}/v1/state:etag"
+    echo "🌐 Fetching etag and git version from $RESOLVER_STATE_ETAG_URL"
     ETAG_BODY_TMP=$(mktemp)
-    ETAG_STATUS=$(curl -sS -w "%{http_code}" -o "$ETAG_BODY_TMP" "$CONFIDENCE_RESOLVER_STATE_ETAG_URL") || ETAG_STATUS="000"
+    ETAG_STATUS=$(curl -sS -w "%{http_code}" -o "$ETAG_BODY_TMP" "$RESOLVER_STATE_ETAG_URL") || ETAG_STATUS="000"
     if [ "$ETAG_STATUS" = "200" ]; then
         if command -v jq >/dev/null 2>&1 && grep -q '^[[:space:]]*{' "$ETAG_BODY_TMP"; then
             PREV_ETAG=$(jq -r '.etag // empty' "$ETAG_BODY_TMP") || PREV_ETAG=""
@@ -166,7 +222,11 @@ check_file() {
 
 # Verify all required files
 check_file "data/resolver_state_current.pb"
-check_file "data/encryption_key"
+# Note: encryption_key may be empty, so we just check it exists
+if [ ! -f "data/encryption_key" ]; then
+    echo "❌ Error: data/encryption_key was not created!" >&2
+    exit 1
+fi
 
 echo "🚀 All files successfully created and verified"
 
@@ -240,6 +300,22 @@ fi
 
 # Build the worker after state is downloaded
 export CARGO_TARGET_DIR=/workspace/target
+export PATH="/usr/local/cargo/bin:$PATH"
+
+# Debug: verify data files exist before build
+echo "📁 Verifying data files before build..."
+ls -la ../data/
+echo "📁 resolver_state_current.pb size: $(wc -c < ../data/resolver_state_current.pb) bytes"
+echo "📁 encryption_key size: $(wc -c < ../data/encryption_key) bytes"
+
+# Debug: check wasm-bindgen
+echo "🔧 Checking wasm-bindgen..."
+which wasm-bindgen || echo "wasm-bindgen not in PATH"
+wasm-bindgen --version || echo "wasm-bindgen version check failed"
+echo "🔧 PATH: $PATH"
+echo "🔧 CARGO_HOME: $CARGO_HOME"
+ls -la /usr/local/cargo/bin/ | grep wasm || echo "no wasm tools in cargo bin"
+
 RUSTFLAGS='--cfg getrandom_backend="wasm_js"' worker-build --release
 
 # only deploy if NO_DEPLOY is not set
