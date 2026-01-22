@@ -9,23 +9,20 @@
     "CHANGELOG.md",
     "LICENSE"
   ],
-  "main": "./dist/index.node.js",
-  "module": "./dist/index.browser.js",
-  "types": "./dist/index.node.d.ts",
+  "main": "./dist/index.inlined.js",
+  "types": "./dist/index.inlined.d.ts",
   "exports": {
     ".": {
-      "node": {
-        "types": "./dist/index.node.d.ts",
-        "default": "./dist/index.node.js"
-      },
-      "browser": {
-        "types": "./dist/index.browser.d.ts",
-        "default": "./dist/index.browser.js"
-      },
-      "default": {
-        "types": "./dist/index.node.d.ts",
-        "default": "./dist/index.node.js"
-      }
+      "types": "./dist/index.inlined.d.ts",
+      "default": "./dist/index.inlined.js"
+    },
+    "./node": {
+      "types": "./dist/index.node.d.ts",
+      "default": "./dist/index.node.js"
+    },
+    "./fetch": {
+      "types": "./dist/index.fetch.d.ts",
+      "default": "./dist/index.fetch.js"
     },
     "./package.json": "./package.json"
   },

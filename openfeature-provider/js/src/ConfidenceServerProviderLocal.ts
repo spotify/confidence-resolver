@@ -66,8 +66,15 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly materializationStore: MaterializationStore | null;
   private stateEtag: string | null = null;
 
+  private get resolver(): LocalResolver {
+    if (this.resolverOrPromise instanceof Promise) {
+      throw new Error('Resolver not ready');
+    }
+    return this.resolverOrPromise;
+  }
+
   // TODO Maybe pass in a resolver factory, so that we can initialize it in initialize and transition to fatal if not.
-  constructor(private resolver: LocalResolver, private options: ProviderOptions) {
+  constructor(private resolverOrPromise: LocalResolver | Promise<LocalResolver>, private options: ProviderOptions) {
     this.stateUpdateInterval = options.stateUpdateInterval ?? DEFAULT_STATE_INTERVAL;
     if (!Number.isInteger(this.stateUpdateInterval) || this.stateUpdateInterval < 1000) {
       throw new Error(`stateUpdateInterval must be an integer >= 1000 (1s), currently: ${this.stateUpdateInterval}`);
@@ -145,6 +152,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       timeoutSignal(this.options.initializeTimeout ?? DEFAULT_INITIALIZE_TIMEOUT),
     ]);
     try {
+      this.resolverOrPromise = await this.resolverOrPromise;
       // TODO set schedulers irrespective of failure
       // TODO if 403 here,
       await this.updateState(initialUpdateSignal);
