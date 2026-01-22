@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import React from 'react';
-import { useFlag, useFlagDetails, ConfidenceClientProvider } from './react-client';
+import { useFlag, useFlagDetails, useFlagNames, ConfidenceClientProvider } from './react-client';
 import type { FlagBundle } from './types';
 
 const createTestBundle = (flags: FlagBundle['flags'] = {}): FlagBundle => ({
@@ -506,6 +506,49 @@ describe('useFlagDetails', () => {
 
       expect(mockApply).toHaveBeenCalledWith('my-feature');
     });
+  });
+});
+
+describe('useFlagNames', () => {
+  const mockApply = vi.fn().mockResolvedValue(undefined);
+
+  const wrapper =
+    (bundle: FlagBundle) =>
+    ({ children }: { children: React.ReactNode }) =>
+      (
+        <ConfidenceClientProvider bundle={bundle} apply={mockApply}>
+          {children}
+        </ConfidenceClientProvider>
+      );
+
+  it('returns all flag names from the bundle', () => {
+    const bundle = createTestBundle({
+      'feature-a': { value: true, reason: 'MATCH' },
+      'feature-b': { value: false, reason: 'MATCH' },
+      'experiment-1': { value: 'control', reason: 'MATCH' },
+    });
+
+    const { result } = renderHook(() => useFlagNames(), {
+      wrapper: wrapper(bundle),
+    });
+
+    expect(result.current).toEqual(['feature-a', 'feature-b', 'experiment-1']);
+  });
+
+  it('returns empty array when bundle has no flags', () => {
+    const bundle = createTestBundle({});
+
+    const { result } = renderHook(() => useFlagNames(), {
+      wrapper: wrapper(bundle),
+    });
+
+    expect(result.current).toEqual([]);
+  });
+
+  it('returns empty array when no provider is present', () => {
+    const { result } = renderHook(() => useFlagNames());
+
+    expect(result.current).toEqual([]);
   });
 });
 
