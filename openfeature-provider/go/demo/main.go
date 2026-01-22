@@ -31,6 +31,8 @@ func main() {
 	provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
 		ClientSecret:                  clientSecret,
 		UseRemoteMaterializationStore: true,
+		StatePollInterval:             30 * time.Second,
+		LogPollInterval:               2 * time.Minute,
 	})
 
 	if err != nil {

@@ -49,7 +49,7 @@ func setupFlagLogsUnitTest(t *testing.T) (*fl.CapturingFlagLogger, openfeature.I
 	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, unsupportedMatStore)
-	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, capturingLogger, unitTestClientSecret, logger, 0, 0)
+	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, capturingLogger, unitTestClientSecret, logger)
 
 	// Set provider and wait for ready
 	err := openfeature.SetProviderAndWait(provider)

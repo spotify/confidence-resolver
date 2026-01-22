@@ -81,7 +81,8 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
-	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, config.StatePollInterval, config.LogPollInterval)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
+	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
 
@@ -106,7 +107,20 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 		materializationStore = newUnsupportedMaterializationStore()
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
-	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, config.StatePollInterval, config.LogPollInterval)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
+	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
+}
+
+// buildProviderOptions creates options slice from poll intervals
+func buildProviderOptions(statePollInterval, logPollInterval time.Duration) []Option {
+	var opts []Option
+	if statePollInterval > 0 {
+		opts = append(opts, WithStatePollInterval(statePollInterval))
+	}
+	if logPollInterval > 0 {
+		opts = append(opts, WithLogPollInterval(logPollInterval))
+	}
+	return opts
 }

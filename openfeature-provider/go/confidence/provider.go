@@ -26,6 +26,28 @@ const (
 
 type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
 
+// Option is a functional option for configuring LocalResolverProvider
+type Option func(*providerOptions)
+
+type providerOptions struct {
+	statePollInterval time.Duration
+	logPollInterval   time.Duration
+}
+
+// WithStatePollInterval sets the interval for polling state updates
+func WithStatePollInterval(d time.Duration) Option {
+	return func(o *providerOptions) {
+		o.statePollInterval = d
+	}
+}
+
+// WithLogPollInterval sets the interval for polling/flushing logs
+func WithLogPollInterval(d time.Duration) Option {
+	return func(o *providerOptions) {
+		o.logPollInterval = d
+	}
+}
+
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
@@ -55,8 +77,7 @@ func NewLocalResolverProvider(
 	flagLogger FlagLogger,
 	clientSecret string,
 	logger *slog.Logger,
-	statePollInterval time.Duration,
-	logPollInterval time.Duration,
+	opts ...Option,
 ) *LocalResolverProvider {
 	// Create a default logger if none provided
 	if logger == nil {
@@ -65,10 +86,18 @@ func NewLocalResolverProvider(
 		}))
 	}
 
+	// Apply options
+	options := &providerOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	// Use defaults if not provided
+	statePollInterval := options.statePollInterval
 	if statePollInterval <= 0 {
 		statePollInterval = getStatePollInterval()
 	}
+	logPollInterval := options.logPollInterval
 	if logPollInterval <= 0 {
 		logPollInterval = getLogPollInterval()
 	}

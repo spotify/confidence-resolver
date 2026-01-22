@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewLocalResolverProvider(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "test-secret", nil, 0, 0)
+	provider := NewLocalResolverProvider(nil, nil, nil, "test-secret", nil)
 
 	if provider == nil {
 		t.Fatal("Expected provider to be created, got nil")
@@ -23,7 +23,7 @@ func TestNewLocalResolverProvider(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Metadata(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil, 0, 0)
+	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
 	metadata := provider.Metadata()
 
 	if metadata.Name != "confidence-sdk-go-local" {
@@ -32,7 +32,7 @@ func TestLocalResolverProvider_Metadata(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Hooks(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil, 0, 0)
+	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
 	hooks := provider.Hooks()
 
 	if hooks == nil {
@@ -413,7 +413,7 @@ func TestFlattenedContextToProto_InvalidValue(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Shutdown(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil, 0, 0)
+	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
 	provider.Shutdown()
 
 	// Verify the method can be called without panicking even with nil components
@@ -421,7 +421,7 @@ func TestLocalResolverProvider_Shutdown(t *testing.T) {
 }
 
 func TestLocalResolverProvider_ShutdownWithCancelFunc(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil, 0, 0)
+	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
 
 	// Simulate Init having been called by setting cancelFunc
 	cancelCalled := false
@@ -491,8 +491,6 @@ func TestLocalResolverProvider_Init_NilStateProvider(t *testing.T) {
 		&tu.MockFlagLogger{},
 		"secret",
 		nil,
-		0,
-		0,
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
@@ -512,8 +510,6 @@ func TestLocalResolverProvider_Init_NilResolverAPI(t *testing.T) {
 		&tu.MockFlagLogger{},
 		"secret",
 		nil,
-		0,
-		0,
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
@@ -533,8 +529,6 @@ func TestLocalResolverProvider_Init_NilFlagLogger(t *testing.T) {
 		nil, // nil flag logger
 		"secret",
 		nil,
-		0,
-		0,
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
@@ -562,8 +556,6 @@ func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
-		0,
-		0,
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
@@ -594,8 +586,6 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
-		0,
-		0,
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
@@ -633,8 +623,6 @@ func TestLocalResolverProvider_Init_UpdateStateError(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
-		0,
-		0,
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
@@ -679,8 +667,6 @@ func TestLocalResolverProvider_Init_Success(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
-		0,
-		0,
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
