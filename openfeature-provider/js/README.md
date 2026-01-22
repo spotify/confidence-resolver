@@ -8,6 +8,7 @@ OpenFeature provider for the Spotify Confidence resolver (local mode, powered by
 - Automatic state refresh and batched flag log flushing
 - Pluggable `fetch` with retries, timeouts and routing
 - Optional logging using `debug`
+- **[React integration](./README-REACT.md)** for Next.js with Server Components
 
 ## Requirements
 
@@ -193,6 +194,20 @@ const provider = createConfidenceServerProvider({
   wasmUrl: '/assets/confidence_resolver.wasm',
 });
 ```
+
+### `./react-server` and `./react-client` — React/Next.js Integration
+
+```ts
+// Server Component
+import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+
+// Client Component
+import { useFlag, useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-client';
+```
+
+React hooks and components for Next.js App Router with Server Components. Flags are resolved on the server and provided to client components via React Context.
+
+**See [README-REACT.md](./README-REACT.md) for full documentation.**
 
 ### A note on browser usage
 
