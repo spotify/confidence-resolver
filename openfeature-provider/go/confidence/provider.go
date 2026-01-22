@@ -19,23 +19,27 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-const defaultPollIntervalSeconds = 30
+const (
+	defaultStatePollIntervalSeconds = 10
+	defaultLogPollIntervalSeconds   = 60
+)
 
 type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
 
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
-	resolverSupplier LocalResolverSupplier
-	resolver         lr.LocalResolver
-	stateProvider    StateProvider
-	flagLogger       FlagLogger
-	clientSecret     string
-	logger           *slog.Logger
-	cancelFunc       context.CancelFunc
-	wg               sync.WaitGroup
-	mu               sync.Mutex
-	pollInterval     time.Duration
+	resolverSupplier  LocalResolverSupplier
+	resolver          lr.LocalResolver
+	stateProvider     StateProvider
+	flagLogger        FlagLogger
+	clientSecret      string
+	logger            *slog.Logger
+	cancelFunc        context.CancelFunc
+	wg                sync.WaitGroup
+	mu                sync.Mutex
+	statePollInterval time.Duration
+	logPollInterval   time.Duration
 }
 
 // Compile-time interface conformance checks
@@ -51,6 +55,8 @@ func NewLocalResolverProvider(
 	flagLogger FlagLogger,
 	clientSecret string,
 	logger *slog.Logger,
+	statePollInterval time.Duration,
+	logPollInterval time.Duration,
 ) *LocalResolverProvider {
 	// Create a default logger if none provided
 	if logger == nil {
@@ -59,13 +65,22 @@ func NewLocalResolverProvider(
 		}))
 	}
 
+	// Use defaults if not provided
+	if statePollInterval <= 0 {
+		statePollInterval = getStatePollInterval()
+	}
+	if logPollInterval <= 0 {
+		logPollInterval = getLogPollInterval()
+	}
+
 	return &LocalResolverProvider{
-		resolverSupplier: resolverSupplier,
-		stateProvider:    stateProvider,
-		flagLogger:       flagLogger,
-		clientSecret:     clientSecret,
-		logger:           logger,
-		pollInterval:     getPollIntervalSeconds(),
+		resolverSupplier:  resolverSupplier,
+		stateProvider:     stateProvider,
+		flagLogger:        flagLogger,
+		clientSecret:      clientSecret,
+		logger:            logger,
+		statePollInterval: statePollInterval,
+		logPollInterval:   logPollInterval,
 	}
 }
 
@@ -519,19 +534,16 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 	p.cancelFunc = cancel
 	p.mu.Unlock()
 
-	// Ticker for state fetching and log flushing
+	// Goroutine for state fetching
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		ticker := time.NewTicker(p.pollInterval)
-		defer ticker.Stop()
-
-		assignTicker := time.NewTicker(100 * time.Millisecond)
-		defer assignTicker.Stop()
+		stateTicker := time.NewTicker(p.statePollInterval)
+		defer stateTicker.Stop()
 
 		for {
 			select {
-			case <-ticker.C:
+			case <-stateTicker.C:
 				// Fetch latest state and accountID
 				state, accountId, err := p.stateProvider.Provide(ctx)
 				if err != nil {
@@ -543,17 +555,36 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 					p.logger.Error("AccountID inside fetched state is empty, skipping this state update attempt")
 					continue
 				}
-				if err := p.resolver.FlushAllLogs(); err != nil {
-					p.logger.Error("Failed to flush all logs", "error", err)
-				}
 
-				// Update state and flush logs
+				// Update state
 				setResolverStateRequest := &wasm.SetResolverStateRequest{
 					State:     state,
 					AccountId: accountId,
 				}
 				if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
-					p.logger.Error("Failed to update state and flush logs", "error", err)
+					p.logger.Error("Failed to update state", "error", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Goroutine for log flushing
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		logTicker := time.NewTicker(p.logPollInterval)
+		defer logTicker.Stop()
+
+		assignTicker := time.NewTicker(100 * time.Millisecond)
+		defer assignTicker.Stop()
+
+		for {
+			select {
+			case <-logTicker.C:
+				if err := p.resolver.FlushAllLogs(); err != nil {
+					p.logger.Error("Failed to flush all logs", "error", err)
 				}
 			case <-assignTicker.C:
 				if err := p.resolver.FlushAssignLogs(); err != nil {
@@ -566,14 +597,24 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 	}()
 }
 
-// getPollIntervalSeconds gets the poll interval from environment or returns default
-func getPollIntervalSeconds() time.Duration {
-	if envVal := os.Getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"); envVal != "" {
+// getStatePollInterval gets the state poll interval from environment or returns default
+func getStatePollInterval() time.Duration {
+	if envVal := os.Getenv("CONFIDENCE_STATE_POLL_INTERVAL_SECONDS"); envVal != "" {
 		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
 			return time.Duration(seconds) * time.Second
 		}
 	}
-	return time.Duration(defaultPollIntervalSeconds) * time.Second
+	return time.Duration(defaultStatePollIntervalSeconds) * time.Second
+}
+
+// getLogPollInterval gets the log poll interval from environment or returns default
+func getLogPollInterval() time.Duration {
+	if envVal := os.Getenv("CONFIDENCE_LOG_POLL_INTERVAL_SECONDS"); envVal != "" {
+		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return time.Duration(defaultLogPollIntervalSeconds) * time.Second
 }
 
 // parseFlagPath splits a flag key into flag name and path

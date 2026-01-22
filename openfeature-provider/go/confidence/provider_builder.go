@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
@@ -22,6 +23,8 @@ type ProviderConfig struct {
 	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
 	MaterializationStore          MaterializationStore // Optional
 	UseRemoteMaterializationStore bool                 // set to true to use a Remote lookup for materializations. Requires that MaterializationStore is nil.
+	StatePollInterval             time.Duration        // Optional: interval for state polling, defaults to 10 seconds
+	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 }
 
 type ProviderTestConfig struct {
@@ -30,6 +33,8 @@ type ProviderTestConfig struct {
 	ClientSecret         string
 	Logger               *slog.Logger
 	MaterializationStore MaterializationStore // Optional
+	StatePollInterval    time.Duration        // Optional: interval for state polling, defaults to 10 seconds
+	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
@@ -76,7 +81,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
-	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger)
+	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, config.StatePollInterval, config.LogPollInterval)
 	return provider, nil
 }
 
@@ -101,7 +106,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 		materializationStore = newUnsupportedMaterializationStore()
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
-	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger)
+	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, config.StatePollInterval, config.LogPollInterval)
 
 	return provider, nil
 }
