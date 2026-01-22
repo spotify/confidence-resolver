@@ -2,6 +2,7 @@ import { BinaryWriter } from '@bufbuild/protobuf/wire';
 import { Request, Response, Void, SetResolverStateRequest } from './proto/confidence/wasm/messages';
 import { Timestamp } from './proto/google/protobuf/timestamp';
 import { ResolveWithStickyRequest, ResolveWithStickyResponse } from './proto/confidence/wasm/wasm_api';
+import { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
 import { LocalResolver } from './LocalResolver';
 import { getLogger } from './logger';
 
@@ -19,6 +20,7 @@ const EXPORT_FN_NAMES = [
   'wasm_msg_guest_set_resolver_state',
   'wasm_msg_guest_bounded_flush_logs',
   'wasm_msg_guest_bounded_flush_assign',
+  'wasm_msg_guest_apply_flags',
 ] as const;
 type EXPORT_FN_NAMES = (typeof EXPORT_FN_NAMES)[number];
 
@@ -86,6 +88,12 @@ export class UnsafeWasmResolver implements LocalResolver {
       throw new Error(error);
     }
     return data!;
+  }
+
+  applyFlags(request: ApplyFlagsRequest): void {
+    const reqPtr = this.transferRequest(request, ApplyFlagsRequest);
+    const resPtr = this.exports.wasm_msg_guest_apply_flags(reqPtr);
+    this.consumeResponse(resPtr, Void);
   }
 
   private transferRequest<T>(value: T, codec: Codec<T>): number {
@@ -199,5 +207,16 @@ export class WasmResolver implements LocalResolver {
   flushAssigned(): Uint8Array {
     // TODO buffer logs and resend on failure
     return this.delegate.flushAssigned();
+  }
+
+  applyFlags(request: ApplyFlagsRequest): void {
+    try {
+      this.delegate.applyFlags(request);
+    } catch (error: unknown) {
+      if (error instanceof WebAssembly.RuntimeError) {
+        this.reloadInstance(error);
+      }
+      throw error;
+    }
   }
 }

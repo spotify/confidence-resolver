@@ -8,12 +8,21 @@ import type {
   ResolutionDetails,
   ResolutionReason,
 } from '@openfeature/server-sdk';
-import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
+import { ApplyFlagsRequest, ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
 import { SdkId, ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, hasKey, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import {
+  base64FromBytes,
+  bytesFromBase64,
+  castStringToEnum,
+  hasKey,
+  scheduleWithFixedInterval,
+  timeoutSignal,
+  TimeUnit,
+} from './util';
+import type { FlagBundle, ResolvedFlagDetails } from './types';
 import { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -416,6 +425,73 @@ export class ConfidenceServerProviderLocal implements Provider {
     context: EvaluationContext,
   ): Promise<ResolutionDetails<string>> {
     return Promise.resolve(this.evaluate(flagKey, defaultValue, context));
+  }
+
+  /**
+   * Resolves multiple flags and returns a serializable bundle for client-side use.
+   * The flags are resolved without applying - call applyFlag() when a flag is actually used.
+   */
+  async resolveFlagBundle(context: EvaluationContext, ...flagNames: string[]): Promise<FlagBundle> {
+    const stickyRequest: ResolveWithStickyRequest = {
+      resolveRequest: {
+        flags: flagNames.map(name => `flags/${name}`),
+        evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
+        apply: false,
+        clientSecret: this.options.flagClientSecret,
+        sdk: {
+          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+          version: VERSION,
+        },
+      },
+      materializations: [],
+      failFastOnSticky: false,
+      notProcessSticky: false,
+    };
+
+    const response = await this.resolveWithSticky(stickyRequest);
+
+    const flags: Record<string, ResolvedFlagDetails> = {};
+    for (const resolved of response.resolvedFlags) {
+      const flagName = resolved.flag.replace(/^flags\//, '');
+      flags[flagName] = {
+        value: resolved.value,
+        variant: resolved.variant || undefined,
+        reason: ConfidenceServerProviderLocal.convertReason(resolved.reason),
+        errorCode: resolved.reason === ResolveReason.RESOLVE_REASON_ERROR ? 'GENERAL' : undefined,
+      };
+    }
+
+    return {
+      flags,
+      resolveToken: base64FromBytes(response.resolveToken),
+      resolveId: response.resolveId,
+    };
+  }
+
+  /**
+   * Applies a previously resolved flag, logging that it was used/exposed.
+   * Call this when a flag value is actually rendered or used in the client.
+   */
+  applyFlag(resolveToken: string, flagName: string): void {
+    const tokenBytes = bytesFromBase64(resolveToken);
+
+    const request: ApplyFlagsRequest = {
+      flags: [
+        {
+          flag: `flags/${flagName}`,
+          applyTime: new Date(),
+        },
+      ],
+      clientSecret: this.options.flagClientSecret,
+      resolveToken: tokenBytes,
+      sendTime: new Date(),
+      sdk: {
+        id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+        version: VERSION,
+      },
+    };
+
+    this.resolver.applyFlags(request);
   }
 }
 

@@ -12,6 +12,18 @@ const base = defineConfig({
   external: ['@bufbuild/protobuf/wire'],
 });
 
+const reactBase = defineConfig({
+  minify: 'dce-only',
+  dts: {
+    oxc: true,
+  },
+  define: {
+    __ASSERT__: 'false',
+    __TEST__: 'false',
+  },
+  external: ['@bufbuild/protobuf/wire', 'react', '@openfeature/server-sdk'],
+});
+
 export default defineConfig([
   // Default: inlined WASM as data URL (works everywhere)
   {
@@ -37,5 +49,17 @@ export default defineConfig([
     platform: 'neutral',
     copy: ['../../wasm/confidence_resolver.wasm'],
     ...base,
+  },
+  // React server component
+  {
+    entry: './src/react-server.tsx',
+    platform: 'neutral',
+    ...reactBase,
+  },
+  // React client components
+  {
+    entry: './src/react-client.tsx',
+    platform: 'neutral',
+    ...reactBase,
   },
 ]);
