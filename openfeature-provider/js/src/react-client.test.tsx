@@ -296,6 +296,41 @@ describe('useFlag', () => {
 
       expect(result.current).toEqual([0]);
     });
+
+    it('accepts any value when default is null', () => {
+      const bundle = createTestBundle({
+        'my-flag': { value: { some: 'object' }, reason: 'MATCH' },
+      });
+
+      const { result } = renderHook(() => useFlag('my-flag', null), {
+        wrapper: wrapper(bundle),
+      });
+
+      expect(result.current).toEqual({ some: 'object' });
+    });
+
+    it('accepts string when default is null', () => {
+      const bundle = createTestBundle({
+        'my-flag': { value: 'hello', reason: 'MATCH' },
+      });
+
+      const { result } = renderHook(() => useFlag('my-flag', null), {
+        wrapper: wrapper(bundle),
+      });
+
+      expect(result.current).toBe('hello');
+    });
+
+    it('returns undefined when flag not found and default is null', () => {
+      const bundle = createTestBundle({});
+
+      const { result } = renderHook(() => useFlag('missing-flag', null), {
+        wrapper: wrapper(bundle),
+      });
+
+      // null default means "accept any value" - undefined is the flag value when not found
+      expect(result.current).toBeUndefined();
+    });
   });
 });
 
@@ -316,7 +351,7 @@ describe('useFlagDetails', () => {
       );
 
   describe('auto exposure (default, expose: true)', () => {
-    it('returns value and undefined expose', () => {
+    it('returns value, details, and undefined expose', () => {
       const bundle = createTestBundle({
         'my-flag': { value: 'test-value', variant: 'variant-a', reason: 'MATCH' },
       });
@@ -326,6 +361,9 @@ describe('useFlagDetails', () => {
       });
 
       expect(result.current.value).toBe('test-value');
+      expect(result.current.variant).toBe('variant-a');
+      expect(result.current.reason).toBe('MATCH');
+      expect(result.current.errorCode).toBeUndefined();
       expect(result.current.expose).toBeUndefined();
     });
 
@@ -342,7 +380,7 @@ describe('useFlagDetails', () => {
       expect(mockApply).toHaveBeenCalledWith('my-flag');
     });
 
-    it('returns default value when flag is not in bundle', () => {
+    it('returns default value and error info when flag is not in bundle', () => {
       const bundle = createTestBundle({});
 
       const { result } = renderHook(() => useFlagDetails('missing-details', 'fallback'), {
@@ -350,6 +388,22 @@ describe('useFlagDetails', () => {
       });
 
       expect(result.current.value).toBe('fallback');
+      expect(result.current.reason).toBe('ERROR');
+      expect(result.current.errorCode).toBe('FLAG_NOT_FOUND');
+    });
+
+    it('includes errorCode from resolved flag', () => {
+      const bundle = createTestBundle({
+        'my-flag': { value: 'stale-value', reason: 'STALE', errorCode: 'STALE' },
+      });
+
+      const { result } = renderHook(() => useFlagDetails('my-flag', 'default'), {
+        wrapper: wrapper(bundle),
+      });
+
+      expect(result.current.value).toBe('stale-value');
+      expect(result.current.reason).toBe('STALE');
+      expect(result.current.errorCode).toBe('STALE');
     });
   });
 

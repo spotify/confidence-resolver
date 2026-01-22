@@ -38,6 +38,10 @@ interface UseFlagOptionsManual {
 
 export interface FlagDetails<T> {
   value: T;
+  variant?: string;
+  reason: string;
+  errorCode?: string;
+  errorMessage?: string;
   expose?: () => void;
 }
 
@@ -156,10 +160,16 @@ export function useFlagDetails<T>(
 
   const resolvedValue = isAssignableTo(value, defaultValue) ? value : defaultValue;
 
+  // Get details from the flag, or use defaults for missing flags
+  const variant = flag?.variant;
+  const reason = flag?.reason ?? 'ERROR';
+  const errorCode = flag?.errorCode ?? (flag ? undefined : 'FLAG_NOT_FOUND');
+  const errorMessage = flag?.errorMessage;
+
   if (isManual) {
-    return { value: resolvedValue, expose };
+    return { value: resolvedValue, variant, reason, errorCode, errorMessage, expose };
   } else {
-    return { value: resolvedValue, expose: undefined };
+    return { value: resolvedValue, variant, reason, errorCode, errorMessage, expose: undefined };
   }
 }
 
@@ -168,9 +178,10 @@ function hasKey<K extends string>(obj: object, key: K): obj is { [P in K]: unkno
 }
 
 function isAssignableTo<T>(value: unknown, schema: T): value is T {
+  // null schema accepts any value (user has no type expectation)
+  if (schema === null) return true;
   if (typeof schema !== typeof value) return false;
   if (typeof value === 'object' && typeof schema === 'object') {
-    if (schema === null) return value === null;
     if (value === null) return false;
     if (Array.isArray(schema)) {
       if (!Array.isArray(value)) return false;
