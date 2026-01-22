@@ -1,4 +1,5 @@
 pub mod error;
+mod gateway;
 pub mod host;
 pub mod logger;
 pub mod materialization;
@@ -9,7 +10,7 @@ mod version;
 #[cfg(test)]
 pub mod test_utils;
 
-pub use error::Error;
+pub use error::{Error, Result};
 pub use materialization::{MaterializationStore, ReadOpType, ReadResultType, WriteOp};
 pub use provider::{ConfidenceProvider, MaterializationStoreConfig, ProviderOptions};
 pub use version::VERSION;

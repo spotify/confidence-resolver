@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.6.0...openfeature-provider-js-v0.7.0) (2026-01-22)
+
+
+### Features
+
+* inlined WASM for improved portability ([#243](https://github.com/spotify/confidence-resolver/issues/243)) ([8d86283](https://github.com/spotify/confidence-resolver/commit/8d862837244ffd9099bfeb56b42e203212e73a96))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.12 to 0.1.13
+
 ## [0.6.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.5.1...openfeature-provider-js-v0.6.0) (2026-01-15)
 
 

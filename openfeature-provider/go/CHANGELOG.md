@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.5.0...openfeature-provider/go/v0.6.0) (2026-01-22)
+
+
+### Features
+
+* configurable gateway ([#236](https://github.com/spotify/confidence-resolver/issues/236)) ([aba6cbd](https://github.com/spotify/confidence-resolver/commit/aba6cbd65361db95a3b0391eee53e7c7e3cad717))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.12 to 0.1.13
+
 ## [0.5.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.4.0...openfeature-provider/go/v0.5.0) (2025-12-19)
 
 

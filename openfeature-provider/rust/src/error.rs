@@ -56,5 +56,11 @@ impl From<reqwest::Error> for Error {
     }
 }
 
+impl From<reqwest_middleware::Error> for Error {
+    fn from(e: reqwest_middleware::Error) -> Self {
+        Error::Http(e.to_string())
+    }
+}
+
 /// Result type alias for the provider.
 pub type Result<T> = std::result::Result<T, Error>;

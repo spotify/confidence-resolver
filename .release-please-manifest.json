@@ -1,11 +1,11 @@
 {
-  "confidence-resolver": "0.9.0",
-  "confidence-cloudflare-resolver": "0.4.2",
+  "confidence-resolver": "0.10.0",
+  "confidence-cloudflare-resolver": "0.5.0",
   "wasm-msg": "0.2.1",
-  "wasm/rust-guest": "0.1.12",
-  "openfeature-provider/java": "0.11.0",
-  "openfeature-provider/js": "0.6.0",
-  "openfeature-provider/go": "0.5.0",
+  "wasm/rust-guest": "0.1.13",
+  "openfeature-provider/java": "0.11.1",
+  "openfeature-provider/js": "0.7.0",
+  "openfeature-provider/go": "0.6.0",
   "openfeature-provider/ruby": "0.1.1",
-  "openfeature-provider/rust": "0.1.0"
+  "openfeature-provider/rust": "0.2.0"
 }

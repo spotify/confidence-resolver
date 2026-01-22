@@ -43,7 +43,7 @@ func readEnv() config {
 		Port:              getenvInt("PORT", 8081),
 		AccountID:         getenv("ACCOUNT_ID", "confidence-test"),
 		ResolverStatePath: getenv("RESOLVER_STATE_PB", ""),
-		ClientSecret:    	 getenv("CLIENT_SECRET", "secret"),
+		ClientSecret:      getenv("CLIENT_SECRET", ""), // empty = fetch on-the-fly
 		RequestLogging:    getenvBool("REQUEST_LOGGING", false),
 		LatencyMs:         getenvInt("LATENCY_MS", 0),
 		BandwidthKbps:     getenvInt("BANDWIDTH_KBPS", 0),
@@ -56,21 +56,27 @@ type internalFlagLoggerService struct {
 	clientSecret string
 	bytesIn      atomic.Int64
 	appliedCount atomic.Int64
+	resolveCount atomic.Int64
 	requestCount atomic.Int64
 }
 
 func (s *internalFlagLoggerService) ClientWriteFlagLogs(ctx context.Context, req *pb.WriteFlagLogsRequest) (*pb.WriteFlagLogsResponse, error) {
 	// Require Authorization: "ClientSecret <secret>"
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		authVals := md.Get("authorization")
-		if len(authVals) == 0 || authVals[0] != "ClientSecret "+s.clientSecret {
-			return nil, status.Error(codes.Unauthenticated, "missing or invalid authorization")
-		}
-	} else {
-		return nil, status.Error(codes.Unauthenticated, "missing authorization")
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing metadata")
+	}
+	authVals := md.Get("authorization")
+	if len(authVals) == 0 || !strings.HasPrefix(authVals[0], "ClientSecret ") {
+		return nil, status.Error(codes.Unauthenticated, "missing or invalid authorization header")
+	}
+	// Only verify exact secret if one was configured
+	if s.clientSecret != "" && authVals[0] != "ClientSecret "+s.clientSecret {
+		return nil, status.Error(codes.Unauthenticated, "invalid client secret")
 	}
 	s.bytesIn.Add(int64(proto.Size(req)))
 	s.appliedCount.Add(int64(len(req.FlagAssigned)))
+	s.resolveCount.Add(int64(max(len(req.FlagResolveInfo),len(req.ClientResolveInfo))))
 	s.requestCount.Add(1)
 	return &pb.WriteFlagLogsResponse{}, nil
 }
@@ -80,9 +86,7 @@ func main() {
 	var grpcServer *grpc.Server
 	{
 		var unaryInterceptors []grpc.UnaryServerInterceptor
-		if cfg.RequestLogging {
-			unaryInterceptors = append(unaryInterceptors, unaryLoggingInterceptor)
-		}
+		unaryInterceptors = append(unaryInterceptors, createUnaryLoggingInterceptor(cfg.RequestLogging))
 		if len(unaryInterceptors) > 0 {
 			grpcServer = grpc.NewServer(
 				grpc.ChainUnaryInterceptor(unaryInterceptors...),
@@ -103,10 +107,11 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		for range ticker.C {
-			b := internalFlagLoggerServiceImpl.bytesIn.Load()
+			b := internalFlagLoggerServiceImpl.bytesIn.Load()/1024
 			a := internalFlagLoggerServiceImpl.appliedCount.Load()
+			l := internalFlagLoggerServiceImpl.resolveCount.Load()
 			r := internalFlagLoggerServiceImpl.requestCount.Load()
-			log.Printf("metrics bytes_total=%d applied_total=%d req_total=%d", b, a, r)
+			log.Printf("metrics total %dkb apply-ev=%d resolve-ev=%d req=%d", b, a, l, r)
 		}
 	}()
 
@@ -122,21 +127,52 @@ func main() {
 
 	// Cdn server mock
 	cdn := http.NewServeMux()
-	// Serve state at path /<sha256hex of cfg.ClientSecret>
-	stateHash := fmt.Sprintf("%x", sha256.Sum256([]byte(cfg.ClientSecret)))
 
-	var stateBytes []byte
-	if cfg.ResolverStatePath == "" {
-		stateBytes = readStateFromUrl(stateHash)
+	// State cache for on-the-fly fetching (keyed by hash path)
+	stateCache := make(map[string][]byte)
+	etagCache := make(map[string]string)
+
+	// Pre-load state if configured
+	if cfg.ResolverStatePath != "" {
+		// Load from disk for a specific client secret
+		stateHash := fmt.Sprintf("%x", sha256.Sum256([]byte(cfg.ClientSecret)))
+		stateCache[stateHash] = readStateFromDisk(cfg.ResolverStatePath, cfg.AccountID)
+		log.Printf("Loaded state from disk for hash %s", stateHash)
+	} else if cfg.ClientSecret != "" {
+		// Pre-fetch from network for a specific client secret
+		stateHash := fmt.Sprintf("%x", sha256.Sum256([]byte(cfg.ClientSecret)))
+		stateCache[stateHash] = readStateFromUrl(stateHash)
+		log.Printf("Pre-fetched state from network for hash %s", stateHash)
 	} else {
-		stateBytes = readStateFromDisk(cfg.ResolverStatePath, cfg.AccountID)
+		log.Printf("No client secret configured - will fetch state on-the-fly based on request path")
 	}
-	var stateETag string // random ETag set on first successful response
-	cdn.HandleFunc("/"+stateHash, func(w http.ResponseWriter, r *http.Request) {
+
+	// Handle any /<hash> path - fetch on-the-fly if not cached
+	cdn.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		hash := strings.TrimPrefix(r.URL.Path, "/")
+		if hash == "" || len(hash) != 64 {
+			http.Error(w, "invalid state hash path", http.StatusBadRequest)
+			return
+		}
+
+		// Check cache, fetch on-the-fly if missing
+		stateBytes, ok := stateCache[hash]
+		if !ok {
+			log.Printf("Fetching state on-the-fly for hash %s", hash)
+			stateBytes = readStateFromUrlSafe(hash)
+			if stateBytes == nil {
+				http.Error(w, "failed to fetch state from upstream", http.StatusBadGateway)
+				return
+			}
+			stateCache[hash] = stateBytes
+		}
+
 		if len(stateBytes) == 0 {
 			http.Error(w, "resolver state not configured", http.StatusNotFound)
 			return
 		}
+
+		stateETag := etagCache[hash]
 		// Return 304 if client's ETag matches our current one
 		if stateETag != "" && r.Header.Get("If-None-Match") == stateETag {
 			w.WriteHeader(http.StatusNotModified)
@@ -150,6 +186,7 @@ func main() {
 			} else {
 				stateETag = fmt.Sprintf("\"%x-%x\"", time.Now().UnixNano(), len(stateBytes))
 			}
+			etagCache[hash] = stateETag
 		}
 		w.Header().Set("ETag", stateETag)
 		w.Header().Set("Content-Type", "application/octet-stream")
@@ -199,9 +236,7 @@ func main() {
 	if cfg.LatencyMs > 0 {
 		handler = withHTTPLatency(handler, time.Duration(cfg.LatencyMs)*time.Millisecond)
 	}
-	if cfg.RequestLogging {
-		handler = withHTTPLoggingSkipGRPC(handler)
-	}
+	handler = withHTTPLoggingSkipGRPC(handler, cfg.RequestLogging)
 
 	httpAddr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("HTTP+h2c (REST+gRPC) listening on %s", httpAddr)
@@ -213,7 +248,7 @@ func main() {
 }
 
 // withHTTPLoggingSkipGRPC logs only non-gRPC HTTP requests.
-func withHTTPLoggingSkipGRPC(next http.Handler) http.Handler {
+func withHTTPLoggingSkipGRPC(next http.Handler, logAll bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
 			// Bypass HTTP logging for gRPC; gRPC interceptor will log
@@ -221,12 +256,20 @@ func withHTTPLoggingSkipGRPC(next http.Handler) http.Handler {
 			return
 		}
 		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w}
+		// Wrap request body to track incoming bytes
+		var reqSize int64
+		if r.Body != nil {
+			r.Body = &countingReadCloser{rc: r.Body, count: &reqSize}
+		}
+		// Wrap response writer to track outgoing bytes (hide io.ReaderFrom to force Write path)
+		rec := &statusRecorder{ResponseWriter: struct{ http.ResponseWriter }{w}}
 		next.ServeHTTP(rec, r)
 		if rec.status == 0 {
 			rec.status = http.StatusOK
 		}
-		log.Printf("http %s %s status=%d size=%d dur=%s", r.Method, r.URL.RequestURI(), rec.status, rec.size, time.Since(start))
+		if logAll || rec.status != http.StatusOK {
+			log.Printf("http %s %s status=%d up=%dkb down=%dkb dur=%s", r.Method, r.URL.RequestURI(), rec.status, reqSize/1024, rec.size/1024, time.Since(start))
+		}
 	})
 }
 
@@ -283,6 +326,22 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// countingReadCloser wraps an io.ReadCloser and counts bytes read.
+type countingReadCloser struct {
+	rc    io.ReadCloser
+	count *int64
+}
+
+func (c *countingReadCloser) Read(p []byte) (int, error) {
+	n, err := c.rc.Read(p)
+	*c.count += int64(n)
+	return n, err
+}
+
+func (c *countingReadCloser) Close() error {
+	return c.rc.Close()
+}
+
 // bandwidthWriter throttles writes to an approximate bytes-per-second budget.
 type bandwidthWriter struct {
 	http.ResponseWriter
@@ -321,13 +380,18 @@ func (t *throttledReadCloser) Read(p []byte) (int, error) {
 func (t *throttledReadCloser) Close() error { return t.rc.Close() }
 
 // gRPC server interceptors for rudimentary request logging.
-func unaryLoggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	start := time.Now()
-	resp, err := handler(ctx, req)
-	st, _ := status.FromError(err)
-	log.Printf("grpc unary %s code=%s dur=%s", info.FullMethod, st.Code(), time.Since(start))
-	return resp, err
+func createUnaryLoggingInterceptor(logAll bool) grpc.UnaryServerInterceptor {
+	return func (ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		start := time.Now()
+		resp, err := handler(ctx, req)
+		st, _ := status.FromError(err)
+		if logAll || st.Code() != codes.OK {
+			log.Printf("grpc unary %s code=%s dur=%s", info.FullMethod, st.Code(), time.Since(start))
+		}
+		return resp, err
+	}
 }
+
 
 func getenv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -358,18 +422,40 @@ func getenvBool(key string, def bool) bool {
 }
 
 func readStateFromUrl(path string) []byte {
-	// Blocking HTTP GET read of the provided URL path.
-	resp, err := http.Get("https://confidence-resolver-state-cdn.spotifycdn.com/" + path)
+	// Blocking HTTP GET read of the provided URL path. Panics on error (for startup).
+	stateUrl := "https://confidence-resolver-state-cdn.spotifycdn.com/" + path
+	resp, err := http.Get(stateUrl)
 	if err != nil {
 		panic(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		panic(fmt.Errorf("unexpected status code: %d", resp.StatusCode))
+		panic(fmt.Errorf("GET %v %v", stateUrl, resp.StatusCode))
 	}
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		panic(err)
+	}
+	return b
+}
+
+func readStateFromUrlSafe(path string) []byte {
+	// Non-panicking version for on-the-fly fetching.
+	stateUrl := "https://confidence-resolver-state-cdn.spotifycdn.com/" + path
+	resp, err := http.Get(stateUrl)
+	if err != nil {
+		log.Printf("Failed to fetch state from %s: %v", stateUrl, err)
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to fetch state from %s: status %d", stateUrl, resp.StatusCode)
+		return nil
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read state body from %s: %v", stateUrl, err)
+		return nil
 	}
 	return b
 }

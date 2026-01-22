@@ -13,15 +13,29 @@ const base = defineConfig({
 });
 
 export default defineConfig([
+  // Default: inlined WASM as data URL (works everywhere)
+  {
+    entry: './src/index.inlined.ts',
+    platform: 'neutral',
+    inputOptions: {
+      moduleTypes: {
+        '.wasm': 'dataurl',
+      },
+    },
+    ...base,
+  },
+  // ./node: uses fs.readFile (traditional Node.js)
   {
     entry: './src/index.node.ts',
     platform: 'node',
     copy: ['../../../../wasm/confidence_resolver.wasm'],
     ...base,
   },
+  // ./fetch: uses fetch + URL (Deno, Bun, browsers with good bundlers)
   {
-    entry: './src/index.browser.ts',
-    platform: 'browser',
+    entry: './src/index.fetch.ts',
+    platform: 'neutral',
+    copy: ['../../wasm/confidence_resolver.wasm'],
     ...base,
   },
 ]);

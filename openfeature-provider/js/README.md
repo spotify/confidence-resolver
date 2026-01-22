@@ -3,6 +3,7 @@
 OpenFeature provider for the Spotify Confidence resolver (local mode, powered by WebAssembly). It periodically fetches resolver state, evaluates flags locally, and flushes evaluation logs to the Confidence backend.
 
 ## Features
+
 - Local flag evaluation via WASM (no per-eval network calls)
 - Automatic state refresh and batched flag log flushing
 - Pluggable `fetch` with retries, timeouts and routing
@@ -10,6 +11,7 @@ OpenFeature provider for the Spotify Confidence resolver (local mode, powered by
 - Lightweight React integration for Next.js (~1KB bundle)
 
 ## Requirements
+
 - Node.js 18+ (built-in `fetch`) or provide a compatible `fetch`
 - WebAssembly support (Node 18+/modern browsers)
 
@@ -25,6 +27,7 @@ yarn add debug
 ```
 
 Notes:
+
 - `debug` is an optional peer. Install it if you want logs. Without it, logging is a no-op.
 - Types and bundling are ESM-first; Node is supported, and a browser build is provided for modern bundlers.
 
@@ -35,6 +38,7 @@ Notes:
 You'll need a **client secret** from Confidence to use this provider.
 
 **📖 See the [Integration Guide: Getting Your Credentials](../INTEGRATION_GUIDE.md#getting-your-credentials)** for step-by-step instructions on:
+
 - How to navigate the Confidence dashboard
 - Creating a Backend integration
 - Creating a test flag for verification
@@ -105,6 +109,7 @@ const context = {
 The provider uses a **default value fallback** pattern - when evaluation fails, it returns your specified default value instead of throwing an error.
 
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
+
 - Common failure scenarios
 - Error codes and meanings
 - Production best practices
@@ -120,8 +125,8 @@ const enabled = await client.getBooleanValue('my-flag.enabled', false, context);
 // For detailed error information, use getBooleanDetails()
 const details = await client.getBooleanDetails('my-flag.enabled', false, context);
 if (details.errorCode) {
-    console.error('Flag evaluation error:', details.errorMessage);
-    console.log('Reason:', details.reason);
+  console.error('Flag evaluation error:', details.errorMessage);
+  console.log('Reason:', details.reason);
 }
 ```
 
@@ -136,8 +141,68 @@ if (details.errorCode) {
 - `fetch` (optional): Custom `fetch` implementation. Required for Node < 18; for Node 18+ you can omit.
 
 The provider periodically:
+
 - Refreshes resolver state (configurable via `stateUpdateInterval`, default every 30s)
 - Flushes flag evaluation logs to the backend (configurable via `flushInterval`, default every 10s)
+
+---
+
+## Exports and WASM Loading
+
+The package provides multiple exports for different environments:
+
+### Default export (recommended)
+
+```ts
+import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local';
+```
+
+The WASM is **inlined as a data URL** — this is the most portable option and should work across virtually all environments. The tradeoff is a larger bundle (~700kB), but this isn't a problem for the intended server-side usage.
+
+No configuration needed.
+
+### `./node` — Traditional Node.js
+
+```ts
+import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local/node';
+```
+
+Uses `fs.readFile()` to load WASM from the installed package. Works well in a regular Node.js environment with node_modules.
+
+You can customize the WASM path if needed:
+
+```ts
+const provider = createConfidenceServerProvider({
+  flagClientSecret: '...',
+  wasmPath: '/custom/path/to/confidence_resolver.wasm',
+});
+```
+
+### `./fetch` — Modern and standards compliant environments
+
+```ts
+import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local/fetch';
+```
+
+Uses `fetch()` with `import.meta.url` to load WASM. Works in Deno, Bun, and browsers with bundlers that properly handle asset URLs (Vite, Rollup, etc.).
+
+You can customize the WASM URL if needed:
+
+```ts
+const provider = createConfidenceServerProvider({
+  flagClientSecret: '...',
+  wasmUrl: '/assets/confidence_resolver.wasm',
+});
+```
+
+### A note on browser usage
+
+While browsers are mentioned in this doc, this package is intended for server-side use only. Two concerns for browser usage:
+
+- Size: The WASM+JS is currently ~270kb gzipped, too large for typical client bundles.
+- Security: In a browser, all flag rules and variants are exposed to users.
+
+That said, the package does work in browsers, and there may be specialized use cases where these tradeoffs are acceptable.
 
 ---
 
@@ -165,11 +230,13 @@ const provider = createConfidenceServerProvider({
 ```
 
 **When to use**:
+
 - You need sticky assignments or materialized segments but don't want to manage storage infrastructure
 - Quick prototyping or getting started
 - Lower-volume applications where network latency is acceptable
 
 **Trade-offs**:
+
 - Additional network calls during flag resolution (adds latency)
 - Lower performance compared to local storage implementations (Redis, DynamoDB, etc.)
 
@@ -201,6 +268,7 @@ For read-only stores (e.g., pre-populated materialized segments without sticky a
 ### When to Use Materialization Stores
 
 Consider implementing a materialization store if:
+
 - You need to support sticky variant assignments for experiments
 - You use materialized segments for custom targeting
 - You want to minimize network latency during flag resolution
@@ -215,10 +283,12 @@ If you don't use sticky assignments or materialized segments, the default behavi
 Logging uses the `debug` library if present; otherwise, all log calls are no-ops.
 
 Namespaces:
+
 - Core: `cnfd:*`
 - Fetch/middleware: `cnfd:fetch:*` (e.g. retries, auth renewals, request summaries)
 
 Log levels are hierarchical:
+
 - `cnfd:debug` enables debug, info, warn, and error
 - `cnfd:info` enables info, warn, and error
 - `cnfd:warn` enables warn and error
@@ -227,6 +297,7 @@ Log levels are hierarchical:
 Enable logs:
 
 - Node:
+
 ```bash
 DEBUG=cnfd:* node app.js
 # or narrower
@@ -234,6 +305,7 @@ DEBUG=cnfd:info,cnfd:fetch:* node app.js
 ```
 
 - Browser (in DevTools console):
+
 ```js
 localStorage.debug = 'cnfd:*';
 ```
@@ -243,19 +315,6 @@ Install `debug` if you haven’t:
 ```bash
 yarn add debug
 ```
-
----
-
-## WebAssembly asset notes
-
-- Node: the WASM (`confidence_resolver.wasm`) is resolved from the installed package automatically; no extra config needed.
-- Browser: the ESM build resolves the WASM via `new URL('confidence_resolver.wasm', import.meta.url)` so modern bundlers (Vite/Rollup/Webpack 5 asset modules) will include it. If your bundler does not, configure it to treat the `.wasm` file as a static asset.
-
----
-
-## Using in browsers
-
-The package exports a browser ESM build that compiles the WASM via streaming and uses the global `fetch`. Integrate it with your OpenFeature SDK variant for the web similarly to Node, then register the provider before evaluation. Credentials must be available to the runtime (e.g. through your app's configuration layer).
 
 ---
 

@@ -1,8 +1,7 @@
 {
-  "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
   "rust-analyzer.cargo.features": [],
   "rust-analyzer.cargo.extraEnv": {
-    "PROTOC":"/opt/homebrew/bin/protoc"
+    "PROTOC": "/opt/homebrew/bin/protoc"
   },
   "protoc": {
     "options": ["-I/${workspaceRoot}/confidence-resolver/protos"]

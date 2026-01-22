@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.4.2...confidence-cloudflare-resolver-v0.5.0) (2026-01-22)
+
+
+### Features
+
+* add cdn cloudflare ([#242](https://github.com/spotify/confidence-resolver/issues/242)) ([2f76372](https://github.com/spotify/confidence-resolver/commit/2f76372e38917f5677a16f4f48fa73ad9d7bb669))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.9.0 to 0.10.0
+
 ## [0.4.2](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.4.1...confidence-cloudflare-resolver-v0.4.2) (2025-12-19)
 
 

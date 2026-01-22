@@ -15,5 +15,4 @@ queue = "flag-logs-queue"
 binding = "flag_logs_queue"
 
 [vars]
-CONFIDENCE_CLIENT_ID = "ID"
 CONFIDENCE_CLIENT_SECRET = "SECRET"

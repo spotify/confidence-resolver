@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.9.0...confidence_resolver-v0.10.0) (2026-01-22)
+
+
+### Features
+
+* add Readmes and publishing steps ([#230](https://github.com/spotify/confidence-resolver/issues/230)) ([f40f9aa](https://github.com/spotify/confidence-resolver/commit/f40f9aa8b35c03bfb0e4fda7c68c4dab569581b4))
+
 ## [0.9.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.8.0...confidence_resolver-v0.9.0) (2025-12-19)
 
 

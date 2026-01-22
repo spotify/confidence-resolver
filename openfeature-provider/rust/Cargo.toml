@@ -1,6 +1,6 @@
 [package]
 name = "spotify-confidence-openfeature-provider-local"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "OpenFeature provider for Confidence using native Rust resolver"
 license = "Apache-2.0"
@@ -16,7 +16,7 @@ name = "spotify_confidence_openfeature_provider_local"
 
 [dependencies]
 # Core resolver (path for local dev, version for crates.io publish)
-confidence_resolver = { path = "../../confidence-resolver", version = "0.9.0" }
+confidence_resolver = { path = "../../confidence-resolver", version = "0.10.0" }
 
 # OpenFeature SDK
 open-feature = "0.2.7"
@@ -25,7 +25,9 @@ open-feature = "0.2.7"
 tokio = { version = "1", features = ["rt", "time", "sync", "macros"] }
 
 # HTTP client for state fetching and log sending
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13.1" }
+reqwest-middleware = "0.5.0"
+http = "1.0.0"
 
 # Cryptography for CDN URL hash
 sha2 = "0.10"
@@ -55,8 +57,13 @@ chrono = { version = "0.4", features = ["clock"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+num_cpus = "1.16"
 
 [[example]]
 name = "demo"
 path = "examples/demo.rs"
+
+[[example]]
+name = "bench"
+path = "examples/bench.rs"

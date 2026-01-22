@@ -218,8 +218,8 @@ RUN make lint
 # ==============================================================================
 FROM confidence-cloudflare-resolver.build AS confidence-cloudflare-resolver.deployer
 
-# Install Node.js, npm, jq, and git for deployment
-RUN apk add --no-cache nodejs npm jq git
+# Install Node.js, npm, jq, git, and bash for deployment
+RUN apk add --no-cache nodejs npm jq git bash
 
 # Install Wrangler CLI
 RUN npm install -g wrangler@latest
@@ -227,6 +227,9 @@ RUN npm install -g wrangler@latest
 # Install worker-build (Rust WASM build tool used by Wrangler)
 ARG WORKER_BUILD_VERSION="0.1.11"
 RUN cargo install worker-build --locked --version ${WORKER_BUILD_VERSION}
+
+# Install wasm-bindgen-cli (required by worker-build, must match version in Cargo.lock)
+RUN cargo install wasm-bindgen-cli --version 0.2.100
 
 # Optionally pass the commit SHA at build time
 ARG COMMIT_SHA=""
@@ -371,8 +374,8 @@ RUN make build
 
 # Verify no bundle splitting occurred in server-provider
 RUN set -e; \
-    echo "Verifying no bundle splitting in server-provider artifacts..."; \
-    UNEXPECTED_FILES=$(find packages/server-provider/dist -name '*.js' -o -name '*.mjs' | grep -v 'index.node.mjs' | grep -v 'index.browser.js' | head -10); \
+    echo "Verifying no bundle splitting in JS artifacts..."; \
+    UNEXPECTED_FILES=$(find dist -name '*.js' ! -name 'index.node.js' ! -name 'index.inlined.js' ! -name 'index.fetch.js' | head -10); \
     if [ -n "$UNEXPECTED_FILES" ]; then \
       echo ""; \
       echo "❌ ERROR: Bundle splitting detected in server-provider!"; \

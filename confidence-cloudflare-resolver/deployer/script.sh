@@ -8,94 +8,91 @@ set -euo pipefail
 CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:=}
 CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:=}
 RESOLVE_TOKEN_ENCRYPTION_KEY=${RESOLVE_TOKEN_ENCRYPTION_KEY:=}
-CONFIDENCE_ACCOUNT_ID=${CONFIDENCE_ACCOUNT_ID:=}
 CONFIDENCE_RESOLVER_ALLOWED_ORIGIN=${CONFIDENCE_RESOLVER_ALLOWED_ORIGIN:=}
 CONFIDENCE_RESOLVER_STATE_URL=${CONFIDENCE_RESOLVER_STATE_URL:=}
-CONFIDENCE_RESOLVER_STATE_ETAG_URL=${CONFIDENCE_RESOLVER_STATE_ETAG_URL:=}
-CONFIDENCE_CLIENT_ID=${CONFIDENCE_CLIENT_ID:=}
 CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
 NO_DEPLOY=${NO_DEPLOY:=}
 FORCE_DEPLOY=${FORCE_DEPLOY:=}
+
+# CDN base URL for fetching resolver state
+CDN_BASE_URL="https://confidence-resolver-state-cdn.spotifycdn.com"
 
 if test -z "$CLOUDFLARE_API_TOKEN"; then
     echo "CLOUDFLARE_API_TOKEN must be set"
     exit 1
 fi
 
+# Default RESOLVE_TOKEN_ENCRYPTION_KEY to empty if not set
 if test -z "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
-    echo "RESOLVE_TOKEN_ENCRYPTION_KEY must be set"
+    RESOLVE_TOKEN_ENCRYPTION_KEY=""
+    echo "⚠️ RESOLVE_TOKEN_ENCRYPTION_KEY not set, using empty value"
+fi
+
+if test -z "$CONFIDENCE_CLIENT_SECRET"; then
+    echo "CONFIDENCE_CLIENT_SECRET must be set"
     exit 1
 fi
 
-if test -z "$CONFIDENCE_ACCOUNT_ID"; then
-    echo "CONFIDENCE_ACCOUNT_ID must be set"
-    exit 1
+# Auto-detect Cloudflare account ID from token if not provided
+if test -z "$CLOUDFLARE_ACCOUNT_ID"; then
+    echo "🔍 Auto-detecting Cloudflare account ID from API token..."
+    ACCOUNTS_RESP=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts")
+    ACCOUNTS_STATUS="${ACCOUNTS_RESP: -3}"
+    ACCOUNTS_BODY="${ACCOUNTS_RESP%???}"
+
+    if [ "$ACCOUNTS_STATUS" = "200" ] && command -v jq >/dev/null 2>&1; then
+        ACCOUNT_COUNT=$(printf "%s" "$ACCOUNTS_BODY" | jq -r '.result | length')
+        if [ "$ACCOUNT_COUNT" = "1" ]; then
+            CLOUDFLARE_ACCOUNT_ID=$(printf "%s" "$ACCOUNTS_BODY" | jq -r '.result[0].id')
+            ACCOUNT_NAME=$(printf "%s" "$ACCOUNTS_BODY" | jq -r '.result[0].name')
+            echo "✅ Auto-detected account: $ACCOUNT_NAME ($CLOUDFLARE_ACCOUNT_ID)"
+        elif [ "$ACCOUNT_COUNT" = "0" ]; then
+            echo "❌ No Cloudflare accounts found for this API token"
+            exit 1
+        else
+            echo "❌ Multiple Cloudflare accounts found. Please set CLOUDFLARE_ACCOUNT_ID explicitly:"
+            printf "%s" "$ACCOUNTS_BODY" | jq -r '.result[] | "  - \(.name): \(.id)"'
+            exit 1
+        fi
+    else
+        echo "❌ Could not fetch Cloudflare accounts (HTTP $ACCOUNTS_STATUS)"
+        exit 1
+    fi
 fi
 
+# Build CDN URL from SHA256 hash of client secret (if not explicitly provided)
 if test -z "$CONFIDENCE_RESOLVER_STATE_URL"; then
-    # Ensure jq is available for JSON parsing
-    if ! command -v jq >/dev/null 2>&1; then
-        echo "jq is required but not installed. Please install jq (e.g., brew install jq) or provide CONFIDENCE_RESOLVER_STATE_URL"
-        exit 1
-    fi
+    # Compute SHA256 hash of client secret
+    SECRET_HASH=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sha256sum | cut -d' ' -f1)
+    CONFIDENCE_RESOLVER_STATE_URL="${CDN_BASE_URL}/${SECRET_HASH}"
+    echo "📦 Using CDN URL for state: ${CDN_BASE_URL}/<sha256>"
+fi
 
-    # Ensure credentials are provided
-    if test -z "$CONFIDENCE_CLIENT_ID" || test -z "$CONFIDENCE_CLIENT_SECRET"; then
-        echo "CONFIDENCE_CLIENT_ID and CONFIDENCE_CLIENT_SECRET must be set when CONFIDENCE_RESOLVER_STATE_URL is not provided"
-        exit 1
-    fi
+# Worker name from wrangler.toml
+WORKER_NAME="confidence-cloudflare-resolver"
 
-    fetch_access_token() {
-        local url="https://iam.confidence.dev/v1/oauth/token"
-        local resp http_status body token
-        resp=$(curl -s -w "%{http_code}" -H "Content-Type: application/json" \
-            -d "{\"clientId\":\"$CONFIDENCE_CLIENT_ID\",\"clientSecret\":\"$CONFIDENCE_CLIENT_SECRET\",\"grantType\":\"client_credentials\"}" \
-            "${url}")
-        http_status="${resp: -3}"
-        body="${resp%???}"
-        if [ "$http_status" -eq 200 ] && [ -n "$body" ]; then
-            token=$(printf "%s" "$body" | jq -r '.accessToken // .access_token // empty')
-            if [ -n "$token" ]; then
-                printf "%s" "$token"
-                return 0
-            fi
+# Auto-detect Cloudflare resolver URL from workers subdomain
+CLOUDFLARE_RESOLVER_URL=""
+if test -n "$CLOUDFLARE_ACCOUNT_ID"; then
+    echo "🔍 Auto-detecting Cloudflare Workers subdomain..."
+    SUBDOMAIN_RESP=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain")
+    SUBDOMAIN_STATUS="${SUBDOMAIN_RESP: -3}"
+    SUBDOMAIN_BODY="${SUBDOMAIN_RESP%???}"
+
+    if [ "$SUBDOMAIN_STATUS" = "200" ] && command -v jq >/dev/null 2>&1; then
+        WORKERS_SUBDOMAIN=$(printf "%s" "$SUBDOMAIN_BODY" | jq -r '.result.subdomain // empty')
+        if [ -n "$WORKERS_SUBDOMAIN" ]; then
+            CLOUDFLARE_RESOLVER_URL="https://${WORKER_NAME}.${WORKERS_SUBDOMAIN}.workers.dev"
+            echo "✅ Auto-detected resolver URL: $CLOUDFLARE_RESOLVER_URL"
         else
-            echo "⚠️ Failed to request access token from iam.confidence.dev: HTTP ${http_status}" >&2
+            echo "⚠️ Could not extract subdomain from API response"
         fi
-        return 1
-    }
-
-    fetch_resolver_state_url() {
-        local token
-        if ! token=$(fetch_access_token); then
-            echo "❌ Unable to obtain access token from IAM API"
-            return 1
-        fi
-
-        # HTTP using REST transcoding
-        local url="https://resolver.confidence.dev/v1/resolverState:resolverStateUri"
-        local resp
-        resp=$(curl -s -w "%{http_code}" -H "Authorization: Bearer ${token}" "${url}")
-        local http_status="${resp: -3}"
-        local body="${resp%???}"
-
-        if [ "$http_status" -eq 200 ] && [ -n "$body" ]; then
-            local signed_uri
-            signed_uri=$(printf "%s" "$body" | jq -r '.signedUri // .signed_uri // empty')
-            if [ -n "$signed_uri" ]; then
-                CONFIDENCE_RESOLVER_STATE_URL="$signed_uri"
-                echo "⤵️ Retrieved resolver state URL from resolver.confidence.dev"
-                return 0
-            fi
-        else
-            echo "⚠️ Failed to fetch resolver state URL from resolver.confidence.dev: HTTP ${http_status}" >&2
-        fi
-        return 1
-    }
-
-    if ! fetch_resolver_state_url; then
-        echo "❌ Unable to obtain resolver state URL from API. Please set CONFIDENCE_RESOLVER_STATE_URL explicitly"
-        exit 1
+    else
+        echo "⚠️ Could not fetch workers subdomain (HTTP $SUBDOMAIN_STATUS). Skipping etag check."
     fi
 fi
 
@@ -104,7 +101,6 @@ RESPONSE_FILE="data/resolver_state_current.pb"
 ETAG_TOML=""
 ALLOWED_ORIGIN_TOML=""
 VERSION_TOML=""
-CLIENT_ID_TOML=""
 CLIENT_SECRET_TOML=""
 
 EXTRA_HEADER=()
@@ -112,10 +108,11 @@ EXTRA_HEADER=()
 # Try to fetch previous etag from deployed resolver endpoint if provided
 PREV_ETAG=""
 PREV_DEPLOYER_VERSION=""
-if [ -n "$CONFIDENCE_RESOLVER_STATE_ETAG_URL" ]; then
-    echo "🌐 Fetching etag and git version from $CONFIDENCE_RESOLVER_STATE_ETAG_URL"
+if [ -n "$CLOUDFLARE_RESOLVER_URL" ]; then
+    RESOLVER_STATE_ETAG_URL="${CLOUDFLARE_RESOLVER_URL}/v1/state:etag"
+    echo "🌐 Fetching etag and git version from $RESOLVER_STATE_ETAG_URL"
     ETAG_BODY_TMP=$(mktemp)
-    ETAG_STATUS=$(curl -sS -w "%{http_code}" -o "$ETAG_BODY_TMP" "$CONFIDENCE_RESOLVER_STATE_ETAG_URL") || ETAG_STATUS="000"
+    ETAG_STATUS=$(curl -sS -w "%{http_code}" -o "$ETAG_BODY_TMP" "$RESOLVER_STATE_ETAG_URL") || ETAG_STATUS="000"
     if [ "$ETAG_STATUS" = "200" ]; then
         if command -v jq >/dev/null 2>&1 && grep -q '^[[:space:]]*{' "$ETAG_BODY_TMP"; then
             PREV_ETAG=$(jq -r '.etag // empty' "$ETAG_BODY_TMP") || PREV_ETAG=""
@@ -211,7 +208,6 @@ else
     exit 1
 fi
 
-echo -n "$CONFIDENCE_ACCOUNT_ID" > data/account_id
 echo -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" > data/encryption_key
 
 # Function to check if a file exists and is not empty
@@ -226,14 +222,17 @@ check_file() {
 
 # Verify all required files
 check_file "data/resolver_state_current.pb"
-check_file "data/account_id"
-check_file "data/encryption_key"
+# Note: encryption_key may be empty, so we just check it exists
+if [ ! -f "data/encryption_key" ]; then
+    echo "❌ Error: data/encryption_key was not created!" >&2
+    exit 1
+fi
 
 echo "🚀 All files successfully created and verified"
 
 cd confidence-cloudflare-resolver
 
-echo "🏁 Starting CloudFlare deployment for $CONFIDENCE_ACCOUNT_ID"
+echo "🏁 Starting CloudFlare deployment"
 echo "☁️ CloudFlare API token: ${CLOUDFLARE_API_TOKEN:0:5}.."
 echo "☁️ CloudFlare account ID: $CLOUDFLARE_ACCOUNT_ID"
 
@@ -259,24 +258,20 @@ if [ -n "$DEPLOYER_VERSION" ]; then
     VERSION_TOML=$(printf '%s' "$DEPLOYER_VERSION" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
 fi
 
-# Prepare CONFIDENCE_CLIENT_ID and CONFIDENCE_CLIENT_SECRET for TOML (escape quotes and backslashes)
-if [ -n "$CONFIDENCE_CLIENT_ID" ]; then
-    CLIENT_ID_TOML=$(printf '%s' "$CONFIDENCE_CLIENT_ID" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
-fi
+# Prepare CONFIDENCE_CLIENT_SECRET for TOML (escape quotes and backslashes)
 if [ -n "$CONFIDENCE_CLIENT_SECRET" ]; then
     CLIENT_SECRET_TOML=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
 fi
 
 # Update [vars] table with ALLOWED_ORIGIN, RESOLVER_STATE_ETAG and RESOLVER_VERSION, without duplicating the table
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_ID_TOML" ] || [ -n "$CLIENT_SECRET_TOML" ]; then
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^DEPLOYER_VERSION *= *.*$/d' wrangler.toml || true
-    sed -i.tmp '/^CONFIDENCE_CLIENT_ID *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_id="${CLIENT_ID_TOML}" -v client_secret="${CLIENT_SECRET_TOML}" '
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -284,7 +279,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (allowed != "") print "ALLOWED_ORIGIN = \"" allowed "\""
                 if (etag != "") print "RESOLVER_STATE_ETAG = \"" etag "\""
                 if (version != "") print "DEPLOYER_VERSION = \"" version "\""
-                if (client_id != "") print "CONFIDENCE_CLIENT_ID = \"" client_id "\""
                 if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
                 inserted=1
             }
@@ -299,9 +293,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     if [ -n "$DEPLOYER_VERSION" ]; then
         echo "✅ DEPLOYER_VERSION set to \"$DEPLOYER_VERSION\" in wrangler.toml"
     fi
-    if [ -n "$CLIENT_ID_TOML" ]; then
-        echo "✅ CONFIDENCE_CLIENT_ID set in wrangler.toml"
-    fi
     if [ -n "$CLIENT_SECRET_TOML" ]; then
         echo "✅ CONFIDENCE_CLIENT_SECRET set in wrangler.toml"
     fi
@@ -309,6 +300,22 @@ fi
 
 # Build the worker after state is downloaded
 export CARGO_TARGET_DIR=/workspace/target
+export PATH="/usr/local/cargo/bin:$PATH"
+
+# Debug: verify data files exist before build
+echo "📁 Verifying data files before build..."
+ls -la ../data/
+echo "📁 resolver_state_current.pb size: $(wc -c < ../data/resolver_state_current.pb) bytes"
+echo "📁 encryption_key size: $(wc -c < ../data/encryption_key) bytes"
+
+# Debug: check wasm-bindgen
+echo "🔧 Checking wasm-bindgen..."
+which wasm-bindgen || echo "wasm-bindgen not in PATH"
+wasm-bindgen --version || echo "wasm-bindgen version check failed"
+echo "🔧 PATH: $PATH"
+echo "🔧 CARGO_HOME: $CARGO_HOME"
+ls -la /usr/local/cargo/bin/ | grep wasm || echo "no wasm tools in cargo bin"
+
 RUSTFLAGS='--cfg getrandom_backend="wasm_js"' worker-build --release
 
 # only deploy if NO_DEPLOY is not set
