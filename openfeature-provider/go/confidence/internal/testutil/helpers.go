@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -437,3 +438,13 @@ func (m *MockedLocalResolver) ResolveWithSticky(*wasm.ResolveWithStickyRequest) 
 	return m.Response, m.Err
 }
 func (m MockedLocalResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }
+
+
+func JsonToProto(jsonString string) *structpb.Value {
+	var v structpb.Value;
+	err := json.Unmarshal([]byte(jsonString), &v)
+	if err != nil {
+		panic(err)
+	}
+	return &v
+} 

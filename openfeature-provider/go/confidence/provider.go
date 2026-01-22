@@ -83,35 +83,7 @@ func (p *LocalResolverProvider) BooleanEvaluation(
 	defaultValue bool,
 	evalCtx openfeature.FlattenedContext,
 ) openfeature.BoolResolutionDetail {
-	result := p.ObjectEvaluation(ctx, flag, defaultValue, evalCtx)
-
-	var detail openfeature.BoolResolutionDetail
-
-	if result.Value == nil {
-		detail = openfeature.BoolResolutionDetail{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          result.Reason,
-				ResolutionError: result.ResolutionError,
-			},
-		}
-	} else if boolVal, ok := result.Value.(bool); !ok {
-		detail = openfeature.BoolResolutionDetail{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewTypeMismatchResolutionError("value is not a boolean"),
-			},
-		}
-	} else {
-		detail = openfeature.BoolResolutionDetail{
-			Value:                    boolVal,
-			ProviderResolutionDetail: result.ProviderResolutionDetail,
-		}
-	}
-
-	p.logResolutionErrorIfPresent(flag, detail.ProviderResolutionDetail)
-	return detail
+	return evaluate(p, ctx, flag, defaultValue, evalCtx)
 }
 
 // StringEvaluation evaluates a string flag
@@ -121,35 +93,7 @@ func (p *LocalResolverProvider) StringEvaluation(
 	defaultValue string,
 	evalCtx openfeature.FlattenedContext,
 ) openfeature.StringResolutionDetail {
-	result := p.ObjectEvaluation(ctx, flag, defaultValue, evalCtx)
-
-	var detail openfeature.StringResolutionDetail
-
-	if result.Value == nil {
-		detail = openfeature.StringResolutionDetail{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          result.Reason,
-				ResolutionError: result.ResolutionError,
-			},
-		}
-	} else if strVal, ok := result.Value.(string); !ok {
-		detail = openfeature.StringResolutionDetail{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewTypeMismatchResolutionError("value is not a string"),
-			},
-		}
-	} else {
-		detail = openfeature.StringResolutionDetail{
-			Value:                    strVal,
-			ProviderResolutionDetail: result.ProviderResolutionDetail,
-		}
-	}
-
-	p.logResolutionErrorIfPresent(flag, detail.ProviderResolutionDetail)
-	return detail
+	return evaluate(p, ctx, flag, defaultValue, evalCtx)
 }
 
 // FloatEvaluation evaluates a float flag
@@ -159,35 +103,7 @@ func (p *LocalResolverProvider) FloatEvaluation(
 	defaultValue float64,
 	evalCtx openfeature.FlattenedContext,
 ) openfeature.FloatResolutionDetail {
-	result := p.ObjectEvaluation(ctx, flag, defaultValue, evalCtx)
-
-	var detail openfeature.FloatResolutionDetail
-
-	if result.Value == nil {
-		detail = openfeature.FloatResolutionDetail{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          result.Reason,
-				ResolutionError: result.ResolutionError,
-			},
-		}
-	} else if floatVal, ok := result.Value.(float64); !ok {
-		detail = openfeature.FloatResolutionDetail{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewTypeMismatchResolutionError("value is not a float"),
-			},
-		}
-	} else {
-		detail = openfeature.FloatResolutionDetail{
-			Value:                    floatVal,
-			ProviderResolutionDetail: result.ProviderResolutionDetail,
-		}
-	}
-
-	p.logResolutionErrorIfPresent(flag, detail.ProviderResolutionDetail)
-	return detail
+	return evaluate(p, ctx, flag, defaultValue, evalCtx)
 }
 
 // IntEvaluation evaluates an int flag
@@ -197,56 +113,29 @@ func (p *LocalResolverProvider) IntEvaluation(
 	defaultValue int64,
 	evalCtx openfeature.FlattenedContext,
 ) openfeature.IntResolutionDetail {
-	result := p.ObjectEvaluation(ctx, flag, defaultValue, evalCtx)
-
-	var detail openfeature.IntResolutionDetail
-
-	if result.Value == nil {
-		detail = openfeature.IntResolutionDetail{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          result.Reason,
-				ResolutionError: result.ResolutionError,
-			},
-		}
-	} else {
-		// Handle both int64 and float64 (JSON numbers are float64)
-		switch v := result.Value.(type) {
-		case int64:
-			detail = openfeature.IntResolutionDetail{
-				Value:                    v,
-				ProviderResolutionDetail: result.ProviderResolutionDetail,
-			}
-		case float64:
-			detail = openfeature.IntResolutionDetail{
-				Value:                    int64(v),
-				ProviderResolutionDetail: result.ProviderResolutionDetail,
-			}
-		default:
-			detail = openfeature.IntResolutionDetail{
-				Value: defaultValue,
-				ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-					Reason:          openfeature.ErrorReason,
-					ResolutionError: openfeature.NewTypeMismatchResolutionError("value is not an integer"),
-				},
-			}
-		}
-	}
-
-	p.logResolutionErrorIfPresent(flag, detail.ProviderResolutionDetail)
-	return detail
+	return evaluate(p, ctx, flag, defaultValue, evalCtx)
 }
 
-// ObjectEvaluation evaluates an object flag (core implementation)
 func (p *LocalResolverProvider) ObjectEvaluation(
 	ctx context.Context,
 	flag string,
 	defaultValue interface{},
 	evalCtx openfeature.FlattenedContext,
 ) openfeature.InterfaceResolutionDetail {
+	return evaluate(p, ctx, flag, defaultValue, evalCtx)
+}
+
+// generic evaluation not a member since members can't be generic
+func evaluate[T any](
+	p *LocalResolverProvider,
+	ctx context.Context,
+	flag string,
+	defaultValue T,
+	evalCtx openfeature.FlattenedContext,
+) openfeature.GenericResolutionDetail[T] {
 	// TODO this needs better proper handling, thread safety etc.
 	if p.resolver == nil {
-		return openfeature.InterfaceResolutionDetail{
+		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
@@ -255,7 +144,7 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 		}
 	}
 	// Parse flag path (supports "flag.path.to.value" syntax)
-	flagPath, path := parseFlagPath(flag)
+	flagName, path := parseFlagPath(flag)
 
 	// Process targeting key (convert "targetingKey" to "targeting_key")
 	processedCtx := processTargetingKey(evalCtx)
@@ -264,7 +153,7 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	protoCtx, err := flattenedContextToProto(processedCtx)
 	if err != nil {
 		p.logger.Error("Failed to convert evaluation context to proto", "error", err)
-		return openfeature.InterfaceResolutionDetail{
+		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
@@ -274,7 +163,7 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	}
 
 	// Build resolve request
-	requestFlagName := "flags/" + flagPath
+	requestFlagName := "flags/" + flagName
 	request := &resolver.ResolveFlagsRequest{
 		Flags:             []string{requestFlagName},
 		Apply:             true,
@@ -299,8 +188,8 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	// Resolve flags with sticky support
 	stickyResponse, err := p.resolver.ResolveWithSticky(stickyRequest)
 	if err != nil {
-		p.logger.Error("Failed to resolve flag", "flag", flagPath, "error", err)
-		return openfeature.InterfaceResolutionDetail{
+		p.logger.Error("Failed to resolve flag", "flag", flagName, "error", err)
+		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
@@ -315,8 +204,8 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	case *wasm.ResolveWithStickyResponse_Success_:
 		response = result.Success.Response
 	case *wasm.ResolveWithStickyResponse_ReadOpsRequest:
-		p.logger.Error("Missing materializations for flag", "flag", flagPath)
-		return openfeature.InterfaceResolutionDetail{
+		p.logger.Error("Missing materializations for flag", "flag", flagName)
+		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
@@ -324,8 +213,8 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 			},
 		}
 	default:
-		p.logger.Error("Unexpected resolve result type for flag", "flag", flagPath)
-		return openfeature.InterfaceResolutionDetail{
+		p.logger.Error("Unexpected resolve result type for flag", "flag", flagName)
+		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
@@ -336,11 +225,11 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 
 	// Check if flag was found
 	if len(response.ResolvedFlags) == 0 {
-		return openfeature.InterfaceResolutionDetail{
+		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewFlagNotFoundResolutionError(fmt.Sprintf("flag '%s' not found", flagPath)),
+				ResolutionError: openfeature.NewFlagNotFoundResolutionError(fmt.Sprintf("flag '%s' not found", flagName)),
 			},
 		}
 	}
@@ -350,7 +239,7 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	// Verify flag name matches
 	if resolvedFlag.Flag != requestFlagName {
 		p.logger.Error("Unexpected flag from resolver", "expected", requestFlagName, "got", resolvedFlag.Flag)
-		return openfeature.InterfaceResolutionDetail{
+		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
@@ -361,7 +250,7 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 
 	// Check if variant is assigned
 	if resolvedFlag.Variant == "" {
-		return openfeature.InterfaceResolutionDetail{
+		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				ResolutionError: openfeature.ResolutionError{},
@@ -371,31 +260,32 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	}
 
 	// Convert protobuf struct to Go interface{}
-	value := protoStructToGo(resolvedFlag.Value)
+	value, ok := getValueForPath(path, resolvedFlag.Value)
 
-	// If a path was specified, extract the nested value
-	if path != "" {
-		var found bool
-		value, found = getValueForPath(path, value)
-		// If path was specified but not found, return FLAG_NOT_FOUND error
-		if !found {
-			return openfeature.InterfaceResolutionDetail{
-				Value: defaultValue,
-				ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-					Reason:          openfeature.ErrorReason,
-					ResolutionError: openfeature.NewFlagNotFoundResolutionError(fmt.Sprintf("path '%s' not found in flag '%s'", path, flagPath)),
-				},
-			}
+	if !ok {
+		return openfeature.GenericResolutionDetail[T]{
+			Value: defaultValue,
+			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
+				Reason:          openfeature.ErrorReason,
+				ResolutionError: openfeature.NewFlagNotFoundResolutionError(fmt.Sprintf("path '%s' not found in flag '%s'", strings.Join(path, "."), flagName)),
+			},
 		}
 	}
 
-	// If value is nil (flag has no value), use default
-	if value == nil {
-		value = defaultValue
+	result, err := unmarshalProto(value, defaultValue, path)
+
+	if err != nil {
+		return openfeature.GenericResolutionDetail[T]{
+			Value: defaultValue,
+			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
+				Reason:          openfeature.ErrorReason,
+				ResolutionError: openfeature.NewTypeMismatchResolutionError(err.Error()),
+			},
+		}
 	}
 
-	return openfeature.InterfaceResolutionDetail{
-		Value: value,
+	return openfeature.GenericResolutionDetail[T]{
+		Value: result,
 		ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 			Variant:         resolvedFlag.Variant,
 			ResolutionError: openfeature.ResolutionError{},
@@ -578,12 +468,9 @@ func getPollIntervalSeconds() time.Duration {
 
 // parseFlagPath splits a flag key into flag name and path
 // e.g., "my-flag.nested.value" -> ("my-flag", "nested.value")
-func parseFlagPath(key string) (flagName string, path string) {
-	parts := strings.SplitN(key, ".", 2)
-	if len(parts) == 1 {
-		return parts[0], ""
-	}
-	return parts[0], parts[1]
+func parseFlagPath(key string) (flagName string, steps []string) {
+	parts := strings.Split(key, ".")
+	return parts[0], parts[1:]
 }
 
 // processTargetingKey converts "targetingKey" to "targeting_key" in the context
@@ -656,67 +543,18 @@ func goValueToProto(value interface{}) (*structpb.Value, error) {
 	}
 }
 
-// protoStructToGo converts protobuf Struct to Go map[string]interface{}
-func protoStructToGo(s *structpb.Struct) interface{} {
-	if s == nil {
-		return nil
-	}
-
-	result := make(map[string]interface{})
-	for key, val := range s.Fields {
-		result[key] = protoValueToGo(val)
-	}
-	return result
-}
-
-// protoValueToGo converts protobuf Value to Go interface{}
-func protoValueToGo(value *structpb.Value) interface{} {
-	if value == nil {
-		return nil
-	}
-
-	switch v := value.Kind.(type) {
-	case *structpb.Value_NullValue:
-		return nil
-	case *structpb.Value_BoolValue:
-		return v.BoolValue
-	case *structpb.Value_NumberValue:
-		return v.NumberValue
-	case *structpb.Value_StringValue:
-		return v.StringValue
-	case *structpb.Value_ListValue:
-		result := make([]interface{}, len(v.ListValue.Values))
-		for i, val := range v.ListValue.Values {
-			result[i] = protoValueToGo(val)
-		}
-		return result
-	case *structpb.Value_StructValue:
-		result := make(map[string]interface{})
-		for key, val := range v.StructValue.Fields {
-			result[key] = protoValueToGo(val)
-		}
-		return result
-	default:
-		return nil
-	}
-}
-
 // getValueForPath extracts a nested value from a map using dot notation
 // e.g., "nested.value" from map{"nested": map{"value": 42}} returns 42
 // Returns (value, found) where found indicates if the path was fully traversed
-func getValueForPath(path string, value interface{}) (interface{}, bool) {
-	if path == "" {
-		return value, true
-	}
+func getValueForPath(path []string, value *structpb.Struct) (*structpb.Value, bool) {
+	current := structpb.NewStructValue(value)
 
-	parts := strings.Split(path, ".")
-	current := value
-
-	for _, part := range parts {
-		switch v := current.(type) {
-		case map[string]interface{}:
+	for _, part := range path {
+		// if current.Kind ==
+		switch v := current.Kind.(type) {
+		case *structpb.Value_StructValue:
 			var exists bool
-			current, exists = v[part]
+			current, exists = v.StructValue.Fields[part]
 			if !exists {
 				return nil, false
 			}

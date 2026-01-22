@@ -29,6 +29,7 @@ go mod tidy
 You'll need a **client secret** from Confidence to use this provider.
 
 **📖 See the [Integration Guide: Getting Your Credentials](../INTEGRATION_GUIDE.md#getting-your-credentials)** for step-by-step instructions on:
+
 - How to navigate the Confidence dashboard
 - Creating a Backend integration
 - Creating a test flag for verification
@@ -100,6 +101,7 @@ evalCtx := openfeature.NewEvaluationContext("user-123", map[string]interface{}{
 The provider uses a **default value fallback** pattern - when evaluation fails, it returns your specified default value instead of throwing an error.
 
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
+
 - Common failure scenarios
 - Error codes and meanings
 - Production best practices
@@ -153,9 +155,10 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 
 #### Optional Fields
 
-- `Logger` (*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
+- `Logger` (\*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration)
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
+
   - `nil` (default): Falls back to default values for flags requiring materializations
   - `NewRemoteMaterializationStore()`: Uses remote gRPC storage (recommended for getting started)
   - Custom implementation: Your own storage (Redis, DynamoDB, etc.) for optimal performance
@@ -197,11 +200,13 @@ Materialization stores provide persistent storage for sticky variant assignments
 For quick setup without managing your own storage infrastructure, enable the built-in remote materialization store. This implementation stores materialization data via gRPC to the Confidence service.
 
 **When to use**:
+
 - You need sticky assignments or materialized segments but don't want to manage storage infrastructure
 - Quick prototyping or getting started
 - Lower-volume applications where network latency is acceptable
 
 **Trade-offs**:
+
 - Additional network calls during flag resolution (adds latency)
 - Lower performance compared to local storage implementations (Redis, DynamoDB, etc.)
 
@@ -275,6 +280,7 @@ func main() {
 
 An in-memory reference implementation is provided for testing and development.
 **Warning**: An in-memory store should NOT be used in production because:
+
 - Data is lost on application restart (no persistence)
 - Memory grows unbounded
 - Not suitable for multi-instance deployments
@@ -282,6 +288,7 @@ An in-memory reference implementation is provided for testing and development.
 ### When to Use Materialization Stores
 
 Consider implementing a custom materialization store if:
+
 - You need to support sticky variant assignments for experiments
 - You use materialized segments for custom targeting
 - You want to minimize network latency during flag resolution
@@ -307,8 +314,75 @@ timeout, err := client.IntValue(ctx, "feature.timeout-ms", 5000, evalCtx)
 ratio, err := client.FloatValue(ctx, "feature.sampling_ratio", 0.5, evalCtx)
 
 // Object/structured flags
-config, err := client.ObjectValue(ctx, "feature", map[string]interface{}{}, evalCtx)
+config, err := client.ObjectValue(ctx, "feature", map[string]any{ "some": "value" }, evalCtx)
 ```
+
+### Typed Default Values
+
+When using `ObjectValue`, the result can **always** be type-asserted to the type of your default value. The resolved flag value must be fully assignable to the default value's type—if not, it's treated as an error and the default value is returned.
+
+> **Note: Field Name Mapping**
+>
+> Struct field names are automatically converted to `snake_case` for matching (e.g., `ButtonColor` → `button_color`). This differs from Go's standard `encoding/json` package which uses exact field names. Use `json` tags to override the mapping if needed.
+
+```go
+type FeatureConfig struct {
+    ButtonColor string                 // matches "button_color"
+    MaxRetries  int  `json:"retries"`  // matches "retries" (overridden)
+    Enabled     bool                   // matches "enabled"
+}
+
+defaultConfig := FeatureConfig{
+    ButtonColor: "blue",
+    MaxRetries:  3,
+    Enabled:     false,
+}
+
+result, err := client.ObjectValue(ctx, "feature.config", defaultConfig, evalCtx)
+config := result.(FeatureConfig)  // Safe: result is always the same type as defaultConfig
+```
+
+#### Struct Defaults: All-or-Nothing
+
+With struct defaults, the resolved value must satisfy **all** fields. If even one field is missing or has an incompatible type, the entire resolved value is discarded and you get the default.
+
+```go
+// If the flag resolves to: {"button_color": "red", "retries": 5}
+// Missing "enabled" field → error, returns defaultConfig entirely
+// You never get a mix of resolved + default values
+```
+
+This ensures type safety: your code always receives a complete, valid struct.
+
+#### Map Defaults: Merge Semantics
+
+With `map[string]any` defaults, resolved values are **merged** into a copy of the default. However, type safety is still enforced—if a field's type doesn't match, it's an error and the entire default map is returned.
+
+```go
+defaultMap := map[string]any{
+    "timeout": 30,    // int
+    "retries": 3,     // int
+}
+
+// If flag resolves to: {"timeout": 60, "extra": true}
+// Result: {"timeout": 60, "retries": 3, "extra": true}
+// - "timeout" overwritten by resolved value
+// - "retries" kept from default (not in resolved)
+// - "extra" added from resolved value
+
+// If flag resolves to: {"timeout": "fast"}
+// Type mismatch (string vs int) → error, returns defaultMap
+```
+
+With `nil` default, you get the resolved value as-is using natural Go types (numbers as `float64`, objects as `map[string]any`, etc.).
+
+#### Assignability Rules
+
+- Struct fields are matched by `json` tag, or snake_case conversion of the field name
+- Types must match exactly (a number where a bool is expected → error)
+- Numbers convert to integers only if they're whole numbers (3.0 → ok, 3.5 → error)
+- Negative numbers cannot convert to unsigned integers
+- Null values in the flag use the corresponding default value for that field
 
 ## Logging
 
