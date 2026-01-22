@@ -2087,6 +2087,234 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_with_apply_false_then_apply_flags() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+        )
+        .unwrap();
+
+        // Custom logger that tracks what gets logged, including evaluation context
+        struct AssignLogEntry {
+            resolve_id: String,
+            flag: String,
+            evaluation_context: Struct,
+        }
+
+        struct TestLogger {
+            assign_logs: std::sync::Mutex<Vec<AssignLogEntry>>,
+        }
+
+        impl Host for TestLogger {
+            fn log_resolve(
+                _resolve_id: &str,
+                _evaluation_context: &Struct,
+                _values: &[ResolvedValue<'_>],
+                _client: &Client,
+                _sdk: &Option<Sdk>,
+            ) {
+                // Do nothing for resolve logs
+            }
+
+            fn log_assign(
+                resolve_id: &str,
+                evaluation_context: &Struct,
+                assigned_flag: &[FlagToApply],
+                _client: &Client,
+                _sdk: &Option<Sdk>,
+            ) {
+                let mut logs = TestLogger::get_instance()
+                    .assign_logs
+                    .try_lock()
+                    .expect("mutex is locked or poisoned");
+                assigned_flag.iter().for_each(|f| {
+                    logs.push(AssignLogEntry {
+                        resolve_id: resolve_id.to_string(),
+                        flag: f.assigned_flag.flag.clone(),
+                        evaluation_context: evaluation_context.clone(),
+                    });
+                });
+            }
+        }
+
+        impl TestLogger {
+            fn get_instance() -> &'static TestLogger {
+                static INSTANCE: std::sync::OnceLock<TestLogger> = std::sync::OnceLock::new();
+                INSTANCE.get_or_init(|| TestLogger {
+                    assign_logs: std::sync::Mutex::new(Vec::new()),
+                })
+            }
+
+            fn clear_logs() {
+                if let Ok(mut logs) = TestLogger::get_instance().assign_logs.lock() {
+                    logs.clear();
+                }
+            }
+
+            fn get_logs() -> Vec<AssignLogEntry> {
+                TestLogger::get_instance()
+                    .assign_logs
+                    .lock()
+                    .unwrap()
+                    .drain(..)
+                    .collect()
+            }
+        }
+
+        // Step 1: Resolve flags with apply=false - no assignment should be logged
+        TestLogger::clear_logs();
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, TestLogger> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec!["flags/tutorial-feature".to_string()],
+            apply: false,
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+        let flag = response.resolved_flags.get(0).unwrap();
+        assert_eq!(true, flag.should_apply);
+        assert_eq!(ResolveReason::Match as i32, flag.reason);
+
+        // Verify that no assignment was logged yet (because apply=false)
+        let logs = TestLogger::get_logs();
+        assert_eq!(
+            logs.len(),
+            0,
+            "No assignments should be logged when apply=false"
+        );
+
+        // Verify we got a resolve token
+        assert!(
+            !response.resolve_token.is_empty(),
+            "resolve_token should be set when apply=false"
+        );
+
+        // Step 2: Call apply_flags with the resolve token
+        let now = Timestamp {
+            seconds: 1704067200, // 2024-01-01 00:00:00 UTC
+            nanos: 0,
+        };
+
+        let apply_request = flags_resolver::ApplyFlagsRequest {
+            flags: vec![flags_resolver::AppliedFlag {
+                flag: "flags/tutorial-feature".to_string(),
+                apply_time: Some(now.clone()),
+            }],
+            client_secret: SECRET.to_string(),
+            resolve_token: response.resolve_token,
+            send_time: Some(now),
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let apply_result = resolver.apply_flags(&apply_request);
+        assert!(apply_result.is_ok(), "apply_flags should succeed");
+
+        // Verify that assignment was logged after apply_flags
+        let logs = TestLogger::get_logs();
+        assert_eq!(
+            logs.len(),
+            1,
+            "Assignment should be logged after apply_flags"
+        );
+
+        let log_entry = &logs[0];
+
+        // Verify the flag name
+        assert_eq!(
+            log_entry.flag, "flags/tutorial-feature",
+            "Log should contain the correct flag name"
+        );
+
+        // Verify that the resolve_id from the original resolve is used in apply_flags logging
+        assert_eq!(
+            log_entry.resolve_id, response.resolve_id,
+            "Log should contain the resolve_id from the original resolve"
+        );
+
+        // Verify that the evaluation context used in apply_flags logging matches the original resolve
+        // The context should contain the visitor_id that was used during resolve
+        let visitor_id_value = log_entry
+            .evaluation_context
+            .fields
+            .get("visitor_id")
+            .expect("evaluation_context should contain visitor_id");
+        assert_eq!(
+            visitor_id_value.kind,
+            Some(Kind::StringValue("tutorial_visitor".to_string())),
+            "evaluation_context should contain the original visitor_id from resolve"
+        );
+    }
+
+    #[test]
+    fn test_apply_flags_with_wrong_flag_fails() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+        )
+        .unwrap();
+
+        // First resolve to get a valid token
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec!["flags/tutorial-feature".to_string()],
+            apply: false,
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+
+        // Try to apply a different flag than what was resolved
+        let now = Timestamp {
+            seconds: 1704067200,
+            nanos: 0,
+        };
+
+        let apply_request = flags_resolver::ApplyFlagsRequest {
+            flags: vec![flags_resolver::AppliedFlag {
+                flag: "flags/wrong-flag".to_string(), // This flag wasn't resolved
+                apply_time: Some(now.clone()),
+            }],
+            client_secret: SECRET.to_string(),
+            resolve_token: response.resolve_token,
+            send_time: Some(now),
+            sdk: None,
+        };
+
+        let apply_result = resolver.apply_flags(&apply_request);
+        assert!(
+            apply_result.is_err(),
+            "apply_flags should fail when applying a flag that wasn't resolved"
+        );
+        assert!(
+            apply_result
+                .unwrap_err()
+                .contains("Flag in resolve token does not match"),
+            "Error message should indicate flag mismatch"
+        );
+    }
+
+    #[test]
     fn test_targeting_key_integer_supported() {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
