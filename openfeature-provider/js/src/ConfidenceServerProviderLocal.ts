@@ -1,6 +1,7 @@
 import type {
   ErrorCode,
   EvaluationContext,
+  FlagValue,
   JsonValue,
   Provider,
   ProviderMetadata,
@@ -442,7 +443,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     const stickyRequest = this.buildStickyRequest(context, flagNames, false);
     const response = await this.resolveWithSticky(stickyRequest);
 
-    const flags: Record<string, ResolutionDetails<unknown>> = {};
+    const flags: Record<string, ResolutionDetails<FlagValue>> = {};
     for (const resolved of response.resolvedFlags) {
       const flagName = resolved.flag.replace(/^flags\//, '');
       flags[flagName] = {
