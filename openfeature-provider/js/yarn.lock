@@ -735,9 +735,12 @@ __metadata:
     tsdown: "npm:latest"
     vitest: "npm:^3.2.4"
   peerDependencies:
+    "@openfeature/core": ^1.0.0
     debug: ^4.4.3
     react: ^18.0.0 || ^19.0.0
   peerDependenciesMeta:
+    "@openfeature/core":
+      optional: true
     debug:
       optional: true
     react:

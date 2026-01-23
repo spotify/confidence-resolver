@@ -4,8 +4,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import React from 'react';
-import { useFlag, useFlagDetails, useFlagNames, ConfidenceClientProvider } from './react-client';
-import type { FlagBundle } from './types';
+import { useFlag, useFlagDetails, useFlagNames, ConfidenceClientProvider } from './client';
+import type { FlagBundle } from '../types';
 
 const createTestBundle = (flags: FlagBundle['flags'] = {}): FlagBundle => ({
   flags,

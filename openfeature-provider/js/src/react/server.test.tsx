@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenFeature } from '@openfeature/server-sdk';
 import type { Provider, EvaluationContext } from '@openfeature/server-sdk';
 import React from 'react';
-import { ConfidenceProvider } from './react-server';
+import { ConfidenceProvider } from './server';
 
 // Mock provider that matches ConfidenceServerProviderLocal's metadata
 function createMockConfidenceProvider(overrides: Partial<Provider> = {}): Provider {

@@ -1,20 +1,11 @@
-/**
- * Details of a resolved flag value.
- */
-export interface ResolvedFlagDetails {
-  value: unknown;
-  variant?: string;
-  reason: string;
-  errorCode?: string;
-  errorMessage?: string;
-}
+import type { ResolutionDetails } from '@openfeature/core';
 
 /**
  * A bundle of resolved flags that can be serialized and passed to client components.
  */
 export interface FlagBundle {
   /** Map of flag names to their resolved details */
-  flags: Record<string, ResolvedFlagDetails>;
+  flags: Record<string, ResolutionDetails<unknown>>;
   /** Base64-encoded resolve token for apply calls */
   resolveToken: string;
   /** Unique identifier for this resolution */

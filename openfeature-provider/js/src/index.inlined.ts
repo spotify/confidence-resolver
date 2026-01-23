@@ -1,5 +1,6 @@
-import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
-import { LocalResolver } from './LocalResolver';
+import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
+import type { ProviderOptions } from './ConfidenceServerProviderLocal';
+import type { LocalResolver } from './LocalResolver';
 import { WasmResolver } from './WasmResolver';
 export type { MaterializationStore } from './materialization';
 

@@ -22,17 +22,18 @@ import {
   timeoutSignal,
   TimeUnit,
 } from './util';
-import type { FlagBundle, ResolvedFlagDetails } from './types';
-import { LocalResolver } from './LocalResolver';
+import type { FlagBundle } from './types';
+import { isAssignableTo } from './type-utils';
+import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
 import {
   ConfidenceRemoteMaterializationStore,
-  MaterializationStore,
   readOpsFromProto,
   readResultToProto,
   writeOpsFromProto,
 } from './materialization';
+import type { MaterializationStore } from './materialization';
 import {
   ReadOperationsRequest,
   ReadOperationsResult,
@@ -181,27 +182,36 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.main.abort();
   }
 
+  /**
+   * Builds a ResolveWithStickyRequest for flag resolution.
+   */
+  private buildStickyRequest(
+    context: EvaluationContext,
+    flagNames: string[],
+    apply: boolean,
+  ): ResolveWithStickyRequest {
+    return {
+      resolveRequest: {
+        flags: flagNames.map(name => `flags/${name}`),
+        evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
+        apply,
+        clientSecret: this.options.flagClientSecret,
+        sdk: {
+          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+          version: VERSION,
+        },
+      },
+      materializations: [],
+      failFastOnSticky: false,
+      notProcessSticky: false,
+    };
+  }
+
   // TODO test unknown flagClientSecret
   async evaluate<T>(flagKey: string, defaultValue: T, context: EvaluationContext): Promise<ResolutionDetails<T>> {
     try {
       const [flagName, ...path] = flagKey.split('.');
-
-      const stickyRequest: ResolveWithStickyRequest = {
-        resolveRequest: {
-          flags: [`flags/${flagName}`],
-          evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
-          apply: true,
-          clientSecret: this.options.flagClientSecret,
-          sdk: {
-            id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-            version: VERSION,
-          },
-        },
-        materializations: [],
-        failFastOnSticky: false,
-        notProcessSticky: false,
-      };
-
+      const stickyRequest = this.buildStickyRequest(context, [flagName], true);
       const response = await this.resolveWithSticky(stickyRequest);
 
       return this.extractValue(response.resolvedFlags[0], flagName, path, defaultValue);
@@ -270,7 +280,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       value = value[step];
     }
 
-    if (!isAssignableTo(value, defaultValue)) {
+    if (!isAssignableTo(value, defaultValue, false)) {
       return {
         value: defaultValue,
         reason: 'ERROR',
@@ -432,32 +442,18 @@ export class ConfidenceServerProviderLocal implements Provider {
    * The flags are resolved without applying - call applyFlag() when a flag is actually used.
    */
   async resolveFlagBundle(context: EvaluationContext, ...flagNames: string[]): Promise<FlagBundle> {
-    const stickyRequest: ResolveWithStickyRequest = {
-      resolveRequest: {
-        flags: flagNames.map(name => `flags/${name}`),
-        evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
-        apply: false,
-        clientSecret: this.options.flagClientSecret,
-        sdk: {
-          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-          version: VERSION,
-        },
-      },
-      materializations: [],
-      failFastOnSticky: false,
-      notProcessSticky: false,
-    };
-
+    const stickyRequest = this.buildStickyRequest(context, flagNames, false);
     const response = await this.resolveWithSticky(stickyRequest);
 
-    const flags: Record<string, ResolvedFlagDetails> = {};
+    const flags: Record<string, ResolutionDetails<unknown>> = {};
     for (const resolved of response.resolvedFlags) {
       const flagName = resolved.flag.replace(/^flags\//, '');
       flags[flagName] = {
         value: resolved.value,
         variant: resolved.variant || undefined,
         reason: ConfidenceServerProviderLocal.convertReason(resolved.reason),
-        errorCode: resolved.reason === ResolveReason.RESOLVE_REASON_ERROR ? 'GENERAL' : undefined,
+        errorCode:
+          resolved.reason === ResolveReason.RESOLVE_REASON_ERROR ? castStringToEnum<ErrorCode>('GENERAL') : undefined,
       };
     }
 
@@ -493,21 +489,4 @@ export class ConfidenceServerProviderLocal implements Provider {
 
     this.resolver.applyFlags(request);
   }
-}
-
-function isAssignableTo<T>(value: unknown, schema: T): value is T {
-  if (typeof schema !== typeof value) return false;
-  if (typeof value === 'object' && typeof schema === 'object') {
-    if (schema === null) return value === null;
-    if (Array.isArray(schema)) {
-      if (!Array.isArray(value)) return false;
-      if (schema.length == 0) return true;
-      return value.every(item => isAssignableTo(item, schema[0]));
-    }
-    for (const [key, schemaValue] of Object.entries(schema)) {
-      if (!hasKey(value!, key)) return false;
-      if (!isAssignableTo(value[key], schemaValue)) return false;
-    }
-  }
-  return true;
 }

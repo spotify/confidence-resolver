@@ -1,7 +1,9 @@
 'use client';
 
 import { createContext, useContext, useEffect, useRef, useCallback } from 'react';
-import type { FlagBundle } from './types';
+import type { EvaluationDetails, FlagValue } from '@openfeature/core';
+import type { FlagBundle } from '../types';
+import { isAssignableTo } from '../type-utils';
 
 type ApplyFn = (flagName: string) => Promise<void>;
 
@@ -38,18 +40,9 @@ interface UseFlagOptionsManual {
 
 /**
  * Details returned by useFlagDetails hook.
+ * Extends OpenFeature's EvaluationDetails with an optional expose function for manual exposure control.
  */
-export interface FlagDetails<T> {
-  /** The resolved flag value, or the default value if not found or type mismatch */
-  value: T;
-  /** The variant name assigned (e.g., 'control', 'treatment') */
-  variant?: string;
-  /** Resolution reason: 'MATCH', 'NO_MATCH', 'STALE', 'ERROR', etc. */
-  reason: string;
-  /** Error code if resolution failed (e.g., 'FLAG_NOT_FOUND', 'TYPE_MISMATCH') */
-  errorCode?: string;
-  /** Human-readable error message */
-  errorMessage?: string;
+export interface ClientEvaluationDetails<T extends FlagValue> extends EvaluationDetails<T> {
   /** Function to manually log exposure. Only present when using { expose: false } option. */
   expose?: () => void;
 }
@@ -77,7 +70,7 @@ export function useFlagNames(): string[] {
  * Automatically logs exposure when the component mounts.
  * Supports dot notation to access nested properties within a flag value.
  *
- * @param flagName - The flag name, optionally with dot notation for nested access (e.g., 'my-flag.config.enabled')
+ * @param flagKey - The flag key, optionally with dot notation for nested access (e.g., 'my-flag.config.enabled')
  * @param defaultValue - Default value if flag or nested property is not found
  * @returns The flag value (or nested property value)
  *
@@ -95,8 +88,8 @@ export function useFlagNames(): string[] {
  *
  * @see useFlagDetails for manual exposure control
  */
-export function useFlag<T>(flagName: string, defaultValue: T): T {
-  return useFlagDetails(flagName, defaultValue).value;
+export function useFlag<T extends FlagValue>(flagKey: string, defaultValue: T): T {
+  return useFlagDetails(flagKey, defaultValue).value;
 }
 
 /**
@@ -108,10 +101,10 @@ export function useFlag<T>(flagName: string, defaultValue: T): T {
  *
  * Supports dot notation to access nested properties within a flag value.
  *
- * @param flagName - The flag name, optionally with dot notation for nested access (e.g., 'my-flag.config.enabled')
+ * @param flagKey - The flag key, optionally with dot notation for nested access (e.g., 'my-flag.config.enabled')
  * @param defaultValue - Default value if flag or nested property is not found
  * @param options - Use `{ expose: false }` for manual exposure control
- * @returns Object with value, variant, reason, errorCode, errorMessage, and optional expose function
+ * @returns ClientEvaluationDetails with value, flagKey, flagMetadata, variant, reason, errorCode, errorMessage, and optional expose function
  *
  * @example Auto exposure with full details
  * ```tsx
@@ -139,22 +132,22 @@ export function useFlag<T>(flagName: string, defaultValue: T): T {
  * }
  * ```
  */
-export function useFlagDetails<T>(
-  flagName: string,
+export function useFlagDetails<T extends FlagValue>(
+  flagKey: string,
   defaultValue: T,
   options?: UseFlagOptionsAuto | UseFlagOptionsManual,
-): FlagDetails<T> {
+): ClientEvaluationDetails<T> {
   const ctx = useContext(ConfidenceContext);
   const appliedRef = useRef(false);
 
   // Parse dot notation: first part is flag name, rest is path within value
-  const [baseFlagName, ...path] = flagName.split('.');
+  const [baseFlagName, ...path] = flagKey.split('.');
 
   // Warn if no provider is present (only once per flag)
-  if (!ctx && !warnedFlags.has(flagName)) {
-    warnedFlags.add(flagName);
+  if (!ctx && !warnedFlags.has(flagKey)) {
+    warnedFlags.add(flagKey);
     console.warn(
-      `[Confidence] useFlagDetails("${flagName}") called without a ConfidenceProvider. ` + `Returning default value.`,
+      `[Confidence] useFlagDetails("${flagKey}") called without a ConfidenceProvider. ` + `Returning default value.`,
     );
   }
 
@@ -188,7 +181,7 @@ export function useFlagDetails<T>(
     value = (value as Record<string, unknown>)[key];
   }
 
-  const resolvedValue = isAssignableTo(value, defaultValue) ? value : defaultValue;
+  const resolvedValue = isAssignableTo(value, defaultValue, true) ? value : defaultValue;
 
   // Get details from the flag, or use defaults for missing flags
   const variant = flag?.variant;
@@ -196,32 +189,19 @@ export function useFlagDetails<T>(
   const errorCode = flag?.errorCode ?? (flag ? undefined : 'FLAG_NOT_FOUND');
   const errorMessage = flag?.errorMessage;
 
+  const baseDetails: ClientEvaluationDetails<T> = {
+    flagKey,
+    flagMetadata: {},
+    value: resolvedValue,
+    variant,
+    reason,
+    errorCode,
+    errorMessage,
+  };
+
   if (isManual) {
-    return { value: resolvedValue, variant, reason, errorCode, errorMessage, expose };
+    return { ...baseDetails, expose };
   } else {
-    return { value: resolvedValue, variant, reason, errorCode, errorMessage, expose: undefined };
+    return baseDetails;
   }
-}
-
-function hasKey<K extends string>(obj: object, key: K): obj is { [P in K]: unknown } {
-  return key in obj;
-}
-
-function isAssignableTo<T>(value: unknown, schema: T): value is T {
-  // null schema accepts any value (user has no type expectation)
-  if (schema === null) return true;
-  if (typeof schema !== typeof value) return false;
-  if (typeof value === 'object' && typeof schema === 'object') {
-    if (value === null) return false;
-    if (Array.isArray(schema)) {
-      if (!Array.isArray(value)) return false;
-      if (schema.length === 0) return true;
-      return value.every(item => isAssignableTo(item, schema[0]));
-    }
-    for (const [key, schemaValue] of Object.entries(schema)) {
-      if (!hasKey(value, key)) return false;
-      if (!isAssignableTo(value[key], schemaValue)) return false;
-    }
-  }
-  return true;
 }

@@ -5,8 +5,8 @@ import {
   type EvaluationDetails,
   type JsonValue,
 } from '@openfeature/server-sdk';
-import type { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
-import { ConfidenceClientProvider } from './react-client';
+import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
+import { ConfidenceClientProvider } from './client';
 
 const PROVIDER_NAME = 'ConfidenceServerProviderLocal';
 

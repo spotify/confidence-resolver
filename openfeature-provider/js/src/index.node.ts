@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
-import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
+import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
+import type { ProviderOptions } from './ConfidenceServerProviderLocal';
 import { WasmResolver } from './WasmResolver';
-import { LocalResolver } from './LocalResolver';
+import type { LocalResolver } from './LocalResolver';
 export type { MaterializationStore } from './materialization';
 
 let resolver: Promise<LocalResolver> | null = null;

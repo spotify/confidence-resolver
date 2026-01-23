@@ -21,7 +21,7 @@ const reactBase = defineConfig({
     __ASSERT__: 'false',
     __TEST__: 'false',
   },
-  external: ['@bufbuild/protobuf/wire', 'react', '@openfeature/server-sdk'],
+  external: ['@bufbuild/protobuf/wire', 'react', '@openfeature/server-sdk', '@openfeature/core'],
 });
 
 export default defineConfig([
@@ -52,14 +52,14 @@ export default defineConfig([
   },
   // React server component
   {
-    entry: './src/react-server.tsx',
+    entry: './src/react/server.tsx',
     platform: 'neutral',
     ...reactBase,
-    external: [...(reactBase.external || []), './react-client'],
+    external: [...(reactBase.external || []), './client'],
   },
   // React client components
   {
-    entry: './src/react-client.tsx',
+    entry: './src/react/client.tsx',
     platform: 'neutral',
     ...reactBase,
   },
