@@ -32,22 +32,23 @@ export function ConfidenceClientProvider({
   return <ConfidenceContext.Provider value={{ bundle, apply }}>{children}</ConfidenceContext.Provider>;
 }
 
-interface UseFlagOptionsAuto {
-  expose?: true;
-}
-
 interface UseFlagOptionsManual {
   expose: false;
 }
 
 /**
- * Details returned by useFlagDetails hook.
- * Extends OpenFeature's EvaluationDetails with an optional expose function for manual exposure control.
+ * Details returned by useFlagDetails hook with manual exposure control.
+ * Includes an expose function to manually log exposure.
  */
-export interface ClientEvaluationDetails<T extends FlagValue> extends EvaluationDetails<T> {
-  /** Function to manually log exposure. Only present when using { expose: false } option. */
-  expose?: () => void;
+export interface ClientEvaluationDetailsManual<T extends FlagValue> extends EvaluationDetails<T> {
+  /** Function to manually log exposure. No-op if already exposed. */
+  expose: () => void;
 }
+
+/**
+ * Details returned by useFlagDetails hook with auto exposure.
+ */
+export type ClientEvaluationDetails<T extends FlagValue> = EvaluationDetails<T>;
 
 /**
  * React hook to get the list of all flag names available in the bundle.
@@ -106,7 +107,7 @@ export function useFlag<T extends FlagValue>(flagKey: string, defaultValue: T): 
  * @param flagKey - The flag key, optionally with dot notation for nested access (e.g., 'my-flag.config.enabled')
  * @param defaultValue - Default value if flag or nested property is not found
  * @param options - Use `{ expose: false }` for manual exposure control
- * @returns ClientEvaluationDetails with value, flagKey, flagMetadata, variant, reason, errorCode, errorMessage, and optional expose function
+ * @returns EvaluationDetails with value, flagKey, flagMetadata, variant, reason, errorCode, errorMessage. Includes expose function when using manual exposure.
  *
  * @example Auto exposure with full details
  * ```tsx
@@ -137,8 +138,14 @@ export function useFlag<T extends FlagValue>(flagKey: string, defaultValue: T): 
 export function useFlagDetails<T extends FlagValue>(
   flagKey: string,
   defaultValue: T,
-  options?: UseFlagOptionsAuto | UseFlagOptionsManual,
-): ClientEvaluationDetails<T> {
+  options: UseFlagOptionsManual,
+): ClientEvaluationDetailsManual<T>;
+export function useFlagDetails<T extends FlagValue>(flagKey: string, defaultValue: T): ClientEvaluationDetails<T>;
+export function useFlagDetails<T extends FlagValue>(
+  flagKey: string,
+  defaultValue: T,
+  options?: UseFlagOptionsManual,
+): ClientEvaluationDetails<T> | ClientEvaluationDetailsManual<T> {
   const ctx = useContext(ConfidenceContext);
   const appliedRef = useRef(false);
 
@@ -153,15 +160,13 @@ export function useFlagDetails<T extends FlagValue>(
     );
   }
 
-  const isManual = options?.expose === false;
-
   // Auto exposure effect - apply with just the flag name
   useEffect(() => {
-    if (ctx && !isManual && !appliedRef.current) {
+    if (ctx && options?.expose !== false && !appliedRef.current) {
       appliedRef.current = true;
       ctx.apply(baseFlagName);
     }
-  }, [ctx, baseFlagName, isManual]);
+  }, [ctx, baseFlagName, options?.expose]);
 
   // Manual expose function (bound to flag name)
   const expose = useCallback(() => {
@@ -191,7 +196,7 @@ export function useFlagDetails<T extends FlagValue>(
   const errorCode = flag?.errorCode ?? (flag ? undefined : 'FLAG_NOT_FOUND');
   const errorMessage = flag?.errorMessage;
 
-  const baseDetails: ClientEvaluationDetails<T> = {
+  const baseDetails: EvaluationDetails<T> = {
     flagKey,
     flagMetadata: {},
     value: resolvedValue,
@@ -201,9 +206,8 @@ export function useFlagDetails<T extends FlagValue>(
     errorMessage,
   };
 
-  if (isManual) {
+  if (options?.expose === false) {
     return { ...baseDetails, expose };
-  } else {
-    return baseDetails;
   }
+  return baseDetails;
 }

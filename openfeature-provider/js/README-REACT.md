@@ -284,10 +284,19 @@ if (errorCode === 'FLAG_NOT_FOUND') {
 }
 ```
 
-**Return Type:**
+**Return Types:**
 
 ```ts
-interface ClientEvaluationDetails<T> {
+// When using default (auto exposure)
+type ClientEvaluationDetails<T> = EvaluationDetails<T>;
+
+// When using { expose: false }
+interface ClientEvaluationDetailsManual<T> extends EvaluationDetails<T> {
+  expose: () => void; // Function to manually log exposure
+}
+
+// EvaluationDetails from @openfeature/core
+interface EvaluationDetails<T> {
   flagKey: string; // The flag key that was requested
   flagMetadata: {}; // Reserved for future use
   value: T; // The resolved flag value
@@ -295,7 +304,6 @@ interface ClientEvaluationDetails<T> {
   reason: string; // Resolution reason: 'MATCH', 'NO_SEGMENT_MATCH', 'ERROR', etc.
   errorCode?: string; // Error code if resolution failed (e.g., 'FLAG_NOT_FOUND')
   errorMessage?: string; // Human-readable error message
-  expose?: () => void; // Function to manually log exposure (only when { expose: false })
 }
 ```
 
