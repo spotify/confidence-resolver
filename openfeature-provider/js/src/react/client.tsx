@@ -51,23 +51,6 @@ export interface ClientEvaluationDetailsManual<T extends FlagValue> extends Eval
 export type ClientEvaluationDetails<T extends FlagValue> = EvaluationDetails<T>;
 
 /**
- * React hook to get the list of all flag names available in the bundle.
- *
- * @returns Array of flag names, or empty array if no provider is present
- *
- * @example
- * ```tsx
- * const flagNames = useFlagNames();
- * // ['feature-a', 'feature-b', 'experiment-1']
- * ```
- */
-export function useFlagNames(): string[] {
-  const ctx = useContext(ConfidenceContext);
-  if (!ctx) return [];
-  return Object.keys(ctx.bundle.flags);
-}
-
-/**
  * React hook for accessing Confidence feature flag values.
  *
  * Automatically logs exposure when the component mounts.

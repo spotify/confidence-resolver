@@ -8,7 +8,7 @@ This integration provides:
 
 - **Server Component** (`ConfidenceProvider`) - Resolves flags on the server and provides them to client components
 - **Server Hooks** (`useFlag`, `useFlagDetails`) - Evaluate flags directly in server components with immediate exposure
-- **Client Hooks** (`useFlag`, `useFlagDetails`, `useFlagNames`) - Access flag values in client components with automatic or manual exposure logging
+- **Client Hooks** (`useFlag`, `useFlagDetails`) - Access flag values in client components with automatic or manual exposure logging
 - **Dot notation** - Access properties within flag values (e.g., `my-flag.enabled`, `my-flag.config.limit`)
 - **Manual exposure control** - Delay exposure logging until user interaction (client-side only)
 - **Full flag details** - Access variant, reason, and error information
@@ -306,24 +306,6 @@ interface EvaluationDetails<T> {
   errorMessage?: string; // Human-readable error message
 }
 ```
-
-#### useFlagNames (Client)
-
-Hook to get a list of all flag names available in the bundle.
-
-```tsx
-import { useFlagNames } from '@spotify-confidence/openfeature-server-provider-local/react/client';
-
-const flagNames = useFlagNames();
-// ['checkout-flow', 'promo-banner', 'ui-theme']
-
-// Useful for debugging or dynamic flag iteration
-flagNames.forEach(name => {
-  console.log(`Flag available: ${name}`);
-});
-```
-
-Returns an empty array if no provider is present.
 
 ## Type Safety
 
