@@ -149,21 +149,20 @@ export function useFlagDetails<T extends FlagValue>(
     );
   }
 
-  // Auto exposure effect - apply with just the flag name
-  useEffect(() => {
-    if (ctx && options?.expose !== false && !appliedFlags.has(baseFlagName)) {
-      appliedFlags.add(baseFlagName);
-      ctx.apply(baseFlagName);
-    }
-  }, [ctx, baseFlagName, options?.expose]);
-
-  // Manual expose function (bound to flag name)
+  // Expose function (bound to flag name)
   const expose = useCallback(() => {
     if (ctx && !appliedFlags.has(baseFlagName)) {
       appliedFlags.add(baseFlagName);
       ctx.apply(baseFlagName);
     }
   }, [ctx, baseFlagName]);
+
+  // Auto exposure effect
+  useEffect(() => {
+    if (options?.expose !== false) {
+      expose();
+    }
+  }, [expose, options?.expose]);
 
   const flag = ctx?.bundle.flags[baseFlagName];
   let value: unknown = flag?.value;
