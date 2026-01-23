@@ -1,12 +1,23 @@
-import { OpenFeature, Provider } from '@openfeature/server-sdk';
-import type { EvaluationContext } from '@openfeature/server-sdk';
+import {
+  OpenFeature,
+  type Provider,
+  type EvaluationContext,
+  type EvaluationDetails,
+  type JsonValue,
+} from '@openfeature/server-sdk';
 import type { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { ConfidenceClientProvider } from './react-client';
 
 const PROVIDER_NAME = 'ConfidenceServerProviderLocal';
 
-function isConfidenceServerProviderLocal(provider: Provider): provider is ConfidenceServerProviderLocal {
-  return provider?.metadata?.name === PROVIDER_NAME;
+function assertConfidenceServerProviderLocal(provider: Provider): asserts provider is ConfidenceServerProviderLocal {
+  if (provider?.metadata?.name !== PROVIDER_NAME) {
+    throw new Error(
+      `ConfidenceProvider requires a ConfidenceServerProviderLocal, but got ${
+        provider?.metadata?.name ?? 'undefined'
+      }. ` + 'Make sure you have registered the provider with OpenFeature before rendering.',
+    );
+  }
 }
 
 export interface ConfidenceProviderProps {
@@ -32,13 +43,7 @@ export async function ConfidenceProvider({
 }: ConfidenceProviderProps): Promise<React.ReactElement> {
   const provider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
-  if (!isConfidenceServerProviderLocal(provider)) {
-    throw new Error(
-      `ConfidenceProvider requires a ConfidenceServerProviderLocal, but got ${
-        provider?.metadata?.name ?? 'undefined'
-      }. ` + 'Make sure you have registered the provider with OpenFeature before rendering.',
-    );
-  }
+  assertConfidenceServerProviderLocal(provider);
 
   const bundle = await provider.resolveFlagBundle(evalContext, ...flags);
 
@@ -47,9 +52,7 @@ export async function ConfidenceProvider({
 
     const serverProvider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
-    if (!isConfidenceServerProviderLocal(serverProvider)) {
-      throw new Error('ConfidenceServerProviderLocal not found');
-    }
+    assertConfidenceServerProviderLocal(serverProvider);
 
     serverProvider.applyFlag(bundle.resolveToken, flagName);
   }
@@ -59,4 +62,29 @@ export async function ConfidenceProvider({
       {children}
     </ConfidenceClientProvider>
   );
+}
+
+export async function useFlagDetails<T extends JsonValue>(
+  flagKey: string,
+  defaultValue: T,
+  context: EvaluationContext,
+  providerName?: string,
+): Promise<EvaluationDetails<T>> {
+  const provider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
+  assertConfidenceServerProviderLocal(provider);
+  const details = await provider.evaluate(flagKey, defaultValue, context);
+  return {
+    flagKey,
+    flagMetadata: {},
+    ...details,
+  };
+}
+
+export async function useFlag<T extends JsonValue>(
+  flagKey: string,
+  defaultValue: T,
+  context: EvaluationContext,
+  providerName?: string,
+): Promise<T> {
+  return (await useFlagDetails(flagKey, defaultValue, context, providerName)).value;
 }
