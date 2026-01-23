@@ -32,8 +32,40 @@ export interface ConfidenceProviderProps {
 }
 
 /**
- * Server component that resolves flags and provides them to client components.
- * Must be used with a ConfidenceServerProviderLocal registered with OpenFeature.
+ * React Server Component that resolves flags and provides them to client components.
+ *
+ * This component resolves all specified flags in a single call on the server and
+ * passes the results to client components via React Context. Client components
+ * can then access flag values using the `useFlag` and `useFlagDetails` hooks
+ * from `react/client`.
+ *
+ * Flags are resolved **without** logging exposure. Exposure is logged when client
+ * components call the hooks (automatically on mount, or manually via `expose()`).
+ *
+ * Must be used with a `ConfidenceServerProviderLocal` registered with OpenFeature.
+ *
+ * @example
+ * ```tsx
+ * // app/layout.tsx
+ * import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+ *
+ * export default async function RootLayout({ children }: { children: React.ReactNode }) {
+ *   const evalContext = {
+ *     targetingKey: 'user-123',
+ *     country: 'US',
+ *   };
+ *
+ *   return (
+ *     <html>
+ *       <body>
+ *         <ConfidenceProvider evalContext={evalContext} flags={['checkout-flow', 'promo-banner']}>
+ *           {children}
+ *         </ConfidenceProvider>
+ *       </body>
+ *     </html>
+ *   );
+ * }
+ * ```
  */
 export async function ConfidenceProvider({
   evalContext,
@@ -64,6 +96,39 @@ export async function ConfidenceProvider({
   );
 }
 
+/**
+ * Evaluate a flag in a React Server Component and get full evaluation details.
+ *
+ * This function evaluates the flag and **immediately logs exposure** since server
+ * components render once without hydration. Use this when you need access to
+ * variant, reason, or error information.
+ *
+ * Supports dot notation to access nested properties within a flag value
+ * (e.g., 'my-flag.config.enabled').
+ *
+ * @param flagKey - The flag key, optionally with dot notation for nested access
+ * @param defaultValue - Default value returned if flag is not found or type doesn't match
+ * @param context - Evaluation context containing targetingKey and other attributes
+ * @param providerName - Optional named provider (uses default provider if not specified)
+ * @returns Promise resolving to EvaluationDetails with value, variant, reason, and error info
+ *
+ * @example
+ * ```tsx
+ * // app/page.tsx (Server Component)
+ * import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+ *
+ * export default async function Page() {
+ *   const { value, variant, reason } = await useFlagDetails(
+ *     'checkout-flow.enabled',
+ *     false,
+ *     { targetingKey: 'user-123' }
+ *   );
+ *
+ *   console.log(`Resolved to variant ${variant} because: ${reason}`);
+ *   return value ? <NewCheckout /> : <OldCheckout />;
+ * }
+ * ```
+ */
 export async function useFlagDetails<T extends JsonValue>(
   flagKey: string,
   defaultValue: T,
@@ -80,6 +145,40 @@ export async function useFlagDetails<T extends JsonValue>(
   };
 }
 
+/**
+ * Evaluate a flag in a React Server Component and get the value.
+ *
+ * This function evaluates the flag and **immediately logs exposure** since server
+ * components render once without hydration. This is the simplest way to get a
+ * flag value in server components.
+ *
+ * Supports dot notation to access nested properties within a flag value
+ * (e.g., 'my-flag.config.enabled').
+ *
+ * @param flagKey - The flag key, optionally with dot notation for nested access
+ * @param defaultValue - Default value returned if flag is not found or type doesn't match
+ * @param context - Evaluation context containing targetingKey and other attributes
+ * @param providerName - Optional named provider (uses default provider if not specified)
+ * @returns Promise resolving to the flag value
+ *
+ * @example
+ * ```tsx
+ * // app/page.tsx (Server Component)
+ * import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+ *
+ * export default async function Page() {
+ *   const showNewLayout = await useFlag(
+ *     'page-layout.useNewDesign',
+ *     false,
+ *     { targetingKey: 'user-123' }
+ *   );
+ *
+ *   return showNewLayout ? <NewLayout /> : <OldLayout />;
+ * }
+ * ```
+ *
+ * @see useFlagDetails for accessing variant, reason, and error information
+ */
 export async function useFlag<T extends JsonValue>(
   flagKey: string,
   defaultValue: T,

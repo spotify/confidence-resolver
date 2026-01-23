@@ -7,10 +7,25 @@ React hooks and components for using Confidence feature flags in Next.js applica
 This integration provides:
 
 - **Server Component** (`ConfidenceProvider`) - Resolves flags on the server and provides them to client components
-- **Client Hooks** (`useFlag`, `useFlagDetails`, `useFlagNames`) - Access flag values in client components with automatic exposure logging
-- **Dot notation** - Access nested properties within flag values (e.g., `my-flag.config.enabled`)
-- **Manual exposure control** - Delay exposure logging until user interaction
+- **Server Hooks** (`useFlag`, `useFlagDetails`) - Evaluate flags directly in server components with immediate exposure
+- **Client Hooks** (`useFlag`, `useFlagDetails`, `useFlagNames`) - Access flag values in client components with automatic or manual exposure logging
+- **Dot notation** - Access properties within flag values (e.g., `my-flag.enabled`, `my-flag.config.limit`)
+- **Manual exposure control** - Delay exposure logging until user interaction (client-side only)
 - **Full flag details** - Access variant, reason, and error information
+
+## Flag Structure
+
+Confidence flags are always structured objects containing one or more properties. Use dot notation to access specific values:
+
+```tsx
+// Flag "checkout-flow" with value: { enabled: true, maxRetries: 3, theme: "dark" }
+const enabled = useFlag('checkout-flow.enabled', false);
+const maxRetries = useFlag('checkout-flow.maxRetries', 1);
+const theme = useFlag('checkout-flow.theme', 'light');
+
+// Or get the entire flag object
+const checkoutConfig = useFlag('checkout-flow', { enabled: false, maxRetries: 1, theme: 'light' });
+```
 
 ## Installation
 
@@ -43,7 +58,7 @@ In your layout or page (Server Component):
 
 ```tsx
 // app/layout.tsx
-import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react/server';
 import './lib/confidence'; // Initialize provider
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -69,10 +84,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 // components/FeatureButton.tsx
 'use client';
 
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-client';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/client';
 
 export function FeatureButton() {
-  const enabled = useFlag('my-feature', false);
+  // Access the 'enabled' property of the 'new-feature' flag
+  const enabled = useFlag('new-feature.enabled', false);
 
   if (!enabled) return null;
 
@@ -80,18 +96,95 @@ export function FeatureButton() {
 }
 ```
 
+## Server vs Client: Understanding Exposure
+
+**Exposure** (also called "apply") is the event that tells Confidence a user was shown a particular flag variant. This is critical for accurate experiment analysis.
+
+### Server-Side Exposure
+
+When using `useFlag` or `useFlagDetails` from `react/server`, exposure is logged **immediately** when the flag is evaluated:
+
+```tsx
+// app/page.tsx (Server Component)
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+
+export default async function Page() {
+  // Exposure is logged immediately when this evaluates
+  const showNewLayout = await useFlag('page-layout.showNewLayout', false, { targetingKey: 'user-123' });
+
+  return showNewLayout ? <NewLayout /> : <OldLayout />;
+}
+```
+
+This is appropriate for server components because:
+
+- The component only renders once (no hydration)
+- If the flag value affects what's rendered, the user will see it
+- There's no concept of "mounting" - evaluation equals exposure
+
+### Client-Side Exposure
+
+When using hooks from `react/client`, you have two options:
+
+#### Automatic Exposure (Default)
+
+Exposure is logged when the component **mounts** (via `useEffect`):
+
+```tsx
+'use client';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/client';
+
+function MyComponent() {
+  // Exposure logged on mount
+  const enabled = useFlag('my-feature.enabled', false);
+  return enabled ? <Feature /> : null;
+}
+```
+
+#### Manual Exposure
+
+Use `{ expose: false }` to control exactly when exposure is logged:
+
+```tsx
+'use client';
+import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react/client';
+
+function MyComponent() {
+  // No exposure logged automatically
+  const { value: showPromo, expose } = useFlagDetails('promo-banner.show', false, { expose: false });
+
+  const handleClick = () => {
+    if (showPromo) {
+      expose(); // Log exposure only when user clicks
+      openPromoModal();
+    }
+  };
+
+  return <button onClick={handleClick}>Open Promo</button>;
+}
+```
+
+Manual exposure is useful when:
+
+- A feature is only shown after user interaction
+- You want to avoid counting users who never actually see the feature
+- The flag controls something that may not be immediately visible
+
+
 ## API Reference
 
-### ConfidenceProvider (Server Component)
+### Server Components
+
+#### ConfidenceProvider
 
 Resolves flags on the server and provides them to client components via React Context.
 
 ```tsx
-import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react/server';
 
 <ConfidenceProvider
   evalContext={{ targetingKey: 'user-123' }}
-  flags={['feature-a', 'feature-b']} // Optional: specific flags to resolve
+  flags={['checkout-flow', 'promo-banner']} // Optional: specific flags to resolve
   providerName="my-provider" // Optional: if using named providers
 >
   {children}
@@ -107,58 +200,86 @@ import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provi
 | `providerName` | `string`            | No       | Named provider if not using the default               |
 | `children`     | `React.ReactNode`   | Yes      | Child components that will have access to flag values |
 
-### useFlag (Client Hook)
+#### useFlag (Server)
+
+Evaluate a flag directly in a server component. Logs exposure immediately.
+
+```tsx
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+
+// In an async Server Component - access a specific property
+const enabled = await useFlag('checkout-flow.enabled', false, { targetingKey: 'user-123' });
+
+// Or get the entire flag object
+const config = await useFlag('checkout-flow', { enabled: false, maxRetries: 1 }, { targetingKey: 'user-123' });
+```
+
+**Parameters:**
+
+| Parameter      | Type                | Required | Description                              |
+| -------------- | ------------------- | -------- | ---------------------------------------- |
+| `flagKey`      | `string`            | Yes      | The flag key (supports dot notation)     |
+| `defaultValue` | `T`                 | Yes      | Default value if flag is not found       |
+| `context`      | `EvaluationContext` | Yes      | User/session context for flag evaluation |
+| `providerName` | `string`            | No       | Named provider if not using the default  |
+
+#### useFlagDetails (Server)
+
+Get full flag details in a server component. Logs exposure immediately.
+
+```tsx
+import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+
+const { value, variant, reason } = await useFlagDetails('checkout-flow.enabled', false, { targetingKey: 'user-123' });
+```
+
+### Client Components
+
+#### useFlag (Client)
 
 Simple hook to get a flag value. Automatically logs exposure when the component mounts.
 
 ```tsx
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-client';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/client';
 
-// Boolean flag
-const enabled = useFlag('my-feature', false);
+// Boolean property
+const enabled = useFlag('my-feature.enabled', false);
 
-// String flag
-const variant = useFlag('button-color', 'blue');
+// String property
+const buttonColor = useFlag('ui-theme.buttonColor', 'blue');
 
-// Number flag
-const limit = useFlag('max-items', 10);
+// Number property
+const maxItems = useFlag('pagination.limit', 10);
 
-// Object flag
-const config = useFlag('feature-config', { enabled: false, limit: 0 });
+// Nested property
+const retryLimit = useFlag('api-config.retry.maxAttempts', 3);
+
+// Entire flag object
+const config = useFlag('my-feature', { enabled: false, limit: 0 });
 ```
 
-**Dot Notation:**
-
-Access nested properties within a flag value:
-
-```tsx
-// Flag value: { config: { maxItems: 10, enabled: true } }
-const maxItems = useFlag('my-feature.config.maxItems', 5);
-const enabled = useFlag('my-feature.config.enabled', false);
-```
-
-### useFlagDetails (Client Hook)
+#### useFlagDetails (Client)
 
 Hook that returns full flag details including variant, reason, and error information. Also supports manual exposure control.
 
 ```tsx
-import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-client';
+import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react/client';
 
 // Auto exposure (default) - logs exposure on mount
-const { value, variant, reason } = useFlagDetails('my-feature', false);
+const { value, variant, reason } = useFlagDetails('checkout-flow.enabled', false);
 
 // Manual exposure - log when user interacts
-const { value: enabled, expose } = useFlagDetails('my-feature', false, { expose: false });
+const { value: showBanner, expose } = useFlagDetails('promo-banner.show', false, { expose: false });
 
 const handleClick = () => {
-  if (enabled) {
+  if (showBanner) {
     expose(); // Log exposure only when user clicks
     doSomething();
   }
 };
 
 // Check for errors
-const { value, reason, errorCode } = useFlagDetails('my-feature', false);
+const { value, reason, errorCode } = useFlagDetails('my-feature.enabled', false);
 if (errorCode === 'FLAG_NOT_FOUND') {
   console.warn('Flag not found, using default');
 }
@@ -167,25 +288,27 @@ if (errorCode === 'FLAG_NOT_FOUND') {
 **Return Type:**
 
 ```ts
-interface FlagDetails<T> {
+interface ClientEvaluationDetails<T> {
+  flagKey: string; // The flag key that was requested
+  flagMetadata: {}; // Reserved for future use
   value: T; // The resolved flag value
   variant?: string; // The variant name (e.g., 'control', 'treatment')
-  reason: string; // Resolution reason: 'MATCH', 'NO_MATCH', 'ERROR', etc.
+  reason: string; // Resolution reason: 'MATCH', 'NO_SEGMENT_MATCH', 'ERROR', etc.
   errorCode?: string; // Error code if resolution failed (e.g., 'FLAG_NOT_FOUND')
   errorMessage?: string; // Human-readable error message
   expose?: () => void; // Function to manually log exposure (only when { expose: false })
 }
 ```
 
-### useFlagNames (Client Hook)
+#### useFlagNames (Client)
 
 Hook to get a list of all flag names available in the bundle.
 
 ```tsx
-import { useFlagNames } from '@spotify-confidence/openfeature-server-provider-local/react-client';
+import { useFlagNames } from '@spotify-confidence/openfeature-server-provider-local/react/client';
 
 const flagNames = useFlagNames();
-// ['feature-a', 'feature-b', 'experiment-1']
+// ['checkout-flow', 'promo-banner', 'ui-theme']
 
 // Useful for debugging or dynamic flag iteration
 flagNames.forEach(name => {
@@ -202,20 +325,65 @@ The hooks validate that flag values match the type of your default value:
 ```tsx
 // If the flag value is a string but you expect a number,
 // the default value is returned instead
-const limit = useFlag('my-flag', 10); // Returns 10 if flag value isn't a number
+const limit = useFlag('pagination.limit', 10); // Returns 10 if flag value isn't a number
 
 // Object structure is also validated
-const config = useFlag('my-flag', { enabled: false, limit: 0 });
+const config = useFlag('my-feature', { enabled: false, limit: 0 });
 // Returns default if flag value doesn't have 'enabled' and 'limit' properties
 ```
 
-## How It Works
+## Architecture
 
-1. **Server-side resolution**: `ConfidenceProvider` calls `resolveFlagBundle()` to resolve all requested flags in a single call
-2. **Serialization**: The flag bundle (values + resolve token) is serialized and passed to the client
-3. **Client hydration**: `ConfidenceClientProvider` receives the bundle and makes it available via React Context
-4. **Exposure logging**: When `useFlag` is called, a Server Action sends the exposure event back to the server
-5. **WASM processing**: The server uses the WASM resolver to process the exposure and batch it for sending to Confidence
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         SERVER                                  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ ConfidenceProvider (Server Component)                    │   │
+│  │                                                          │   │
+│  │  1. Calls resolveFlagBundle() with evalContext           │   │
+│  │  2. Gets FlagBundle { flags, resolveToken, resolveId }   │   │
+│  │  3. Creates applyFlag Server Action                      │   │
+│  │  4. Renders ConfidenceClientProvider with bundle + apply │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                  │
+│                              │ Serialized to client             │
+│                              ▼                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                         CLIENT                                  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ ConfidenceClientProvider                                 │   │
+│  │                                                          │   │
+│  │  • Stores bundle in React Context                        │   │
+│  │  • Provides apply function to child components           │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                  │
+│                              ▼                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ useFlag / useFlagDetails                                 │   │
+│  │                                                          │   │
+│  │  • Reads flag value from bundle                          │   │
+│  │  • Auto: calls apply() on mount via useEffect            │   │
+│  │  • Manual: returns expose() for explicit calls           │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                  │
+│                              │ Server Action                    │
+│                              ▼                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                         SERVER                                  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ applyFlag Server Action                                  │   │
+│  │                                                          │   │
+│  │  • Called with flagName                                  │   │
+│  │  • Uses resolveToken from bundle closure                 │   │
+│  │  • Calls provider.applyFlag(resolveToken, flagName)      │   │
+│  │  • WASM resolver batches and sends to Confidence         │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Best Practices
 
@@ -237,7 +405,7 @@ export default async function AuthenticatedLayout({ children }) {
 When a feature is only shown after user interaction, use manual exposure to avoid logging exposures for users who never see the feature:
 
 ```tsx
-const { value: showPromo, expose } = useFlagDetails('promo-banner', false, { expose: false });
+const { value: showPromo, expose } = useFlagDetails('promo-banner.show', false, { expose: false });
 
 const handleOpenModal = () => {
   if (showPromo) {
@@ -252,9 +420,25 @@ const handleOpenModal = () => {
 If you only need a few flags, specify them to reduce the bundle size:
 
 ```tsx
-<ConfidenceProvider evalContext={context} flags={['feature-a', 'feature-b']}>
+<ConfidenceProvider evalContext={context} flags={['checkout-flow', 'promo-banner']}>
   {children}
 </ConfidenceProvider>
+```
+
+### Use server hooks for server-only logic
+
+If you're making a decision that only affects server rendering and doesn't need client interactivity, use the server hooks directly:
+
+```tsx
+// app/page.tsx
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+
+export default async function Page() {
+  const showNewLayout = await useFlag('page-layout.useNewDesign', false, { targetingKey: userId });
+
+  // This decision is made entirely on the server
+  return showNewLayout ? <NewLayout /> : <OldLayout />;
+}
 ```
 
 ## Troubleshooting
@@ -291,3 +475,10 @@ Check that:
 1. The flag exists in Confidence and is enabled
 2. The targeting rules match your evaluation context
 3. The flag value type matches your default value type (the hooks validate types)
+4. You're using dot notation to access the correct property (e.g., `my-flag.enabled` not just `my-flag`)
+
+### Exposure not being logged
+
+- **Client hooks**: Make sure the component actually mounts. If using `{ expose: false }`, verify you're calling `expose()`.
+- **Server hooks**: Exposure is logged immediately on evaluation - check server logs.
+- Check that the provider is properly initialized and connected to Confidence.
