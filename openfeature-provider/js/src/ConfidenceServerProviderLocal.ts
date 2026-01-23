@@ -29,11 +29,11 @@ import { sha256Hex } from './hash';
 import { getLogger } from './logger';
 import {
   ConfidenceRemoteMaterializationStore,
+  type MaterializationStore,
   readOpsFromProto,
   readResultToProto,
   writeOpsFromProto,
 } from './materialization';
-import type { MaterializationStore } from './materialization';
 import {
   ReadOperationsRequest,
   ReadOperationsResult,
