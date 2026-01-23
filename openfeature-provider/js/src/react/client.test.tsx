@@ -4,8 +4,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import React from 'react';
-import { useFlag, useFlagDetails, ConfidenceClientProvider } from './client';
+import { useFlag, useFlagDetails, ConfidenceClientProvider, resetAppliedFlags } from './client';
 import type { FlagBundle } from '../types';
+
+beforeEach(() => {
+  resetAppliedFlags();
+});
 
 const createTestBundle = (flags: FlagBundle['flags'] = {}): FlagBundle => ({
   flags,

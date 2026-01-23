@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useRef, useCallback } from 'react';
+import { createContext, useContext, useEffect, useCallback } from 'react';
 import type { EvaluationDetails, FlagValue } from '@openfeature/core';
 import type { FlagBundle } from '../types';
 import { isAssignableTo } from '../type-utils';
@@ -15,6 +15,13 @@ interface ConfidenceContextValue {
 const ConfidenceContext = createContext<ConfidenceContextValue | null>(null);
 
 const warnedFlags = new Set<string>();
+const appliedFlags = new Set<string>();
+
+/** @internal - Reset state for testing */
+export function resetAppliedFlags(): void {
+  appliedFlags.clear();
+  warnedFlags.clear();
+}
 
 /** @internal */
 export interface ConfidenceClientProviderProps {
@@ -130,7 +137,6 @@ export function useFlagDetails<T extends FlagValue>(
   options?: UseFlagOptionsManual,
 ): ClientEvaluationDetails<T> | ClientEvaluationDetailsManual<T> {
   const ctx = useContext(ConfidenceContext);
-  const appliedRef = useRef(false);
 
   // Parse dot notation: first part is flag name, rest is path within value
   const [baseFlagName, ...path] = flagKey.split('.');
@@ -145,16 +151,16 @@ export function useFlagDetails<T extends FlagValue>(
 
   // Auto exposure effect - apply with just the flag name
   useEffect(() => {
-    if (ctx && options?.expose !== false && !appliedRef.current) {
-      appliedRef.current = true;
+    if (ctx && options?.expose !== false && !appliedFlags.has(baseFlagName)) {
+      appliedFlags.add(baseFlagName);
       ctx.apply(baseFlagName);
     }
   }, [ctx, baseFlagName, options?.expose]);
 
   // Manual expose function (bound to flag name)
   const expose = useCallback(() => {
-    if (ctx && !appliedRef.current) {
-      appliedRef.current = true;
+    if (ctx && !appliedFlags.has(baseFlagName)) {
+      appliedFlags.add(baseFlagName);
       ctx.apply(baseFlagName);
     }
   }, [ctx, baseFlagName]);
