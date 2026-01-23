@@ -169,7 +169,7 @@ export function useFlagDetails<T extends FlagValue>(
 
   // Navigate the path within the value
   for (const key of path) {
-    if (value === null || value === undefined || typeof value !== 'object') {
+    if (value === null || typeof value !== 'object') {
       value = undefined;
       break;
     }
