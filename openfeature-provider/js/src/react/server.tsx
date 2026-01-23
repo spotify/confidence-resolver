@@ -37,7 +37,7 @@ export interface ConfidenceProviderProps {
  * This component resolves all specified flags in a single call on the server and
  * passes the results to client components via React Context. Client components
  * can then access flag values using the `useFlag` and `useFlagDetails` hooks
- * from `react/client`.
+ * from `react-client`.
  *
  * Flags are resolved **without** logging exposure. Exposure is logged when client
  * components call the hooks (automatically on mount, or manually via `expose()`).
@@ -47,7 +47,7 @@ export interface ConfidenceProviderProps {
  * @example
  * ```tsx
  * // app/layout.tsx
- * import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+ * import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
  *
  * export default async function RootLayout({ children }: { children: React.ReactNode }) {
  *   const evalContext = {
@@ -115,7 +115,7 @@ export async function ConfidenceProvider({
  * @example
  * ```tsx
  * // app/page.tsx (Server Component)
- * import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+ * import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-server';
  *
  * export default async function Page() {
  *   const { value, variant, reason } = await useFlagDetails(
@@ -164,7 +164,7 @@ export async function useFlagDetails<T extends JsonValue>(
  * @example
  * ```tsx
  * // app/page.tsx (Server Component)
- * import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+ * import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
  *
  * export default async function Page() {
  *   const showNewLayout = await useFlag(

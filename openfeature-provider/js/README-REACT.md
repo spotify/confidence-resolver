@@ -58,7 +58,7 @@ In your layout or page (Server Component):
 
 ```tsx
 // app/layout.tsx
-import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 import './lib/confidence'; // Initialize provider
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -84,7 +84,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 // components/FeatureButton.tsx
 'use client';
 
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/client';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-client';
 
 export function FeatureButton() {
   // Access the 'enabled' property of the 'new-feature' flag
@@ -102,11 +102,11 @@ export function FeatureButton() {
 
 ### Server-Side Exposure
 
-When using `useFlag` or `useFlagDetails` from `react/server`, exposure is logged **immediately** when the flag is evaluated:
+When using `useFlag` or `useFlagDetails` from `react-server`, exposure is logged **immediately** when the flag is evaluated:
 
 ```tsx
 // app/page.tsx (Server Component)
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 export default async function Page() {
   // Exposure is logged immediately when this evaluates
@@ -124,7 +124,7 @@ This is appropriate for server components because:
 
 ### Client-Side Exposure
 
-When using hooks from `react/client`, you have two options:
+When using hooks from `react-client`, you have two options:
 
 #### Automatic Exposure (Default)
 
@@ -132,7 +132,7 @@ Exposure is logged when the component **mounts** (via `useEffect`):
 
 ```tsx
 'use client';
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/client';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-client';
 
 function MyComponent() {
   // Exposure logged on mount
@@ -147,7 +147,7 @@ Use `{ expose: false }` to control exactly when exposure is logged:
 
 ```tsx
 'use client';
-import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react/client';
+import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-client';
 
 function MyComponent() {
   // No exposure logged automatically
@@ -179,7 +179,7 @@ Manual exposure is useful when:
 Resolves flags on the server and provides them to client components via React Context.
 
 ```tsx
-import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 <ConfidenceProvider
   evalContext={{ targetingKey: 'user-123' }}
@@ -204,7 +204,7 @@ import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provi
 Evaluate a flag directly in a server component. Logs exposure immediately.
 
 ```tsx
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 // In an async Server Component - access a specific property
 const enabled = await useFlag('checkout-flow.enabled', false, { targetingKey: 'user-123' });
@@ -227,7 +227,7 @@ const config = await useFlag('checkout-flow', { enabled: false, maxRetries: 1 },
 Get full flag details in a server component. Logs exposure immediately.
 
 ```tsx
-import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 const { value, variant, reason } = await useFlagDetails('checkout-flow.enabled', false, { targetingKey: 'user-123' });
 ```
@@ -239,7 +239,7 @@ const { value, variant, reason } = await useFlagDetails('checkout-flow.enabled',
 Simple hook to get a flag value. Automatically logs exposure when the component mounts.
 
 ```tsx
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/client';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-client';
 
 // Boolean property
 const enabled = useFlag('my-feature.enabled', false);
@@ -262,7 +262,7 @@ const config = useFlag('my-feature', { enabled: false, limit: 0 });
 Hook that returns full flag details including variant, reason, and error information. Also supports manual exposure control.
 
 ```tsx
-import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react/client';
+import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-client';
 
 // Auto exposure (default) - logs exposure on mount
 const { value, variant, reason } = useFlagDetails('checkout-flow.enabled', false);
@@ -420,7 +420,7 @@ If you're making a decision that only affects server rendering and doesn't need 
 
 ```tsx
 // app/page.tsx
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react/server';
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 export default async function Page() {
   const showNewLayout = await useFlag('page-layout.useNewDesign', false, { targetingKey: userId });
