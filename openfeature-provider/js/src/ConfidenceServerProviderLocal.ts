@@ -17,12 +17,13 @@ import {
   base64FromBytes,
   bytesFromBase64,
   castStringToEnum,
+  getNestedValue,
+  isAssignableTo,
   scheduleWithFixedInterval,
   timeoutSignal,
   TimeUnit,
 } from './util';
 import type { FlagBundle } from './types';
-import { getNestedValue, isAssignableTo } from './type-utils';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';

@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useCallback } from 'react';
 import type { EvaluationDetails, FlagValue } from '@openfeature/core';
 import type { FlagBundle } from '../types';
-import { resolveFlagValue } from '../type-utils';
+import { resolveFlagValue } from '../util';
 
 type ApplyFn = (flagName: string) => Promise<void>;
 
