@@ -1,9 +1,9 @@
 'use client';
 
 import { createContext, useContext, useEffect, useCallback } from 'react';
-import type { EvaluationDetails, FlagValue } from '@openfeature/core';
+import type { ErrorCode, EvaluationDetails, FlagValue } from '@openfeature/core';
 import type { FlagBundle } from '../types';
-import { resolveFlagValue } from '../util';
+import { castStringToEnum, resolveFlagValue } from '../util';
 
 type ApplyFn = (flagName: string) => Promise<void>;
 
@@ -170,7 +170,7 @@ export function useFlagDetails<T extends FlagValue>(
   // Get details from the flag, or use defaults for missing flags
   const variant = flag?.variant;
   const reason = flag?.reason ?? 'ERROR';
-  const errorCode = flag?.errorCode ?? (flag ? undefined : 'FLAG_NOT_FOUND');
+  const errorCode = flag?.errorCode ?? (flag ? undefined : castStringToEnum<ErrorCode>('FLAG_NOT_FOUND'));
   const errorMessage = flag?.errorMessage;
 
   const baseDetails: EvaluationDetails<T> = {
