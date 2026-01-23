@@ -17,13 +17,12 @@ import {
   base64FromBytes,
   bytesFromBase64,
   castStringToEnum,
-  hasKey,
   scheduleWithFixedInterval,
   timeoutSignal,
   TimeUnit,
 } from './util';
 import type { FlagBundle } from './types';
-import { isAssignableTo } from './type-utils';
+import { getNestedValue, isAssignableTo } from './type-utils';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -268,16 +267,13 @@ export class ConfidenceServerProviderLocal implements Provider {
       };
     }
 
-    let value: unknown = flag.value;
-    for (const step of path) {
-      if (typeof value !== 'object' || value === null || !hasKey(value, step)) {
-        return {
-          value: defaultValue,
-          reason: 'ERROR',
-          errorCode: castStringToEnum<ErrorCode>('TYPE_MISMATCH'),
-        };
-      }
-      value = value[step];
+    const value = getNestedValue(flag.value, path);
+    if (value === undefined && path.length > 0) {
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: castStringToEnum<ErrorCode>('TYPE_MISMATCH'),
+      };
     }
 
     if (!isAssignableTo(value, defaultValue, false)) {

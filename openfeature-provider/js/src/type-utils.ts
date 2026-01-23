@@ -6,6 +6,33 @@ export function hasKey<K extends string>(obj: object, key: K): obj is { [P in K]
 }
 
 /**
+ * Navigate a path within an object and return the nested value.
+ * Returns undefined if path navigation fails (missing key or non-object value).
+ */
+export function getNestedValue(value: unknown, path: string[]): unknown {
+  let current = value;
+  for (const key of path) {
+    if (current === null || typeof current !== 'object') {
+      return undefined;
+    }
+    if (!hasKey(current, key)) {
+      return undefined;
+    }
+    current = current[key];
+  }
+  return current;
+}
+
+/**
+ * Resolve a flag value by navigating the path and validating against a schema.
+ * Returns the value if valid, otherwise returns the default value.
+ */
+export function resolveFlagValue<T>(value: unknown, path: string[], defaultValue: T, nullSchemaAcceptsAny: boolean): T {
+  const nested = getNestedValue(value, path);
+  return isAssignableTo(nested, defaultValue, nullSchemaAcceptsAny) ? nested : defaultValue;
+}
+
+/**
  * Check if a value is structurally assignable to a schema type.
  *
  * @param value - The value to check

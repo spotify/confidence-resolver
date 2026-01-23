@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useCallback } from 'react';
 import type { EvaluationDetails, FlagValue } from '@openfeature/core';
 import type { FlagBundle } from '../types';
-import { isAssignableTo } from '../type-utils';
+import { resolveFlagValue } from '../type-utils';
 
 type ApplyFn = (flagName: string) => Promise<void>;
 
@@ -165,18 +165,7 @@ export function useFlagDetails<T extends FlagValue>(
   }, [expose, options?.expose]);
 
   const flag = ctx?.bundle.flags[baseFlagName];
-  let value: unknown = flag?.value;
-
-  // Navigate the path within the value
-  for (const key of path) {
-    if (value === null || typeof value !== 'object') {
-      value = undefined;
-      break;
-    }
-    value = (value as Record<string, unknown>)[key];
-  }
-
-  const resolvedValue = isAssignableTo(value, defaultValue, true) ? value : defaultValue;
+  const resolvedValue = resolveFlagValue(flag?.value, path, defaultValue, true);
 
   // Get details from the flag, or use defaults for missing flags
   const variant = flag?.variant;
