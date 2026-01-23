@@ -170,7 +170,6 @@ Manual exposure is useful when:
 - You want to avoid counting users who never actually see the feature
 - The flag controls something that may not be immediately visible
 
-
 ## API Reference
 
 ### Server Components
