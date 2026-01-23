@@ -175,7 +175,7 @@ export function useFlagDetails<T extends FlagValue>(
 
   const baseDetails: EvaluationDetails<T> = {
     flagKey,
-    flagMetadata: {},
+    flagMetadata: flag?.flagMetadata ?? {},
     value: resolvedValue,
     variant,
     reason,
