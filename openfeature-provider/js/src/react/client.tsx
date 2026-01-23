@@ -16,12 +16,14 @@ const ConfidenceContext = createContext<ConfidenceContextValue | null>(null);
 
 const warnedFlags = new Set<string>();
 
+/** @internal */
 export interface ConfidenceClientProviderProps {
   bundle: FlagBundle;
   apply: ApplyFn;
   children: React.ReactNode;
 }
 
+/** @internal */
 export function ConfidenceClientProvider({
   bundle,
   apply,
