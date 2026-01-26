@@ -98,7 +98,7 @@ describe('useFlag', () => {
 
     it('returns flag value even when reason is not MATCH', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'flag-value' }, reason: 'NO_SEGMENT_MATCH' },
+        'my-flag': { value: { value: 'flag-value' }, reason: 'NO_SEGMENT_MATCH', shouldApply: false },
       });
 
       const { result } = renderHook(() => useFlag('my-flag.value', 'default'), {
@@ -110,7 +110,7 @@ describe('useFlag', () => {
 
     it('returns default value when flag value is undefined', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: null, reason: 'ERROR' },
+        'my-flag': { value: null, reason: 'ERROR', shouldApply: false },
       });
 
       const { result } = renderHook(() => useFlag('my-flag', 'default'), {
@@ -154,6 +154,7 @@ describe('useFlag', () => {
           value: { enabled: true, limit: 100, name: 'test' },
           variant: 'full-config',
           reason: 'MATCH',
+          shouldApply: true,
         },
       });
 
@@ -171,6 +172,7 @@ describe('useFlag', () => {
         'my-feature': {
           value: { config: { maxItems: 10, enabled: true } },
           reason: 'MATCH',
+          shouldApply: false,
         },
       });
 
@@ -186,6 +188,7 @@ describe('useFlag', () => {
         'my-feature': {
           value: { config: { enabled: true } },
           reason: 'MATCH',
+          shouldApply: false,
         },
       });
 
@@ -201,6 +204,7 @@ describe('useFlag', () => {
         'my-feature': {
           value: { config: null },
           reason: 'MATCH',
+          shouldApply: false,
         },
       });
 
@@ -216,6 +220,7 @@ describe('useFlag', () => {
         'my-feature': {
           value: { config: 'not-an-object' },
           reason: 'MATCH',
+          shouldApply: false,
         },
       });
 
@@ -248,7 +253,7 @@ describe('useFlag', () => {
   describe('type validation', () => {
     it('returns default when flag value type does not match', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'string-value' }, reason: 'MATCH' },
+        'my-flag': { value: { value: 'string-value' }, reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlag('my-flag.value', 42), {
@@ -260,7 +265,7 @@ describe('useFlag', () => {
 
     it('returns default when object structure does not match', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { enabled: true }, reason: 'MATCH' },
+        'my-flag': { value: { enabled: true }, reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlag('my-flag', { enabled: false, limit: 0 }), {
@@ -272,7 +277,7 @@ describe('useFlag', () => {
 
     it('accepts value when object has extra properties', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { enabled: true, limit: 100, extra: 'ignored' }, reason: 'MATCH' },
+        'my-flag': { value: { enabled: true, limit: 100, extra: 'ignored' }, reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlag('my-flag', { enabled: false, limit: 0 }), {
@@ -284,7 +289,7 @@ describe('useFlag', () => {
 
     it('validates array item types', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { list: [1, 2, 3] }, reason: 'MATCH' },
+        'my-flag': { value: { list: [1, 2, 3] }, reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlag('my-flag.list', [0]), {
@@ -296,7 +301,7 @@ describe('useFlag', () => {
 
     it('returns default when array item types do not match', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { list: ['a', 'b', 'c'] }, reason: 'MATCH' },
+        'my-flag': { value: { list: ['a', 'b', 'c'] }, reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlag('my-flag.list', [0]), {
@@ -308,7 +313,7 @@ describe('useFlag', () => {
 
     it('accepts any value when default is null', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { some: 'object' }, reason: 'MATCH' },
+        'my-flag': { value: { some: 'object' }, reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlag('my-flag', null), {
@@ -320,7 +325,7 @@ describe('useFlag', () => {
 
     it('accepts string when default is null', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'hello' }, reason: 'MATCH' },
+        'my-flag': { value: { value: 'hello' }, reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlag('my-flag.value', null), {
@@ -403,7 +408,7 @@ describe('useFlagDetails', () => {
 
     it('includes errorCode from resolved flag', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'stale-value' }, reason: 'ERROR', errorCode: ErrorCode.FLAG_NOT_FOUND },
+        'my-flag': { value: { value: 'stale-value' }, reason: 'ERROR', errorCode: ErrorCode.FLAG_NOT_FOUND, shouldApply: false },
       });
 
       const { result } = renderHook(() => useFlagDetails('my-flag.value', 'default'), {
@@ -419,7 +424,7 @@ describe('useFlagDetails', () => {
   describe('manual exposure (expose: false)', () => {
     it('does not call apply on mount', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { enabled: true }, reason: 'MATCH' },
+        'my-flag': { value: { enabled: true }, reason: 'MATCH', shouldApply: true },
       });
 
       renderHook(() => useFlagDetails('my-flag.enabled', false, { expose: false }), {
@@ -466,7 +471,7 @@ describe('useFlagDetails', () => {
 
     it('returns value and expose function', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'test-value' }, reason: 'MATCH' },
+        'my-flag': { value: { value: 'test-value' }, reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlagDetails('my-flag.value', 'default', { expose: false }), {
@@ -522,7 +527,7 @@ describe('useFlagDetails', () => {
 describe('ConfidenceClientProvider', () => {
   it('provides context to children', () => {
     const bundle = createTestBundle({
-      test: { value: { value: 'provided' }, reason: 'MATCH' },
+      test: { value: { value: 'provided' }, reason: 'MATCH', shouldApply: true },
     });
     const mockApply = vi.fn().mockResolvedValue(undefined);
 
