@@ -101,7 +101,7 @@ export async function ConfidenceProvider({
 
     const serverProvider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
-    if (!bundle.error && isConfidenceServerProviderLocal(serverProvider)) {
+    if (!bundle.errorCode && isConfidenceServerProviderLocal(serverProvider)) {
       serverProvider.applyFlag(bundle.resolveToken, flagName);
     }
   }

@@ -11,7 +11,8 @@ export default interface FlagBundle {
   flags: Record<string, ResolutionDetails<JsonObject | null> | undefined>;
   resolveId: string;
   resolveToken: Uint8Array;
-  error?: unknown;
+  errorCode?: ErrorCode;
+  errorMessage?: string;
 }
 
 export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsResponse): FlagBundle {
@@ -40,7 +41,8 @@ export function error(e: unknown): FlagBundle {
     flags: {},
     resolveId: 'error',
     resolveToken: new Uint8Array(),
-    error: e,
+    errorCode: ErrorCode.GENERAL,
+    errorMessage: String(e),
   };
 }
 
@@ -52,13 +54,13 @@ export function resolve<T extends JsonValue>(
 ): ResolutionDetails<T> {
   const [flagName, ...path] = flagKey.split('.');
   const flag = bundle?.flags[flagName];
-  const error = bundle?.error;
-  if (error) {
-    logger?.warn(`Flag evaluation for '${flagKey}' failed`, error);
+  const bundleError = bundle?.errorCode ? { code: bundle.errorCode, message: bundle.errorMessage } : null;
+  if (bundleError) {
+    logger?.warn(`Flag evaluation for '${flagKey}' failed`, bundleError);
     return {
       reason: 'ERROR',
-      errorCode: ErrorCode.GENERAL,
-      errorMessage: String(error),
+      errorCode: bundleError.code,
+      errorMessage: bundleError.message,
       value: defaultValue,
       shouldApply: false,
     };
