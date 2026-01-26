@@ -299,23 +299,12 @@ describe('useFlag', () => {
       expect(result.current).toEqual({ enabled: true, limit: 100, extra: 'ignored' });
     });
 
-    it('validates array item types', () => {
+    it('returns default when default value is an array (arrays not supported)', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { list: [1, 2, 3] }, reason: 'MATCH', shouldApply: true },
+        'my-flag': { value: { list: {} }, reason: 'MATCH', shouldApply: false },
       });
 
-      const { result } = renderHook(() => useFlag('my-flag.list', [0]), {
-        wrapper: wrapper(bundle),
-      });
-
-      expect(result.current).toEqual([1, 2, 3]);
-    });
-
-    it('returns default when array item types do not match', () => {
-      const bundle = createTestBundle({
-        'my-flag': { value: { list: ['a', 'b', 'c'] }, reason: 'MATCH', shouldApply: true },
-      });
-
+      // Arrays are not supported as flag values, so default is returned
       const { result } = renderHook(() => useFlag('my-flag.list', [0]), {
         wrapper: wrapper(bundle),
       });

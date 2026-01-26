@@ -23,3 +23,9 @@ export interface ResolutionDetails<T> {
   errorMessage?: string;
   shouldApply: boolean;
 }
+
+type FlagPrimitive = null | boolean | string | number;
+export type FlagObject = {
+  [key: string]: FlagValue;
+};
+export type FlagValue = FlagPrimitive | FlagObject;

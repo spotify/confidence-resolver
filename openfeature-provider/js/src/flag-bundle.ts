@@ -2,13 +2,13 @@ import type { JsonObject, JsonValue } from '@openfeature/core';
 import type { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { hasKey, base64FromBytes, bytesFromBase64 } from './util';
-import { ErrorCode, ResolutionDetails, ResolutionReason } from './types';
+import { ErrorCode, FlagObject, FlagValue, ResolutionDetails, ResolutionReason } from './types';
 import { Logger } from './logger';
 
 const FLAG_PREFIX = 'flags/';
 
 export default interface FlagBundle {
-  flags: Record<string, ResolutionDetails<JsonObject | null> | undefined>;
+  flags: Record<string, ResolutionDetails<FlagObject | null> | undefined>;
   resolveId: string;
   /** Base64-encoded resolve token for serialization across RSC boundaries */
   resolveToken: string;
@@ -26,7 +26,7 @@ export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsR
   const flags = Object.fromEntries(
     resolvedFlags.map(({ flag, reason, variant, value, shouldApply }) => {
       const name = flag.slice(FLAG_PREFIX.length);
-      const details: ResolutionDetails<JsonObject | null> = {
+      const details: ResolutionDetails<FlagObject | null> = {
         reason: convertReason(reason),
         variant,
         value: value ?? null,
@@ -83,7 +83,7 @@ export function resolve<T extends JsonValue>(
     };
   }
 
-  let value: JsonValue = flag.value;
+  let value: FlagValue = flag.value;
   for (let i = 0; i < path.length; i++) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       return {
@@ -98,7 +98,11 @@ export function resolve<T extends JsonValue>(
   }
 
   try {
-    validateAssignment(value, defaultValue, [flagName, ...path]);
+    const validated = evaluateAssignment(value, defaultValue, [flagName, ...path]);
+    return {
+      ...flag,
+      value: validated,
+    };
   } catch (e) {
     return {
       reason: 'ERROR',
@@ -108,49 +112,43 @@ export function resolve<T extends JsonValue>(
       shouldApply: false,
     };
   }
-
-  return {
-    ...flag,
-    value,
-  };
 }
 
-export function validateAssignment<T extends JsonValue>(
-  resolvedValue: JsonValue,
-  defaultValue: T,
-  path: string[],
-): asserts resolvedValue is T {
+export function evaluateAssignment(resolvedValue: FlagValue, defaultValue: null, path: string[]): FlagValue;
+export function evaluateAssignment<T extends JsonValue>(resolvedValue: FlagValue, defaultValue: T, path: string[]): T;
+export function evaluateAssignment<T extends JsonValue>(resolvedValue: FlagValue, defaultValue: T, path: string[]): T {
   const resolvedType = typeof resolvedValue;
   const defaultType = typeof defaultValue;
 
-  if (defaultValue === null) return;
-  if (resolvedValue === null) {
-    // is this correct? null isn't assignable to anything?
-    // I think it is. It'd be very annoying if your defaultValue is a number, but instead you resolve null!
-    // The alt. would be actually merge in this case. I.e. we swap the null for the default value.
-    throw `resolved value (null) isn't assignable to default type (${defaultType}) at ${path.join('.')}`;
+  // Arrays are not supported
+  if (Array.isArray(defaultValue)) {
+    throw `arrays are not supported as flag values at ${path.join('.')}`;
   }
+
+  // If default is null, any value is acceptable
+  if (defaultValue === null) return resolvedValue as T;
+
+  // If resolved is null, substitute default
+  if (resolvedValue === null) return defaultValue;
+
+  // Type mismatch check
   if (resolvedType !== defaultType) {
     throw `resolved value (${resolvedType}) isn't assignable to default type (${defaultType}) at ${path.join('.')}`;
   }
-  if (typeof resolvedValue === 'object') {
-    // we know defaultValue is also 'object'
-    if (Array.isArray(defaultValue)) {
-      if (!Array.isArray(resolvedValue)) {
-        throw `resolved value (${resolvedType}) isn't assignable to default type (array) at ${path.join('.')}`;
-      }
-      const defaultItem = defaultValue[0] ?? null;
-      resolvedValue.forEach(resolvedItem => validateAssignment(resolvedItem, defaultItem, path));
-      return;
-    }
 
-    for (const [key, value] of Object.entries(defaultValue)) {
+  if (typeof resolvedValue === 'object') {
+    const result: Record<string, FlagValue> = { ...resolvedValue };
+    for (const [key, value] of Object.entries(defaultValue as Record<string, JsonValue>)) {
       if (!hasKey(resolvedValue, key)) {
         throw `resolved value is missing field "${key}" at ${path.join('.')}`;
       }
-      validateAssignment(resolvedValue[key], value, [...path, key]);
+      result[key] = evaluateAssignment(resolvedValue[key], value, [...path, key]) as FlagValue;
     }
+    return result as T;
   }
+
+  // Primitives - already validated type match
+  return resolvedValue as T;
 }
 
 function convertReason(reason: ResolveReason): ResolutionReason {

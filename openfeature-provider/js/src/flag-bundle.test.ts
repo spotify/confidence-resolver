@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as FlagBundle from './flag-bundle';
+import { evaluateAssignment } from './flag-bundle';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { ErrorCode } from './types';
 
@@ -208,6 +209,144 @@ describe('FlagBundle', () => {
 
       expect(enabled.value).toBe(true);
       expect(limit.value).toBe(10);
+    });
+  });
+});
+
+describe('evaluateAssignment', () => {
+  describe('primitives', () => {
+    it('returns resolved value when types match', () => {
+      expect(evaluateAssignment(42, 0, ['flag'])).toBe(42);
+      expect(evaluateAssignment('hello', '', ['flag'])).toBe('hello');
+      expect(evaluateAssignment(true, false, ['flag'])).toBe(true);
+    });
+
+    it('throws when types do not match', () => {
+      expect(() => evaluateAssignment('string', 0, ['flag'])).toThrow(
+        "resolved value (string) isn't assignable to default type (number) at flag",
+      );
+      expect(() => evaluateAssignment(42, '', ['flag'])).toThrow(
+        "resolved value (number) isn't assignable to default type (string) at flag",
+      );
+    });
+
+    it('returns default when resolved is null', () => {
+      expect(evaluateAssignment(null, 42, ['flag'])).toBe(42);
+      expect(evaluateAssignment(null, 'default', ['flag'])).toBe('default');
+      expect(evaluateAssignment(null, false, ['flag'])).toBe(false);
+    });
+  });
+
+  describe('null default (accept any)', () => {
+    it('returns resolved value regardless of type', () => {
+      expect(evaluateAssignment(42, null, ['flag'])).toBe(42);
+      expect(evaluateAssignment('hello', null, ['flag'])).toBe('hello');
+      expect(evaluateAssignment({ a: 1 }, null, ['flag'])).toEqual({ a: 1 });
+      expect(evaluateAssignment(null, null, ['flag'])).toBe(null);
+    });
+  });
+
+  describe('objects', () => {
+    it('returns resolved object when structure matches', () => {
+      const resolved = { enabled: true, count: 5 };
+      const defaultValue = { enabled: false, count: 0 };
+      expect(evaluateAssignment(resolved, defaultValue, ['flag'])).toEqual(resolved);
+    });
+
+    it('preserves extra fields from resolved object', () => {
+      const resolved = { enabled: true, count: 5, extra: 'bonus' };
+      const defaultValue = { enabled: false, count: 0 };
+      expect(evaluateAssignment(resolved, defaultValue, ['flag'])).toEqual(resolved);
+    });
+
+    it('throws when required field is missing', () => {
+      const resolved = { enabled: true };
+      const defaultValue = { enabled: false, count: 0 };
+      expect(() => evaluateAssignment(resolved, defaultValue, ['flag'])).toThrow(
+        'resolved value is missing field "count" at flag',
+      );
+    });
+
+    it('throws when field type mismatches', () => {
+      const resolved = { enabled: 'yes', count: 5 };
+      const defaultValue = { enabled: false, count: 0 };
+      expect(() => evaluateAssignment(resolved, defaultValue, ['flag'])).toThrow(
+        "resolved value (string) isn't assignable to default type (boolean) at flag.enabled",
+      );
+    });
+
+    it('substitutes default for null fields', () => {
+      const resolved = { enabled: null, count: 5 };
+      const defaultValue = { enabled: true, count: 0 };
+      expect(evaluateAssignment(resolved, defaultValue, ['flag'])).toEqual({
+        enabled: true,
+        count: 5,
+      });
+    });
+
+    it('recursively substitutes defaults for nested null fields', () => {
+      const resolved = { config: { enabled: null, label: 'test' } };
+      const defaultValue = { config: { enabled: true, label: '' } };
+      expect(evaluateAssignment(resolved, defaultValue, ['flag'])).toEqual({
+        config: { enabled: true, label: 'test' },
+      });
+    });
+  });
+
+  describe('arrays', () => {
+    it('throws when default value is an array', () => {
+      expect(() => evaluateAssignment({ a: 1 }, [0], ['flag'])).toThrow(
+        'arrays are not supported as flag values at flag',
+      );
+    });
+
+    it('throws when default value contains a nested array', () => {
+      expect(() => evaluateAssignment({ items: { a: 1 } }, { items: [0] }, ['flag'])).toThrow(
+        'arrays are not supported as flag values at flag.items',
+      );
+    });
+  });
+
+  describe('deeply nested structures', () => {
+    it('handles deeply nested objects with null substitution', () => {
+      const resolved = {
+        level1: {
+          level2: {
+            level3: {
+              value: null,
+              other: 'kept',
+            },
+          },
+        },
+      };
+      const defaultValue = {
+        level1: {
+          level2: {
+            level3: {
+              value: 42,
+              other: '',
+            },
+          },
+        },
+      };
+      expect(evaluateAssignment(resolved, defaultValue, ['flag'])).toEqual({
+        level1: {
+          level2: {
+            level3: {
+              value: 42,
+              other: 'kept',
+            },
+          },
+        },
+      });
+    });
+
+    it('includes path in error messages for nested failures', () => {
+      const resolved = { a: { b: { c: 'wrong' } } };
+      const defaultValue = { a: { b: { c: 123 } } };
+      expect(() => evaluateAssignment(resolved, defaultValue, ['flag'])).toThrow(
+        "resolved value (string) isn't assignable to default type (number) at flag.a.b.c",
+      );
     });
   });
 });
