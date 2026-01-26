@@ -45,3 +45,6 @@ htmlcov/
 
 # Build artifacts
 *.whl
+
+# WASM module (built from source, not committed)
+resources/wasm/

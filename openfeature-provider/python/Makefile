@@ -12,22 +12,27 @@ PIP := $(VENV)/bin/pip
 SRC := $(shell find src -name '*.py' 2>/dev/null)
 TESTS := $(shell find tests -name '*.py' 2>/dev/null)
 RESOURCES_WASM := resources/wasm/confidence_resolver.wasm
-# Use the WASM from Go provider's embedded assets (built from wasm/rust-guest)
-LOCAL_WASM := $(ROOT)/openfeature-provider/go/confidence/internal/local_resolver/assets/confidence_resolver.wasm
+# WASM is built from source in wasm/rust-guest, output goes to wasm/confidence_resolver.wasm
+WASM_SOURCE := $(ROOT)/wasm/confidence_resolver.wasm
 
 .PHONY: install build test test-e2e lint proto clean wasm format venv
 
 # In Docker, WASM is copied directly from the wasm-rust-guest.artifact stage
-# Locally, we copy from Go provider's synced assets
+# Locally, we build WASM from source to ensure it's always in sync
 ifeq ($(IN_DOCKER_BUILD),1)
-# In Docker, WASM already exists - don't try to copy from LOCAL_WASM
+# In Docker, WASM already exists - don't try to build/copy
 $(RESOURCES_WASM):
 	@test -f $@ || (echo "Error: WASM file not found at $@" && exit 1)
 else
-# Locally, copy WASM from Go provider's synced assets
-$(RESOURCES_WASM): $(LOCAL_WASM)
+# Locally, build WASM from source (like Go provider does)
+$(WASM_SOURCE):
+	@echo "Building WASM from source..."
+	@$(MAKE) -C $(ROOT) wasm/confidence_resolver.wasm
+
+# Copy freshly built WASM to resources
+$(RESOURCES_WASM): $(WASM_SOURCE)
 	@mkdir -p $(dir $@)
-	@cp -p $(LOCAL_WASM) $@
+	@cp -p $(WASM_SOURCE) $@
 endif
 
 # Create virtual environment
