@@ -7,12 +7,13 @@ import {
 } from '@openfeature/server-sdk';
 import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
 import { ConfidenceClientProvider } from './client';
+import { devWarn } from '../util';
 
 const PROVIDER_NAME = 'ConfidenceServerProviderLocal';
 
 function isConfidenceServerProviderLocal(provider: Provider): provider is ConfidenceServerProviderLocal {
   if (provider?.metadata?.name !== PROVIDER_NAME) {
-    console.warn(
+    devWarn(
       `ConfidenceProvider requires a ConfidenceServerProviderLocal, but got ${
         provider?.metadata?.name ?? 'undefined'
       }. ` + 'Make sure you have registered the provider with OpenFeature before rendering.',

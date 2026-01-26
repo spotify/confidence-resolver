@@ -1,6 +1,15 @@
 import { logger } from './logger';
 
 /**
+ * Log a warning message only in non-production environments.
+ */
+export function devWarn(message: string): void {
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(message);
+  }
+}
+
+/**
  * Type guard to check if an object has a specific key.
  */
 export function hasKey<K extends string>(obj: object, key: K): obj is { [P in K]: unknown } {

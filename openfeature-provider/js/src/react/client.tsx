@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useCallback } from 'react';
 import type { EvaluationDetails, FlagValue } from '@openfeature/core';
 import type FlagBundleType from '../flag-bundle';
 import * as FlagBundle from '../flag-bundle';
+import { devWarn } from '../util';
 
 type FlagBundle = FlagBundleType;
 
@@ -146,9 +147,7 @@ export function useFlagDetails<T extends FlagValue>(
   // Warn if no provider is present (only once per flag)
   if (!ctx && !warnedFlags.has(flagKey)) {
     warnedFlags.add(flagKey);
-    console.warn(
-      `[Confidence] useFlagDetails("${flagKey}") called without a ConfidenceProvider. Returning default value.`,
-    );
+    devWarn(`[Confidence] useFlagDetails("${flagKey}") called without a ConfidenceProvider. Returning default value.`);
   }
 
   const resolution = FlagBundle.resolve(ctx?.bundle, flagKey, defaultValue);
@@ -162,7 +161,7 @@ export function useFlagDetails<T extends FlagValue>(
         }
       }, [ctx, baseFlagName])
     : useCallback(() => {
-        console.warn(
+        devWarn(
           `[Confidence] attempt to expose an unmatched flag ${baseFlagName}: ${resolution.reason} ${resolution.errorCode}`,
         );
       }, [baseFlagName, resolution.reason, resolution.errorCode]);
