@@ -7,5 +7,6 @@
   "openfeature-provider/js": "0.7.0",
   "openfeature-provider/go": "0.6.0",
   "openfeature-provider/ruby": "0.1.1",
-  "openfeature-provider/rust": "0.2.0"
+  "openfeature-provider/rust": "0.2.0",
+  "openfeature-provider/python": "0.0.1"
 }

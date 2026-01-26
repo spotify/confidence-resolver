@@ -70,6 +70,12 @@
       "component": "openfeature-provider/rust",
       "initial-version": "0.1.0",
       "extra-files": ["src/version.rs"]
+    },
+    "openfeature-provider/python": {
+      "path": "openfeature-provider/python",
+      "release-type": "rust",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": ["pyproject.toml", "src/confidence_openfeature/version.py"]
     }
   }
 }
