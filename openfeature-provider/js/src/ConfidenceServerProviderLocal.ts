@@ -1,30 +1,10 @@
-import type {
-  ErrorCode,
-  EvaluationContext,
-  FlagValue,
-  JsonValue,
-  Provider,
-  ProviderMetadata,
-  ProviderStatus,
-  ResolutionDetails,
-  ResolutionReason,
-} from '@openfeature/server-sdk';
+import type { EvaluationContext, JsonValue, Provider, ProviderMetadata, ProviderStatus } from '@openfeature/server-sdk';
 import { ApplyFlagsRequest, ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
-import { SdkId, ResolveReason } from './proto/confidence/flags/resolver/v1/types';
+import { SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import {
-  base64FromBytes,
-  bytesFromBase64,
-  castStringToEnum,
-  getNestedValue,
-  isAssignableTo,
-  scheduleWithFixedInterval,
-  timeoutSignal,
-  TimeUnit,
-} from './util';
-import type { FlagBundle } from './types';
+import { castStringToEnum, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -41,7 +21,10 @@ import {
   WriteOperationsRequest,
 } from './proto/confidence/flags/resolver/v1/internal_api';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import FlagBundleType, * as FlagBundle from './flag-bundle';
+import { ErrorCode, ResolutionDetails } from './types';
 
+type FlagBundle = FlagBundleType;
 const logger = getLogger('provider');
 
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
@@ -68,7 +51,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     name: 'ConfidenceServerProviderLocal',
   };
   /** Current status of the provider. Can be READY, NOT_READY, ERROR, STALE and FATAL. */
-  status = 'NOT_READY' as ProviderStatus;
+  status: ProviderStatus = castStringToEnum<ProviderStatus>('NOT_READY');
 
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
@@ -170,9 +153,9 @@ export class ConfidenceServerProviderLocal implements Provider {
       scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
       // TODO Better with fixed delay so we don't do a double fetch when we're behind. Alt, skip if in progress
       scheduleWithFixedInterval(signal => this.updateState(signal), this.stateUpdateInterval, { signal });
-      this.status = 'READY' as ProviderStatus;
+      this.status = castStringToEnum<ProviderStatus>('READY');
     } catch (e: unknown) {
-      this.status = 'ERROR' as ProviderStatus;
+      this.status = castStringToEnum<ProviderStatus>('ERROR');
       // TODO should we swallow this?
       throw e;
     }
@@ -183,15 +166,8 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.main.abort();
   }
 
-  /**
-   * Builds a ResolveWithStickyRequest for flag resolution.
-   */
-  private buildStickyRequest(
-    context: EvaluationContext,
-    flagNames: string[],
-    apply: boolean,
-  ): ResolveWithStickyRequest {
-    return {
+  async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
+    const stickyRequest = {
       resolveRequest: {
         flags: flagNames.map(name => `flags/${name}`),
         evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
@@ -206,22 +182,25 @@ export class ConfidenceServerProviderLocal implements Provider {
       failFastOnSticky: false,
       notProcessSticky: false,
     };
+    return FlagBundle.create(await this.resolveWithSticky(stickyRequest));
   }
 
   // TODO test unknown flagClientSecret
-  async evaluate<T>(flagKey: string, defaultValue: T, context: EvaluationContext): Promise<ResolutionDetails<T>> {
+  async evaluate<T extends JsonValue>(
+    flagKey: string,
+    defaultValue: T,
+    context: EvaluationContext,
+  ): Promise<ResolutionDetails<T>> {
     try {
-      const [flagName, ...path] = flagKey.split('.');
-      const stickyRequest = this.buildStickyRequest(context, [flagName], true);
-      const response = await this.resolveWithSticky(stickyRequest);
-
-      return this.extractValue(response.resolvedFlags[0], flagName, path, defaultValue);
+      const [flagName] = flagKey.split('.', 1);
+      const resolution = await this.resolve(context, [flagName], true);
+      return FlagBundle.resolve(resolution, flagKey, defaultValue);
     } catch (e) {
       logger.warn(`Flag evaluation for '${flagKey}' failed`, e);
       return {
         value: defaultValue,
         reason: 'ERROR',
-        errorCode: castStringToEnum<ErrorCode>('GENERAL'),
+        errorCode: ErrorCode.GENERAL,
         errorMessage: String(e),
       };
     } finally {
@@ -248,49 +227,6 @@ export class ConfidenceServerProviderLocal implements Provider {
       this.writeMaterializations({ storeVariantOp });
     }
     return ResolveFlagsResponse.create(resolveResponse);
-  }
-
-  /**
-   * Extract and validate the value from a resolved flag.
-   */
-  private extractValue<T>(flag: any, flagName: string, path: string[], defaultValue: T): ResolutionDetails<T> {
-    if (!flag) {
-      return {
-        value: defaultValue,
-        reason: 'ERROR',
-        errorCode: castStringToEnum<ErrorCode>('FLAG_NOT_FOUND'),
-      };
-    }
-
-    if (flag.reason !== ResolveReason.RESOLVE_REASON_MATCH) {
-      return {
-        value: defaultValue,
-        reason: ConfidenceServerProviderLocal.convertReason(flag.reason),
-      };
-    }
-
-    const value = getNestedValue(flag.value, path);
-    if (value === undefined && path.length > 0) {
-      return {
-        value: defaultValue,
-        reason: 'ERROR',
-        errorCode: castStringToEnum<ErrorCode>('TYPE_MISMATCH'),
-      };
-    }
-
-    if (!isAssignableTo(value, defaultValue, false)) {
-      return {
-        value: defaultValue,
-        reason: 'ERROR',
-        errorCode: castStringToEnum<ErrorCode>('TYPE_MISMATCH'),
-      };
-    }
-
-    return {
-      value,
-      reason: 'MATCH',
-      variant: flag.variant,
-    };
   }
 
   async updateState(signal?: AbortSignal): Promise<void> {
@@ -374,25 +310,6 @@ export class ConfidenceServerProviderLocal implements Provider {
     throw new Error('Write materialization not supported');
   }
 
-  private static convertReason(reason: ResolveReason): ResolutionReason {
-    switch (reason) {
-      case ResolveReason.RESOLVE_REASON_ERROR:
-        return 'ERROR';
-      case ResolveReason.RESOLVE_REASON_FLAG_ARCHIVED:
-        return 'FLAG_ARCHIVED';
-      case ResolveReason.RESOLVE_REASON_MATCH:
-        return 'MATCH';
-      case ResolveReason.RESOLVE_REASON_NO_SEGMENT_MATCH:
-        return 'NO_SEGMENT_MATCH';
-      case ResolveReason.RESOLVE_REASON_TARGETING_KEY_ERROR:
-        return 'TARGETING_KEY_ERROR';
-      case ResolveReason.RESOLVE_REASON_NO_TREATMENT_MATCH:
-        return 'NO_TREATMENT_MATCH';
-      default:
-        return 'UNSPECIFIED';
-    }
-  }
-
   private static convertEvaluationContext({ targetingKey: targeting_key, ...rest }: EvaluationContext): {
     [key: string]: any;
   } {
@@ -436,39 +353,10 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   /**
-   * Resolves multiple flags and returns a serializable bundle for client-side use.
-   * The flags are resolved without applying - call applyFlag() when a flag is actually used.
-   */
-  async resolveFlagBundle(context: EvaluationContext, ...flagNames: string[]): Promise<FlagBundle> {
-    const stickyRequest = this.buildStickyRequest(context, flagNames, false);
-    const response = await this.resolveWithSticky(stickyRequest);
-
-    const flags: Record<string, ResolutionDetails<FlagValue>> = {};
-    for (const resolved of response.resolvedFlags) {
-      const flagName = resolved.flag.replace(/^flags\//, '');
-      flags[flagName] = {
-        value: resolved.value,
-        variant: resolved.variant || undefined,
-        reason: ConfidenceServerProviderLocal.convertReason(resolved.reason),
-        errorCode:
-          resolved.reason === ResolveReason.RESOLVE_REASON_ERROR ? castStringToEnum<ErrorCode>('GENERAL') : undefined,
-      };
-    }
-
-    return {
-      flags,
-      resolveToken: base64FromBytes(response.resolveToken),
-      resolveId: response.resolveId,
-    };
-  }
-
-  /**
    * Applies a previously resolved flag, logging that it was used/exposed.
    * Call this when a flag value is actually rendered or used in the client.
    */
-  applyFlag(resolveToken: string, flagName: string): void {
-    const tokenBytes = bytesFromBase64(resolveToken);
-
+  applyFlag(resolveToken: Uint8Array, flagName: string): void {
     const request: ApplyFlagsRequest = {
       flags: [
         {
@@ -477,7 +365,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         },
       ],
       clientSecret: this.options.flagClientSecret,
-      resolveToken: tokenBytes,
+      resolveToken,
       sendTime: new Date(),
       sdk: {
         id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,

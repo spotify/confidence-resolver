@@ -1,13 +1,28 @@
-import type { FlagValue, ResolutionDetails } from '@openfeature/core';
+export type ResolutionReason =
+  | 'ERROR'
+  | 'FLAG_ARCHIVED'
+  | 'MATCH'
+  | 'NO_SEGMENT_MATCH'
+  | 'TARGETING_KEY_ERROR'
+  | 'NO_TREATMENT_MATCH'
+  | 'UNSPECIFIED';
 
-/**
- * A bundle of resolved flags that can be serialized and passed to client components.
- */
-export interface FlagBundle {
-  /** Map of flag names to their resolved details */
-  flags: Record<string, ResolutionDetails<FlagValue>>;
-  /** Base64-encoded resolve token for apply calls */
-  resolveToken: string;
-  /** Unique identifier for this resolution */
-  resolveId: string;
+export enum ErrorCode {
+  PROVIDER_NOT_READY = 'PROVIDER_NOT_READY',
+  PROVIDER_FATAL = 'PROVIDER_FATAL',
+  FLAG_NOT_FOUND = 'FLAG_NOT_FOUND',
+  TYPE_MISMATCH = 'TYPE_MISMATCH',
+  GENERAL = 'GENERAL',
+}
+// These are OF errors we currently don't use
+// PARSE_ERROR
+// TARGETING_KEY_MISSING
+// INVALID_CONTEXT
+
+export interface ResolutionDetails<T> {
+  reason: ResolutionReason;
+  value: T;
+  variant?: string;
+  errorCode?: ErrorCode;
+  errorMessage?: string;
 }

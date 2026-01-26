@@ -1,9 +1,11 @@
 'use client';
 
 import { createContext, useContext, useEffect, useCallback } from 'react';
-import type { ErrorCode, EvaluationDetails, FlagValue } from '@openfeature/core';
-import type { FlagBundle } from '../types';
-import { castStringToEnum, resolveFlagValue } from '../util';
+import type { EvaluationDetails, FlagValue } from '@openfeature/core';
+import type FlagBundleType from '../flag-bundle';
+import * as FlagBundle from '../flag-bundle';
+
+type FlagBundle = FlagBundleType;
 
 type ApplyFn = (flagName: string) => Promise<void>;
 
@@ -145,46 +147,37 @@ export function useFlagDetails<T extends FlagValue>(
   if (!ctx && !warnedFlags.has(flagKey)) {
     warnedFlags.add(flagKey);
     console.warn(
-      `[Confidence] useFlagDetails("${flagKey}") called without a ConfidenceProvider. ` + `Returning default value.`,
+      `[Confidence] useFlagDetails("${flagKey}") called without a ConfidenceProvider. Returning default value.`,
     );
   }
 
+  const resolution = FlagBundle.resolve(ctx?.bundle, flagKey, defaultValue);
+
   // Expose function (bound to flag name)
-  const expose = useCallback(() => {
-    if (ctx && !appliedFlags.has(baseFlagName)) {
-      appliedFlags.add(baseFlagName);
-      ctx.apply(baseFlagName);
-    }
-  }, [ctx, baseFlagName]);
+  const expose = resolution.variant
+    ? useCallback(() => {
+        if (ctx && !appliedFlags.has(baseFlagName)) {
+          appliedFlags.add(baseFlagName);
+          ctx.apply(baseFlagName);
+        }
+      }, [ctx, baseFlagName])
+    : useCallback(() => {
+        console.warn(
+          `[Confidence] attempt to expose an unmatched flag ${baseFlagName}: ${resolution.reason} ${resolution.errorCode}`,
+        );
+      }, [baseFlagName, resolution.reason, resolution.errorCode]);
 
   // Auto exposure effect
   useEffect(() => {
-    if (options?.expose !== false) {
+    if (options?.expose !== false && resolution.variant) {
       expose();
     }
-  }, [expose, options?.expose]);
+  }, [expose, options?.expose, resolution.variant]);
 
-  const flag = ctx?.bundle.flags[baseFlagName];
-  const resolvedValue = resolveFlagValue(flag?.value, path, defaultValue, true);
-
-  // Get details from the flag, or use defaults for missing flags
-  const variant = flag?.variant;
-  const reason = flag?.reason ?? 'ERROR';
-  const errorCode = flag?.errorCode ?? (flag ? undefined : castStringToEnum<ErrorCode>('FLAG_NOT_FOUND'));
-  const errorMessage = flag?.errorMessage;
-
-  const baseDetails: EvaluationDetails<T> = {
+  return {
     flagKey,
-    flagMetadata: flag?.flagMetadata ?? {},
-    value: resolvedValue,
-    variant,
-    reason,
-    errorCode,
-    errorMessage,
+    flagMetadata: {},
+    ...resolution,
+    expose,
   };
-
-  if (options?.expose === false) {
-    return { ...baseDetails, expose };
-  }
-  return baseDetails;
 }

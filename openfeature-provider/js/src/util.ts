@@ -25,42 +25,6 @@ export function getNestedValue(value: unknown, path: string[]): unknown {
   return current;
 }
 
-/**
- * Resolve a flag value by navigating the path and validating against a schema.
- * Returns the value if valid, otherwise returns the default value.
- */
-export function resolveFlagValue<T>(value: unknown, path: string[], defaultValue: T, nullSchemaAcceptsAny: boolean): T {
-  const nested = getNestedValue(value, path);
-  return isAssignableTo(nested, defaultValue, nullSchemaAcceptsAny) ? nested : defaultValue;
-}
-
-/**
- * Check if a value is structurally assignable to a schema type.
- *
- * @param value - The value to check
- * @param schema - The schema/default value to check against
- * @param nullSchemaAcceptsAny - If true, a null schema accepts any value.
- *                               If false, null schema requires null value.
- */
-export function isAssignableTo<T>(value: unknown, schema: T, nullSchemaAcceptsAny: boolean): value is T {
-  if (nullSchemaAcceptsAny && schema === null) return true;
-  if (typeof schema !== typeof value) return false;
-  if (typeof value === 'object' && typeof schema === 'object') {
-    if (schema === null) return value === null;
-    if (value === null) return false;
-    if (Array.isArray(schema)) {
-      if (!Array.isArray(value)) return false;
-      if (schema.length === 0) return true;
-      return value.every(item => isAssignableTo(item, schema[0], nullSchemaAcceptsAny));
-    }
-    for (const [key, schemaValue] of Object.entries(schema)) {
-      if (!hasKey(value, key)) return false;
-      if (!isAssignableTo(value[key], schemaValue, nullSchemaAcceptsAny)) return false;
-    }
-  }
-  return true;
-}
-
 export const enum TimeUnit {
   MILLISECOND = 1,
   SECOND = 1000,
@@ -218,27 +182,4 @@ export function isObject(value: unknown): value is {} {
 
 export function castStringToEnum<E extends string>(value: `${E}`): E {
   return value as E;
-}
-
-export function base64FromBytes(bytes: Uint8Array): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(bytes).toString('base64');
-  }
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-export function bytesFromBase64(base64: string): Uint8Array {
-  if (typeof Buffer !== 'undefined') {
-    return new Uint8Array(Buffer.from(base64, 'base64'));
-  }
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
 }

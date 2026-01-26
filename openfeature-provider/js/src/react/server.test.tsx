@@ -6,12 +6,15 @@ import { OpenFeature } from '@openfeature/server-sdk';
 import type { Provider, EvaluationContext } from '@openfeature/server-sdk';
 import React from 'react';
 import { ConfidenceProvider } from './server';
+import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
 
 // Mock provider that matches ConfidenceServerProviderLocal's metadata
-function createMockConfidenceProvider(overrides: Partial<Provider> = {}): Provider {
+function createMockConfidenceProvider(
+  overrides: Partial<ConfidenceServerProviderLocal> = {},
+): ConfidenceServerProviderLocal {
   return {
     metadata: { name: 'ConfidenceServerProviderLocal' },
-    resolveFlagBundle: vi.fn().mockResolvedValue({
+    resolve: vi.fn().mockResolvedValue({
       flags: { 'test-flag': { value: true, reason: 'MATCH' } },
       resolveToken: 'test-token',
       resolveId: 'test-resolve-id',
@@ -23,7 +26,7 @@ function createMockConfidenceProvider(overrides: Partial<Provider> = {}): Provid
     resolveNumberEvaluation: vi.fn(),
     resolveObjectEvaluation: vi.fn(),
     ...overrides,
-  } as unknown as Provider;
+  } as unknown as ConfidenceServerProviderLocal;
 }
 
 // Mock provider that is NOT ConfidenceServerProviderLocal
@@ -98,7 +101,7 @@ describe('ConfidenceProvider', () => {
   });
 
   describe('flag resolution', () => {
-    it('calls resolveFlagBundle with evalContext and flags', async () => {
+    it('calls resolve with evalContext and flags', async () => {
       const mockProvider = createMockConfidenceProvider();
       await OpenFeature.setProviderAndWait(mockProvider);
 
@@ -113,10 +116,10 @@ describe('ConfidenceProvider', () => {
         children: <div>Test</div>,
       });
 
-      expect(mockProvider.resolveFlagBundle).toHaveBeenCalledWith(evalContext, 'flag-a', 'flag-b');
+      expect(mockProvider.resolve).toHaveBeenCalledWith(evalContext, ['flag-a', 'flag-b']);
     });
 
-    it('calls resolveFlagBundle with empty flags array by default', async () => {
+    it('calls resolve with empty flags array by default', async () => {
       const mockProvider = createMockConfidenceProvider();
       await OpenFeature.setProviderAndWait(mockProvider);
 
@@ -125,7 +128,7 @@ describe('ConfidenceProvider', () => {
         children: <div>Test</div>,
       });
 
-      expect(mockProvider.resolveFlagBundle).toHaveBeenCalledWith({ targetingKey: 'user-123' });
+      expect(mockProvider.resolve).toHaveBeenCalledWith({ targetingKey: 'user-123' }, []);
     });
   });
 
@@ -142,8 +145,8 @@ describe('ConfidenceProvider', () => {
         children: <div>Test</div>,
       });
 
-      expect(namedProvider.resolveFlagBundle).toHaveBeenCalled();
-      expect(defaultProvider.resolveFlagBundle).not.toHaveBeenCalled();
+      expect(namedProvider.resolve).toHaveBeenCalled();
+      expect(defaultProvider.resolve).not.toHaveBeenCalled();
     });
 
     it('uses default provider when providerName is not specified', async () => {
@@ -157,8 +160,8 @@ describe('ConfidenceProvider', () => {
         children: <div>Test</div>,
       });
 
-      expect(defaultProvider.resolveFlagBundle).toHaveBeenCalled();
-      expect(namedProvider.resolveFlagBundle).not.toHaveBeenCalled();
+      expect(defaultProvider.resolve).toHaveBeenCalled();
+      expect(namedProvider.resolve).not.toHaveBeenCalled();
     });
   });
 });

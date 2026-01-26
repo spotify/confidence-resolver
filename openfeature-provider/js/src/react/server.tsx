@@ -77,7 +77,7 @@ export async function ConfidenceProvider({
 
   assertConfidenceServerProviderLocal(provider);
 
-  const bundle = await provider.resolveFlagBundle(evalContext, ...flags);
+  const bundle = await provider.resolve(evalContext, flags);
 
   async function applyFlag(flagName: string): Promise<void> {
     'use server';
