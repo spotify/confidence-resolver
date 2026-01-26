@@ -8,6 +8,11 @@ import {
 import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
 import { ConfidenceClientProvider } from './client';
 import { devWarn } from '../util';
+import type FlagBundleType from '../flag-bundle';
+import * as FlagBundle from '../flag-bundle';
+import { ErrorCode } from '../types';
+
+type FlagBundle = FlagBundleType;
 
 const PROVIDER_NAME = 'ConfidenceServerProviderLocal';
 
@@ -78,18 +83,25 @@ export async function ConfidenceProvider({
 }: ConfidenceProviderProps): Promise<React.ReactElement> {
   const provider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
-  if (!isConfidenceServerProviderLocal(provider)) {
-    return <>{children}</>;
+  let bundle: FlagBundle;
+  if (isConfidenceServerProviderLocal(provider)) {
+    bundle = await provider.resolve(evalContext, flags);
+  } else {
+    bundle = FlagBundle.error(
+      new Error(
+        `The OpenFeatureProvider set is not a ConfidenceServerProviderLocal: ${
+          provider?.metadata?.name ?? 'undefined'
+        }`,
+      ),
+    );
   }
-
-  const bundle = await provider.resolve(evalContext, flags);
 
   async function applyFlag(flagName: string): Promise<void> {
     'use server';
 
     const serverProvider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
-    if (isConfidenceServerProviderLocal(serverProvider) && !bundle.error) {
+    if (!bundle.error && isConfidenceServerProviderLocal(serverProvider)) {
       serverProvider.applyFlag(bundle.resolveToken, flagName);
     }
   }
@@ -147,6 +159,7 @@ export async function useFlagDetails<T extends JsonValue>(
       flagMetadata: {},
       value: defaultValue,
       reason: 'ERROR',
+      errorCode: ErrorCode.GENERAL,
       errorMessage: 'Provider is not a ConfidenceServerProviderLocal',
     };
   }

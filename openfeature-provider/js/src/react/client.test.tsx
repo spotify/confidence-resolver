@@ -120,7 +120,7 @@ describe('useFlag', () => {
       expect(result.current).toBe('default');
     });
 
-    it('calls apply on mount', () => {
+    it('calls apply on mount when shouldApply is true', () => {
       const bundle = createTestBundle({
         'my-flag': { value: { value: true }, reason: 'MATCH', variant: 'x', shouldApply: true },
       });
@@ -131,6 +131,18 @@ describe('useFlag', () => {
 
       expect(mockApply).toHaveBeenCalledTimes(1);
       expect(mockApply).toHaveBeenCalledWith('my-flag');
+    });
+
+    it('does not call apply on mount when shouldApply is false', () => {
+      const bundle = createTestBundle({
+        'my-flag': { value: { value: true }, reason: 'MATCH', variant: 'x', shouldApply: false },
+      });
+
+      renderHook(() => useFlag('my-flag.value', false), {
+        wrapper: wrapper(bundle),
+      });
+
+      expect(mockApply).not.toHaveBeenCalled();
     });
 
     it('only calls apply once even on re-render', () => {
@@ -408,7 +420,12 @@ describe('useFlagDetails', () => {
 
     it('includes errorCode from resolved flag', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'stale-value' }, reason: 'ERROR', errorCode: ErrorCode.FLAG_NOT_FOUND, shouldApply: false },
+        'my-flag': {
+          value: { value: 'stale-value' },
+          reason: 'ERROR',
+          errorCode: ErrorCode.FLAG_NOT_FOUND,
+          shouldApply: false,
+        },
       });
 
       const { result } = renderHook(() => useFlagDetails('my-flag.value', 'default'), {
