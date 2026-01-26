@@ -76,7 +76,7 @@ describe('useFlag', () => {
   describe('auto exposure', () => {
     it('returns the flag value from the bundle', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'flag-value' }, variant: 'variant-a', reason: 'MATCH' },
+        'my-flag': { value: { value: 'flag-value' }, variant: 'variant-a', reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlag('my-flag.value', 'default'), {
@@ -122,7 +122,7 @@ describe('useFlag', () => {
 
     it('calls apply on mount', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: true }, reason: 'MATCH', variant: 'x' },
+        'my-flag': { value: { value: true }, reason: 'MATCH', variant: 'x', shouldApply: true },
       });
 
       renderHook(() => useFlag('my-flag.value', false), {
@@ -135,7 +135,7 @@ describe('useFlag', () => {
 
     it('only calls apply once even on re-render', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: true }, reason: 'MATCH', variant: 'x' },
+        'my-flag': { value: { value: true }, reason: 'MATCH', variant: 'x', shouldApply: true },
       });
 
       const { rerender } = renderHook(() => useFlag('my-flag.value', false), {
@@ -232,6 +232,7 @@ describe('useFlag', () => {
           value: { config: { maxItems: 10 } },
           reason: 'MATCH',
           variant: 'x',
+          shouldApply: true,
         },
       });
 
@@ -361,7 +362,7 @@ describe('useFlagDetails', () => {
   describe('auto exposure (default, expose: true)', () => {
     it('returns value, details, and undefined expose', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'test-value' }, variant: 'variant-a', reason: 'MATCH' },
+        'my-flag': { value: { value: 'test-value' }, variant: 'variant-a', reason: 'MATCH', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlagDetails('my-flag.value', 'default'), {
@@ -377,7 +378,7 @@ describe('useFlagDetails', () => {
 
     it('calls apply on mount', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { enabled: true }, reason: 'MATCH', variant: 'a' },
+        'my-flag': { value: { enabled: true }, reason: 'MATCH', variant: 'a', shouldApply: true },
       });
 
       renderHook(() => useFlagDetails('my-flag.enabled', false), {
@@ -430,7 +431,7 @@ describe('useFlagDetails', () => {
 
     it('calls apply when expose is called', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { enabled: true }, reason: 'MATCH', variant: 'a' },
+        'my-flag': { value: { enabled: true }, reason: 'MATCH', variant: 'a', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlagDetails('my-flag.enabled', false, { expose: false }), {
@@ -447,7 +448,7 @@ describe('useFlagDetails', () => {
 
     it('only calls apply once even if expose is called multiple times', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { enabled: true }, reason: 'MATCH', variant: 'a' },
+        'my-flag': { value: { enabled: true }, reason: 'MATCH', variant: 'a', shouldApply: true },
       });
 
       const { result } = renderHook(() => useFlagDetails('my-flag.enabled', false, { expose: false }), {
@@ -480,7 +481,7 @@ describe('useFlagDetails', () => {
   describe('with expose: true (explicit)', () => {
     it('behaves the same as default (auto exposure)', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: 'value' }, reason: 'MATCH', variant: 'a' },
+        'my-flag': { value: { value: 'value' }, reason: 'MATCH', variant: 'a', shouldApply: true },
       });
       const { result } = renderHook(() => useFlagDetails('my-flag.value', 'default', { expose: true }), {
         wrapper: wrapper(bundle),
@@ -499,6 +500,7 @@ describe('useFlagDetails', () => {
           value: { config: { maxItems: 10 } },
           reason: 'MATCH',
           variant: 'a',
+          shouldApply: true,
         },
       });
 

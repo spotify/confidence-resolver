@@ -153,14 +153,14 @@ export function useFlagDetails<T extends FlagValue>(
 
   // Auto exposure effect
   useEffect(() => {
-    if (autoExpose && resolution.variant) {
+    if (autoExpose && resolution.shouldApply) {
       doExpose();
     }
-  }, [autoExpose, doExpose, resolution.variant]);
+  }, [autoExpose, doExpose, resolution.shouldApply]);
 
   // Expose function returned to caller
   const expose = useCallback(() => {
-    if (!resolution.variant) {
+    if (!resolution.shouldApply) {
       devWarn(
         `[Confidence] attempt to expose an unmatched flag ${baseFlagName}: ${resolution.reason} ${resolution.errorCode}`,
       );
@@ -169,7 +169,7 @@ export function useFlagDetails<T extends FlagValue>(
     } else {
       doExpose();
     }
-  }, [autoExpose, baseFlagName, doExpose, flagKey, resolution.variant, resolution.reason, resolution.errorCode]);
+  }, [autoExpose, baseFlagName, doExpose, flagKey, resolution.shouldApply, resolution.reason, resolution.errorCode]);
 
   return {
     flagKey,

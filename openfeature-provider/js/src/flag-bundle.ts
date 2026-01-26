@@ -15,12 +15,13 @@ export default interface FlagBundle {
 
 export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsResponse): FlagBundle {
   const flags = Object.fromEntries(
-    resolvedFlags.map(({ flag, reason, variant, value }) => {
+    resolvedFlags.map(({ flag, reason, variant, value, shouldApply }) => {
       const name = flag.slice(FLAG_PREFIX.length);
       const details: ResolutionDetails<JsonObject | null> = {
         reason: convertReason(reason),
         variant,
         value: value ?? null,
+        shouldApply,
       };
       return [name, details];
     }),
@@ -56,6 +57,7 @@ export function resolve<T extends JsonValue>(
       errorCode: ErrorCode.GENERAL,
       errorMessage: String(error),
       value: defaultValue,
+      shouldApply: false,
     };
   }
 
@@ -64,6 +66,7 @@ export function resolve<T extends JsonValue>(
       reason: 'ERROR',
       errorCode: ErrorCode.FLAG_NOT_FOUND,
       value: defaultValue,
+      shouldApply: false,
     };
   }
 
@@ -75,6 +78,7 @@ export function resolve<T extends JsonValue>(
         value: defaultValue,
         errorCode: ErrorCode.TYPE_MISMATCH,
         errorMessage: `resolved value is not an object at ${[flagName, ...path.slice(0, i)].join('.')}`,
+        shouldApply: false,
       };
     }
     value = value[path[i]];
@@ -88,6 +92,7 @@ export function resolve<T extends JsonValue>(
       value: defaultValue,
       errorCode: ErrorCode.TYPE_MISMATCH,
       errorMessage: String(e),
+      shouldApply: false,
     };
   }
 
@@ -96,14 +101,6 @@ export function resolve<T extends JsonValue>(
     value,
   };
 }
-
-// export function evaluate<T extends JsonValue>(
-//   bundle: FlagBundle | undefined,
-//   flagKey: string,
-//   defaultValue: T,
-// ): ResolutionDetails<T> {
-
-// }
 
 export function validateAssignment<T extends JsonValue>(
   resolvedValue: JsonValue,

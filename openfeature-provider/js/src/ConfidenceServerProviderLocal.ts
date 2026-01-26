@@ -206,6 +206,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         reason: 'ERROR',
         errorCode: ErrorCode.GENERAL,
         errorMessage: String(e),
+        shouldApply: false,
       };
     } finally {
       this.flushAssigned();

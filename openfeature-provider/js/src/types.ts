@@ -25,4 +25,5 @@ export interface ResolutionDetails<T> {
   variant?: string;
   errorCode?: ErrorCode;
   errorMessage?: string;
+  shouldApply: boolean;
 }
