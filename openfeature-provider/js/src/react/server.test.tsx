@@ -52,38 +52,55 @@ describe('ConfidenceProvider', () => {
   });
 
   describe('provider validation', () => {
-    it('throws error when default provider is not ConfidenceServerProviderLocal', async () => {
+    it('warns and returns children when default provider is not ConfidenceServerProviderLocal', async () => {
       const otherProvider = createMockOtherProvider();
       await OpenFeature.setProviderAndWait(otherProvider);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      await expect(
-        ConfidenceProvider({
-          evalContext: { targetingKey: 'user-123' },
-          children: <div>Test</div>,
-        }),
-      ).rejects.toThrow('ConfidenceProvider requires a ConfidenceServerProviderLocal, but got SomeOtherProvider');
+      // Should not throw, but should warn and return children
+      const result = await ConfidenceProvider({
+        evalContext: { targetingKey: 'user-123' },
+        children: <div>Test</div>,
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
+      );
+      expect(result).toBeDefined();
+      warnSpy.mockRestore();
     });
 
-    it('throws error when named provider is not ConfidenceServerProviderLocal', async () => {
+    it('warns and returns children when named provider is not ConfidenceServerProviderLocal', async () => {
       const otherProvider = createMockOtherProvider();
       await OpenFeature.setProviderAndWait('my-provider', otherProvider);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      await expect(
-        ConfidenceProvider({
-          evalContext: { targetingKey: 'user-123' },
-          providerName: 'my-provider',
-          children: <div>Test</div>,
-        }),
-      ).rejects.toThrow('ConfidenceProvider requires a ConfidenceServerProviderLocal, but got SomeOtherProvider');
+      const result = await ConfidenceProvider({
+        evalContext: { targetingKey: 'user-123' },
+        providerName: 'my-provider',
+        children: <div>Test</div>,
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
+      );
+      expect(result).toBeDefined();
+      warnSpy.mockRestore();
     });
 
-    it('throws error when no provider is registered', async () => {
-      await expect(
-        ConfidenceProvider({
-          evalContext: { targetingKey: 'user-123' },
-          children: <div>Test</div>,
-        }),
-      ).rejects.toThrow('ConfidenceProvider requires a ConfidenceServerProviderLocal');
+    it('warns and returns children when no provider is registered', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await ConfidenceProvider({
+        evalContext: { targetingKey: 'user-123' },
+        children: <div>Test</div>,
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
+      );
+      expect(result).toBeDefined();
+      warnSpy.mockRestore();
     });
 
     it('identifies provider by metadata.name, not instanceof', async () => {

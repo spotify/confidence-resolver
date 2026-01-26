@@ -182,7 +182,11 @@ export class ConfidenceServerProviderLocal implements Provider {
       failFastOnSticky: false,
       notProcessSticky: false,
     };
-    return FlagBundle.create(await this.resolveWithSticky(stickyRequest));
+    try {
+      return FlagBundle.create(await this.resolveWithSticky(stickyRequest));
+    } catch (err) {
+      return FlagBundle.error(err);
+    }
   }
 
   // TODO test unknown flagClientSecret

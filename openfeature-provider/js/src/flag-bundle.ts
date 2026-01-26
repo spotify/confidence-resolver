@@ -10,6 +10,7 @@ export default interface FlagBundle {
   flags: Record<string, ResolutionDetails<JsonObject | null> | undefined>;
   resolveId: string;
   resolveToken: Uint8Array;
+  error?: unknown;
 }
 
 export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsResponse): FlagBundle {
@@ -32,6 +33,15 @@ export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsR
   };
 }
 
+export function error(e: unknown): FlagBundle {
+  return {
+    flags: {},
+    resolveId: 'error',
+    resolveToken: new Uint8Array(),
+    error: e,
+  };
+}
+
 export function resolve<T extends JsonValue>(
   bundle: FlagBundle | undefined,
   flagKey: string,
@@ -39,6 +49,15 @@ export function resolve<T extends JsonValue>(
 ): ResolutionDetails<T> {
   const [flagName, ...path] = flagKey.split('.');
   const flag = bundle?.flags[flagName];
+  const error = bundle?.error;
+  if (error) {
+    return {
+      reason: 'ERROR',
+      errorCode: ErrorCode.GENERAL,
+      errorMessage: String(error),
+      value: defaultValue,
+    };
+  }
 
   if (!flag) {
     return {
