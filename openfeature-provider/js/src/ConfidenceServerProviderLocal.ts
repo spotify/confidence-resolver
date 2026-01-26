@@ -185,7 +185,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     try {
       return FlagBundle.create(await this.resolveWithSticky(stickyRequest));
     } catch (err) {
-      return FlagBundle.error(err);
+      return FlagBundle.error(ErrorCode.GENERAL, String(err));
     }
   }
 

@@ -88,11 +88,8 @@ export async function ConfidenceProvider({
     bundle = await provider.resolve(evalContext, flags);
   } else {
     bundle = FlagBundle.error(
-      new Error(
-        `The OpenFeatureProvider set is not a ConfidenceServerProviderLocal: ${
-          provider?.metadata?.name ?? 'undefined'
-        }`,
-      ),
+      ErrorCode.GENERAL,
+      `The OpenFeatureProvider set is not a ConfidenceServerProviderLocal: ${provider?.metadata?.name ?? 'undefined'}`,
     );
   }
 

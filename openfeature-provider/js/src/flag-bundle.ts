@@ -36,13 +36,13 @@ export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsR
   };
 }
 
-export function error(e: unknown): FlagBundle {
+export function error(errorCode: ErrorCode, errorMessage: string): FlagBundle {
   return {
     flags: {},
     resolveId: 'error',
     resolveToken: new Uint8Array(),
-    errorCode: ErrorCode.GENERAL,
-    errorMessage: String(e),
+    errorCode,
+    errorMessage,
   };
 }
 
