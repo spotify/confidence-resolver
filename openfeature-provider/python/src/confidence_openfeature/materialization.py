@@ -11,7 +11,7 @@ Materializations support two key use cases:
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Protocol
+from typing import List, Optional, Protocol, Union
 
 import grpc
 
@@ -78,6 +78,37 @@ class VariantWriteOp:
     variant: str
 
 
+@dataclass
+class InclusionReadOp:
+    """Query operation to check if a unit is included in a materialized segment.
+
+    Used for custom targeting via materialized segments - checks if a unit
+    is part of a precomputed set of identifiers.
+
+    Attributes:
+        unit: The entity identifier (user ID, session ID, etc.)
+        materialization: The materialization context identifier
+    """
+
+    unit: str
+    materialization: str
+
+
+@dataclass
+class InclusionReadResult:
+    """Result containing whether a unit is included in a materialized segment.
+
+    Attributes:
+        unit: The entity identifier (user ID, session ID, etc.)
+        materialization: The materialization context identifier
+        included: Whether the unit is included in the segment
+    """
+
+    unit: str
+    materialization: str
+    included: bool
+
+
 class MaterializationNotSupportedError(Exception):
     """Raised when a MaterializationStore doesn't support the requested operation.
 
@@ -90,6 +121,11 @@ class MaterializationNotSupportedError(Exception):
     ) -> None:
         super().__init__(message)
         self.message = message
+
+
+# Type aliases for read operations and results
+ReadOp = Union[VariantReadOp, InclusionReadOp]
+ReadResult = Union[VariantReadResult, InclusionReadResult]
 
 
 class MaterializationStore(Protocol):
@@ -105,14 +141,15 @@ class MaterializationStore(Protocol):
     concurrently from multiple threads resolving flags in parallel.
     """
 
-    def read(self, ops: List[VariantReadOp]) -> List[VariantReadResult]:
+    def read(self, ops: List[ReadOp]) -> List[ReadResult]:
         """Perform a batch read of materialization data.
 
         Args:
             ops: The list of read operations to perform
+                (VariantReadOp or InclusionReadOp)
 
         Returns:
-            The read results
+            The read results (VariantReadResult or InclusionReadResult)
 
         Raises:
             MaterializationNotSupportedError: If the store doesn't support reads
@@ -138,7 +175,7 @@ class UnsupportedMaterializationStore:
     gRPC resolution when materializations are needed.
     """
 
-    def read(self, ops: List[VariantReadOp]) -> List[VariantReadResult]:
+    def read(self, ops: List[ReadOp]) -> List[ReadResult]:
         """Read always raises MaterializationNotSupportedError.
 
         Args:
@@ -197,14 +234,15 @@ class RemoteMaterializationStore:
         """Get the authorization metadata for gRPC calls."""
         return [("authorization", f"ClientSecret {self._client_secret}")]
 
-    def read(self, ops: List[VariantReadOp]) -> List[VariantReadResult]:
+    def read(self, ops: List[ReadOp]) -> List[ReadResult]:
         """Perform a batch read of materialization data from the remote service.
 
         Args:
             ops: The list of read operations to perform
+                (VariantReadOp or InclusionReadOp)
 
         Returns:
-            The read results
+            The read results (VariantReadResult or InclusionReadResult)
         """
         if not ops:
             return []
@@ -213,13 +251,21 @@ class RemoteMaterializationStore:
         proto_ops = []
         for op in ops:
             proto_op = internal_api_pb2.ReadOp()  # type: ignore[attr-defined]
-            proto_op.variant_read_op.CopyFrom(
-                internal_api_pb2.VariantReadOp(  # type: ignore[attr-defined]
-                    unit=op.unit,
-                    materialization=op.materialization,
-                    rule=op.rule,
+            if isinstance(op, VariantReadOp):
+                proto_op.variant_read_op.CopyFrom(
+                    internal_api_pb2.VariantReadOp(  # type: ignore[attr-defined]
+                        unit=op.unit,
+                        materialization=op.materialization,
+                        rule=op.rule,
+                    )
                 )
-            )
+            elif isinstance(op, InclusionReadOp):
+                proto_op.inclusion_read_op.CopyFrom(
+                    internal_api_pb2.InclusionReadOp(  # type: ignore[attr-defined]
+                        unit=op.unit,
+                        materialization=op.materialization,
+                    )
+                )
             proto_ops.append(proto_op)
 
         # Build request
@@ -231,10 +277,11 @@ class RemoteMaterializationStore:
         response = self._stub.ReadMaterializedOperations(
             request,
             metadata=self._get_metadata(),
+            timeout=30.0,
         )
 
         # Convert results
-        results = []
+        results: List[ReadResult] = []
         for proto_result in response.results:
             if proto_result.HasField("variant_result"):
                 variant_data = proto_result.variant_result
@@ -244,6 +291,15 @@ class RemoteMaterializationStore:
                         materialization=variant_data.materialization,
                         rule=variant_data.rule,
                         variant=variant_data.variant if variant_data.variant else None,
+                    )
+                )
+            elif proto_result.HasField("inclusion_result"):
+                inclusion_data = proto_result.inclusion_result
+                results.append(
+                    InclusionReadResult(
+                        unit=inclusion_data.unit,
+                        materialization=inclusion_data.materialization,
+                        included=inclusion_data.is_included,
                     )
                 )
         return results
@@ -278,4 +334,5 @@ class RemoteMaterializationStore:
         self._stub.WriteMaterializedOperations(
             request,
             metadata=self._get_metadata(),
+            timeout=30.0,
         )

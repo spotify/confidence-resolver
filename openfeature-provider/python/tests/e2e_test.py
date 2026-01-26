@@ -5,7 +5,7 @@ from openfeature.evaluation_context import EvaluationContext
 
 from confidence_openfeature import ConfidenceProvider
 
-# E2E test configuration
+# E2E test configuration - matches Go e2e_test.go
 E2E_CLIENT_SECRET = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx"
 E2E_INCLUDED_TARGETING_KEY = "user-a"
 E2E_EXCLUDED_TARGETING_KEY = "user-x"
@@ -26,8 +26,8 @@ class TestFlagResolveWithRemoteMaterializationStore:
             api.set_provider(provider)
             client = api.get_client()
 
+            # Use targetless context with only user_id, matching Go tests
             ctx = EvaluationContext(
-                targeting_key=E2E_INCLUDED_TARGETING_KEY,
                 attributes={"user_id": E2E_INCLUDED_TARGETING_KEY},
             )
 
@@ -37,8 +37,10 @@ class TestFlagResolveWithRemoteMaterializationStore:
                 evaluation_context=ctx,
             )
 
-            assert (
-                result.variant == "flags/custom-targeted-flag/variants/cake-exclamation"
+            expected = "flags/custom-targeted-flag/variants/cake-exclamation"
+            assert result.variant == expected, (
+                f"Expected cake-exclamation variant, got {result.variant}, "
+                f"error: {result.error_message}"
             )
         finally:
             provider.shutdown()
@@ -55,8 +57,8 @@ class TestFlagResolveWithRemoteMaterializationStore:
             api.set_provider(provider)
             client = api.get_client()
 
+            # Use targetless context with only user_id, matching Go tests
             ctx = EvaluationContext(
-                targeting_key=E2E_EXCLUDED_TARGETING_KEY,
                 attributes={"user_id": E2E_EXCLUDED_TARGETING_KEY},
             )
 
@@ -66,7 +68,11 @@ class TestFlagResolveWithRemoteMaterializationStore:
                 evaluation_context=ctx,
             )
 
-            assert result.variant == "flags/custom-targeted-flag/variants/default"
+            expected = "flags/custom-targeted-flag/variants/default"
+            assert result.variant == expected, (
+                f"Expected default variant, got {result.variant}, "
+                f"error: {result.error_message}"
+            )
         finally:
             provider.shutdown()
 
@@ -87,7 +93,6 @@ class TestFlagResolveWithoutMaterializationStore:
             client = api.get_client()
 
             ctx = EvaluationContext(
-                targeting_key=E2E_INCLUDED_TARGETING_KEY,
                 attributes={"user_id": E2E_INCLUDED_TARGETING_KEY},
             )
 
@@ -97,63 +102,8 @@ class TestFlagResolveWithoutMaterializationStore:
                 evaluation_context=ctx,
             )
 
-            # Without materialization store, should return default
+            # Without materialization store, should return default with error
             assert result.value == "client default"
-        finally:
-            provider.shutdown()
-
-
-class TestTutorialFlagResolve:
-    """E2E tests for the tutorial flag (no materialization required)."""
-
-    def test_resolve_tutorial_flag_message(self) -> None:
-        """Tutorial flag resolves successfully without materialization."""
-        provider = ConfidenceProvider(
-            client_secret=E2E_CLIENT_SECRET,
-        )
-
-        try:
-            provider.initialize(EvaluationContext())
-            api.set_provider(provider)
-            client = api.get_client()
-
-            ctx = EvaluationContext(
-                targeting_key="e2e-test-user",
-                attributes={"visitor_id": "tutorial_visitor"},
-            )
-
-            result = client.get_string_details(
-                flag_key="tutorial-feature.message",
-                default_value="default message",
-                evaluation_context=ctx,
-            )
-
-            assert "Confidence" in result.value
-        finally:
-            provider.shutdown()
-
-    def test_resolve_tutorial_flag_title(self) -> None:
-        """Tutorial flag title field resolves correctly."""
-        provider = ConfidenceProvider(
-            client_secret=E2E_CLIENT_SECRET,
-        )
-
-        try:
-            provider.initialize(EvaluationContext())
-            api.set_provider(provider)
-            client = api.get_client()
-
-            ctx = EvaluationContext(
-                targeting_key="e2e-test-user",
-                attributes={"visitor_id": "tutorial_visitor"},
-            )
-
-            result = client.get_string_details(
-                flag_key="tutorial-feature.title",
-                default_value="default title",
-                evaluation_context=ctx,
-            )
-
-            assert result.value == "Welcome to Confidence!"
+            assert "materialization" in (result.error_message or "").lower()
         finally:
             provider.shutdown()

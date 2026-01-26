@@ -16,11 +16,15 @@ from openfeature.provider import AbstractProvider, Metadata
 
 from confidence_openfeature.local_resolver import LocalResolver
 from confidence_openfeature.materialization import (
+    InclusionReadOp,
+    InclusionReadResult,
     MaterializationNotSupportedError,
     MaterializationStore,
+    ReadOp,
     RemoteMaterializationStore,
     UnsupportedMaterializationStore,
     VariantReadOp,
+    VariantReadResult,
     VariantWriteOp,
 )
 from confidence_openfeature.proto.confidence.flags.resolver.v1 import types_pb2
@@ -634,7 +638,7 @@ class ConfidenceProvider(AbstractProvider):
         Returns:
             List of read results.
         """
-        ops = []
+        ops: List[ReadOp] = []
         for op in read_request.ops:
             if op.HasField("variant_read_op"):
                 vop = op.variant_read_op
@@ -645,6 +649,14 @@ class ConfidenceProvider(AbstractProvider):
                         rule=vop.rule,
                     )
                 )
+            elif op.HasField("inclusion_read_op"):
+                iop = op.inclusion_read_op
+                ops.append(
+                    InclusionReadOp(
+                        unit=iop.unit,
+                        materialization=iop.materialization,
+                    )
+                )
 
         results = self._materialization_store.read(ops)
 
@@ -652,11 +664,16 @@ class ConfidenceProvider(AbstractProvider):
         proto_results = []
         for result in results:
             proto_result = internal_api_pb2.ReadResult()
-            proto_result.variant_result.unit = result.unit
-            proto_result.variant_result.materialization = result.materialization
-            proto_result.variant_result.rule = result.rule
-            if result.variant is not None:
-                proto_result.variant_result.variant = result.variant
+            if isinstance(result, VariantReadResult):
+                proto_result.variant_result.unit = result.unit
+                proto_result.variant_result.materialization = result.materialization
+                proto_result.variant_result.rule = result.rule
+                if result.variant is not None:
+                    proto_result.variant_result.variant = result.variant
+            elif isinstance(result, InclusionReadResult):
+                proto_result.inclusion_result.unit = result.unit
+                proto_result.inclusion_result.materialization = result.materialization
+                proto_result.inclusion_result.is_included = result.included
             proto_results.append(proto_result)
 
         return proto_results

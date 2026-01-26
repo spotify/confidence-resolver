@@ -113,7 +113,7 @@ class GrpcFlagLogger:
         """
         try:
             metadata = [("authorization", f"ClientSecret {self._client_secret}")]
-            self._stub.ClientWriteFlagLogs(request, metadata=metadata)
+            self._stub.ClientWriteFlagLogs(request, metadata=metadata, timeout=30.0)
             logger.debug(
                 "Successfully sent flag log with %d entries",
                 len(request.flag_assigned),
