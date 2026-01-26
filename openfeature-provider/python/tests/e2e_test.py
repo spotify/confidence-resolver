@@ -1,31 +1,14 @@
-"""End-to-end tests that verify flag resolution with the real backend.
+"""End-to-end tests that verify flag resolution with the real backend."""
 
-These tests require a valid client secret and network connectivity.
-Skip these tests in CI by running: pytest --ignore=tests/e2e_test.py
-"""
-
-import os
-
-import pytest
 from openfeature import api
 from openfeature.evaluation_context import EvaluationContext
 
 from confidence_openfeature import ConfidenceProvider
 
 # E2E test configuration
-E2E_CLIENT_SECRET = os.environ.get(
-    "CONFIDENCE_CLIENT_SECRET",
-    "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx",
-)
+E2E_CLIENT_SECRET = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx"
 E2E_INCLUDED_TARGETING_KEY = "user-a"
 E2E_EXCLUDED_TARGETING_KEY = "user-x"
-
-
-# Skip all tests if no client secret is available
-pytestmark = pytest.mark.skipif(
-    not E2E_CLIENT_SECRET,
-    reason="CONFIDENCE_CLIENT_SECRET environment variable not set",
-)
 
 
 class TestFlagResolveWithRemoteMaterializationStore:

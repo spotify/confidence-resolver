@@ -1,29 +1,14 @@
-"""End-to-end tests that verify flag logging with the real backend.
+"""End-to-end tests that verify flag logging with the real backend."""
 
-These tests require a valid client secret and network connectivity.
-Skip these tests in CI by running: pytest --ignore=tests/flaglogs_e2e_test.py
-"""
-
-import os
 import time
 
-import pytest
 from openfeature import api
 from openfeature.evaluation_context import EvaluationContext
 
 from confidence_openfeature import ConfidenceProvider
 
 # E2E test configuration
-E2E_CLIENT_SECRET = os.environ.get(
-    "CONFIDENCE_CLIENT_SECRET",
-    "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx",
-)
-
-# Skip all tests if no client secret is available
-pytestmark = pytest.mark.skipif(
-    not E2E_CLIENT_SECRET,
-    reason="CONFIDENCE_CLIENT_SECRET environment variable not set",
-)
+E2E_CLIENT_SECRET = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx"
 
 
 class TestFlagLogging:
