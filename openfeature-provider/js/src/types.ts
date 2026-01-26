@@ -14,10 +14,6 @@ export enum ErrorCode {
   TYPE_MISMATCH = 'TYPE_MISMATCH',
   GENERAL = 'GENERAL',
 }
-// These are OF errors we currently don't use
-// PARSE_ERROR
-// TARGETING_KEY_MISSING
-// INVALID_CONTEXT
 
 export interface ResolutionDetails<T> {
   reason: ResolutionReason;

@@ -9,31 +9,6 @@ export function devWarn(message: string): void {
   }
 }
 
-/**
- * Type guard to check if an object has a specific key.
- */
-export function hasKey<K extends string>(obj: object, key: K): obj is { [P in K]: unknown } {
-  return key in obj;
-}
-
-/**
- * Navigate a path within an object and return the nested value.
- * Returns undefined if path navigation fails (missing key or non-object value).
- */
-export function getNestedValue(value: unknown, path: string[]): unknown {
-  let current = value;
-  for (const key of path) {
-    if (current === null || typeof current !== 'object') {
-      return undefined;
-    }
-    if (!hasKey(current, key)) {
-      return undefined;
-    }
-    current = current[key];
-  }
-  return current;
-}
-
 export const enum TimeUnit {
   MILLISECOND = 1,
   SECOND = 1000,
@@ -187,6 +162,10 @@ export function abortablePromise<T>(promise: Promise<T>, signal?: AbortSignal | 
 
 export function isObject(value: unknown): value is {} {
   return typeof value === 'object' && value !== null;
+}
+
+export function hasKey<K extends string>(obj: object, key: K): obj is { [P in K]: unknown } {
+  return key in obj;
 }
 
 export function castStringToEnum<E extends string>(value: `${E}`): E {
