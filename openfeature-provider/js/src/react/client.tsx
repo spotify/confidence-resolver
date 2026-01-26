@@ -42,23 +42,19 @@ export function ConfidenceClientProvider({
   return <ConfidenceContext.Provider value={{ bundle, apply }}>{children}</ConfidenceContext.Provider>;
 }
 
-interface UseFlagOptionsManual {
-  expose: false;
+interface UseFlagOptions {
+  /** Set to false for manual exposure control. Default is true (auto-expose on mount). */
+  expose?: boolean;
 }
 
 /**
- * Details returned by useFlagDetails hook with manual exposure control.
- * Includes an expose function to manually log exposure.
+ * Details returned by useFlagDetails hook.
+ * Always includes an expose function for manual exposure logging.
  */
-export interface ClientEvaluationDetailsManual<T extends FlagValue> extends EvaluationDetails<T> {
-  /** Function to manually log exposure. No-op if already exposed. */
+export interface ClientEvaluationDetails<T extends FlagValue> extends EvaluationDetails<T> {
+  /** Function to manually log exposure. No-op if already auto-exposed or if called multiple times. */
   expose: () => void;
 }
-
-/**
- * Details returned by useFlagDetails hook with auto exposure.
- */
-export type ClientEvaluationDetails<T extends FlagValue> = EvaluationDetails<T>;
 
 /**
  * React hook for accessing Confidence feature flag values.
@@ -100,7 +96,7 @@ export function useFlag<T extends FlagValue>(flagKey: string, defaultValue: T): 
  * @param flagKey - The flag key, optionally with dot notation for nested access (e.g., 'my-flag.config.enabled')
  * @param defaultValue - Default value if flag or nested property is not found
  * @param options - Use `{ expose: false }` for manual exposure control
- * @returns EvaluationDetails with value, flagKey, flagMetadata, variant, reason, errorCode, errorMessage. Includes expose function when using manual exposure.
+ * @returns EvaluationDetails with value, flagKey, flagMetadata, variant, reason, errorCode, errorMessage, and expose function.
  *
  * @example Auto exposure with full details
  * ```tsx
@@ -131,14 +127,8 @@ export function useFlag<T extends FlagValue>(flagKey: string, defaultValue: T): 
 export function useFlagDetails<T extends FlagValue>(
   flagKey: string,
   defaultValue: T,
-  options: UseFlagOptionsManual,
-): ClientEvaluationDetailsManual<T>;
-export function useFlagDetails<T extends FlagValue>(flagKey: string, defaultValue: T): ClientEvaluationDetails<T>;
-export function useFlagDetails<T extends FlagValue>(
-  flagKey: string,
-  defaultValue: T,
-  options?: UseFlagOptionsManual,
-): ClientEvaluationDetails<T> | ClientEvaluationDetailsManual<T> {
+  options?: UseFlagOptions,
+): ClientEvaluationDetails<T> {
   const ctx = useContext(ConfidenceContext);
 
   // Parse dot notation: first part is flag name, rest is path within value
@@ -151,27 +141,35 @@ export function useFlagDetails<T extends FlagValue>(
   }
 
   const resolution = FlagBundle.resolve(ctx?.bundle, flagKey, defaultValue);
+  const autoExpose = options?.expose !== false;
 
-  // Expose function (bound to flag name)
-  const expose = resolution.variant
-    ? useCallback(() => {
-        if (ctx && !appliedFlags.has(baseFlagName)) {
-          appliedFlags.add(baseFlagName);
-          ctx.apply(baseFlagName);
-        }
-      }, [ctx, baseFlagName])
-    : useCallback(() => {
-        devWarn(
-          `[Confidence] attempt to expose an unmatched flag ${baseFlagName}: ${resolution.reason} ${resolution.errorCode}`,
-        );
-      }, [baseFlagName, resolution.reason, resolution.errorCode]);
+  // Internal function to actually log exposure
+  const doExpose = useCallback(() => {
+    if (ctx && !appliedFlags.has(baseFlagName)) {
+      appliedFlags.add(baseFlagName);
+      ctx.apply(baseFlagName);
+    }
+  }, [ctx, baseFlagName]);
 
   // Auto exposure effect
   useEffect(() => {
-    if (options?.expose !== false && resolution.variant) {
-      expose();
+    if (autoExpose && resolution.variant) {
+      doExpose();
     }
-  }, [expose, options?.expose, resolution.variant]);
+  }, [autoExpose, doExpose, resolution.variant]);
+
+  // Expose function returned to caller
+  const expose = useCallback(() => {
+    if (!resolution.variant) {
+      devWarn(
+        `[Confidence] attempt to expose an unmatched flag ${baseFlagName}: ${resolution.reason} ${resolution.errorCode}`,
+      );
+    } else if (autoExpose) {
+      devWarn(`[Confidence] expose() called on "${flagKey}" but auto-exposure is enabled. Call is ignored.`);
+    } else {
+      doExpose();
+    }
+  }, [autoExpose, baseFlagName, doExpose, flagKey, resolution.variant, resolution.reason, resolution.errorCode]);
 
   return {
     flagKey,

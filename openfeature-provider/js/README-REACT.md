@@ -284,15 +284,11 @@ if (errorCode === 'FLAG_NOT_FOUND') {
 }
 ```
 
-**Return Types:**
+**Return Type:**
 
 ```ts
-// When using default (auto exposure)
-type ClientEvaluationDetails<T> = EvaluationDetails<T>;
-
-// When using { expose: false }
-interface ClientEvaluationDetailsManual<T> extends EvaluationDetails<T> {
-  expose: () => void; // Function to manually log exposure
+interface ClientEvaluationDetails<T> extends EvaluationDetails<T> {
+  expose: () => void; // Function to manually log exposure (no-op if auto-exposure is enabled)
 }
 
 // EvaluationDetails from @openfeature/core
@@ -306,6 +302,9 @@ interface EvaluationDetails<T> {
   errorMessage?: string; // Human-readable error message
 }
 ```
+
+> **Note:** The `expose` function is always available. When using auto-exposure (the default),
+> calling `expose()` manually will log a warning in development mode and do nothing.
 
 ## Type Safety
 
