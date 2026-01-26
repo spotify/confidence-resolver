@@ -3,6 +3,7 @@ import type { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { hasKey } from './util';
 import { ErrorCode, ResolutionDetails, ResolutionReason } from './types';
+import { Logger } from './logger';
 
 const FLAG_PREFIX = 'flags/';
 
@@ -47,11 +48,13 @@ export function resolve<T extends JsonValue>(
   bundle: FlagBundle | undefined,
   flagKey: string,
   defaultValue: T,
+  logger?: Logger,
 ): ResolutionDetails<T> {
   const [flagName, ...path] = flagKey.split('.');
   const flag = bundle?.flags[flagName];
   const error = bundle?.error;
   if (error) {
+    logger?.warn(`Flag evaluation for '${flagKey}' failed`, error);
     return {
       reason: 'ERROR',
       errorCode: ErrorCode.GENERAL,
@@ -62,6 +65,7 @@ export function resolve<T extends JsonValue>(
   }
 
   if (!flag) {
+    logger?.warn(`Flag evaluation for '${flagKey}' failed: flag not found`);
     return {
       reason: 'ERROR',
       errorCode: ErrorCode.FLAG_NOT_FOUND,

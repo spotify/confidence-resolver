@@ -147,7 +147,6 @@ export async function useFlagDetails<T extends JsonValue>(
       flagMetadata: {},
       value: defaultValue,
       reason: 'ERROR',
-      errorCode: 'PROVIDER_NOT_READY',
       errorMessage: 'Provider is not a ConfidenceServerProviderLocal',
     };
   }

@@ -198,16 +198,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     try {
       const [flagName] = flagKey.split('.', 1);
       const resolution = await this.resolve(context, [flagName], true);
-      return FlagBundle.resolve(resolution, flagKey, defaultValue);
-    } catch (e) {
-      logger.warn(`Flag evaluation for '${flagKey}' failed`, e);
-      return {
-        value: defaultValue,
-        reason: 'ERROR',
-        errorCode: ErrorCode.GENERAL,
-        errorMessage: String(e),
-        shouldApply: false,
-      };
+      return FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
     } finally {
       this.flushAssigned();
     }
