@@ -5,6 +5,7 @@ import type { EvaluationDetails, FlagValue } from '@openfeature/core';
 import type FlagBundleType from '../flag-bundle';
 import * as FlagBundle from '../flag-bundle';
 import { devWarn } from '../util';
+import { ErrorCode } from '../types';
 
 type FlagBundle = FlagBundleType;
 
@@ -137,16 +138,21 @@ export function useFlagDetails<T extends FlagValue>(
 ): ClientEvaluationDetails<T> {
   const ctx = useContext(ConfidenceContext);
 
-  // Parse dot notation: first part is flag name, rest is path within value
-  const [baseFlagName, ...path] = flagKey.split('.');
-
   // Warn if no provider is present (only once per flag)
   if (!ctx && !warnedFlags.has(flagKey)) {
     warnedFlags.add(flagKey);
-    devWarn(`[Confidence] useFlagDetails("${flagKey}") called without a ConfidenceProvider. Returning default value.`);
+    devWarn(
+      `[Confidence] useFlagDetails("${flagKey}") called without a parent ConfidenceProvider. Returning default value.`,
+    );
   }
 
-  const resolution = FlagBundle.resolve(ctx?.bundle, flagKey, defaultValue);
+  const bundle =
+    ctx?.bundle ?? FlagBundle.error(ErrorCode.GENERAL, 'useFlagDetails called without a parent ConfidenceProvider');
+  // Parse dot notation: first part is flag name, rest is path within value
+  const [baseFlagName] = flagKey.split('.', 1);
+
+  const resolution = FlagBundle.resolve(bundle, flagKey, defaultValue);
+
   const autoExpose = options?.expose !== false;
 
   // Internal function to actually log exposure

@@ -54,20 +54,20 @@ export function error(errorCode: ErrorCode, errorMessage: string): FlagBundle {
 }
 
 export function resolve<T extends JsonValue>(
-  bundle: FlagBundle | undefined,
+  bundle: FlagBundle,
   flagKey: string,
   defaultValue: T,
   logger?: Logger,
 ): ResolutionDetails<T> {
   const [flagName, ...path] = flagKey.split('.');
   const flag = bundle?.flags[flagName];
-  const bundleError = bundle?.errorCode ? { code: bundle.errorCode, message: bundle.errorMessage } : null;
-  if (bundleError) {
-    logger?.warn(`Flag evaluation for '${flagKey}' failed`, bundleError);
+  // const bundleError = bundle?.errorCode ? { code: bundle.errorCode, message: bundle.errorMessage } : null;
+  if (bundle?.errorCode) {
+    logger?.warn(`Flag evaluation for "%s" failed. %s %s`, flagKey, bundle.errorCode, bundle?.errorMessage);
     return {
       reason: 'ERROR',
-      errorCode: bundleError.code,
-      errorMessage: bundleError.message,
+      errorCode: bundle.errorCode,
+      errorMessage: bundle.errorMessage,
       value: defaultValue,
       shouldApply: false,
     };

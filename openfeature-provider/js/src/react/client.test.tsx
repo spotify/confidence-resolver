@@ -40,7 +40,9 @@ describe('useFlag', () => {
 
       expect(result.current).toBe('default');
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[Confidence] useFlagDetails("no-provider-flag") called without a ConfidenceProvider'),
+        expect.stringContaining(
+          '[Confidence] useFlagDetails("no-provider-flag") called without a parent ConfidenceProvider',
+        ),
       );
 
       warnSpy.mockRestore();
@@ -64,6 +66,19 @@ describe('useFlag', () => {
       rerender();
 
       expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      warnSpy.mockRestore();
+    });
+
+    it('returns error details when using useFlagDetails without provider', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { result } = renderHook(() => useFlagDetails('no-provider-details-flag', 'default'));
+
+      expect(result.current.value).toBe('default');
+      expect(result.current.reason).toBe('ERROR');
+      expect(result.current.errorCode).toBe(ErrorCode.GENERAL);
+      expect(result.current.errorMessage).toBe('useFlagDetails called without a parent ConfidenceProvider');
 
       warnSpy.mockRestore();
     });
