@@ -131,10 +131,10 @@ export async function ConfidenceProvider({
  * @example
  * ```tsx
  * // app/page.tsx (Server Component)
- * import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+ * import { getFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-server';
  *
  * export default async function Page() {
- *   const { value, variant, reason } = await useFlagDetails(
+ *   const { value, variant, reason } = await getFlagDetails(
  *     'checkout-flow.enabled',
  *     false,
  *     { targetingKey: 'user-123' }
@@ -145,7 +145,7 @@ export async function ConfidenceProvider({
  * }
  * ```
  */
-export async function useFlagDetails<T extends JsonValue>(
+export async function getFlagDetails<T extends JsonValue>(
   flagKey: string,
   defaultValue: T,
   context: EvaluationContext,
@@ -189,10 +189,10 @@ export async function useFlagDetails<T extends JsonValue>(
  * @example
  * ```tsx
  * // app/page.tsx (Server Component)
- * import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+ * import { getFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
  *
  * export default async function Page() {
- *   const showNewLayout = await useFlag(
+ *   const showNewLayout = await getFlag(
  *     'page-layout.useNewDesign',
  *     false,
  *     { targetingKey: 'user-123' }
@@ -202,13 +202,13 @@ export async function useFlagDetails<T extends JsonValue>(
  * }
  * ```
  *
- * @see useFlagDetails for accessing variant, reason, and error information
+ * @see getFlagDetails for accessing variant, reason, and error information
  */
-export async function useFlag<T extends JsonValue>(
+export async function getFlag<T extends JsonValue>(
   flagKey: string,
   defaultValue: T,
   context: EvaluationContext,
   providerName?: string,
 ): Promise<T> {
-  return (await useFlagDetails(flagKey, defaultValue, context, providerName)).value;
+  return (await getFlagDetails(flagKey, defaultValue, context, providerName)).value;
 }

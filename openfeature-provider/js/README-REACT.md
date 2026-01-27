@@ -7,7 +7,7 @@ React hooks and components for using Confidence feature flags in a modern React 
 This integration provides:
 
 - **Server Component** (`ConfidenceProvider`) - Resolves flags on the server and provides them to client components
-- **Server Hooks** (`useFlag`, `useFlagDetails`) - Evaluate flags directly in server components with immediate exposure
+- **Server Functions** (`getFlag`, `getFlagDetails`) - Evaluate flags directly in server components with immediate exposure
 - **Client Hooks** (`useFlag`, `useFlagDetails`) - Access flag values in client components with automatic or manual exposure logging
 - **Dot notation** - Access properties within flag values (e.g., `my-flag.enabled`, `my-flag.config.limit`)
 - **Manual exposure control** - Delay exposure logging until user interaction (client-side only)
@@ -102,15 +102,15 @@ export function FeatureButton() {
 
 ### Server-Side Exposure
 
-When using `useFlag` or `useFlagDetails` from `react-server`, exposure is logged **immediately** when the flag is evaluated:
+When using `getFlag` or `getFlagDetails` from `react-server`, exposure is logged **immediately** when the flag is evaluated:
 
 ```tsx
 // app/page.tsx (Server Component)
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+import { getFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 export default async function Page() {
   // Exposure is logged immediately when this evaluates
-  const showNewLayout = await useFlag('page-layout.showNewLayout', false, { targetingKey: 'user-123' });
+  const showNewLayout = await getFlag('page-layout.showNewLayout', false, { targetingKey: 'user-123' });
 
   return showNewLayout ? <NewLayout /> : <OldLayout />;
 }
@@ -199,18 +199,18 @@ import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provi
 | `providerName` | `string`            | No       | Named provider if not using the default               |
 | `children`     | `React.ReactNode`   | Yes      | Child components that will have access to flag values |
 
-#### useFlag (Server)
+#### getFlag (Server)
 
 Evaluate a flag directly in a server component. Logs exposure immediately.
 
 ```tsx
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+import { getFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 // In an async Server Component - access a specific property
-const enabled = await useFlag('checkout-flow.enabled', false, { targetingKey: 'user-123' });
+const enabled = await getFlag('checkout-flow.enabled', false, { targetingKey: 'user-123' });
 
 // Or get the entire flag object
-const config = await useFlag('checkout-flow', { enabled: false, maxRetries: 1 }, { targetingKey: 'user-123' });
+const config = await getFlag('checkout-flow', { enabled: false, maxRetries: 1 }, { targetingKey: 'user-123' });
 ```
 
 **Parameters:**
@@ -222,14 +222,14 @@ const config = await useFlag('checkout-flow', { enabled: false, maxRetries: 1 },
 | `context`      | `EvaluationContext` | Yes      | User/session context for flag evaluation |
 | `providerName` | `string`            | No       | Named provider if not using the default  |
 
-#### useFlagDetails (Server)
+#### getFlagDetails (Server)
 
 Get full flag details in a server component. Logs exposure immediately.
 
 ```tsx
-import { useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+import { getFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
-const { value, variant, reason } = await useFlagDetails('checkout-flow.enabled', false, { targetingKey: 'user-123' });
+const { value, variant, reason } = await getFlagDetails('checkout-flow.enabled', false, { targetingKey: 'user-123' });
 ```
 
 ### Client Components
@@ -360,16 +360,16 @@ If your client is registered for many flags, but only need a few in the frontend
 </ConfidenceProvider>
 ```
 
-### Use server hooks for server-only logic
+### Use server functions for server-only logic
 
-If you're making a decision that only affects server rendering and doesn't need client interactivity, use the server hooks directly:
+If you're making a decision that only affects server rendering and doesn't need client interactivity, use the server functions directly:
 
 ```tsx
 // app/page.tsx
-import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+import { getFlag } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 export default async function Page() {
-  const showNewLayout = await useFlag('page-layout.useNewDesign', false, { targetingKey: userId });
+  const showNewLayout = await getFlag('page-layout.useNewDesign', false, { targetingKey: userId });
 
   // This decision is made entirely on the server
   return showNewLayout ? <NewLayout /> : <OldLayout />;

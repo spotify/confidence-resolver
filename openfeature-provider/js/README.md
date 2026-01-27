@@ -199,7 +199,7 @@ const provider = createConfidenceServerProvider({
 
 ```ts
 // Server Component
-import { ConfidenceProvider, useFlag, useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-server';
+import { ConfidenceProvider, getFlag, getFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 // Client Component
 import { useFlag, useFlagDetails } from '@spotify-confidence/openfeature-server-provider-local/react-client';
