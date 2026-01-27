@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.7.0...openfeature-provider-js-v0.8.0) (2026-01-27)
+
+
+### Features
+
+* **js:** add React support with useFlag and useFlagDetails hooks ([#246](https://github.com/spotify/confidence-resolver/issues/246)) ([d579a4c](https://github.com/spotify/confidence-resolver/commit/d579a4c8fe493ee3a92539203f21d1c03758c58e))
+* **wasm:** add wasm API to apply previously resolved flags ([#235](https://github.com/spotify/confidence-resolver/issues/235)) ([79048f6](https://github.com/spotify/confidence-resolver/commit/79048f63a8c771eb98ecf478cab0b654aa745374))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.13 to 0.1.14
+
 ## [0.7.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.6.0...openfeature-provider-js-v0.7.0) (2026-01-22)
 
 
