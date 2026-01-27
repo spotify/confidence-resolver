@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from '@openfeature/core';
+import type { JsonValue } from '@openfeature/core';
 import type { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { hasKey, base64FromBytes, bytesFromBase64 } from './util';
@@ -10,7 +10,6 @@ const FLAG_PREFIX = 'flags/';
 export default interface FlagBundle {
   flags: Record<string, ResolutionDetails<FlagObject | null> | undefined>;
   resolveId: string;
-  /** Base64-encoded resolve token for serialization across RSC boundaries */
   resolveToken: string;
   errorCode?: ErrorCode;
   errorMessage?: string;
@@ -46,7 +45,7 @@ export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsR
 export function error(errorCode: ErrorCode, errorMessage: string): FlagBundle {
   return {
     flags: {},
-    resolveId: 'error',
+    resolveId: '',
     resolveToken: '',
     errorCode,
     errorMessage,

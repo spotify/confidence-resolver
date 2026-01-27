@@ -44,7 +44,7 @@ describe('FlagBundle', () => {
       const json = JSON.stringify(bundle);
       const parsed = JSON.parse(json);
 
-      expect(parsed.resolveId).toBe('error');
+      expect(parsed.resolveId).toBe('');
       expect(parsed.resolveToken).toBe('');
       expect(parsed.errorCode).toBe(ErrorCode.GENERAL);
       expect(parsed.errorMessage).toBe('Something went wrong');
@@ -156,7 +156,7 @@ describe('FlagBundle', () => {
     it('creates bundle with error state', () => {
       const bundle = FlagBundle.error(ErrorCode.FLAG_NOT_FOUND, 'Flag does not exist');
 
-      expect(bundle.resolveId).toBe('error');
+      expect(bundle.resolveId).toBe('');
       expect(bundle.resolveToken).toBe('');
       expect(bundle.errorCode).toBe(ErrorCode.FLAG_NOT_FOUND);
       expect(bundle.errorMessage).toBe('Flag does not exist');
