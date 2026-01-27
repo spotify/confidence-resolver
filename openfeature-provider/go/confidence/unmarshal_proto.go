@@ -83,7 +83,7 @@ func unmarshalProtoValue(protoValue *structpb.Value, targetType reflect.Type, de
 		return unmarshalMap(protoValue, targetType, defaultValue, path)
 
 	case reflect.Slice:
-		return unmarshalSlice(protoValue, targetType, path)
+		return reflect.Value{}, formatError("slice types are not supported", path)
 
 	case reflect.String:
 		if s, ok := protoValue.Kind.(*structpb.Value_StringValue); ok {
@@ -241,29 +241,6 @@ func unmarshalMap(protoValue *structpb.Value, targetType reflect.Type, defaultVa
 			return reflect.Value{}, err
 		}
 		result.SetMapIndex(keyVal, elemValue)
-	}
-
-	return result, nil
-}
-
-// unmarshalSlice converts a protobuf ListValue to a Go slice.
-func unmarshalSlice(protoValue *structpb.Value, targetType reflect.Type, path []string) (reflect.Value, error) {
-	protoList, ok := protoValue.Kind.(*structpb.Value_ListValue)
-	if !ok || protoList.ListValue == nil {
-		return reflect.Value{}, formatError("slice", path)
-	}
-
-	elemType := targetType.Elem()
-	values := protoList.ListValue.Values
-	result := reflect.MakeSlice(targetType, len(values), len(values))
-
-	for i, pbValue := range values {
-		// No default value for slice elements - each is unmarshaled fresh
-		elemValue, err := unmarshalProtoValue(pbValue, elemType, reflect.Value{}, append(path, fmt.Sprintf("[%d]", i)))
-		if err != nil {
-			return reflect.Value{}, err
-		}
-		result.Index(i).Set(elemValue)
 	}
 
 	return result, nil

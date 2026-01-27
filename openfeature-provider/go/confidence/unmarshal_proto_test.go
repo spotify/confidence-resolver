@@ -127,7 +127,6 @@ func TestUnmarshalProto(t *testing.T) {
 		type someStruct = struct {
 			Field string
 			Deep  inner
-			Slice []int
 		}
 
 		expected := someStruct{
@@ -135,17 +134,22 @@ func TestUnmarshalProto(t *testing.T) {
 			Deep: inner{
 				Field: true,
 			},
-			Slice: []int{1, 2, 3},
 		}
 
-		testPositive(t, "struct exact", `{ "field":"hej", "deep":{ "field": true }, "slice": [1,2,3]}`, someStruct{}, expected)
-		testPositive(t, "struct exact pointer", `{ "field":"hej", "deep":{ "field": true }, "slice": [1,2,3]}`, &someStruct{}, &expected)
+		testPositive(t, "struct exact", `{ "field":"hej", "deep":{ "field": true }}`, someStruct{}, expected)
+		testPositive(t, "struct exact pointer", `{ "field":"hej", "deep":{ "field": true }}`, &someStruct{}, &expected)
 
-		testPositive(t, "struct with missing field", `{ "field":"hej", "deep":{ "field": true }, "slice": [1,2,3], "extra":true}`, someStruct{}, expected)
+		testPositive(t, "struct with missing field", `{ "field":"hej", "deep":{ "field": true }, "extra":true}`, someStruct{}, expected)
 
-		testNegative(t, "struct with extra field", `{ "field":"hej", "deep":{}, "slice": [1,2,3], "extra":true}`, someStruct{}, "resolved value is missing field deep.field")
+		testNegative(t, "struct with extra field", `{ "field":"hej", "deep":{}, "extra":true}`, someStruct{}, "resolved value is missing field deep.field")
 
-		testNegative(t, "struct with wrong field type", `{ "field":"hej", "deep":{ "field": 7 }, "slice": [1,2,3]}`, someStruct{}, "resolved value (number) not assignable to default type (bool), at deep.field")
+		testNegative(t, "struct with wrong field type", `{ "field":"hej", "deep":{ "field": 7 }}`, someStruct{}, "resolved value (number) not assignable to default type (bool), at deep.field")
+
+		// Slice fields are not supported
+		type structWithSlice = struct {
+			Items []string
+		}
+		testNegative(t, "struct with slice field", `{ "items": ["a", "b"] }`, structWithSlice{}, "slice types are not supported, at items")
 
 		t.Run("json tags", func(t *testing.T) {
 			type taggedStruct struct {
@@ -181,14 +185,12 @@ func TestUnmarshalProto(t *testing.T) {
 			"deep": map[string]any{
 				"field": true,
 			},
-			"slice": []any{1.0, 2.0, 3.0},
 		}
 		expectedExtra := map[string]any{
 			"field": "hej",
 			"deep": map[string]any{
 				"field": true,
 			},
-			"slice": []any{1.0, 2.0, 3.0},
 			"extra": true,
 		}
 		defaultValue := map[string]any{
@@ -196,19 +198,17 @@ func TestUnmarshalProto(t *testing.T) {
 			"deep": map[string]any{
 				"field": false,
 			},
-			"slice": []any{},
 		}
 		defaultValueExtra := map[string]any{
 			"field": "",
 			"deep": map[string]any{
 				"field": false,
 			},
-			"slice": []any{},
 			"extra": true,
 		}
 
-		testPositive(t, "map exact", `{ "field":"hej", "deep":{ "field": true }, "slice": [1,2,3]}`, defaultValue, expected)
-		testPositive(t, "map nil default", `{ "field":"hej", "deep":{ "field": true }, "slice": [1,2,3]}`, nil, expected)
+		testPositive(t, "map exact", `{ "field":"hej", "deep":{ "field": true }}`, defaultValue, expected)
+		testPositive(t, "map nil default", `{ "field":"hej", "deep":{ "field": true }}`, nil, expected)
 
 		// With nil defaultValue, AsInterface() is used - null fields become nil in the resulting map
 		expectedWithNull := map[string]any{
@@ -217,11 +217,17 @@ func TestUnmarshalProto(t *testing.T) {
 		}
 		testPositive(t, "map with null field and nil default", `{ "field":"value", "null_field": null }`, nil, expectedWithNull)
 
-		testPositive(t, "map with missing field", `{ "field":"hej", "deep":{ "field": true }, "slice": [1,2,3], "extra":true}`, defaultValue, expectedExtra)
+		testPositive(t, "map with missing field", `{ "field":"hej", "deep":{ "field": true }, "extra":true}`, defaultValue, expectedExtra)
 		// this works differently from structs where we reject default values with extra fields
-		testPositive(t, "map with extra field", `{ "field":"hej", "deep":{ "field": true }, "slice": [1,2,3]}`, defaultValueExtra, expectedExtra)
+		testPositive(t, "map with extra field", `{ "field":"hej", "deep":{ "field": true }}`, defaultValueExtra, expectedExtra)
 
-		testNegative(t, "map with wrong field type", `{ "field":"hej", "deep":{ "field": 3 }, "slice": [1,2,3]}`, defaultValue, "resolved value (number) not assignable to default type (bool), at deep.field")
+		testNegative(t, "map with wrong field type", `{ "field":"hej", "deep":{ "field": 3 }}`, defaultValue, "resolved value (number) not assignable to default type (bool), at deep.field")
+
+		// Slice in default value should error
+		sliceDefaultValue := map[string]any{
+			"items": []string{},
+		}
+		testNegative(t, "map with slice in default", `{ "items": ["a", "b"] }`, sliceDefaultValue, "slice types are not supported, at items")
 
 		t.Run("conversion", func(t *testing.T) {
 			defaultValue := map[string]any{
