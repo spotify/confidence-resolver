@@ -48,7 +48,9 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
     // Pre-create instances based on CPU core count for optimal performance
     final var defaultNumberOfInstances = Runtime.getRuntime().availableProcessors();
 
-    return Optional.ofNullable(System.getenv("CONFIDENCE_NUMBER_OF_WASM_INSTANCES"))
+    // Check system property first (allows tests to override), then env var
+    return Optional.ofNullable(System.getProperty("CONFIDENCE_NUMBER_OF_WASM_INSTANCES"))
+        .or(() -> Optional.ofNullable(System.getenv("CONFIDENCE_NUMBER_OF_WASM_INSTANCES")))
         .map(Integer::parseInt)
         .orElse(defaultNumberOfInstances);
   }

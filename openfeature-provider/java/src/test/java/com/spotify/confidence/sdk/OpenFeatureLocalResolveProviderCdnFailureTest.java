@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -46,6 +47,12 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
   private static final String FLAG_CLIENT_SECRET = "mkjJruAATQWjeY7foFIWfVAcBWnci2YF";
   private static final String ACCOUNT_NAME = "accounts/test-account";
 
+  @BeforeAll
+  static void beforeAll() {
+    // Use single WASM instance to speed up tests
+    System.setProperty("CONFIDENCE_NUMBER_OF_WASM_INSTANCES", "1");
+  }
+
   private final GrpcCleanupRule grpcCleanup = new GrpcCleanupRule();
   private String serverName;
   private OpenFeatureLocalResolveProvider provider;
@@ -55,10 +62,12 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
   private AtomicBoolean cdnShouldHang = new AtomicBoolean(false);
   private AtomicBoolean cdnShouldFail = new AtomicBoolean(false);
   private CountDownLatch cdnHangLatch = new CountDownLatch(1);
+  private CountDownLatch cdnRetryLatch = new CountDownLatch(1);
 
   @BeforeEach
   void setUp() throws Exception {
     serverName = InProcessServerBuilder.generateName();
+    cdnRetryLatch = new CountDownLatch(1);
 
     // Start HTTP server to simulate CDN
     httpServer = HttpServer.create(new InetSocketAddress(0), 0);
@@ -80,6 +89,10 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
             }
 
             if (cdnShouldFail.get()) {
+              // Signal that a retry attempt happened (after the first request)
+              if (cdnRequestCount.get() > 1) {
+                cdnRetryLatch.countDown();
+              }
               // Simulate CDN failure
               exchange.sendResponseHeaders(503, -1);
               exchange.close();
@@ -209,7 +222,7 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
   }
 
   @Test
-  void testProviderRecoversWhenCdnBecomesAvailable() {
+  void testProviderRecoversWhenCdnBecomesAvailable() throws Exception {
     cdnShouldFail.set(true);
     provider = createProvider();
 
@@ -217,12 +230,20 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
     provider.initialize(new ImmutableContext());
     assertEquals(ProviderState.NOT_READY, provider.getState());
 
+    // Wait for at least one retry attempt to ensure the retry loop is running
+    // This prevents a race condition where we enable CDN before the retry mechanism kicks in
+    assertTrue(
+        cdnRetryLatch.await(5, TimeUnit.SECONDS),
+        "Provider should have attempted at least one retry");
+
     // Now CDN becomes available
     cdnShouldFail.set(false);
 
-    // Wait for the background retry to succeed (retry every 1s, give it some buffer)
+    // Wait for the background retry to succeed and WASM to initialize
+    // Using single WASM instance (via system property) to speed up tests
     await()
-        .atMost(10, TimeUnit.SECONDS)
+        .atMost(20, TimeUnit.SECONDS)
+        .pollInterval(500, TimeUnit.MILLISECONDS)
         .untilAsserted(() -> assertEquals(ProviderState.READY, provider.getState()));
 
     assertThat(cdnRequestCount.get()).isGreaterThan(1); // Should have retried
@@ -271,7 +292,7 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
   }
 
   @Test
-  void testFlagEvaluationSucceedsAfterRecovery() {
+  void testFlagEvaluationSucceedsAfterRecovery() throws Exception {
     cdnShouldFail.set(true);
     provider = createProvider();
 
@@ -279,12 +300,19 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
     provider.initialize(new ImmutableContext());
     assertEquals(ProviderState.NOT_READY, provider.getState());
 
+    // Wait for at least one retry attempt to ensure the retry loop is running
+    assertTrue(
+        cdnRetryLatch.await(5, TimeUnit.SECONDS),
+        "Provider should have attempted at least one retry");
+
     // CDN becomes available
     cdnShouldFail.set(false);
 
-    // Wait for recovery (retry every 1s, give it some buffer)
+    // Wait for recovery and WASM initialization
+    // Using single WASM instance (via system property) to speed up tests
     await()
-        .atMost(10, TimeUnit.SECONDS)
+        .atMost(20, TimeUnit.SECONDS)
+        .pollInterval(500, TimeUnit.MILLISECONDS)
         .untilAsserted(() -> assertEquals(ProviderState.READY, provider.getState()));
 
     // Now flag evaluation should work
