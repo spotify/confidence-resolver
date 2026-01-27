@@ -19,6 +19,7 @@ export interface Logger {
   readonly name: string;
 
   getLogger(name: string): Logger;
+  configure(backend?: Promise<LoggerBackend | null> | LoggerBackend): Promise<void>;
 }
 
 export type LoggerFactory = (name: string) => Logger;
@@ -51,6 +52,11 @@ class LoggerImpl implements Logger {
         warnFn.enabled = true;
       case warnFn.enabled:
         errorFn.enabled = true;
+    }
+
+    // Propagate configuration to all child loggers
+    for (const child of this.childLoggers.values()) {
+      child.configure(debug);
     }
   }
 

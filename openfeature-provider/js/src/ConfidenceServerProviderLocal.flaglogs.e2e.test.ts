@@ -17,12 +17,12 @@ const TARGETING_KEY = 'test-a';
 describe('WriteFlagLogs Backend E2E tests', () => {
   let resolver: WasmResolver;
   let provider: ConfidenceServerProviderLocal;
-  let capturingBackend: LoggerBackend & { hasErrorLogs(): boolean };
+  let capturingBackend: LoggerBackend & { hasErrorLogs(): boolean; hasAnyLogs(): boolean };
 
   beforeAll(async () => {
-    // Set up log capturing
+    // Set up log capturing with fresh backend
     capturingBackend = createCapturingLoggingBackend();
-    logger.configure(capturingBackend);
+    await logger.configure(capturingBackend);
 
     const module = new WebAssembly.Module(moduleBytes);
     resolver = new WasmResolver(module);
@@ -48,6 +48,10 @@ describe('WriteFlagLogs Backend E2E tests', () => {
 
     // Wait a bit for async log sending to complete
     await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Verify that some logs were captured
+    const hasAnyLogs = capturingBackend.hasAnyLogs();
+    expect(hasAnyLogs).toBe(true);
 
     // Verify no error logs were captured
     const hasErrors = capturingBackend.hasErrorLogs();
