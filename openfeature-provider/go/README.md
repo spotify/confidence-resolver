@@ -139,7 +139,8 @@ if err != nil {
 
 Configure the provider behavior using environment variables:
 
-- `CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS`: How often to poll Confidence to get updates (default: `30` seconds)
+- `CONFIDENCE_STATE_POLL_INTERVAL_SECONDS`: How often to poll Confidence to get flag state updates (default: `10` seconds)
+- `CONFIDENCE_LOG_POLL_INTERVAL_SECONDS`: How often to flush evaluation logs (default: `60` seconds)
 - `CONFIDENCE_MATERIALIZATION_READ_TIMEOUT_SECONDS`: Timeout for remote materialization store read operations (default: `2` seconds)
 - `CONFIDENCE_MATERIALIZATION_WRITE_TIMEOUT_SECONDS`: Timeout for remote materialization store write operations (default: `5` seconds)
 
@@ -155,6 +156,8 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 
 - `Logger` (*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration)
+- `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
+- `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
   - `nil` (default): Falls back to default values for flags requiring materializations
   - `NewRemoteMaterializationStore()`: Uses remote gRPC storage (recommended for getting started)
@@ -170,10 +173,12 @@ For testing purposes only, you can provide a custom `StateProvider` and `FlagLog
 // WARNING: This is for testing only. Do not use in production.
 provider, err := confidence.NewProviderForTest(ctx,
     confidence.ProviderTestConfig{
-        StateProvider: myCustomStateProvider,
-        FlagLogger:    myCustomFlagLogger,
-        ClientSecret:  "your-client-secret",
-        Logger:        myCustomLogger, // Optional: custom logger
+        StateProvider:     myCustomStateProvider,
+        FlagLogger:        myCustomFlagLogger,
+        ClientSecret:      "your-client-secret",
+        Logger:            myCustomLogger,        // Optional: custom logger
+        StatePollInterval: 30 * time.Second,      // Optional: state polling interval
+        LogPollInterval:   2 * time.Minute,       // Optional: log flushing interval
     },
 )
 ```
