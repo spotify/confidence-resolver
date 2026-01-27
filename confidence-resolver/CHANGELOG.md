@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.10.0...confidence_resolver-v0.11.0) (2026-01-27)
+
+
+### Features
+
+* **wasm:** add wasm API to apply previously resolved flags ([#235](https://github.com/spotify/confidence-resolver/issues/235)) ([79048f6](https://github.com/spotify/confidence-resolver/commit/79048f63a8c771eb98ecf478cab0b654aa745374))
+
 ## [0.10.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.9.0...confidence_resolver-v0.10.0) (2026-01-22)
 
 
