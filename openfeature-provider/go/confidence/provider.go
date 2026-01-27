@@ -267,7 +267,7 @@ func evaluate[T any](
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewFlagNotFoundResolutionError(fmt.Sprintf("path '%s' not found in flag '%s'", strings.Join(path, "."), flagName)),
+				ResolutionError: openfeature.NewFlagNotFoundResolutionError(fmt.Sprintf("path '%q' not found in flag '%q'", strings.Join(path, "."), flagName)),
 			},
 		}
 	}

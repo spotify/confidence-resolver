@@ -170,7 +170,7 @@ func unmarshalProtoValue(protoValue *structpb.Value, targetType reflect.Type, de
 
 // unmarshalStruct converts a protobuf Struct to a Go struct.
 // All exported struct fields must be present in the proto, otherwise an error is returned.
-func unmarshalStruct(protoValue *structpb.Value, targetType reflect.Type, defaultValue reflect.Value, path []string) (reflect.Value, error) {
+func unmarshalStruct(protoValue *structpb.Value, targetType reflect.Type, _ reflect.Value, path []string) (reflect.Value, error) {
 	protoStruct, ok := protoValue.Kind.(*structpb.Value_StructValue)
 	if !ok || protoStruct.StructValue == nil {
 		return reflect.Value{}, formatMismatchError("struct", protoValue.Kind, path)
@@ -284,12 +284,33 @@ func getFieldName(field reflect.StructField) string {
 	return toSnakeCase(field.Name)
 }
 
-// toSnakeCase converts CamelCase to snake_case.
+// toSnakeCase converts CamelCase to snake_case, handling acronyms correctly.
+// e.g., "HTTPServer" -> "http_server", "userID" -> "user_id"
 func toSnakeCase(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	runes := []rune(s)
 	var result strings.Builder
-	for i, r := range s {
+
+	for i, r := range runes {
 		if i > 0 && r >= 'A' && r <= 'Z' {
-			result.WriteByte('_')
+			prev := runes[i-1]
+			prevIsLower := prev >= 'a' && prev <= 'z'
+			prevIsUpper := prev >= 'A' && prev <= 'Z'
+			prevIsDigit := prev >= '0' && prev <= '9'
+
+			// Insert underscore if previous char was lowercase or digit
+			if prevIsLower || prevIsDigit {
+				result.WriteByte('_')
+			} else if prevIsUpper {
+				// Previous was also uppercase (in an acronym)
+				// Insert underscore if next char is lowercase (end of acronym)
+				if i+1 < len(runes) && runes[i+1] >= 'a' && runes[i+1] <= 'z' {
+					result.WriteByte('_')
+				}
+			}
 		}
 		result.WriteRune(r)
 	}

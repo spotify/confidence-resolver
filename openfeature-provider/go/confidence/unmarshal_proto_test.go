@@ -7,11 +7,51 @@ import (
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 )
 
+func TestToSnakeCase(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Simple cases
+		{"", ""},
+		{"foo", "foo"},
+		{"Foo", "foo"},
+		{"fooBar", "foo_bar"},
+		{"FooBar", "foo_bar"},
+
+		// Acronyms
+		{"HTTP", "http"},
+		{"HTTPServer", "http_server"},
+		{"userID", "user_id"},
+		{"userIDNumber", "user_id_number"},
+		{"getHTTPResponse", "get_http_response"},
+		{"XMLHTTPRequest", "xmlhttp_request"},
+
+		// Edge cases
+		{"ID", "id"},
+		{"URL", "url"},
+		{"APIKey", "api_key"},
+		{"OAuth2Token", "o_auth2_token"},
+
+		// Already snake_case (passthrough)
+		{"already_snake", "already_snake"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := toSnakeCase(tt.input)
+			if got != tt.expected {
+				t.Errorf("toSnakeCase(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestUnmarshalProto(t *testing.T) {
 
 	testPositive := func(t *testing.T, name string, protoJson string, defaultValue any, expectedValue any) {
 		t.Run(name, func(t *testing.T) {
-			got, err := unmarshalProto(tu.JsonToProto(protoJson), defaultValue, []string{})
+			got, err := unmarshalProto(tu.MustJSONToProto(protoJson), defaultValue, []string{})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -24,7 +64,7 @@ func TestUnmarshalProto(t *testing.T) {
 
 	testNegative := func(t *testing.T, name string, protoJson string, defaultValue any, expectedErrorMsg string) {
 		t.Run(name+" err", func(t *testing.T) {
-			got, err := unmarshalProto(tu.JsonToProto(protoJson), defaultValue, []string{})
+			got, err := unmarshalProto(tu.MustJSONToProto(protoJson), defaultValue, []string{})
 			if err == nil {
 				t.Errorf("expected error")
 			}
@@ -210,7 +250,7 @@ func TestUnmarshalProto(t *testing.T) {
 				},
 			}
 
-			result, err := unmarshalProto(tu.JsonToProto(`{ "field": "changed", "deep": { "nested": "modified" } }`), defaultValue, []string{})
+			result, err := unmarshalProto(tu.MustJSONToProto(`{ "field": "changed", "deep": { "nested": "modified" } }`), defaultValue, []string{})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

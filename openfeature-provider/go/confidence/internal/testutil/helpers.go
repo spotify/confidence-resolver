@@ -439,7 +439,7 @@ func (m *MockedLocalResolver) ResolveWithSticky(*wasm.ResolveWithStickyRequest) 
 }
 func (m MockedLocalResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }
 
-func JsonToProto(jsonString string) *structpb.Value {
+func MustJSONToProto(jsonString string) *structpb.Value {
 	var v structpb.Value
 	err := json.Unmarshal([]byte(jsonString), &v)
 	if err != nil {
