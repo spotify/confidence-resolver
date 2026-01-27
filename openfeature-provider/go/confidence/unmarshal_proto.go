@@ -305,7 +305,7 @@ func toSnakeCase(s string) string {
 func formatError(msg string, path []string) error {
 	// parts := []string{ msg }
 	if len(path) > 0 {
-		msg = fmt.Sprintf("%v, at %v", msg, strings.Join(path, "."))
+		msg = fmt.Sprintf("%s, at %s", msg, strings.Join(path, "."))
 	}
 	return errors.New(msg)
 }
