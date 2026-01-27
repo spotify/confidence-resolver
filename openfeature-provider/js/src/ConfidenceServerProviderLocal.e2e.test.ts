@@ -74,6 +74,7 @@ describe('ConfidenceServerProvider E2E tests', () => {
       variant: 'flags/web-sdk-e2e-flag/variants/control',
       flagMetadata: {},
       value: 3.6,
+      shouldApply: true,
     };
 
     expect(await client.getNumberDetails('web-sdk-e2e-flag.obj.double', 1)).toEqual(expectedObject);

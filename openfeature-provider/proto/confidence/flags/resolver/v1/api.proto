@@ -112,5 +112,5 @@ message ResolvedFlag {
   ResolveReason reason = 5;
 
   // Determines whether the flag should be applied in the clients
-  // bool should_apply = 6; // not supported as of now
+  bool should_apply = 6;
 }
