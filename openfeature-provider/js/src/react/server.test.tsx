@@ -59,7 +59,7 @@ describe('ConfidenceProvider', () => {
 
       // Should not throw, but should warn and return children
       const result = await ConfidenceProvider({
-        evalContext: { targetingKey: 'user-123' },
+        context: { targetingKey: 'user-123' },
         children: <div>Test</div>,
       });
 
@@ -76,7 +76,7 @@ describe('ConfidenceProvider', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const result = await ConfidenceProvider({
-        evalContext: { targetingKey: 'user-123' },
+        context: { targetingKey: 'user-123' },
         providerName: 'my-provider',
         children: <div>Test</div>,
       });
@@ -92,7 +92,7 @@ describe('ConfidenceProvider', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const result = await ConfidenceProvider({
-        evalContext: { targetingKey: 'user-123' },
+        context: { targetingKey: 'user-123' },
         children: <div>Test</div>,
       });
 
@@ -109,7 +109,7 @@ describe('ConfidenceProvider', () => {
 
       // Should not throw - provider is identified by metadata name
       const result = await ConfidenceProvider({
-        evalContext: { targetingKey: 'user-123' },
+        context: { targetingKey: 'user-123' },
         children: <div>Test</div>,
       });
 
@@ -118,22 +118,22 @@ describe('ConfidenceProvider', () => {
   });
 
   describe('flag resolution', () => {
-    it('calls resolve with evalContext and flags', async () => {
+    it('calls resolve with context and flags', async () => {
       const mockProvider = createMockConfidenceProvider();
       await OpenFeature.setProviderAndWait(mockProvider);
 
-      const evalContext: EvaluationContext = {
+      const context: EvaluationContext = {
         targetingKey: 'user-123',
         country: 'US',
       };
 
       await ConfidenceProvider({
-        evalContext,
+        context,
         flags: ['flag-a', 'flag-b'],
         children: <div>Test</div>,
       });
 
-      expect(mockProvider.resolve).toHaveBeenCalledWith(evalContext, ['flag-a', 'flag-b']);
+      expect(mockProvider.resolve).toHaveBeenCalledWith(context, ['flag-a', 'flag-b']);
     });
 
     it('calls resolve with empty flags array by default', async () => {
@@ -141,7 +141,7 @@ describe('ConfidenceProvider', () => {
       await OpenFeature.setProviderAndWait(mockProvider);
 
       await ConfidenceProvider({
-        evalContext: { targetingKey: 'user-123' },
+        context: { targetingKey: 'user-123' },
         children: <div>Test</div>,
       });
 
@@ -157,7 +157,7 @@ describe('ConfidenceProvider', () => {
       await OpenFeature.setProviderAndWait('custom-provider', namedProvider);
 
       await ConfidenceProvider({
-        evalContext: { targetingKey: 'user-123' },
+        context: { targetingKey: 'user-123' },
         providerName: 'custom-provider',
         children: <div>Test</div>,
       });
@@ -173,7 +173,7 @@ describe('ConfidenceProvider', () => {
       await OpenFeature.setProviderAndWait('custom-provider', namedProvider);
 
       await ConfidenceProvider({
-        evalContext: { targetingKey: 'user-123' },
+        context: { targetingKey: 'user-123' },
         children: <div>Test</div>,
       });
 

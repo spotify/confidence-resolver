@@ -30,7 +30,7 @@ function isConfidenceServerProviderLocal(provider: Provider): provider is Confid
 
 export interface ConfidenceProviderProps {
   /** The evaluation context for flag resolution */
-  evalContext: EvaluationContext;
+  context: EvaluationContext;
   /** Optional provider name. If not specified, uses the default provider. */
   providerName?: string;
   /** Flag names to resolve. If not specified, resolves all flags. */
@@ -58,7 +58,7 @@ export interface ConfidenceProviderProps {
  * import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
  *
  * export default async function RootLayout({ children }: { children: React.ReactNode }) {
- *   const evalContext = {
+ *   const context = {
  *     targetingKey: 'user-123',
  *     country: 'US',
  *   };
@@ -66,7 +66,7 @@ export interface ConfidenceProviderProps {
  *   return (
  *     <html>
  *       <body>
- *         <ConfidenceProvider evalContext={evalContext} flags={['checkout-flow', 'promo-banner']}>
+ *         <ConfidenceProvider context={context} flags={['checkout-flow', 'promo-banner']}>
  *           {children}
  *         </ConfidenceProvider>
  *       </body>
@@ -76,7 +76,7 @@ export interface ConfidenceProviderProps {
  * ```
  */
 export async function ConfidenceProvider({
-  evalContext,
+  context,
   providerName,
   flags = [],
   children,
@@ -85,7 +85,7 @@ export async function ConfidenceProvider({
 
   let bundle: FlagBundle;
   if (isConfidenceServerProviderLocal(provider)) {
-    bundle = await provider.resolve(evalContext, flags);
+    bundle = await provider.resolve(context, flags);
   } else {
     bundle = FlagBundle.error(
       ErrorCode.GENERAL,

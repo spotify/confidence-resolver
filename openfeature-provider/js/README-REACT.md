@@ -63,7 +63,7 @@ import './lib/confidence'; // Initialize provider
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Get user context from session, cookies, etc.
-  const evalContext = {
+  const context = {
     targetingKey: 'user-123',
     country: 'US',
   };
@@ -71,7 +71,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html>
       <body>
-        <ConfidenceProvider evalContext={evalContext}>{children}</ConfidenceProvider>
+        <ConfidenceProvider context={context}>{children}</ConfidenceProvider>
       </body>
     </html>
   );
@@ -182,7 +182,7 @@ Resolves flags on the server and provides them to client components via React Co
 import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
 
 <ConfidenceProvider
-  evalContext={{ targetingKey: 'user-123' }}
+  context={{ targetingKey: 'user-123' }}
   flags={['checkout-flow', 'promo-banner']} // Optional: specific flags to resolve
   providerName="my-provider" // Optional: if using named providers
 >
@@ -194,7 +194,7 @@ import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provi
 
 | Prop           | Type                | Required | Description                                           |
 | -------------- | ------------------- | -------- | ----------------------------------------------------- |
-| `evalContext`  | `EvaluationContext` | Yes      | User/session context for flag evaluation              |
+| `context`      | `EvaluationContext` | Yes      | User/session context for flag evaluation              |
 | `flags`        | `string[]`          | No       | Specific flags to resolve (default: all flags)        |
 | `providerName` | `string`            | No       | Named provider if not using the default               |
 | `children`     | `React.ReactNode`   | Yes      | Child components that will have access to flag values |
@@ -331,7 +331,7 @@ Resolve flags once in a layout component rather than in each page:
 export default async function AuthenticatedLayout({ children }) {
   const user = await getUser();
 
-  return <ConfidenceProvider evalContext={{ targetingKey: user.id, plan: user.plan }}>{children}</ConfidenceProvider>;
+  return <ConfidenceProvider context={{ targetingKey: user.id, plan: user.plan }}>{children}</ConfidenceProvider>;
 }
 ```
 
@@ -355,7 +355,7 @@ const handleOpenModal = () => {
 If your client is registered for many flags, but only need a few in the frontend, specify them to reduce the bundle size:
 
 ```tsx
-<ConfidenceProvider evalContext={context} flags={['checkout-flow', 'promo-banner']}>
+<ConfidenceProvider context={context} flags={['checkout-flow', 'promo-banner']}>
   {children}
 </ConfidenceProvider>
 ```
@@ -398,7 +398,7 @@ await OpenFeature.setProviderAndWait(provider);
 This warning appears when `useFlag` or `useFlagDetails` is called outside of a `ConfidenceProvider`. Make sure your component tree is wrapped:
 
 ```tsx
-<ConfidenceProvider evalContext={context}>
+<ConfidenceProvider context={context}>
   <MyComponent /> {/* useFlag works here */}
 </ConfidenceProvider>
 ```
