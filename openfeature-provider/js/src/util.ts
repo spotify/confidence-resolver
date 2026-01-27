@@ -4,7 +4,7 @@ import { logger } from './logger';
  * Log a warning message only in non-production environments.
  */
 export function devWarn(message: string): void {
-  if (process.env.NODE_ENV !== 'production') {
+  if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
     console.warn(message);
   }
 }
