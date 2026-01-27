@@ -1,6 +1,6 @@
 # React Integration
 
-React hooks and components for using Confidence feature flags in Next.js applications with React Server Components.
+React hooks and components for using Confidence feature flags in a modern React (RSC) App, like for instance Next.js.
 
 ## Overview
 
@@ -49,7 +49,7 @@ const provider = createConfidenceServerProvider({
 });
 
 // Initialize once at startup
-OpenFeature.setProviderAndWait(provider);
+await OpenFeature.setProviderAndWait(provider);
 ```
 
 ### 2. Wrap your app with ConfidenceProvider
@@ -98,7 +98,7 @@ export function FeatureButton() {
 
 ## Server vs Client: Understanding Exposure
 
-**Exposure** (also called "apply") is the event that tells Confidence a user was shown a particular flag variant. This is critical for accurate experiment analysis.
+**Exposure** is the event that tells Confidence a user was shown a particular flag variant. This is critical for accurate experiment analysis.
 
 ### Server-Side Exposure
 
@@ -320,59 +320,6 @@ const config = useFlag('my-feature', { enabled: false, limit: 0 });
 // Returns default if flag value doesn't have 'enabled' and 'limit' properties
 ```
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         SERVER                                  │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ ConfidenceProvider (Server Component)                    │   │
-│  │                                                          │   │
-│  │  1. Calls resolveFlagBundle() with evalContext           │   │
-│  │  2. Gets FlagBundle { flags, resolveToken, resolveId }   │   │
-│  │  3. Creates applyFlag Server Action                      │   │
-│  │  4. Renders ConfidenceClientProvider with bundle + apply │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                  │
-│                              │ Serialized to client             │
-│                              ▼                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                         CLIENT                                  │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ ConfidenceClientProvider                                 │   │
-│  │                                                          │   │
-│  │  • Stores bundle in React Context                        │   │
-│  │  • Provides apply function to child components           │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                  │
-│                              ▼                                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ useFlag / useFlagDetails                                 │   │
-│  │                                                          │   │
-│  │  • Reads flag value from bundle                          │   │
-│  │  • Auto: calls apply() on mount via useEffect            │   │
-│  │  • Manual: returns expose() for explicit calls           │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                  │
-│                              │ Server Action                    │
-│                              ▼                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                         SERVER                                  │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ applyFlag Server Action                                  │   │
-│  │                                                          │   │
-│  │  • Called with flagName                                  │   │
-│  │  • Uses resolveToken from bundle closure                 │   │
-│  │  • Calls provider.applyFlag(resolveToken, flagName)      │   │
-│  │  • WASM resolver batches and sends to Confidence         │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
 ## Best Practices
 
 ### Resolve flags at the layout level
@@ -405,7 +352,7 @@ const handleOpenModal = () => {
 
 ### Specify flags for better performance
 
-If you only need a few flags, specify them to reduce the bundle size:
+If your client is registered for many flags, but only need a few in the frontend, specify them to reduce the bundle size:
 
 ```tsx
 <ConfidenceProvider evalContext={context} flags={['checkout-flow', 'promo-banner']}>
@@ -464,6 +411,7 @@ Check that:
 2. The targeting rules match your evaluation context
 3. The flag value type matches your default value type (the hooks validate types)
 4. You're using dot notation to access the correct property (e.g., `my-flag.enabled` not just `my-flag`)
+5. Check the output of `useFlagDetails` for `errorCode` and `errorMessage` to help diagnose issues.
 
 ### Exposure not being logged
 
