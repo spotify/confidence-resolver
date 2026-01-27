@@ -139,7 +139,7 @@ func TestUnmarshalProto(t *testing.T) {
 		testPositive(t, "struct exact", `{ "field":"hej", "deep":{ "field": true }}`, someStruct{}, expected)
 		testPositive(t, "struct exact pointer", `{ "field":"hej", "deep":{ "field": true }}`, &someStruct{}, &expected)
 
-		testPositive(t, "struct resolved null field", `{ "field": null, "deep": { "field": true }}`, someStruct { Field: "hej" }, expected)
+		testPositive(t, "struct resolved null field", `{ "field": null, "deep": { "field": true }}`, someStruct{Field: "hej"}, expected)
 
 		testPositive(t, "struct with missing field", `{ "field":"hej", "deep":{ "field": true }, "extra":true}`, someStruct{}, expected)
 
