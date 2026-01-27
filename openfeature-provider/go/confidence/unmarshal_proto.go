@@ -170,7 +170,8 @@ func unmarshalProtoValue(protoValue *structpb.Value, targetType reflect.Type, de
 
 // unmarshalStruct converts a protobuf Struct to a Go struct.
 // All exported struct fields must be present in the proto, otherwise an error is returned.
-func unmarshalStruct(protoValue *structpb.Value, targetType reflect.Type, _ reflect.Value, path []string) (reflect.Value, error) {
+// If defaultValue is valid, its field values are used when proto fields are null.
+func unmarshalStruct(protoValue *structpb.Value, targetType reflect.Type, defaultValue reflect.Value, path []string) (reflect.Value, error) {
 	protoStruct, ok := protoValue.Kind.(*structpb.Value_StructValue)
 	if !ok || protoStruct.StructValue == nil {
 		return reflect.Value{}, formatMismatchError("struct", protoValue.Kind, path)
@@ -194,7 +195,13 @@ func unmarshalStruct(protoValue *structpb.Value, targetType reflect.Type, _ refl
 			return reflect.Value{}, fmt.Errorf("resolved value is missing field %v", strings.Join(path, "."))
 		}
 
-		fieldValue, err := unmarshalProtoValue(pbFieldValue, field.Type, reflect.Value{}, path)
+		// Extract field default from defaultValue if available
+		var fieldDefault reflect.Value
+		if defaultValue.IsValid() {
+			fieldDefault = defaultValue.Field(i)
+		}
+
+		fieldValue, err := unmarshalProtoValue(pbFieldValue, field.Type, fieldDefault, path)
 		if err != nil {
 			return reflect.Value{}, err
 		}
