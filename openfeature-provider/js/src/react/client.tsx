@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useCallback } from 'react';
+import { createContext, useContext, useEffect, useCallback, useRef } from 'react';
 import type { EvaluationDetails, FlagValue } from '@openfeature/core';
 import type FlagBundleType from '../flag-bundle';
 import * as FlagBundle from '../flag-bundle';
@@ -18,13 +18,6 @@ interface ConfidenceContextValue {
 const ConfidenceContext = createContext<ConfidenceContextValue | null>(null);
 
 const warnedFlags = new Set<string>();
-const appliedFlags = new Set<string>();
-
-/** @internal - Reset state for testing */
-export function resetAppliedFlags(): void {
-  appliedFlags.clear();
-  warnedFlags.clear();
-}
 
 /** @internal */
 export interface ConfidenceClientProviderProps {
@@ -39,7 +32,20 @@ export function ConfidenceClientProvider({
   apply,
   children,
 }: ConfidenceClientProviderProps): React.ReactElement {
-  return <ConfidenceContext.Provider value={{ bundle, apply }}>{children}</ConfidenceContext.Provider>;
+  const appliedFlags = useRef(new Set<string>());
+
+  const filteredApply = useCallback<ApplyFn>(
+    (flagName: string) => {
+      if (appliedFlags.current.has(flagName)) {
+        return Promise.resolve();
+      }
+      appliedFlags.current.add(flagName);
+      return apply(flagName);
+    },
+    [apply],
+  );
+
+  return <ConfidenceContext.Provider value={{ bundle, apply: filteredApply }}>{children}</ConfidenceContext.Provider>;
 }
 
 interface UseFlagOptions {
@@ -145,10 +151,7 @@ export function useFlagDetails<T extends FlagValue>(
 
   // Internal function to actually log exposure
   const doExpose = useCallback(() => {
-    if (ctx && !appliedFlags.has(baseFlagName)) {
-      appliedFlags.add(baseFlagName);
-      ctx.apply(baseFlagName);
-    }
+    ctx?.apply(baseFlagName);
   }, [ctx, baseFlagName]);
 
   // Auto exposure effect
