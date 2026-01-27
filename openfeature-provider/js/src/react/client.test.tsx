@@ -16,7 +16,7 @@ beforeEach(() => {
 
 const createTestBundle = (flags: FlagBundle['flags'] = {}): FlagBundle => ({
   flags,
-  resolveToken: new TextEncoder().encode('resolve-token'),
+  resolveToken: 'dGVzdC1yZXNvbHZlLXRva2Vu', // base64 encoded 'test-resolve-token'
   resolveId: 'test-resolve-id',
 });
 

@@ -1,7 +1,7 @@
 import type { JsonObject, JsonValue } from '@openfeature/core';
 import type { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
-import { hasKey } from './util';
+import { hasKey, base64FromBytes, bytesFromBase64 } from './util';
 import { ErrorCode, ResolutionDetails, ResolutionReason } from './types';
 import { Logger } from './logger';
 
@@ -10,10 +10,17 @@ const FLAG_PREFIX = 'flags/';
 export default interface FlagBundle {
   flags: Record<string, ResolutionDetails<JsonObject | null> | undefined>;
   resolveId: string;
-  resolveToken: Uint8Array;
+  /** Base64-encoded resolve token for serialization across RSC boundaries */
+  resolveToken: string;
   errorCode?: ErrorCode;
   errorMessage?: string;
 }
+
+/** Encode Uint8Array to base64 string */
+export const encodeToken: (bytes: Uint8Array) => string = base64FromBytes;
+
+/** Decode base64 string to Uint8Array */
+export const decodeToken: (base64: string) => Uint8Array = bytesFromBase64;
 
 export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsResponse): FlagBundle {
   const flags = Object.fromEntries(
@@ -32,7 +39,7 @@ export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsR
   return {
     flags,
     resolveId,
-    resolveToken,
+    resolveToken: encodeToken(resolveToken),
   };
 }
 
@@ -40,7 +47,7 @@ export function error(errorCode: ErrorCode, errorMessage: string): FlagBundle {
   return {
     flags: {},
     resolveId: 'error',
-    resolveToken: new Uint8Array(),
+    resolveToken: '',
     errorCode,
     errorMessage,
   };

@@ -351,8 +351,10 @@ export class ConfidenceServerProviderLocal implements Provider {
   /**
    * Applies a previously resolved flag, logging that it was used/exposed.
    * Call this when a flag value is actually rendered or used in the client.
+   * @param resolveToken - Base64-encoded resolve token from the flag bundle
+   * @param flagName - Name of the flag to apply
    */
-  applyFlag(resolveToken: Uint8Array, flagName: string): void {
+  applyFlag(resolveToken: string, flagName: string): void {
     const request: ApplyFlagsRequest = {
       flags: [
         {
@@ -361,7 +363,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         },
       ],
       clientSecret: this.options.flagClientSecret,
-      resolveToken,
+      resolveToken: FlagBundle.decodeToken(resolveToken),
       sendTime: new Date(),
       sdk: {
         id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
