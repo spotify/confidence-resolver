@@ -4,6 +4,7 @@ This module provides functionality to fetch resolver state from the Confidence C
 """
 
 import hashlib
+import logging
 from typing import Optional, Tuple
 
 import httpx
@@ -11,6 +12,8 @@ import httpx
 from confidence_openfeature.proto.confidence.wasm.messages_pb2 import (
     SetResolverStateRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 CDN_BASE_URL = "https://confidence-resolver-state-cdn.spotifycdn.com"
 
@@ -98,6 +101,7 @@ class StateFetcher:
             # Handle 304 Not Modified - return cached state
             if response.status_code == 304:
                 if self._state is not None and self._account_id is not None:
+                    logger.debug("State not modified (304), using cached state")
                     return self._state, self._account_id
                 raise StateFetcherError(
                     "Received 304 Not Modified but no cached state available"
@@ -117,6 +121,12 @@ class StateFetcher:
             self._state = state_request.state
             self._account_id = state_request.account_id
             self._etag = response.headers.get("ETag")
+
+            logger.info(
+                "Loaded resolver state for account=%s, etag=%s",
+                self._account_id,
+                self._etag,
+            )
 
             return self._state, self._account_id
 

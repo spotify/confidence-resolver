@@ -10,6 +10,7 @@ Materializations support two key use cases:
    datasets that should be targeted.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import List, Optional, Protocol, Union
 
@@ -19,6 +20,8 @@ from confidence_openfeature.proto.confidence.flags.resolver.v1 import (
     internal_api_pb2,
     internal_api_pb2_grpc,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -274,11 +277,17 @@ class RemoteMaterializationStore:
         )
 
         # Call gRPC service
-        response = self._stub.ReadMaterializedOperations(
-            request,
-            metadata=self._get_metadata(),
-            timeout=30.0,
-        )
+        try:
+            response = self._stub.ReadMaterializedOperations(
+                request,
+                metadata=self._get_metadata(),
+                timeout=30.0,
+            )
+        except grpc.RpcError as e:
+            logger.error("Failed to read materialized operations: %s", e)
+            raise
+
+        logger.debug("Read %d materialization operations", len(ops))
 
         # Convert results
         results: List[ReadResult] = []
@@ -331,8 +340,14 @@ class RemoteMaterializationStore:
         )
 
         # Call gRPC service
-        self._stub.WriteMaterializedOperations(
-            request,
-            metadata=self._get_metadata(),
-            timeout=30.0,
-        )
+        try:
+            self._stub.WriteMaterializedOperations(
+                request,
+                metadata=self._get_metadata(),
+                timeout=30.0,
+            )
+        except grpc.RpcError as e:
+            logger.error("Failed to write materialized operations: %s", e)
+            raise
+
+        logger.debug("Wrote %d materialization operations", len(ops))
