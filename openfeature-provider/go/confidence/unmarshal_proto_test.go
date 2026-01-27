@@ -153,6 +153,81 @@ func TestUnmarshalProto(t *testing.T) {
 		}
 		testNegative(t, "struct with slice field", `{ "items": ["a", "b"] }`, structWithSlice{}, "slice types are not supported, at items")
 
+		// Nested struct null uses default
+		t.Run("nested struct null", func(t *testing.T) {
+			defaultWithNested := someStruct{
+				Field: "default",
+				Deep:  inner{Field: true},
+			}
+			// When deep is null, use the default's Deep value
+			got, err := unmarshalProto(tu.MustJSONToProto(`{ "field": "hello", "deep": null }`), defaultWithNested, []string{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Field != "hello" {
+				t.Errorf("expected field 'hello', got %v", got.Field)
+			}
+			if got.Deep.Field != true {
+				t.Errorf("expected deep.field to use default (true), got %v", got.Deep.Field)
+			}
+		})
+
+		// Pointer fields
+		t.Run("pointer fields", func(t *testing.T) {
+			type structWithPointers struct {
+				Name  *string `json:"name"`
+				Count *int    `json:"count"`
+			}
+
+			name := "test"
+			count := 42
+			expected := structWithPointers{Name: &name, Count: &count}
+
+			got, err := unmarshalProto(tu.MustJSONToProto(`{ "name": "test", "count": 42 }`), structWithPointers{}, []string{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Name == nil || *got.Name != "test" {
+				t.Errorf("expected name 'test', got %v", got.Name)
+			}
+			if got.Count == nil || *got.Count != 42 {
+				t.Errorf("expected count 42, got %v", got.Count)
+			}
+			if !reflect.DeepEqual(got, expected) {
+				t.Errorf("got %+v, want %+v", got, expected)
+			}
+		})
+
+		// Pointer field with null uses default
+		t.Run("pointer field null with default", func(t *testing.T) {
+			type structWithPointer struct {
+				Value *string `json:"value"`
+			}
+
+			defaultVal := "default"
+			defaultStruct := structWithPointer{Value: &defaultVal}
+
+			got, err := unmarshalProto(tu.MustJSONToProto(`{ "value": null }`), defaultStruct, []string{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Value == nil || *got.Value != "default" {
+				t.Errorf("expected default 'default', got %v", got.Value)
+			}
+		})
+
+		// Empty struct
+		t.Run("empty struct", func(t *testing.T) {
+			type emptyStruct struct{}
+			got, err := unmarshalProto(tu.MustJSONToProto(`{}`), emptyStruct{}, []string{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(got, emptyStruct{}) {
+				t.Errorf("expected empty struct, got %+v", got)
+			}
+		})
+
 		t.Run("json tags", func(t *testing.T) {
 			type taggedStruct struct {
 				CustomName     string `json:"custom_name"`
@@ -243,6 +318,32 @@ func TestUnmarshalProto(t *testing.T) {
 			testNegative(t, "fractional number rejected for int", `{ "value": 7.99999 }`, defaultValue, "resolved value (7.99999) is not a whole number, cannot convert to int, at value")
 		})
 
+		// Map with struct values
+		t.Run("map with struct values", func(t *testing.T) {
+			type item struct {
+				Name  string `json:"name"`
+				Value int    `json:"value"`
+			}
+
+			defaultValue := map[string]item{}
+			expected := map[string]item{
+				"first":  {Name: "one", Value: 1},
+				"second": {Name: "two", Value: 2},
+			}
+
+			got, err := unmarshalProto(
+				tu.MustJSONToProto(`{ "first": { "name": "one", "value": 1 }, "second": { "name": "two", "value": 2 } }`),
+				defaultValue,
+				[]string{},
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(got, expected) {
+				t.Errorf("got %+v, want %+v", got, expected)
+			}
+		})
+
 		t.Run("default value not modified", func(t *testing.T) {
 			defaultValue := map[string]any{
 				"field": "original",
@@ -279,5 +380,65 @@ func TestUnmarshalProto(t *testing.T) {
 				t.Errorf("nested defaultValue was modified: got %v, want 'untouched'", deepMap["nested"])
 			}
 		})
+	})
+
+	t.Run("nil protoValue", func(t *testing.T) {
+		// nil protoValue should return defaultValue
+		got, err := unmarshalProto[string](nil, "default", []string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "default" {
+			t.Errorf("expected 'default', got %v", got)
+		}
+
+		// nil protoValue with struct
+		type simple struct {
+			Field string `json:"field"`
+		}
+		defaultStruct := simple{Field: "default"}
+		gotStruct, err := unmarshalProto[simple](nil, defaultStruct, []string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotStruct.Field != "default" {
+			t.Errorf("expected field 'default', got %v", gotStruct.Field)
+		}
+	})
+
+	t.Run("interface field", func(t *testing.T) {
+		type structWithInterface struct {
+			Data any `json:"data"`
+		}
+
+		// Interface field with string default, proto has string
+		defaultVal := structWithInterface{Data: ""}
+		got, err := unmarshalProto(tu.MustJSONToProto(`{ "data": "hello" }`), defaultVal, []string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Data != "hello" {
+			t.Errorf("expected data 'hello', got %v", got.Data)
+		}
+
+		// Interface field with int default, proto has int
+		defaultValInt := structWithInterface{Data: 0}
+		gotInt, err := unmarshalProto(tu.MustJSONToProto(`{ "data": 42 }`), defaultValInt, []string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotInt.Data != 42 {
+			t.Errorf("expected data 42, got %v", gotInt.Data)
+		}
+
+		// Interface field with nil default uses dynamic typing
+		defaultValNil := structWithInterface{Data: nil}
+		gotNil, err := unmarshalProto(tu.MustJSONToProto(`{ "data": "dynamic" }`), defaultValNil, []string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotNil.Data != "dynamic" {
+			t.Errorf("expected data 'dynamic', got %v", gotNil.Data)
+		}
 	})
 }

@@ -303,7 +303,6 @@ func toSnakeCase(s string) string {
 
 // pathString formats a path slice as a dotted string for error messages.
 func formatError(msg string, path []string) error {
-	// parts := []string{ msg }
 	if len(path) > 0 {
 		msg = fmt.Sprintf("%s, at %s", msg, strings.Join(path, "."))
 	}
