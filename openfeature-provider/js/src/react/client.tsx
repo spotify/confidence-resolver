@@ -151,28 +151,26 @@ export function useFlagDetails<T extends FlagValue>(
 
   // Internal function to actually log exposure
   const doExpose = useCallback(() => {
-    ctx?.apply(baseFlagName);
-  }, [ctx, baseFlagName]);
+    if (resolution.shouldApply) {
+      ctx?.apply(baseFlagName);
+    }
+  }, [ctx, baseFlagName, resolution.shouldApply]);
 
   // Auto exposure effect
   useEffect(() => {
-    if (autoExpose && resolution.shouldApply) {
+    if (autoExpose) {
       doExpose();
     }
-  }, [autoExpose, doExpose, resolution.shouldApply]);
+  }, [autoExpose, doExpose]);
 
   // Expose function returned to caller
   const expose = useCallback(() => {
-    if (!resolution.shouldApply) {
-      devWarn(
-        `[Confidence] attempt to expose an unmatched flag ${baseFlagName}: ${resolution.reason} ${resolution.errorCode}`,
-      );
-    } else if (autoExpose) {
+    if (autoExpose) {
       devWarn(`[Confidence] expose() called on "${flagKey}" but auto-exposure is enabled. Call is ignored.`);
     } else {
       doExpose();
     }
-  }, [autoExpose, baseFlagName, doExpose, flagKey, resolution.shouldApply, resolution.reason, resolution.errorCode]);
+  }, [autoExpose, doExpose, flagKey]);
 
   return {
     flagKey,

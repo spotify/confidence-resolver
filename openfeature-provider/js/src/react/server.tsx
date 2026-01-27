@@ -89,7 +89,9 @@ export async function ConfidenceProvider({
   } else {
     bundle = FlagBundle.error(
       ErrorCode.GENERAL,
-      `The OpenFeatureProvider set is not a ConfidenceServerProviderLocal: ${provider?.metadata?.name ?? 'undefined'}`,
+      `The registered OpenFeatureProvider (${providerName}) is not a ConfidenceServerProviderLocal: ${
+        provider?.metadata?.name ?? 'undefined'
+      }`,
     );
   }
 
