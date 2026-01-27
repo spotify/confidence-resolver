@@ -61,7 +61,7 @@ export function resolve<T extends JsonValue>(
 ): ResolutionDetails<T> {
   const [flagName, ...path] = flagKey.split('.');
   const flag = bundle?.flags[flagName];
-  // const bundleError = bundle?.errorCode ? { code: bundle.errorCode, message: bundle.errorMessage } : null;
+
   if (bundle?.errorCode) {
     logger?.warn(`Flag evaluation for "%s" failed. %s %s`, flagKey, bundle.errorCode, bundle?.errorMessage);
     return {
