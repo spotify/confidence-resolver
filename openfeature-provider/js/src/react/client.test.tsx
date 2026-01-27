@@ -336,15 +336,14 @@ describe('useFlag', () => {
       expect(result.current).toBe('hello');
     });
 
-    it.skip('returns undefined when flag not found and default is null', () => {
+    it('returns null when flag not found and default is null', () => {
       const bundle = createTestBundle({});
 
       const { result } = renderHook(() => useFlag('missing-flag', null), {
         wrapper: wrapper(bundle),
       });
 
-      // null default means "accept any value" - undefined is the flag value when not found
-      expect(result.current).toBeUndefined();
+      expect(result.current).toBe(null);
     });
   });
 });
