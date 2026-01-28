@@ -1234,6 +1234,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "openfeature-provider-python"
+version = "0.0.1"
+dependencies = [
+ "rust-guest",
+]
+
+[[package]]
 name = "openssl-probe"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

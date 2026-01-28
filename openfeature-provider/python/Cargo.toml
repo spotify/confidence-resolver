@@ -1,0 +1,20 @@
+[package]
+name = "openfeature-provider-python"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+# This is a dummy Cargo.toml to enable cargo-workspace plugin tracking
+# in release-please. The actual package is built with Python (pyproject.toml).
+# This package depends on rust-guest's WASM output.
+#
+# Note: This dummy package is never actually built - it exists solely for
+# release-please dependency tracking via the cargo-workspace plugin.
+
+[lib]
+# Dummy library with no source - cargo won't try to build it
+path = "Cargo.toml"
+crate-type = []
+
+[dependencies]
+rust-guest = { path = "../../wasm/rust-guest", version = "0.1.13" }

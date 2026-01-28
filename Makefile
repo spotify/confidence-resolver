@@ -44,6 +44,7 @@ test:
 	$(MAKE) -C openfeature-provider/go test
 	$(MAKE) -C openfeature-provider/ruby test
 	$(MAKE) -C openfeature-provider/rust test
+	$(MAKE) -C openfeature-provider/python test
 
 integration-test:
 	$(MAKE) -C wasm/python-host run
@@ -65,6 +66,7 @@ build: wasm/confidence_resolver.wasm
 	$(MAKE) -C openfeature-provider/go build
 	$(MAKE) -C openfeature-provider/ruby build
 	$(MAKE) -C openfeature-provider/rust build
+	$(MAKE) -C openfeature-provider/python wasm
 
 all: lint test build
 	@echo "✅ All checks passed!"
@@ -77,6 +79,7 @@ clean:
 	$(MAKE) -C openfeature-provider/go clean
 	$(MAKE) -C openfeature-provider/ruby clean
 	$(MAKE) -C openfeature-provider/rust clean
+	$(MAKE) -C openfeature-provider/python clean
 
 .PHONY: js-build
 js-build:
