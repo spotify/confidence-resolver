@@ -12,9 +12,10 @@ import grpc
 import httpx
 from google.protobuf import struct_pb2
 from openfeature.evaluation_context import EvaluationContext
+from openfeature.event import ProviderEventDetails
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
-from openfeature.provider import AbstractProvider, Metadata
+from openfeature.provider import AbstractProvider, Metadata, ProviderStatus
 
 from confidence.flag_logger import FlagLogger
 from confidence.local_resolver import LocalResolver
@@ -174,6 +175,17 @@ class ConfidenceProvider(AbstractProvider):
         self._state_thread: Optional[threading.Thread] = None
         self._log_thread: Optional[threading.Thread] = None
 
+        # Provider status
+        self._status = ProviderStatus.NOT_READY
+
+    def get_status(self) -> ProviderStatus:
+        """Get the current provider status.
+
+        Returns:
+            The current provider status (NOT_READY, READY, ERROR, STALE, FATAL).
+        """
+        return self._status
+
     def get_metadata(self) -> Metadata:
         """Get provider metadata.
 
@@ -218,14 +230,27 @@ class ConfidenceProvider(AbstractProvider):
                 channel=self._grpc_channel,
             )
 
-        # Fetch initial state
-        state, account_id = self._state_fetcher.fetch()
-        self._resolver.set_resolver_state(state, account_id)
+        # Fetch initial state - don't fail if this fails, background thread will retry
+        try:
+            state, account_id = self._state_fetcher.fetch()
+            if account_id:
+                self._resolver.set_resolver_state(state, account_id)
+                self._status = ProviderStatus.READY
+                self.emit_provider_ready(ProviderEventDetails())
+                logger.info("ConfidenceProvider initialized successfully")
+            else:
+                logger.warning(
+                    "Initial state load returned empty account ID, "
+                    "provider starting in NOT_READY state"
+                )
+        except Exception as e:
+            logger.warning(
+                "Initial state load failed, provider starting in NOT_READY state: %s",
+                e,
+            )
 
-        # Start background threads
+        # Start background threads (will retry state fetch if needed)
         self._start_background_threads()
-
-        logger.info("ConfidenceProvider initialized successfully")
 
     def shutdown(self) -> None:
         """Shutdown the provider.
@@ -233,6 +258,9 @@ class ConfidenceProvider(AbstractProvider):
         Stops background threads, flushes logs, and cleans up resources.
         """
         logger.info("Shutting down ConfidenceProvider")
+
+        # Set status to NOT_READY
+        self._status = ProviderStatus.NOT_READY
 
         # Signal shutdown to background threads
         self._shutdown_event.set()
@@ -742,11 +770,31 @@ class ConfidenceProvider(AbstractProvider):
 
     def _state_poll_loop(self) -> None:
         """Background loop for state polling."""
-        while not self._shutdown_event.wait(timeout=self._state_poll_interval):
+        # Use shorter retry interval when NOT_READY
+        retry_interval = 1.0
+
+        while True:
+            # Use short interval if NOT_READY, normal interval otherwise
+            interval = (
+                retry_interval
+                if self._status == ProviderStatus.NOT_READY
+                else self._state_poll_interval
+            )
+
+            if self._shutdown_event.wait(timeout=interval):
+                break
+
             try:
                 state, account_id = self._state_fetcher.fetch()
                 with self._resolver_lock:
-                    self._resolver.set_resolver_state(state, account_id)
+                    if account_id:
+                        self._resolver.set_resolver_state(state, account_id)
+
+                        # If we were NOT_READY, transition to READY
+                        if self._status == ProviderStatus.NOT_READY:
+                            self._status = ProviderStatus.READY
+                            self.emit_provider_ready(ProviderEventDetails())
+                            logger.info("Provider recovered and is now READY")
             except Exception as e:
                 logger.error("State fetch failed: %s", e)
 
