@@ -13,22 +13,23 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 - **OpenFeature Compatible**: Works with the standard OpenFeature Rust SDK
 - **Async/Await**: Built on Tokio for efficient async operations
 
-## Installation
-
-Add this dependency to your `Cargo.toml`:
-
-<!-- x-release-please-start-version -->
-```toml
-[dependencies]
-spotify-confidence-openfeature-provider-local = "0.1.0"
-```
-<!-- x-release-please-end -->
-
 ## Requirements
 
 - Rust 1.70+
 - Tokio runtime
 - OpenFeature Rust SDK 0.2.7+
+
+## Installation
+
+Add these dependencies to your `Cargo.toml`:
+
+<!-- x-release-please-start-version -->
+```toml
+[dependencies]
+spotify-confidence-openfeature-provider-local = "0.1.0"
+open-feature = "0.2.7"
+```
+<!-- x-release-please-end -->
 
 ## Getting Your Credentials
 

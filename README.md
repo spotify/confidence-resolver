@@ -12,6 +12,7 @@ The tools and SDKs published for direct usage:
   - [Go](./openfeature-provider/go/README.md)
   - [Java](./openfeature-provider/java/README.md)
   - [JavaScript/TypeScript](./openfeature-provider/js/README.md)
+  - [Rust](./openfeature-provider/rust/README.md)
   - [Ruby](./openfeature-provider/ruby/README.md)
 
 Underlying building blocks:

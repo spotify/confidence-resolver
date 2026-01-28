@@ -22,6 +22,7 @@ const mockedWasmResolver: MockedObject<LocalResolver> = {
   setResolverState: vi.fn(),
   flushLogs: vi.fn().mockReturnValue(new Uint8Array(100)),
   flushAssigned: vi.fn().mockReturnValue(new Uint8Array(50)),
+  applyFlags: vi.fn(),
 };
 
 let provider: ConfidenceServerProviderLocal;
@@ -268,7 +269,7 @@ describe('remote materialization for sticky assignments', () => {
         response: {
           resolvedFlags: [
             {
-              flag: 'test-flag',
+              flag: 'flags/test-flag',
               variant: 'variant-a',
               value: { enabled: true },
               reason: RESOLVE_REASON_MATCH,

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.6.0...openfeature-provider/go/v0.7.0) (2026-01-27)
+
+
+### Features
+
+* **go:** accept different intervals for state and logging ([#245](https://github.com/spotify/confidence-resolver/issues/245)) ([e1e64ec](https://github.com/spotify/confidence-resolver/commit/e1e64ecd6bd596afeb1f6f0c3ad3a603d3c8c0e5))
+* **wasm:** add wasm API to apply previously resolved flags ([#235](https://github.com/spotify/confidence-resolver/issues/235)) ([79048f6](https://github.com/spotify/confidence-resolver/commit/79048f63a8c771eb98ecf478cab0b654aa745374))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.13 to 0.1.14
+
 ## [0.6.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.5.0...openfeature-provider/go/v0.6.0) (2026-01-22)
 
 

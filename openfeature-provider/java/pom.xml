@@ -4,7 +4,7 @@
 
   <groupId>com.spotify.confidence</groupId>
   <artifactId>openfeature-provider-local</artifactId>
-  <version>0.11.1</version>
+  <version>0.11.2</version>
   <name>Confidence local resolve provider</name>
   <description>Confidence OpenFeature provider for local flag resolution using WebAssembly</description>
   <url>https://github.com/spotify/confidence-resolver</url>
@@ -63,7 +63,7 @@
     <grpc.version>1.75.0</grpc.version>
     <slf4j.version>2.0.13</slf4j.version>
     <guava.version>33.2.1-jre</guava.version>
-    <assertj.version>3.25.3</assertj.version>
+    <assertj.version>3.27.7</assertj.version>
     <junit.version>5.10.2</junit.version>
     <mockito.version>5.12.0</mockito.version>
   </properties>
