@@ -265,6 +265,7 @@ export function createCapturingLoggingBackend() {
   };
 
   backend.hasErrorLogs = () => logs.some(log => log.namespace.includes(':error'));
+  backend.hasAnyLogs = () => logs.length > 0;
   return backend;
 }
 
