@@ -5,7 +5,7 @@
   "wasm/rust-guest": "0.1.14",
   "openfeature-provider/java": "0.11.2",
   "openfeature-provider/js": "0.8.0",
-  "openfeature-provider/go": "0.7.0",
+  "openfeature-provider/go": "0.8.0",
   "openfeature-provider/ruby": "0.1.1",
   "openfeature-provider/rust": "0.2.1"
 }

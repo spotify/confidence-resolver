@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.7.0...openfeature-provider/go/v0.8.0) (2026-01-28)
+
+
+### Features
+
+* **go:** support structs as default value ([#247](https://github.com/spotify/confidence-resolver/issues/247)) ([639d6c7](https://github.com/spotify/confidence-resolver/commit/639d6c781172e57d47a82b3d901d28e02365c436))
+
 ## [0.7.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.6.0...openfeature-provider/go/v0.7.0) (2026-01-27)
 
 
