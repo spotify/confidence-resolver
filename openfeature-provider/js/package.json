@@ -40,6 +40,7 @@
     "format": "prettier --config prettier.config.cjs -w .",
     "format:check": "prettier --config prettier.config.cjs -c .",
     "test": "vitest",
+    "typecheck": "tsc --noEmit",
     "proto:gen": "rm -rf src/proto && mkdir -p src/proto && protoc --plugin=node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt useOptionals=messages --ts_proto_opt esModuleInterop=true --ts_proto_out src/proto -Iproto -I../../openfeature-provider/proto test-only.proto ../../openfeature-provider/proto/confidence/wasm/messages.proto ../../openfeature-provider/proto/confidence/wasm/wasm_api.proto ../../openfeature-provider/proto/confidence/flags/resolver/v1/types.proto ../../openfeature-provider/proto/confidence/flags/resolver/v1/api.proto ../../openfeature-provider/proto/confidence/flags/resolver/v1/internal_api.proto ../../openfeature-provider/proto/confidence/flags/types/v1/types.proto"
   },
   "dependencies": {
@@ -65,6 +66,7 @@
     "rolldown": "1.0.0-beta.38",
     "ts-proto": "^2.7.3",
     "tsdown": "latest",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
