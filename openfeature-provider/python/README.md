@@ -5,14 +5,14 @@ This is the Python OpenFeature provider for [Confidence](https://confidence.spot
 ## Installation
 
 ```bash
-pip install confidence-openfeature-provider
+pip install confidence-local-openfeature-provider
 ```
 
 ## Usage
 
 ```python
 from openfeature import api
-from confidence_openfeature import ConfidenceProvider
+from confidence import ConfidenceProvider
 
 # Create and register the provider
 provider = ConfidenceProvider(client_secret="your-client-secret")
@@ -38,6 +38,15 @@ provider = ConfidenceProvider(
     state_poll_interval=30.0,  # How often to poll for state updates (seconds)
     log_poll_interval=10.0,    # How often to flush logs (seconds)
 )
+```
+
+## Logging
+
+Configure logging to see provider activity:
+
+```python
+import logging
+logging.getLogger("confidence").setLevel(logging.DEBUG)
 ```
 
 ## License

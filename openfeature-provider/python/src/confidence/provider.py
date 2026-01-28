@@ -16,9 +16,9 @@ from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 from openfeature.provider import AbstractProvider, Metadata
 
-from confidence_openfeature.flag_logger import FlagLogger
-from confidence_openfeature.local_resolver import LocalResolver
-from confidence_openfeature.materialization import (
+from confidence.flag_logger import FlagLogger
+from confidence.local_resolver import LocalResolver
+from confidence.materialization import (
     InclusionReadOp,
     InclusionReadResult,
     MaterializationNotSupportedError,
@@ -30,13 +30,13 @@ from confidence_openfeature.materialization import (
     VariantReadResult,
     VariantWriteOp,
 )
-from confidence_openfeature.proto.confidence.flags.resolver.v1 import types_pb2
-from confidence_openfeature.proto.confidence.flags.resolver.v1 import (
+from confidence.proto.confidence.flags.resolver.v1 import types_pb2
+from confidence.proto.confidence.flags.resolver.v1 import (
     internal_api_pb2,
 )
-from confidence_openfeature.proto.confidence.wasm import wasm_api_pb2
-from confidence_openfeature.state_fetcher import StateFetcher
-from confidence_openfeature.version import __version__
+from confidence.proto.confidence.wasm import wasm_api_pb2
+from confidence.state_fetcher import StateFetcher
+from confidence.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ def _load_wasm_from_resources() -> bytes:
 
         try:
             # Python 3.9+ with files()
-            files = resources.files("confidence_openfeature")
+            files = resources.files("confidence")
             wasm_path = files.joinpath("wasm").joinpath("confidence_resolver.wasm")
             return wasm_path.read_bytes()
         except (AttributeError, FileNotFoundError, TypeError):
@@ -75,7 +75,7 @@ def _load_wasm_from_resources() -> bytes:
         import pkg_resources
 
         return pkg_resources.resource_string(
-            "confidence_openfeature", "wasm/confidence_resolver.wasm"
+            "confidence", "wasm/confidence_resolver.wasm"
         )
     except Exception:
         pass
@@ -202,7 +202,7 @@ class ConfidenceProvider(AbstractProvider):
 
         # Create state fetcher if not injected
         if self._state_fetcher is None:
-            from confidence_openfeature.state_fetcher import StateFetcher
+            from confidence.state_fetcher import StateFetcher
 
             self._state_fetcher = StateFetcher(
                 client_secret=self._client_secret,
@@ -211,7 +211,7 @@ class ConfidenceProvider(AbstractProvider):
 
         # Create flag logger if not injected
         if self._flag_logger is None:
-            from confidence_openfeature.flag_logger import GrpcFlagLogger
+            from confidence.flag_logger import GrpcFlagLogger
 
             self._flag_logger = GrpcFlagLogger(
                 client_secret=self._client_secret,

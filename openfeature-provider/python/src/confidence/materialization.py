@@ -16,7 +16,7 @@ from typing import List, Optional, Protocol, Union
 
 import grpc
 
-from confidence_openfeature.proto.confidence.flags.resolver.v1 import (
+from confidence.proto.confidence.flags.resolver.v1 import (
     internal_api_pb2,
     internal_api_pb2_grpc,
 )

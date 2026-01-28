@@ -6,10 +6,10 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-from confidence_openfeature.proto.confidence.wasm.messages_pb2 import (
+from confidence.proto.confidence.wasm.messages_pb2 import (
     SetResolverStateRequest,
 )
-from confidence_openfeature.state_fetcher import StateFetcher
+from confidence.state_fetcher import StateFetcher
 
 CDN_BASE_URL = "https://confidence-resolver-state-cdn.spotifycdn.com"
 

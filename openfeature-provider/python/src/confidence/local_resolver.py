@@ -9,8 +9,8 @@ from typing import List, Optional, Tuple
 
 from wasmtime import Trap as WasmTrap
 
-from confidence_openfeature.proto.confidence.wasm import wasm_api_pb2
-from confidence_openfeature.wasm_resolver import WasmResolver
+from confidence.proto.confidence.wasm import wasm_api_pb2
+from confidence.wasm_resolver import WasmResolver
 
 logger = logging.getLogger(__name__)
 

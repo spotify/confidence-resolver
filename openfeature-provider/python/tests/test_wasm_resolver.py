@@ -3,9 +3,9 @@
 import pytest
 from google.protobuf import struct_pb2
 
-from confidence_openfeature.wasm_resolver import WasmResolver
-from confidence_openfeature.proto.confidence.wasm import wasm_api_pb2
-from confidence_openfeature.proto.confidence.flags.resolver.v1 import api_pb2
+from confidence.wasm_resolver import WasmResolver
+from confidence.proto.confidence.wasm import wasm_api_pb2
+from confidence.proto.confidence.flags.resolver.v1 import api_pb2
 
 # Test constants - flag name from test fixture data
 TEST_FLAG_NAME = "flags/tutorial-feature"

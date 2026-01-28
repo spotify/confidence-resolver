@@ -4,9 +4,9 @@ This package provides a local WASM-based flag resolver for Confidence feature fl
 implementing the OpenFeature provider interface.
 """
 
-from confidence_openfeature.version import __version__
-from confidence_openfeature.provider import ConfidenceProvider
-from confidence_openfeature.materialization import (
+from confidence.version import __version__
+from confidence.provider import ConfidenceProvider
+from confidence.materialization import (
     MaterializationStore,
     MaterializationNotSupportedError,
     RemoteMaterializationStore,

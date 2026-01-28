@@ -4,7 +4,7 @@ from openfeature.evaluation_context import EvaluationContext
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import Reason
 
-from confidence_openfeature.provider import ConfidenceProvider
+from confidence.provider import ConfidenceProvider
 from tests.conftest import MockFlagLogger, MockStateFetcher
 
 

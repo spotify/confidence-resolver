@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "confidence-openfeature-provider"
+name = "confidence-local-openfeature-provider"
 version = "0.0.1"
 description = "Confidence OpenFeature provider for local flag resolution using WebAssembly"
 readme = "README.md"
@@ -50,10 +50,10 @@ Homepage = "https://github.com/spotify/confidence-resolver"
 Repository = "https://github.com/spotify/confidence-resolver"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/confidence_openfeature"]
+packages = ["src/confidence"]
 
 [tool.hatch.build.targets.wheel.shared-data]
-"resources/wasm/confidence_resolver.wasm" = "confidence_openfeature/wasm/confidence_resolver.wasm"
+"resources/wasm/confidence_resolver.wasm" = "confidence/wasm/confidence_resolver.wasm"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -89,10 +89,10 @@ module = ["openfeature.*", "wasmtime.*", "grpc.*", "google.protobuf.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["confidence_openfeature.proto.*"]
+module = ["confidence.proto.*"]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = ["confidence_openfeature.wasm_resolver", "confidence_openfeature.local_resolver", "confidence_openfeature.flag_logger", "confidence_openfeature.state_fetcher", "confidence_openfeature.provider", "confidence_openfeature.materialization"]
+module = ["confidence.wasm_resolver", "confidence.local_resolver", "confidence.flag_logger", "confidence.state_fetcher", "confidence.provider", "confidence.materialization"]
 # These modules use generated protobuf code which has incomplete type stubs
 disable_error_code = ["attr-defined", "name-defined", "union-attr", "operator", "override", "no-untyped-call"]

@@ -11,8 +11,8 @@ from google.protobuf import message as protobuf_message
 from google.protobuf.timestamp_pb2 import Timestamp
 from wasmtime import Config, Engine, Func, FuncType, Linker, Module, Store, ValType
 
-from confidence_openfeature.proto.confidence.wasm import messages_pb2
-from confidence_openfeature.proto.confidence.wasm import wasm_api_pb2
+from confidence.proto.confidence.wasm import messages_pb2
+from confidence.proto.confidence.wasm import wasm_api_pb2
 
 
 class WasmResolver:

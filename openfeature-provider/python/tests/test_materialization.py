@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from confidence_openfeature.materialization import (
+from confidence.materialization import (
     MaterializationNotSupportedError,
     RemoteMaterializationStore,
     UnsupportedMaterializationStore,
@@ -99,7 +99,7 @@ class TestRemoteMaterializationStore:
         mock_stub = MagicMock()
 
         # Setup mock response
-        from confidence_openfeature.proto.confidence.flags.resolver.v1 import (
+        from confidence.proto.confidence.flags.resolver.v1 import (
             internal_api_pb2,
         )
 
@@ -117,7 +117,7 @@ class TestRemoteMaterializationStore:
 
         # Create store with mock
         stub_path = (
-            "confidence_openfeature.materialization."
+            "confidence.materialization."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
@@ -158,7 +158,7 @@ class TestRemoteMaterializationStore:
         mock_channel = MagicMock()
 
         stub_path = (
-            "confidence_openfeature.materialization."
+            "confidence.materialization."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path):
@@ -176,7 +176,7 @@ class TestRemoteMaterializationStore:
         mock_stub = MagicMock()
 
         # Setup mock response
-        from confidence_openfeature.proto.confidence.flags.resolver.v1 import (
+        from confidence.proto.confidence.flags.resolver.v1 import (
             internal_api_pb2,
         )
 
@@ -185,7 +185,7 @@ class TestRemoteMaterializationStore:
         )
 
         stub_path = (
-            "confidence_openfeature.materialization."
+            "confidence.materialization."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
@@ -224,7 +224,7 @@ class TestRemoteMaterializationStore:
         mock_stub = MagicMock()
 
         stub_path = (
-            "confidence_openfeature.materialization."
+            "confidence.materialization."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
@@ -259,7 +259,7 @@ class TestMaterializationStoreProtocol:
         """RemoteMaterializationStore implements MaterializationStore."""
         mock_channel = MagicMock()
         stub_path = (
-            "confidence_openfeature.materialization."
+            "confidence.materialization."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path):

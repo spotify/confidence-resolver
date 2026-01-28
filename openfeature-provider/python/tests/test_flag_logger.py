@@ -4,13 +4,13 @@ import time
 import threading
 from unittest.mock import MagicMock, patch
 
-from confidence_openfeature.flag_logger import (
+from confidence.flag_logger import (
     FlagLogger,
     GrpcFlagLogger,
     NoOpFlagLogger,
     GRPC_TARGET,
 )
-from confidence_openfeature.proto.confidence.flags.resolver.v1 import internal_api_pb2
+from confidence.proto.confidence.flags.resolver.v1 import internal_api_pb2
 
 
 class TestGrpcFlagLoggerProtocol:
@@ -44,7 +44,7 @@ class TestGrpcFlagLoggerAsync:
         mock_stub.ClientWriteFlagLogs = slow_write
 
         stub_path = (
-            "confidence_openfeature.flag_logger."
+            "confidence.flag_logger."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
@@ -85,7 +85,7 @@ class TestGrpcFlagLoggerAsync:
         mock_stub.ClientWriteFlagLogs = slow_write
 
         stub_path = (
-            "confidence_openfeature.flag_logger."
+            "confidence.flag_logger."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
@@ -117,7 +117,7 @@ class TestGrpcFlagLoggerEmptyRequests:
         mock_stub = MagicMock()
 
         stub_path = (
-            "confidence_openfeature.flag_logger."
+            "confidence.flag_logger."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
@@ -139,7 +139,7 @@ class TestGrpcFlagLoggerEmptyRequests:
         mock_stub = MagicMock()
 
         stub_path = (
-            "confidence_openfeature.flag_logger."
+            "confidence.flag_logger."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
@@ -173,7 +173,7 @@ class TestGrpcFlagLoggerAuthorization:
         client_secret = "my-secret-key"
 
         stub_path = (
-            "confidence_openfeature.flag_logger."
+            "confidence.flag_logger."
             "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):

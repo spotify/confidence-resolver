@@ -79,8 +79,8 @@ format: $(INSTALL_STAMP)
 proto: $(INSTALL_STAMP)
 	$(PYTHON) -m grpc_tools.protoc \
 		-I../proto \
-		--python_out=src/confidence_openfeature/proto \
-		--grpc_python_out=src/confidence_openfeature/proto \
+		--python_out=src/confidence/proto \
+		--grpc_python_out=src/confidence/proto \
 		../proto/confidence/flags/resolver/v1/*.proto \
 		../proto/confidence/wasm/*.proto
 

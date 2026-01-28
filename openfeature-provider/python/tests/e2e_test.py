@@ -3,7 +3,7 @@
 from openfeature import api
 from openfeature.evaluation_context import EvaluationContext
 
-from confidence_openfeature import ConfidenceProvider
+from confidence import ConfidenceProvider
 
 # E2E test configuration - matches Go e2e_test.go
 E2E_CLIENT_SECRET = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx"

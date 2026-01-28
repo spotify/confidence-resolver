@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 
 import httpx
 
-from confidence_openfeature.proto.confidence.wasm.messages_pb2 import (
+from confidence.proto.confidence.wasm.messages_pb2 import (
     SetResolverStateRequest,
 )
 
