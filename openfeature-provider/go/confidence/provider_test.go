@@ -2,6 +2,8 @@ package confidence
 
 import (
 	"context"
+	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/open-feature/go-sdk/openfeature"
@@ -48,25 +50,25 @@ func TestParseFlagPath(t *testing.T) {
 		name         string
 		input        string
 		expectedFlag string
-		expectedPath string
+		expectedPath []string
 	}{
 		{
 			name:         "Simple flag name",
 			input:        "my-flag",
 			expectedFlag: "my-flag",
-			expectedPath: "",
+			expectedPath: []string{},
 		},
 		{
 			name:         "Flag with path",
 			input:        "my-flag.nested.value",
 			expectedFlag: "my-flag",
-			expectedPath: "nested.value",
+			expectedPath: []string{"nested", "value"},
 		},
 		{
 			name:         "Flag with single level path",
 			input:        "flag.value",
 			expectedFlag: "flag",
-			expectedPath: "value",
+			expectedPath: []string{"value"},
 		},
 	}
 
@@ -76,7 +78,7 @@ func TestParseFlagPath(t *testing.T) {
 			if flag != tc.expectedFlag {
 				t.Errorf("Expected flag '%s', got '%s'", tc.expectedFlag, flag)
 			}
-			if path != tc.expectedPath {
+			if !slices.Equal(path, tc.expectedPath) {
 				t.Errorf("Expected path '%s', got '%s'", tc.expectedPath, path)
 			}
 		})
@@ -244,7 +246,10 @@ func TestProtoValueToGo(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := protoValueToGo(tc.input)
+			result, err := unmarshalProto(tc.input, any(nil), []string{})
+			if err != nil {
+				t.Fatal(err)
+			}
 			if result != tc.expected {
 				t.Errorf("Expected %v, got %v", tc.expected, result)
 			}
@@ -254,94 +259,102 @@ func TestProtoValueToGo(t *testing.T) {
 
 func TestProtoStructToGo(t *testing.T) {
 	// Test nil struct
-	result := protoStructToGo(nil)
+	result, err := unmarshalProto(nil, map[string]any(nil), []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result != nil {
 		t.Error("Expected nil result for nil struct")
 	}
 
 	// Test struct with values
-	pbStruct := &structpb.Struct{
+	pbStruct := structpb.NewStructValue(&structpb.Struct{
 		Fields: map[string]*structpb.Value{
 			"name":   structpb.NewStringValue("test"),
 			"count":  structpb.NewNumberValue(42),
 			"active": structpb.NewBoolValue(true),
 		},
+	})
+
+	result, err = unmarshalProto(pbStruct, map[string]any{}, []string{})
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	result = protoStructToGo(pbStruct)
 	if result == nil {
 		t.Fatal("Expected non-nil result")
 	}
 
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected result to be map[string]interface{}")
+	if result["name"] != "test" {
+		t.Errorf("Expected name to be 'test', got %v", result["name"])
 	}
-
-	if resultMap["name"] != "test" {
-		t.Errorf("Expected name to be 'test', got %v", resultMap["name"])
+	if result["count"] != 42.0 {
+		t.Errorf("Expected count to be 42.0, got %v", result["count"])
 	}
-	if resultMap["count"] != 42.0 {
-		t.Errorf("Expected count to be 42.0, got %v", resultMap["count"])
-	}
-	if resultMap["active"] != true {
-		t.Errorf("Expected active to be true, got %v", resultMap["active"])
+	if result["active"] != true {
+		t.Errorf("Expected active to be true, got %v", result["active"])
 	}
 }
 
 func TestGetValueForPath(t *testing.T) {
-	testData := map[string]interface{}{
-		"level1": map[string]interface{}{
-			"level2": map[string]interface{}{
-				"level3": "deep-value",
+	var testData *structpb.Struct
+
+	err := json.Unmarshal([]byte(`{
+		"level1": {
+			"level2": {
+				"level3": "deep-value"
 			},
-			"simple": "simple-value",
+			"simple": "simple-value"
 		},
-		"top":     "top-value",
-		"nullval": nil,
+		"top": "top-value",
+		"nullval": null
+	}`), &testData)
+
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	testCases := []struct {
 		name          string
-		path          string
+		path          []string
 		expected      interface{}
 		expectedFound bool
 		checkIsMap    bool
 	}{
 		{
 			name:          "Empty path",
-			path:          "",
+			path:          []string{},
 			expected:      nil, // Will check map separately
 			expectedFound: true,
 			checkIsMap:    true,
 		},
 		{
 			name:          "Top level value",
-			path:          "top",
+			path:          []string{"top"},
 			expected:      "top-value",
 			expectedFound: true,
 		},
 		{
 			name:          "Nested value",
-			path:          "level1.simple",
+			path:          []string{"level1", "simple"},
 			expected:      "simple-value",
 			expectedFound: true,
 		},
 		{
 			name:          "Deep nested value",
-			path:          "level1.level2.level3",
+			path:          []string{"level1", "level2", "level3"},
 			expected:      "deep-value",
 			expectedFound: true,
 		},
 		{
 			name:          "Non-existent path",
-			path:          "does.not.exist",
+			path:          []string{"does", "not", "exist"},
 			expected:      nil,
 			expectedFound: false,
 		},
 		{
 			name:          "Null value at path",
-			path:          "nullval",
+			path:          []string{"nullval"},
 			expected:      nil,
 			expectedFound: true,
 		},
@@ -351,15 +364,15 @@ func TestGetValueForPath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result, found := getValueForPath(tc.path, testData)
 			if found != tc.expectedFound {
-				t.Errorf("Expected found=%v, got found=%v", tc.expectedFound, found)
+				t.Errorf("expected=%v, got=%v for %v", tc.expectedFound, found, tc.path)
 			}
 			if tc.checkIsMap {
 				// For empty path, should return the original map
-				if _, ok := result.(map[string]interface{}); !ok {
+				if _, ok := result.Kind.(*structpb.Value_StructValue); !ok {
 					t.Errorf("Expected result to be a map, got %T", result)
 				}
 			} else {
-				if result != tc.expected {
+				if result.AsInterface() != tc.expected {
 					t.Errorf("Expected %v, got %v", tc.expected, result)
 				}
 			}
@@ -369,11 +382,13 @@ func TestGetValueForPath(t *testing.T) {
 
 func TestGetValueForPath_NonMapValue(t *testing.T) {
 	// Test with non-map value in path
-	testData := map[string]interface{}{
-		"value": "string-value",
+	testData := &structpb.Struct{
+		Fields: map[string]*structpb.Value{
+			"value": structpb.NewStringValue("string-value"),
+		},
 	}
 
-	result, found := getValueForPath("value.nested", testData)
+	result, found := getValueForPath([]string{"value", "nested"}, testData)
 	if found {
 		t.Errorf("Expected found=false for path through non-map value, got found=true")
 	}

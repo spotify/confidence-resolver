@@ -466,6 +466,217 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 	})
 }
 
+// TestIntegration_OpenFeatureObjectWithStructDefault tests resolving a flag
+// using a struct as the default value, verifying type-safe unmarshaling.
+// The tutorial-feature flag resolves to: {"message": "...", "title": "..."}
+func TestIntegration_OpenFeatureObjectWithStructDefault(t *testing.T) {
+	// Load test state
+	testState := tu.LoadTestResolverState(t)
+	accountID := tu.LoadTestAccountID(t)
+
+	ctx := context.Background()
+
+	// Create mock state provider
+	stateProvider := &mockStateProvider{
+		state: testState,
+	}
+
+	// Create tracking logger
+	mockStub := &mockGrpcStubForIntegration{
+		onCallReceived: make(chan struct{}, 100),
+	}
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	trackingLogger := &trackingFlagLogger{
+		actualLogger:       actualGrpcLogger,
+		lastWriteCompleted: make(chan struct{}, 1),
+	}
+
+	// Create provider with test state
+	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger, newUnsupportedMaterializationStore())
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+
+	client := openfeature.NewClient("struct-default-test")
+
+	// Register with OpenFeature
+	err = openfeature.SetProviderAndWait(provider)
+	if err != nil {
+		t.Fatalf("Failed to set provider: %v", err)
+	}
+
+	evalCtx := openfeature.NewEvaluationContext(
+		"tutorial_visitor",
+		map[string]interface{}{
+			"visitor_id": "tutorial_visitor",
+		},
+	)
+
+	t.Run("basic struct with matching fields", func(t *testing.T) {
+		// Field names are automatically converted to snake_case (Message -> message, Title -> title)
+		type TutorialFeature struct {
+			Message string
+			Title   string
+		}
+
+		defaultConfig := TutorialFeature{
+			Message: "default message",
+			Title:   "default title",
+		}
+
+		result, err := client.ObjectValueDetails(ctx, "tutorial-feature", defaultConfig, evalCtx)
+		if err != nil {
+			t.Fatalf("ObjectValueDetails failed: %v", err)
+		}
+
+		config, ok := result.Value.(TutorialFeature)
+		if !ok {
+			t.Fatalf("Expected result to be TutorialFeature, got %T", result.Value)
+		}
+
+		expectedMessage := "We are very excited to welcome you to Confidence! This is a message from the tutorial flag."
+		expectedTitle := "Welcome to Confidence!"
+
+		if config.Message != expectedMessage {
+			t.Errorf("Expected Message %q, got %q", expectedMessage, config.Message)
+		}
+		if config.Title != expectedTitle {
+			t.Errorf("Expected Title %q, got %q", expectedTitle, config.Title)
+		}
+
+		expectedVariant := "flags/tutorial-feature/variants/exciting-welcome"
+		if result.Variant != expectedVariant {
+			t.Errorf("Expected variant %q, got %q", expectedVariant, result.Variant)
+		}
+
+		t.Logf("Successfully resolved struct: Message=%q, Title=%q", config.Message, config.Title)
+	})
+
+	t.Run("missing field returns default", func(t *testing.T) {
+		// Struct has an extra field "Priority" that doesn't exist in the resolved value
+		// This should cause the entire default to be returned (with an error)
+		type FeatureWithExtra struct {
+			Message  string
+			Title    string
+			Priority int // Not in the resolved value
+		}
+
+		defaultConfig := FeatureWithExtra{
+			Message:  "default message",
+			Title:    "default title",
+			Priority: 42,
+		}
+
+		result, err := client.ObjectValueDetails(ctx, "tutorial-feature", defaultConfig, evalCtx)
+		// Error is expected - missing field causes TYPE_MISMATCH
+		if err == nil {
+			t.Fatal("Expected an error for missing field, got nil")
+		}
+
+		// Verify error reason is TYPE_MISMATCH
+		if result.Reason != openfeature.ErrorReason {
+			t.Errorf("Expected reason %q, got %q", openfeature.ErrorReason, result.Reason)
+		}
+
+		config, ok := result.Value.(FeatureWithExtra)
+		if !ok {
+			t.Fatalf("Expected result to be FeatureWithExtra, got %T", result.Value)
+		}
+
+		// Should get the default values since the resolved value is missing "priority"
+		if config.Message != defaultConfig.Message {
+			t.Errorf("Expected default Message %q, got %q", defaultConfig.Message, config.Message)
+		}
+		if config.Title != defaultConfig.Title {
+			t.Errorf("Expected default Title %q, got %q", defaultConfig.Title, config.Title)
+		}
+		if config.Priority != defaultConfig.Priority {
+			t.Errorf("Expected default Priority %d, got %d", defaultConfig.Priority, config.Priority)
+		}
+
+		t.Logf("Missing field correctly returned default with error: %v", err)
+	})
+
+	t.Run("type mismatch returns default", func(t *testing.T) {
+		// Struct expects "message" to be an int, but flag returns a string
+		// This should cause the entire default to be returned (with an error)
+		type FeatureWithWrongType struct {
+			Message int // Flag returns string, not int
+			Title   string
+		}
+
+		defaultConfig := FeatureWithWrongType{
+			Message: 999,
+			Title:   "default title",
+		}
+
+		result, err := client.ObjectValueDetails(ctx, "tutorial-feature", defaultConfig, evalCtx)
+		// Error is expected - type mismatch causes TYPE_MISMATCH
+		if err == nil {
+			t.Fatal("Expected an error for type mismatch, got nil")
+		}
+
+		// Verify error reason is TYPE_MISMATCH
+		if result.Reason != openfeature.ErrorReason {
+			t.Errorf("Expected reason %q, got %q", openfeature.ErrorReason, result.Reason)
+		}
+
+		config, ok := result.Value.(FeatureWithWrongType)
+		if !ok {
+			t.Fatalf("Expected result to be FeatureWithWrongType, got %T", result.Value)
+		}
+
+		// Should get the default values since the type doesn't match
+		if config.Message != defaultConfig.Message {
+			t.Errorf("Expected default Message %d, got %d", defaultConfig.Message, config.Message)
+		}
+		if config.Title != defaultConfig.Title {
+			t.Errorf("Expected default Title %q, got %q", defaultConfig.Title, config.Title)
+		}
+
+		t.Logf("Type mismatch correctly returned default with error: %v", err)
+	})
+
+	t.Run("json tag override", func(t *testing.T) {
+		// Use json tags to map struct fields to different flag field names
+		type FeatureWithTags struct {
+			Msg     string `json:"message"` // Maps to "message" in flag
+			Heading string `json:"title"`   // Maps to "title" in flag
+		}
+
+		defaultConfig := FeatureWithTags{
+			Msg:     "default message",
+			Heading: "default title",
+		}
+
+		result, err := client.ObjectValueDetails(ctx, "tutorial-feature", defaultConfig, evalCtx)
+		if err != nil {
+			t.Fatalf("ObjectValueDetails failed: %v", err)
+		}
+
+		config, ok := result.Value.(FeatureWithTags)
+		if !ok {
+			t.Fatalf("Expected result to be FeatureWithTags, got %T", result.Value)
+		}
+
+		expectedMessage := "We are very excited to welcome you to Confidence! This is a message from the tutorial flag."
+		expectedTitle := "Welcome to Confidence!"
+
+		if config.Msg != expectedMessage {
+			t.Errorf("Expected Msg %q, got %q", expectedMessage, config.Msg)
+		}
+		if config.Heading != expectedTitle {
+			t.Errorf("Expected Heading %q, got %q", expectedTitle, config.Heading)
+		}
+
+		t.Logf("JSON tag override worked: Msg=%q, Heading=%q", config.Msg, config.Heading)
+	})
+
+	// Cleanup
+	openfeature.Shutdown()
+}
+
 // createProviderWithTestState creates a provider with mock state provider and tracking logger
 func createProviderWithTestState(
 	ctx context.Context,
