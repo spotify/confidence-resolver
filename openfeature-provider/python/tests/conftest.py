@@ -76,8 +76,8 @@ class FlagLoggerProtocol(Protocol):
 class StateFetcherProtocol(Protocol):
     """Protocol for state fetching."""
 
-    def fetch(self) -> Tuple[bytes, str]:
-        """Fetch state and account ID."""
+    def fetch(self) -> Tuple[bytes, str, bool]:
+        """Fetch state, account ID, and whether state changed."""
         ...
 
     @property
@@ -113,9 +113,11 @@ class MockStateFetcher:
         self._account_id = account_id
         self.fetch_count = 0
 
-    def fetch(self) -> Tuple[bytes, str]:
+    def fetch(self) -> Tuple[bytes, str, bool]:
         self.fetch_count += 1
-        return self._state, self._account_id
+        # Always return changed=True for first fetch, False for subsequent
+        changed = self.fetch_count == 1
+        return self._state, self._account_id, changed
 
     @property
     def state(self) -> Optional[bytes]:

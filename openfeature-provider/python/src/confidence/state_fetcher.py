@@ -76,14 +76,15 @@ class StateFetcher:
         # Create a new client for this request
         return httpx.Client(timeout=30.0)
 
-    def fetch(self) -> Tuple[bytes, str]:
+    def fetch(self) -> Tuple[bytes, str, bool]:
         """Fetch the resolver state from the CDN.
 
         This method fetches the latest resolver state from the Confidence CDN.
         It uses ETag-based caching to avoid re-downloading unchanged state.
 
         Returns:
-            A tuple of (state_bytes, account_id).
+            A tuple of (state_bytes, account_id, changed) where changed indicates
+            whether the state was updated (False means 304 Not Modified).
 
         Raises:
             StateFetcherError: If the HTTP request fails or returns an error status.
@@ -102,7 +103,7 @@ class StateFetcher:
             if response.status_code == 304:
                 if self._state is not None and self._account_id is not None:
                     logger.debug("State not modified (304), using cached state")
-                    return self._state, self._account_id
+                    return self._state, self._account_id, False
                 raise StateFetcherError(
                     "Received 304 Not Modified but no cached state available"
                 )
@@ -128,7 +129,7 @@ class StateFetcher:
                 self._etag,
             )
 
-            return self._state, self._account_id
+            return self._state, self._account_id, True
 
         finally:
             if should_close:

@@ -232,7 +232,7 @@ class ConfidenceProvider(AbstractProvider):
 
         # Fetch initial state - don't fail if this fails, background thread will retry
         try:
-            state, account_id = self._state_fetcher.fetch()
+            state, account_id, _ = self._state_fetcher.fetch()
             if account_id:
                 self._resolver.set_resolver_state(state, account_id)
                 self._status = ProviderStatus.READY
@@ -785,16 +785,17 @@ class ConfidenceProvider(AbstractProvider):
                 break
 
             try:
-                state, account_id = self._state_fetcher.fetch()
-                with self._resolver_lock:
-                    if account_id:
+                state, account_id, changed = self._state_fetcher.fetch()
+                if changed and account_id:
+                    with self._resolver_lock:
                         self._resolver.set_resolver_state(state, account_id)
+                    logger.debug("Resolver state updated")
 
-                        # If we were NOT_READY, transition to READY
-                        if self._status == ProviderStatus.NOT_READY:
-                            self._status = ProviderStatus.READY
-                            self.emit_provider_ready(ProviderEventDetails())
-                            logger.info("Provider recovered and is now READY")
+                # If we were NOT_READY and now have valid state, transition to READY
+                if account_id and self._status == ProviderStatus.NOT_READY:
+                    self._status = ProviderStatus.READY
+                    self.emit_provider_ready(ProviderEventDetails())
+                    logger.info("Provider recovered and is now READY")
             except Exception as e:
                 logger.error("State fetch failed: %s", e)
 

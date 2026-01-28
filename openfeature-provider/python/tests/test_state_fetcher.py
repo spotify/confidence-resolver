@@ -76,10 +76,11 @@ class TestReloadSuccess:
         )
 
         fetcher = StateFetcher(client_secret)
-        state, account_id = fetcher.fetch()
+        state, account_id, changed = fetcher.fetch()
 
         assert state == test_state
         assert account_id == test_account_id
+        assert changed is True
         assert fetcher.state == test_state
         assert fetcher.account_id == test_account_id
 
@@ -109,7 +110,9 @@ class TestReloadNotModified:
         )
 
         fetcher = StateFetcher(client_secret)
-        state1, account_id1 = fetcher.fetch()
+        state1, account_id1, changed1 = fetcher.fetch()
+
+        assert changed1 is True
 
         # Second request returns 304 Not Modified
         httpx_mock.add_response(
@@ -117,11 +120,12 @@ class TestReloadNotModified:
             status_code=304,
         )
 
-        state2, account_id2 = fetcher.fetch()
+        state2, account_id2, changed2 = fetcher.fetch()
 
-        # Should return cached values
+        # Should return cached values with changed=False
         assert state2 == state1
         assert account_id2 == account_id1
+        assert changed2 is False
 
 
 class TestReloadServerError:
