@@ -550,9 +550,6 @@ class ConfidenceProvider(AbstractProvider):
             # Resolve with materialization handling
             response = self._resolve_with_materialization(request)
 
-            # Flush assigned logs
-            self._flush_assigned()
-
             # Check for resolved flags
             if not response.HasField("success"):
                 return FlagResolutionDetails(
