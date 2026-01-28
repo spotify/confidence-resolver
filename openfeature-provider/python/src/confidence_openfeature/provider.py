@@ -8,12 +8,15 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
+import grpc
+import httpx
 from google.protobuf import struct_pb2
 from openfeature.evaluation_context import EvaluationContext
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 from openfeature.provider import AbstractProvider, Metadata
 
+from confidence_openfeature.flag_logger import FlagLogger
 from confidence_openfeature.local_resolver import LocalResolver
 from confidence_openfeature.materialization import (
     InclusionReadOp,
@@ -32,6 +35,7 @@ from confidence_openfeature.proto.confidence.flags.resolver.v1 import (
     internal_api_pb2,
 )
 from confidence_openfeature.proto.confidence.wasm import wasm_api_pb2
+from confidence_openfeature.state_fetcher import StateFetcher
 from confidence_openfeature.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -113,10 +117,10 @@ class ConfidenceProvider(AbstractProvider):
         assign_poll_interval: float = DEFAULT_ASSIGN_POLL_INTERVAL,
         materialization_store: Optional[MaterializationStore] = None,
         use_remote_materialization_store: bool = False,
-        http_client: Optional[Any] = None,
-        grpc_channel: Optional[Any] = None,
-        state_fetcher: Optional[Any] = None,
-        flag_logger: Optional[Any] = None,
+        http_client: Optional[httpx.Client] = None,
+        grpc_channel: Optional[grpc.Channel] = None,
+        state_fetcher: Optional[StateFetcher] = None,
+        flag_logger: Optional[FlagLogger] = None,
         wasm_bytes: Optional[bytes] = None,
     ) -> None:
         """Initialize the Confidence provider.
