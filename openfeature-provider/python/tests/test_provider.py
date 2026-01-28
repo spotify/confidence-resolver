@@ -403,14 +403,14 @@ class TestResolveFlagNotFound:
 class TestResolveTypeMismatch:
     """Tests for type mismatch scenarios."""
 
-    def test_resolve_type_mismatch(
+    def test_string_as_boolean_returns_type_mismatch(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
         test_account_id: str,
         test_client_secret: str,
     ) -> None:
-        """Test that type mismatch returns default value."""
+        """Test that resolving a string as boolean returns type mismatch."""
         mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
         mock_logger = MockFlagLogger()
 
@@ -438,6 +438,164 @@ class TestResolveTypeMismatch:
             assert result.value is True
             assert result.reason == Reason.ERROR
             assert result.error_code == ErrorCode.TYPE_MISMATCH
+            assert result.error_message == "Value is not bool"
+        finally:
+            provider.shutdown()
+
+    def test_string_as_integer_returns_type_mismatch(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Test that resolving a string as integer returns type mismatch."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes={"visitor_id": "tutorial_visitor"},
+            )
+            # tutorial-feature.message is a string, try to resolve as integer
+            result = provider.resolve_integer_details(
+                flag_key="tutorial-feature.message",
+                default_value=42,
+                evaluation_context=ctx,
+            )
+
+            assert result.value == 42
+            assert result.reason == Reason.ERROR
+            assert result.error_code == ErrorCode.TYPE_MISMATCH
+            assert result.error_message == "Value is not int"
+        finally:
+            provider.shutdown()
+
+    def test_string_as_float_returns_type_mismatch(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Test that resolving a string as float returns type mismatch."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes={"visitor_id": "tutorial_visitor"},
+            )
+            # tutorial-feature.message is a string, try to resolve as float
+            result = provider.resolve_float_details(
+                flag_key="tutorial-feature.message",
+                default_value=3.14,
+                evaluation_context=ctx,
+            )
+
+            assert result.value == 3.14
+            assert result.reason == Reason.ERROR
+            assert result.error_code == ErrorCode.TYPE_MISMATCH
+            assert result.error_message == "Value is not float"
+        finally:
+            provider.shutdown()
+
+    def test_string_as_object_returns_type_mismatch(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Test that resolving a string as object returns type mismatch."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes={"visitor_id": "tutorial_visitor"},
+            )
+            # tutorial-feature.message is a string, try to resolve as object
+            default = {"key": "value"}
+            result = provider.resolve_object_details(
+                flag_key="tutorial-feature.message",
+                default_value=default,
+                evaluation_context=ctx,
+            )
+
+            assert result.value == default
+            assert result.reason == Reason.ERROR
+            assert result.error_code == ErrorCode.TYPE_MISMATCH
+            assert result.error_message == "Value is not dict"
+        finally:
+            provider.shutdown()
+
+    def test_object_as_string_returns_type_mismatch(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Test that resolving an object as string returns type mismatch."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes={"visitor_id": "tutorial_visitor"},
+            )
+            # tutorial-feature is an object, try to resolve as string
+            result = provider.resolve_string_details(
+                flag_key="tutorial-feature",
+                default_value="default",
+                evaluation_context=ctx,
+            )
+
+            assert result.value == "default"
+            assert result.reason == Reason.ERROR
+            assert result.error_code == ErrorCode.TYPE_MISMATCH
+            assert result.error_message == "Value is not str"
         finally:
             provider.shutdown()
 

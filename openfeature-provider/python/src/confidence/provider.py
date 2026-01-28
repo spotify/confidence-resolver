@@ -6,7 +6,7 @@ AbstractProvider interface for local flag resolution using the Confidence WASM r
 
 import logging
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import grpc
 import httpx
@@ -38,6 +38,9 @@ from confidence.proto.confidence.flags.resolver.v1 import (
 from confidence.proto.confidence.wasm import wasm_api_pb2
 from confidence.state_fetcher import StateFetcher
 from confidence.version import __version__
+
+# Type variable for generic resolution
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -289,22 +292,15 @@ class ConfidenceProvider(AbstractProvider):
 
         logger.info("ConfidenceProvider shutdown complete")
 
-    def resolve_boolean_details(
+    def _resolve_typed(
         self,
         flag_key: str,
-        default_value: bool,
-        evaluation_context: Optional[EvaluationContext] = None,
-    ) -> FlagResolutionDetails[bool]:
-        """Resolve a boolean flag.
-
-        Args:
-            flag_key: The flag key (may include path like "flag.nested.value").
-            default_value: The default value if resolution fails.
-            evaluation_context: The evaluation context.
-
-        Returns:
-            The resolved flag details.
-        """
+        default_value: T,
+        evaluation_context: Optional[EvaluationContext],
+        type_check: Callable[[Any], bool],
+        type_convert: Callable[[Any], T],
+    ) -> FlagResolutionDetails[T]:
+        """Generic typed resolution with type checking and conversion."""
         result = self._resolve_object(flag_key, default_value, evaluation_context)
 
         if result.value is None or result.error_code is not None:
@@ -316,18 +312,33 @@ class ConfidenceProvider(AbstractProvider):
                 variant=result.variant,
             )
 
-        if not isinstance(result.value, bool):
+        if not type_check(result.value):
             return FlagResolutionDetails(
                 value=default_value,
                 reason=Reason.ERROR,
                 error_code=ErrorCode.TYPE_MISMATCH,
-                error_message="Value is not a boolean",
+                error_message=f"Value is not {type(default_value).__name__}",
             )
 
         return FlagResolutionDetails(
-            value=result.value,
+            value=type_convert(result.value),
             reason=result.reason,
             variant=result.variant,
+        )
+
+    def resolve_boolean_details(
+        self,
+        flag_key: str,
+        default_value: bool,
+        evaluation_context: Optional[EvaluationContext] = None,
+    ) -> FlagResolutionDetails[bool]:
+        """Resolve a boolean flag."""
+        return self._resolve_typed(
+            flag_key,
+            default_value,
+            evaluation_context,
+            type_check=lambda v: isinstance(v, bool),
+            type_convert=lambda v: v,
         )
 
     def resolve_string_details(
@@ -336,39 +347,13 @@ class ConfidenceProvider(AbstractProvider):
         default_value: str,
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[str]:
-        """Resolve a string flag.
-
-        Args:
-            flag_key: The flag key (may include path like "flag.nested.value").
-            default_value: The default value if resolution fails.
-            evaluation_context: The evaluation context.
-
-        Returns:
-            The resolved flag details.
-        """
-        result = self._resolve_object(flag_key, default_value, evaluation_context)
-
-        if result.value is None or result.error_code is not None:
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=result.reason,
-                error_code=result.error_code,
-                error_message=result.error_message,
-                variant=result.variant,
-            )
-
-        if not isinstance(result.value, str):
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=Reason.ERROR,
-                error_code=ErrorCode.TYPE_MISMATCH,
-                error_message="Value is not a string",
-            )
-
-        return FlagResolutionDetails(
-            value=result.value,
-            reason=result.reason,
-            variant=result.variant,
+        """Resolve a string flag."""
+        return self._resolve_typed(
+            flag_key,
+            default_value,
+            evaluation_context,
+            type_check=lambda v: isinstance(v, str),
+            type_convert=lambda v: v,
         )
 
     def resolve_integer_details(
@@ -377,47 +362,16 @@ class ConfidenceProvider(AbstractProvider):
         default_value: int,
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[int]:
-        """Resolve an integer flag.
-
-        Args:
-            flag_key: The flag key (may include path like "flag.nested.value").
-            default_value: The default value if resolution fails.
-            evaluation_context: The evaluation context.
-
-        Returns:
-            The resolved flag details.
-        """
-        result = self._resolve_object(flag_key, default_value, evaluation_context)
-
-        if result.value is None or result.error_code is not None:
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=result.reason,
-                error_code=result.error_code,
-                error_message=result.error_message,
-                variant=result.variant,
-            )
-
-        # Handle both int and float (JSON numbers are float)
-        if isinstance(result.value, int) and not isinstance(result.value, bool):
-            return FlagResolutionDetails(
-                value=result.value,
-                reason=result.reason,
-                variant=result.variant,
-            )
-        elif isinstance(result.value, float):
-            return FlagResolutionDetails(
-                value=int(result.value),
-                reason=result.reason,
-                variant=result.variant,
-            )
-        else:
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=Reason.ERROR,
-                error_code=ErrorCode.TYPE_MISMATCH,
-                error_message="Value is not an integer",
-            )
+        """Resolve an integer flag."""
+        return self._resolve_typed(
+            flag_key,
+            default_value,
+            evaluation_context,
+            # Accept int (but not bool) or float
+            type_check=lambda v: (isinstance(v, int) and not isinstance(v, bool))
+            or isinstance(v, float),
+            type_convert=lambda v: int(v),
+        )
 
     def resolve_float_details(
         self,
@@ -425,42 +379,16 @@ class ConfidenceProvider(AbstractProvider):
         default_value: float,
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[float]:
-        """Resolve a float flag.
-
-        Args:
-            flag_key: The flag key (may include path like "flag.nested.value").
-            default_value: The default value if resolution fails.
-            evaluation_context: The evaluation context.
-
-        Returns:
-            The resolved flag details.
-        """
-        result = self._resolve_object(flag_key, default_value, evaluation_context)
-
-        if result.value is None or result.error_code is not None:
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=result.reason,
-                error_code=result.error_code,
-                error_message=result.error_message,
-                variant=result.variant,
-            )
-
-        if isinstance(result.value, (int, float)) and not isinstance(
-            result.value, bool
-        ):
-            return FlagResolutionDetails(
-                value=float(result.value),
-                reason=result.reason,
-                variant=result.variant,
-            )
-        else:
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=Reason.ERROR,
-                error_code=ErrorCode.TYPE_MISMATCH,
-                error_message="Value is not a float",
-            )
+        """Resolve a float flag."""
+        return self._resolve_typed(
+            flag_key,
+            default_value,
+            evaluation_context,
+            # Accept int or float (but not bool)
+            type_check=lambda v: isinstance(v, (int, float))
+            and not isinstance(v, bool),
+            type_convert=lambda v: float(v),
+        )
 
     def resolve_object_details(
         self,
@@ -468,39 +396,13 @@ class ConfidenceProvider(AbstractProvider):
         default_value: Dict[str, Any],
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[Dict[str, Any]]:
-        """Resolve an object flag.
-
-        Args:
-            flag_key: The flag key (may include path like "flag.nested.value").
-            default_value: The default value if resolution fails.
-            evaluation_context: The evaluation context.
-
-        Returns:
-            The resolved flag details.
-        """
-        result = self._resolve_object(flag_key, default_value, evaluation_context)
-
-        if result.value is None or result.error_code is not None:
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=result.reason,
-                error_code=result.error_code,
-                error_message=result.error_message,
-                variant=result.variant,
-            )
-
-        if not isinstance(result.value, dict):
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=Reason.ERROR,
-                error_code=ErrorCode.TYPE_MISMATCH,
-                error_message="Value is not an object",
-            )
-
-        return FlagResolutionDetails(
-            value=result.value,
-            reason=result.reason,
-            variant=result.variant,
+        """Resolve an object flag."""
+        return self._resolve_typed(
+            flag_key,
+            default_value,
+            evaluation_context,
+            type_check=lambda v: isinstance(v, dict),
+            type_convert=lambda v: v,
         )
 
     def _resolve_object(
