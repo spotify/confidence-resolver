@@ -108,7 +108,10 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
         };
 
         // Swap our pointer into the slot
-        let slot = &self.slots[slot_idx];
+        // SAFETY: slot_idx is always < N (from count % N or fastrand::usize(..N))
+        let Some(slot) = self.slots.get(slot_idx) else {
+            return;
+        };
         let old_ptr = slot.swap(ptr, Ordering::AcqRel);
 
         // If we evicted something, remove it from the set and drop both Arcs
@@ -133,10 +136,9 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
     /// Only iterates up to min(counter, N) slots for efficiency.
     pub fn iter(&self) -> BoundedSetIter<'_, T> {
         let len = self.len();
-        BoundedSetIter {
-            slots: &self.slots[..len],
-            index: 0,
-        }
+        // len is always <= N (from min(counter, N)), so this never fails
+        let slots = self.slots.get(..len).unwrap_or(&[]);
+        BoundedSetIter { slots, index: 0 }
     }
 }
 
@@ -150,9 +152,9 @@ impl<'a, T> Iterator for BoundedSetIter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.index < self.slots.len() {
-            let ptr = self.slots[self.index].load(Ordering::Acquire);
-            self.index += 1;
+        while let Some(slot) = self.slots.get(self.index) {
+            let ptr = slot.load(Ordering::Acquire);
+            self.index = self.index.saturating_add(1);
             // Slot may be null during concurrent fill: counter is incremented
             // before the pointer is stored, so we might see an in-range but
             // not-yet-filled slot.
@@ -171,7 +173,11 @@ impl<T, const N: usize> Drop for BoundedSet<T, N> {
         // Reclaim all Arc references we hold via raw pointers in slots
         let count = self.counter.load(Ordering::Acquire);
         let limit = count.min(N);
-        for slot in &self.slots[..limit] {
+        // limit is always <= N, so this slice is always valid
+        let Some(slots) = self.slots.get(..limit) else {
+            return;
+        };
+        for slot in slots {
             let ptr = slot.load(Ordering::Acquire);
             if !ptr.is_null() {
                 // SAFETY: Each non-null pointer was created by Arc::into_raw
