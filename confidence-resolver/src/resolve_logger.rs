@@ -4,11 +4,12 @@ use std::sync::{
 };
 
 use crate::{
+    bounded_set::BoundedSet,
     schema_util::{DerivedClientSchema, SchemaFromEvaluationContext},
     Host,
 };
 use arc_swap::ArcSwap;
-use papaya::{HashMap, HashSet};
+use papaya::HashMap;
 use std::marker::PhantomData;
 
 /// Maximum number of unique schemas to sample per client credential.
@@ -143,8 +144,8 @@ impl<H: Host> ResolveLogger<H> {
         // if this assertion somehow is faulty, returning an empty WriteFlagLogsRequest is sound.
         wg.take()
             .map(|state| {
-                let client_resolve_info = build_client_resolve_info(&state);
-                let flag_resolve_info = build_flag_resolve_info(&state);
+                let flag_resolve_info = build_flag_resolve_info(&state.flag_resolve_info);
+                let client_resolve_info = build_client_resolve_info(state.client_resolve_info);
 
                 let telemetry_data = {
                     let sdk = state.sdk.read().ok().and_then(|s| s.clone());
@@ -176,65 +177,9 @@ struct FlagResolveInfo {
     rule_resolve_info: HashMap<String, RuleResolveInfo>,
 }
 
-/// A bounded set of schemas that samples up to SCHEMA_SAMPLE_COUNT unique schemas.
-/// Uses a HashSet for O(1) membership checks and a fixed-size array for O(1) random eviction.
-#[derive(Debug)]
-struct BoundedSchemaSet {
-    set: HashSet<DerivedClientSchema>,
-    /// Fixed-size array for tracking which schemas to evict.
-    /// Each slot holds an Arc to a schema that is also in the set.
-    slots: Box<[ArcSwap<Option<DerivedClientSchema>>; SCHEMA_SAMPLE_COUNT]>,
-    /// Simple counter for pseudo-random slot selection (good enough for sampling).
-    counter: AtomicU32,
-}
-
-impl Default for BoundedSchemaSet {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl BoundedSchemaSet {
-    fn new() -> Self {
-        // Initialize all slots to None
-        let slots: Box<[ArcSwap<Option<DerivedClientSchema>>; SCHEMA_SAMPLE_COUNT]> =
-            Box::new(std::array::from_fn(|_| ArcSwap::from_pointee(None)));
-
-        BoundedSchemaSet {
-            set: HashSet::new(),
-            slots,
-            counter: AtomicU32::new(0),
-        }
-    }
-
-    fn insert(&self, schema: DerivedClientSchema) {
-        let guard = self.set.pin();
-
-        // Try to insert into the set. Returns true if it was actually inserted (new schema).
-        if guard.insert(schema.clone()) {
-            // Pick a slot using a simple incrementing counter for distribution
-            let slot_idx =
-                self.counter.fetch_add(1, Ordering::Relaxed) as usize % SCHEMA_SAMPLE_COUNT;
-
-            // Swap the new schema into that slot
-            // SAFETY: slot_idx is always < SCHEMA_SAMPLE_COUNT due to modulo
-            let Some(slot) = self.slots.get(slot_idx) else {
-                // This branch is unreachable due to modulo, but satisfies clippy
-                return;
-            };
-            let evicted = slot.swap(Arc::new(Some(schema)));
-
-            // If we evicted something, remove it from the set
-            if let Some(evicted_schema) = evicted.as_ref() {
-                guard.remove(evicted_schema);
-            }
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 struct ClientResolveInfo {
-    schemas: BoundedSchemaSet,
+    schemas: BoundedSet<DerivedClientSchema, SCHEMA_SAMPLE_COUNT>,
 }
 
 #[derive(Debug)]
@@ -286,13 +231,14 @@ fn to_pb_schema_instance(
     }
 }
 
-fn build_client_resolve_info(state: &ResolveInfoState) -> Vec<pb::ClientResolveInfo> {
-    let mp = state.client_resolve_info.pin();
+fn build_client_resolve_info(
+    client_resolve_info: HashMap<String, ClientResolveInfo>,
+) -> Vec<pb::ClientResolveInfo> {
+    let mp = client_resolve_info.pin();
     mp.iter()
         .map(|(credential, info)| {
             let client = extract_client(credential);
-            let sp = info.schemas.set.pin();
-            let schemas = sp.iter().map(to_pb_schema_instance).collect();
+            let schemas = info.schemas.iter().map(to_pb_schema_instance).collect();
             pb::ClientResolveInfo {
                 client,
                 client_credential: credential.clone(),
@@ -332,8 +278,8 @@ fn to_pb_rule(
     }
 }
 
-fn build_flag_resolve_info(state: &ResolveInfoState) -> Vec<pb::FlagResolveInfo> {
-    let mp = state.flag_resolve_info.pin();
+fn build_flag_resolve_info(flag_resolve_info: &HashMap<String, FlagResolveInfo>) -> Vec<pb::FlagResolveInfo> {
+    let mp = flag_resolve_info.pin();
     mp.iter()
         .map(|(flag_name, info)| {
             let vp = info.variant_resolve_info.pin();
@@ -408,11 +354,6 @@ mod tests {
 
     struct TestHost;
     impl Host for TestHost {
-        #[cfg(not(feature = "std"))]
-        fn random_alphanumeric(_len: usize) -> String {
-            "random".to_string()
-        }
-
         #[cfg(not(feature = "std"))]
         fn current_time() -> Timestamp {
             Timestamp {

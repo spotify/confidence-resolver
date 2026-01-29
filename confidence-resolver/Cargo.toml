@@ -16,7 +16,7 @@ crate-type = ['rlib']
 
 [features]
 default = ["std", "json"]
-std = ["chrono/clock", "rand/thread_rng", "rust-crypto-wasm"]
+std = ["chrono/clock", "rust-crypto-wasm"]
 json = ["serde", "serde_json", "pbjson", "pbjson-types"]
 
 [dependencies]
@@ -33,10 +33,10 @@ prost-types = { version = "0.12", default-features = false }
 bytes = { version = "1.4.0", default-features = false }
 papaya = "0.2.3"
 arc-swap = "1.7.1"
+fastrand = "2"
 
 # Optional dependency for std
 rust-crypto-wasm = { version = "0.3.1", optional = true }
-rand = { version = "0.9.1", optional = true }
 pbjson = { version = "0.6.0", optional = true }
 pbjson-types = { version = "0.6.0", optional = true }
 serde = { version = "1.0.189", optional = true }

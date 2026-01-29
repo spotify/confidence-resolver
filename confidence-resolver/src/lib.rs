@@ -24,9 +24,24 @@ const NULL: Value = Value { kind: None };
 
 const MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE: usize = 200;
 
+/// Seeds the thread-local random number generator.
+/// 
+/// In WASM environments, this should be called early in each thread with
+/// entropy from the host (e.g., from JavaScript's `crypto.getRandomValues()`).
+/// In std environments, fastrand auto-seeds from OS entropy.
+pub fn seed_rng(seed: u64) {
+    fastrand::seed(seed);
+}
+
+/// Generates a random alphanumeric string of the given length.
+fn random_alphanumeric(len: usize) -> String {
+    (0..len).map(|_| fastrand::alphanumeric()).collect()
+}
+
 use err::Fallible;
 
 pub mod assign_logger;
+mod bounded_set;
 mod err;
 pub mod flag_logger;
 mod gzip;
@@ -221,14 +236,6 @@ pub struct FlagToApply {
 }
 
 pub trait Host {
-    #[cfg(not(feature = "std"))]
-    fn random_alphanumeric(len: usize) -> String;
-    #[cfg(feature = "std")]
-    fn random_alphanumeric(len: usize) -> String {
-        use rand::distr::{Alphanumeric, SampleString};
-        Alphanumeric.sample_string(&mut rand::rng(), len)
-    }
-
     fn log(_: &str) {
         // noop
     }
@@ -268,10 +275,11 @@ pub trait Host {
             use std::io::Write;
 
             use crypto::{aes, blockmodes, buffer};
-            use rand::RngCore;
 
             let mut iv = [0u8; 16];
-            rand::rng().fill_bytes(&mut iv);
+            for byte in &mut iv {
+                *byte = fastrand::u8(..);
+            }
 
             let mut final_encrypted_token = Vec::<u8>::new();
             final_encrypted_token
@@ -563,7 +571,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             .map(|r| r.resolved_value.clone())
             .collect();
 
-        let resolve_id = H::random_alphanumeric(32);
+        let resolve_id = random_alphanumeric(32);
         let mut response = flags_resolver::ResolveFlagsResponse {
             resolve_id: resolve_id.clone(),
             ..Default::default()
@@ -1598,7 +1606,7 @@ mod tests {
 
     #[test]
     fn test_random_alphanumeric() {
-        let rnd = L::random_alphanumeric(32);
+        let rnd = random_alphanumeric(32);
         let re = regex::Regex::new(r"^[a-zA-Z0-9]{32}$").unwrap();
         assert!(re.is_match(&rnd));
     }
