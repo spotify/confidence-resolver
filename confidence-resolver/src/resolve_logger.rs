@@ -144,8 +144,8 @@ impl<H: Host> ResolveLogger<H> {
         // if this assertion somehow is faulty, returning an empty WriteFlagLogsRequest is sound.
         wg.take()
             .map(|state| {
-                let flag_resolve_info = build_flag_resolve_info(&state.flag_resolve_info);
-                let client_resolve_info = build_client_resolve_info(state.client_resolve_info);
+                let client_resolve_info = build_client_resolve_info(&state);
+                let flag_resolve_info = build_flag_resolve_info(&state);
 
                 let telemetry_data = {
                     let sdk = state.sdk.read().ok().and_then(|s| s.clone());
@@ -231,10 +231,8 @@ fn to_pb_schema_instance(
     }
 }
 
-fn build_client_resolve_info(
-    client_resolve_info: HashMap<String, ClientResolveInfo>,
-) -> Vec<pb::ClientResolveInfo> {
-    let mp = client_resolve_info.pin();
+fn build_client_resolve_info(state: &ResolveInfoState) -> Vec<pb::ClientResolveInfo> {
+    let mp = state.client_resolve_info.pin();
     mp.iter()
         .map(|(credential, info)| {
             let client = extract_client(credential);
@@ -278,8 +276,8 @@ fn to_pb_rule(
     }
 }
 
-fn build_flag_resolve_info(flag_resolve_info: &HashMap<String, FlagResolveInfo>) -> Vec<pb::FlagResolveInfo> {
-    let mp = flag_resolve_info.pin();
+fn build_flag_resolve_info(state: &ResolveInfoState) -> Vec<pb::FlagResolveInfo> {
+    let mp = state.flag_resolve_info.pin();
     mp.iter()
         .map(|(flag_name, info)| {
             let vp = info.variant_resolve_info.pin();
