@@ -57,7 +57,7 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
             Box::new(std::array::from_fn(|_| AtomicPtr::new(ptr::null_mut())));
 
         BoundedSet {
-            set: HashSet::new(),
+            set: HashSet::with_capacity(N),
             slots,
             counter: AtomicUsize::new(0),
         }
@@ -123,12 +123,8 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
 
     /// Returns the number of items currently in the set.
     pub fn len(&self) -> usize {
-        self.set.pin().len()
-    }
-
-    /// Returns true if the set is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        let count = self.counter.load(Ordering::Acquire);
+        count.min(N)
     }
 
     /// Returns an iterator over references to items in the set.
@@ -136,8 +132,7 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
     /// Iterates over the slots array, yielding &T for each non-null entry.
     /// Only iterates up to min(counter, N) slots for efficiency.
     pub fn iter(&self) -> BoundedSetIter<'_, T> {
-        let count = self.counter.load(Ordering::Acquire);
-        let len = count.min(N);
+        let len = self.len();
         BoundedSetIter {
             slots: &self.slots[..len],
             index: 0,
@@ -158,6 +153,9 @@ impl<'a, T> Iterator for BoundedSetIter<'a, T> {
         while self.index < self.slots.len() {
             let ptr = self.slots[self.index].load(Ordering::Acquire);
             self.index += 1;
+            // Slot may be null during concurrent fill: counter is incremented
+            // before the pointer is stored, so we might see an in-range but
+            // not-yet-filled slot.
             if !ptr.is_null() {
                 // SAFETY: ptr came from Arc::into_raw and the Arc is still alive
                 // (held by the set). We only yield a shared reference.
@@ -231,7 +229,6 @@ mod tests {
     fn empty_set() {
         let set: BoundedSet<String, 5> = BoundedSet::new();
         
-        assert!(set.is_empty());
         assert_eq!(set.len(), 0);
     }
 

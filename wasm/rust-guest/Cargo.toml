@@ -10,7 +10,6 @@ crate-type = ["cdylib"]  # This is required for WASM
 [dependencies]
 wasm-msg = { path = "../../wasm-msg", version = "0.2.1" }
 confidence_resolver = { path = "../../confidence-resolver", version = "0.11.0", default-features = false }
-rand = { version = "0.9.1", default-features = false, features = ["alloc", "small_rng" ]}
 prost = { version = "0.12", default-features = false }
 prost-types = { version = "0.12", default-features = false }
 # TODO re-export Bytes
