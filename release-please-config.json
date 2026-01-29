@@ -53,7 +53,8 @@
       "include-component-in-tag": true,
       "component": "openfeature-provider/go",
       "tag-separator": "/",
-      "extra-files": ["confidence/version.go"]
+      "extra-files": ["confidence/version.go"],
+      "exclude-paths": ["confidence/internal/local_resolver/assets/confidence_resolver.wasm"]
     },
     "openfeature-provider/ruby": {
       "release-type": "ruby",
