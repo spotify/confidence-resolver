@@ -1568,6 +1568,8 @@ mod tests {
     const EXAMPLE_STATE: &[u8] = include_bytes!("../test-payloads/resolver_state.pb");
     const EXAMPLE_STATE_2: &[u8] =
         include_bytes!("../test-payloads/resolver_state_with_custom_targeting_flag.pb");
+    const MULTIPLE_STICKY_FLAGS_STATE: &[u8] =
+        include_bytes!("../test-payloads/resolver_state_with_multiple_sticky_flags.pb");
     const SECRET: &str = "mkjJruAATQWjeY7foFIWfVAcBWnci2YF";
 
     const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
@@ -4131,6 +4133,113 @@ mod tests {
                 assert_eq!(result.resolved_value.reason, ResolveReason::Match);
             }
             Err(err) => panic!("Expected success, got error: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_resolve_with_sticky_multiple_flags_returns_multiple_read_ops() {
+        // This test verifies that when resolving multiple flags that each have rules
+        // requiring materializations (via materialization_spec), the resolver returns
+        // read operations for each flag's materialization requirements.
+        //
+        // The test state (MULTIPLE_STICKY_FLAGS_STATE) contains:
+        // - Three flags: sticky-flag-1, sticky-flag-2, sticky-flag-3
+        // - Each flag has a rule with a different materialization: experiment_1, experiment_2, experiment_3
+        // - Client secret: "test-secret"
+
+        let state = ResolverState::from_proto(
+            MULTIPLE_STICKY_FLAGS_STATE.to_owned().try_into().unwrap(),
+            "test",
+        )
+        .unwrap();
+
+        let context_json = r#"{"user_id": "test-user-456"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context("test-secret", context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        // Request all three flags with fail_fast_on_sticky = false
+        let resolve_flags_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: "test-secret".to_string(),
+            flags: vec![
+                "flags/sticky-flag-1".to_string(),
+                "flags/sticky-flag-2".to_string(),
+                "flags/sticky-flag-3".to_string(),
+            ],
+            apply: false,
+            sdk: None,
+        };
+
+        let sticky_req = ResolveWithStickyRequest {
+            resolve_request: Some(resolve_flags_req),
+            materializations: vec![],   // No materializations provided
+            fail_fast_on_sticky: false, // Collect all missing materializations
+            not_process_sticky: false,
+        };
+
+        let sticky_result = resolver
+            .resolve_flags_sticky(&sticky_req)
+            .expect("sticky resolution failed");
+
+        // Should return ReadOpsRequest with read operations for all three flags
+        match sticky_result.resolve_result {
+            Some(ResolveResult::ReadOpsRequest(read_ops)) => {
+                assert_eq!(
+                    read_ops.ops.len(),
+                    3,
+                    "Expected 3 read operations (one per flag), got {}",
+                    read_ops.ops.len()
+                );
+
+                // Collect all materializations from the read ops
+                let mut materializations_seen: HashSet<String> = HashSet::new();
+                let expected_materializations: HashSet<String> = [
+                    "experiment_1".to_string(),
+                    "experiment_2".to_string(),
+                    "experiment_3".to_string(),
+                ]
+                .into_iter()
+                .collect();
+
+                for (i, op) in read_ops.ops.iter().enumerate() {
+                    match &op.op {
+                        Some(read_op::Op::VariantReadOp(variant_op)) => {
+                            assert!(
+                                expected_materializations.contains(&variant_op.materialization),
+                                "Op {}: unexpected materialization '{}'",
+                                i,
+                                variant_op.materialization
+                            );
+                            assert!(
+                                !materializations_seen.contains(&variant_op.materialization),
+                                "Op {}: duplicate materialization '{}'",
+                                i,
+                                variant_op.materialization
+                            );
+                            materializations_seen.insert(variant_op.materialization.clone());
+
+                            // Verify unit matches our request context
+                            assert_eq!(
+                                variant_op.unit, "test-user-456",
+                                "Op {}: expected unit 'test-user-456', got '{}'",
+                                i, variant_op.unit
+                            );
+                        }
+                        other => panic!("Op {}: expected VariantReadOp, got {:?}", i, other),
+                    }
+                }
+
+                // Verify we saw all expected materializations
+                for mat in &expected_materializations {
+                    assert!(
+                        materializations_seen.contains(mat),
+                        "Missing expected materialization '{}' in read ops",
+                        mat
+                    );
+                }
+            }
+            other => panic!("Expected ReadOpsRequest, got: {:?}", other),
         }
     }
 }
