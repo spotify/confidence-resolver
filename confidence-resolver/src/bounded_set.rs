@@ -66,8 +66,12 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
     /// Inserts an item into the set.
     ///
     /// If the item already exists (by value), this is a no-op.
-    /// If the set is at capacity, a random existing item is evicted.
+    /// If the set is at capacity, uses reservoir sampling: each item (including
+    /// the new one) has equal probability of being discarded.
     pub fn insert(&self, item: T) {
+        if N == 0 {
+            return;
+        }
         // Wrap in Arc, clone for set (refcount = 2)
         let arc = Arc::new(item);
         let arc_for_set = arc.clone();
@@ -87,29 +91,23 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
 
         // Successfully inserted a new item
         // Pick a slot: sequential during fill phase, random after full
-        if N == 0 {
-            // N == 0: can't store anything, just clean up
-            // Remove from set and reclaim our Arc
-            // SAFETY: ptr came from Arc::into_raw above
-            let arc = unsafe { Arc::from_raw(ptr) };
-            guard.remove(&arc);
-            return;
-        }
-
         let slot_idx = {
             let count = self.counter.fetch_add(1, Ordering::Relaxed);
             if count < N {
                 // Filling phase - sequential, no eviction possible
                 count
             } else {
-                // Full - random eviction
-                fastrand::usize(..N)
+                // Full - reservoir sampling: pick 0..N+1, if N then discard new item
+                fastrand::usize(..N.saturating_add(1))
             }
         };
 
-        // Swap our pointer into the slot
-        // SAFETY: slot_idx is always < N (from count % N or fastrand::usize(..N))
+        // Swap our pointer into the slot (or discard if slot_idx >= N)
         let Some(slot) = self.slots.get(slot_idx) else {
+            // Reservoir sampling: "evict" the new item instead of an existing one
+            // SAFETY: ptr came from Arc::into_raw above
+            let arc = unsafe { Arc::from_raw(ptr) };
+            guard.remove(&arc);
             return;
         };
         let old_ptr = slot.swap(ptr, Ordering::AcqRel);
