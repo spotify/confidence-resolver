@@ -28,8 +28,7 @@ pub struct BoundedSet<T, const N: usize> {
     /// Fixed-size array of raw pointers for eviction tracking.
     /// Each non-null pointer was obtained from Arc::into_raw and represents
     /// one reference count that we "own".
-    /// Wrapped in Option so into_iter can take ownership without allocation.
-    slots: Option<Box<[AtomicPtr<T>; N]>>,
+    slots: Box<[AtomicPtr<T>; N]>,
     /// Counter for tracking inserts. Used for sequential slot filling initially,
     /// switches to random eviction once counter >= N.
     counter: AtomicUsize,
@@ -59,7 +58,7 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
 
         BoundedSet {
             set: HashSet::new(),
-            slots: Some(slots),
+            slots,
             counter: AtomicUsize::new(0),
         }
     }
@@ -109,9 +108,7 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
         };
 
         // Swap our pointer into the slot
-        // slots is always Some during normal operation (only None after into_iter)
-        let slots = self.slots.as_ref().expect("slots taken by into_iter");
-        let slot = &slots[slot_idx];
+        let slot = &self.slots[slot_idx];
         let old_ptr = slot.swap(ptr, Ordering::AcqRel);
 
         // If we evicted something, remove it from the set and drop both Arcs
@@ -139,11 +136,10 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
     /// Iterates over the slots array, yielding &T for each non-null entry.
     /// Only iterates up to min(counter, N) slots for efficiency.
     pub fn iter(&self) -> BoundedSetIter<'_, T> {
-        let slots = self.slots.as_ref().expect("slots taken by into_iter");
         let count = self.counter.load(Ordering::Acquire);
         let len = count.min(N);
         BoundedSetIter {
-            slots: &slots[..len],
+            slots: &self.slots[..len],
             index: 0,
         }
     }
@@ -172,93 +168,17 @@ impl<'a, T> Iterator for BoundedSetIter<'a, T> {
     }
 }
 
-impl<T: Hash + Eq, const N: usize> IntoIterator for BoundedSet<T, N> {
-    type Item = T;
-    type IntoIter = BoundedSetIntoIter<T, N>;
-
-    /// Consumes the set and returns an iterator over owned values.
-    /// 
-    /// This is zero-allocation: we take the slots, then let self drop
-    /// (which drops the set, decrementing refcounts to 1). The iterator
-    /// then owns the slots and can unwrap each Arc to get owned T.
-    fn into_iter(mut self) -> Self::IntoIter {
-        // Take the slots. Drop will find None and skip cleanup.
-        let slots = self.slots.take().expect("slots already taken");
-        let count = self.counter.load(Ordering::Acquire);
-        let limit = count.min(N);
-        
-        // self drops here:
-        // - self.set drops → Arc<T> refcounts go from 2 to 1
-        // - self.slots is None, Drop does nothing
-        
-        BoundedSetIntoIter {
-            slots,
-            limit,
-            index: 0,
-        }
-    }
-}
-
-/// An iterator that yields owned values from a consumed `BoundedSet`.
-pub struct BoundedSetIntoIter<T, const N: usize> {
-    slots: Box<[AtomicPtr<T>; N]>,
-    limit: usize,
-    index: usize,
-}
-
-impl<T, const N: usize> Iterator for BoundedSetIntoIter<T, N> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while self.index < self.limit {
-            let ptr = self.slots[self.index].load(Ordering::Acquire);
-            self.index += 1;
-            
-            if !ptr.is_null() {
-                // SAFETY: ptr came from Arc::into_raw, and we dropped the set
-                // so refcount is now 1 - we're the sole owner
-                let arc = unsafe { Arc::from_raw(ptr) };
-                // Unwrap the Arc - refcount is 1, so this always succeeds
-                return Some(Arc::into_inner(arc).expect("refcount should be 1"));
-            }
-        }
-        None
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        // We don't know exactly how many non-null slots remain
-        (0, Some(self.limit.saturating_sub(self.index)))
-    }
-}
-
-impl<T, const N: usize> Drop for BoundedSetIntoIter<T, N> {
-    fn drop(&mut self) {
-        // Clean up any remaining slots we haven't iterated
-        while self.index < self.limit {
-            let ptr = self.slots[self.index].load(Ordering::Acquire);
-            self.index += 1;
-            if !ptr.is_null() {
-                // SAFETY: ptr came from Arc::into_raw
-                unsafe { drop(Arc::from_raw(ptr)) };
-            }
-        }
-    }
-}
-
 impl<T, const N: usize> Drop for BoundedSet<T, N> {
     fn drop(&mut self) {
         // Reclaim all Arc references we hold via raw pointers in slots
-        // (slots is None if into_iter was called)
-        if let Some(ref slots) = self.slots {
-            let count = self.counter.load(Ordering::Acquire);
-            let limit = count.min(N);
-            for slot in &slots[..limit] {
-                let ptr = slot.load(Ordering::Acquire);
-                if !ptr.is_null() {
-                    // SAFETY: Each non-null pointer was created by Arc::into_raw
-                    // and represents one reference we own
-                    unsafe { drop(Arc::from_raw(ptr)) };
-                }
+        let count = self.counter.load(Ordering::Acquire);
+        let limit = count.min(N);
+        for slot in &self.slots[..limit] {
+            let ptr = slot.load(Ordering::Acquire);
+            if !ptr.is_null() {
+                // SAFETY: Each non-null pointer was created by Arc::into_raw
+                // and represents one reference we own
+                unsafe { drop(Arc::from_raw(ptr)) };
             }
         }
         // The HashSet will drop its Arc references automatically
@@ -294,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn into_iter_yields_all() {
+    fn iter_yields_all() {
         let set: BoundedSet<i32, 10> = BoundedSet::new();
         
         set.insert(1);
@@ -303,7 +223,7 @@ mod tests {
         
         // With hybrid approach, first N inserts use sequential slots
         // so no eviction happens until we exceed capacity
-        let sum: i32 = set.into_iter().sum();
+        let sum: i32 = set.iter().sum();
         assert_eq!(sum, 6);
     }
 
@@ -349,15 +269,12 @@ mod tests {
         let len = set.len();
         assert!(len <= CAPACITY, "len {} exceeded capacity {}", len, CAPACITY);
 
-        // Get exclusive access now that all threads are done
-        let set = StdArc::try_unwrap(set).expect("Arc should have single owner");
-
-        // 2. Consume and iterate - should not crash
-        let items: Vec<_> = set.into_iter().collect();
+        // 2. Iterate - should not crash
+        let items: Vec<_> = set.iter().collect();
         assert_eq!(items.len(), len, "iteration count mismatch");
 
         // 3. All items in the set are valid (not corrupted)
-        for s in &items {
+        for s in items {
             assert!(s.starts_with("thread"), "corrupted string: {}", s);
         }
 
