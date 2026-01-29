@@ -1,24 +1,24 @@
 //! A concurrent bounded set that samples up to N unique items using random eviction.
 
+use papaya::HashSet;
 use std::fmt::{self, Debug};
 use std::hash::Hash;
+use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Arc;
-use papaya::HashSet;
-use std::ptr;
 
 /// A bounded set that stores up to `N` unique items.
-/// 
+///
 /// When full, inserting a new item evicts a randomly selected existing item.
 /// Items are deduplicated by value using Hash + Eq.
-/// 
+///
 /// # Implementation
-/// 
-/// Uses a concurrent HashSet of `Arc<T>` for O(1) membership checks and a 
+///
+/// Uses a concurrent HashSet of `Arc<T>` for O(1) membership checks and a
 /// fixed-size array of raw pointers for O(1) random eviction. Each item is
-/// wrapped in an Arc with refcount = 2: one reference in the set, one 
+/// wrapped in an Arc with refcount = 2: one reference in the set, one
 /// "leaked" as a raw pointer in a slot.
-/// 
+///
 /// This ensures memory safety under concurrent access: even if one thread
 /// is probing the set while another evicts, the Arc's refcount prevents
 /// use-after-free.
@@ -64,14 +64,14 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
     }
 
     /// Inserts an item into the set.
-    /// 
+    ///
     /// If the item already exists (by value), this is a no-op.
     /// If the set is at capacity, a random existing item is evicted.
     pub fn insert(&self, item: T) {
         // Wrap in Arc, clone for set (refcount = 2)
         let arc = Arc::new(item);
         let arc_for_set = arc.clone();
-        
+
         // "Leak" one Arc as a raw pointer for the slot (refcount stays 2)
         let ptr = Arc::into_raw(arc) as *mut T;
 
@@ -95,7 +95,7 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
             guard.remove(&arc);
             return;
         }
-        
+
         let slot_idx = {
             let count = self.counter.fetch_add(1, Ordering::Relaxed);
             if count < N {
@@ -128,7 +128,7 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
     }
 
     /// Returns an iterator over references to items in the set.
-    /// 
+    ///
     /// Iterates over the slots array, yielding &T for each non-null entry.
     /// Only iterates up to min(counter, N) slots for efficiency.
     pub fn iter(&self) -> BoundedSetIter<'_, T> {
@@ -190,23 +190,23 @@ mod tests {
     #[test]
     fn insert_and_dedup() {
         let set: BoundedSet<String, 10> = BoundedSet::new();
-        
+
         set.insert("hello".to_string());
         set.insert("world".to_string());
         set.insert("hello".to_string()); // duplicate
-        
+
         assert_eq!(set.len(), 2);
     }
 
     #[test]
     fn eviction_when_full() {
         let set: BoundedSet<i32, 3> = BoundedSet::new();
-        
+
         // Insert more than capacity
         for i in 0..10 {
             set.insert(i);
         }
-        
+
         // Should have at most N items
         assert!(set.len() <= 3);
     }
@@ -214,11 +214,11 @@ mod tests {
     #[test]
     fn iter_yields_all() {
         let set: BoundedSet<i32, 10> = BoundedSet::new();
-        
+
         set.insert(1);
         set.insert(2);
         set.insert(3);
-        
+
         // With hybrid approach, first N inserts use sequential slots
         // so no eviction happens until we exceed capacity
         let sum: i32 = set.iter().sum();
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn empty_set() {
         let set: BoundedSet<String, 5> = BoundedSet::new();
-        
+
         assert_eq!(set.len(), 0);
     }
 
@@ -264,7 +264,12 @@ mod tests {
         // Invariants that must hold:
         // 1. Length is at most CAPACITY
         let len = set.len();
-        assert!(len <= CAPACITY, "len {} exceeded capacity {}", len, CAPACITY);
+        assert!(
+            len <= CAPACITY,
+            "len {} exceeded capacity {}",
+            len,
+            CAPACITY
+        );
 
         // 2. Iterate - should not crash
         let items: Vec<_> = set.iter().collect();
@@ -280,9 +285,9 @@ mod tests {
 
     #[test]
     fn concurrent_dedup_stress_test() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc as StdArc;
         use std::thread;
-        use std::sync::atomic::{AtomicUsize, Ordering};
 
         const NUM_THREADS: usize = 8;
         const ITERATIONS: usize = 1_000;
@@ -326,9 +331,9 @@ mod tests {
 
     #[test]
     fn drop_under_contention() {
+        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc as StdArc;
         use std::thread;
-        use std::sync::atomic::{AtomicBool, Ordering};
 
         const NUM_THREADS: usize = 4;
         const CAPACITY: usize = 10;
@@ -365,5 +370,4 @@ mod tests {
         }
         // If we get here without crashing/leaking, the test passed
     }
-
 }

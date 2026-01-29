@@ -25,7 +25,7 @@ const NULL: Value = Value { kind: None };
 const MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE: usize = 200;
 
 /// Seeds the thread-local random number generator.
-/// 
+///
 /// In WASM environments, this should be called early in each thread with
 /// entropy from the host (e.g., from JavaScript's `crypto.getRandomValues()`).
 /// In std environments, fastrand auto-seeds from OS entropy.

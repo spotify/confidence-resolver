@@ -105,7 +105,6 @@ fn convert_reason(reason: ResolveReason) -> i32 {
 struct WasmHost;
 
 impl Host for WasmHost {
-
     fn log(message: &str) {
         log_message(LogMessage {
             message: message.to_string(),
