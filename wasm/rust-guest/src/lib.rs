@@ -164,6 +164,13 @@ fn get_resolver_state() -> Result<Arc<ResolverState>, String> {
 }
 
 wasm_msg_guest! {
+    // Initialize the current thread with entropy for the RNG.
+    // Should be called once per thread in multi-threaded WASM environments.
+    fn init_thread(request: proto::InitThreadRequest) -> WasmResult<Void> {
+        confidence_resolver::seed_rng(request.rng_seed);
+        Ok(VOID)
+    }
+
     fn set_resolver_state(request: SetResolverStateRequest) -> WasmResult<Void> {
         let state_pb = ResolverStatePb::decode(request.state.as_slice())
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
