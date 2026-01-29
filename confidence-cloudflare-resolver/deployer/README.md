@@ -25,7 +25,7 @@ docker run -it \
     <YOUR_IMAGE_NAME>
 ```
 
-You can get the `CONFIDENCE_CLIENT_SECRET` from the Confidence dashboard, under `API Clients`.
+You can get the `CONFIDENCE_CLIENT_SECRET` from the Confidence dashboard, under `Clients`.
 
 ## Optional Variables
 
