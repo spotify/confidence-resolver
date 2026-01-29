@@ -13,7 +13,6 @@ import "confidence/flags/resolver/v1/types.proto";
 import "confidence/flags/resolver/v1/events/events.proto";
 import "confidence/auth/v1/auth.proto";
 import "confidence/api/annotations.proto";
-import "confidence/flags/admin/v1/events/events.proto";
 
 option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;

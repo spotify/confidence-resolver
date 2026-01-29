@@ -5,8 +5,6 @@ package confidence.flags.admin.v1;
 import "google/api/resource.proto";
 import "google/api/field_behavior.proto";
 import "google/protobuf/struct.proto";
-import "google/protobuf/timestamp.proto";
-import "google/type/decimal.proto";
 
 import "confidence/flags/types/v1/target.proto";
 import "confidence/flags/types/v1/types.proto";
@@ -16,6 +14,7 @@ option java_multiple_files = true;
 option java_outer_classname = "TypesProto";
 
 // A reusable slice of an entity population.
+// Minimal version for resolver - unused fields removed.
 message Segment {
   option (google.api.resource) = {
     type: "flags.confidence.dev/Segment"
@@ -25,108 +24,13 @@ message Segment {
   };
 
   // The resource name of the segment.
-  // For example:
-  // `segments/0smva5nxuhv4yts6paxt`
   string name = 1 [(google.api.field_behavior) = IDENTIFIER];
-
-  // A human-friendly name for the segment.
-  string display_name = 12 [(google.api.field_behavior) = OPTIONAL];
 
   // The targeting that this segment adheres to.
   flags.types.v1.Targeting targeting = 2;
 
-  // How much of the total population that is allocated to this segment,
-  // and the coordination with other segments.
-  Allocation allocation = 3;
-
-  // Current state of the segment.
-  State state = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
-
   // A bitset representing the buckets that are allocated for this segment.
   BitsetAllocation bitset_allocation = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
-
-  // General labels for this resource.
-  map<string, string> labels = 7;
-
-  // The workflow instance that created this segment. If set, permissions
-  // will be inherited from the workflow instance, in addition to the segment permissions.
-  string workflow_instance = 16 [
-    (google.api.resource_reference).type = "workflow.confidence.dev/WorkflowInstance",
-    (google.api.field_behavior) = OPTIONAL
-  ];
-
-  // The flag owning the rule this segment is connected to. If set, permissions
-  // will be inherited from the flag, in addition to the segment permissions.
-  string flag = 17 [
-    (google.api.resource_reference).type = "flags.confidence.dev/Flag",
-    (google.api.field_behavior) = OPTIONAL
-  ];
-
-  // Time when the segment was first created.
-  google.protobuf.Timestamp create_time = 8 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Time when the segment was last updated.
-  google.protobuf.Timestamp update_time = 9 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Reference to the identity that created this segment.
-  string creator = 13 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
-    (google.api.field_behavior) = REQUIRED
-  ];
-
-  // Reference to the identity that last updated this segment.
-  string updater = 14 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
-    (google.api.field_behavior) = REQUIRED
-  ];
-
-  // The owner of the resource. If not set will default to the creator.
-  string owner = 15 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OPTIONAL
-  ];
-
-  // The state of a segment.
-  enum State {
-    // Unspecified state.
-    STATE_UNSPECIFIED = 0;
-
-    // Segment is ready for use (no allocation is needed).
-    OK = 4;
-
-    // Segment has is configured for exclusivity, but has not been allocated.
-    UNALLOCATED = 1;
-
-    // Segment has been allocated with an exclusive allocation.
-    ALLOCATED = 2;
-
-    // Segment is no longer used.
-    ARCHIVED = 3;
-  }
-
-  // Allocation and coordination of the segment.
-  message Allocation {
-    // Fraction of entity population that is eligible for this segment.
-    google.type.Decimal proportion = 1;
-
-    // Set of tags that can be used to coordinate this segment with others.
-    repeated string exclusivity_tags = 3;
-
-    // (-- api-linter: core::0140::prepositions=disabled
-    //     aip.dev/not-precedent: It means that we're exclusive to other tags, makes sense. --)
-    // List of tags that this segment is exclusive to, meaning that an entity
-    // cannot be in this segment and also in any segment that has a tag in the
-    // list.
-    repeated string exclusive_to = 4;
-  }
 
   // A bit set where each bit represents a fixed fraction of the entity
   // population.
@@ -136,61 +40,8 @@ message Segment {
   }
 }
 
-// A slice of the entity population that has is materialized as individual entity identifiers stored in a database.
-// Useful for segmenting a large list of entities that cannot otherwise be easily targeted through evaluation context.
-message MaterializedSegment {
-  option (google.api.resource) = {
-    type: "flags.confidence.dev/MaterializedSegment"
-    pattern: "materializedSegments/{materialized_segment}"
-    singular: "materializedSegment"
-    plural: "materializedSegments"
-  };
-
-  // The resource name of the materialized segment.
-  // For example:
-  // `materializedSegment/0smva5nxuhv4yts6paxt`
-  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
-
-  // A human-friendly name for the segment.
-  string display_name = 12 [(google.api.field_behavior) = REQUIRED];
-
-  // General labels for this resource.
-  map<string, string> labels = 7;
-
-  // Time when the segment was first created.
-  google.protobuf.Timestamp create_time = 8 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Time when the segment was last updated.
-  google.protobuf.Timestamp update_time = 9 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Reference to the identity that created this segment.
-  string creator = 13 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
-    (google.api.field_behavior) = REQUIRED
-  ];
-
-  // Reference to the identity that last updated this segment.
-  string updater = 14 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
-    (google.api.field_behavior) = REQUIRED
-  ];
-
-  // The owner of the resource. If not set will default to the creator.
-  string owner = 15 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OPTIONAL
-  ];
-}
-
 // A flag controlling how entities are assigned variants.
+// Minimal version for resolver - unused fields removed.
 message Flag {
   option (google.api.resource) = {
     type: "flags.confidence.dev/Flag"
@@ -200,16 +51,9 @@ message Flag {
   };
 
   // The resource name of the flag.
-  // For example:
-  // `flags/my-flag`
   string name = 1 [
     (google.api.field_behavior) = IMMUTABLE,
     (google.api.field_behavior) = IDENTIFIER
-  ];
-
-  // A description for the flag.
-  string description = 13 [
-    (google.api.field_behavior) = OPTIONAL
   ];
 
   // Schema for the value of each variant.
@@ -217,10 +61,7 @@ message Flag {
     (google.api.field_behavior) = OPTIONAL
   ];
 
-  // List of variants for this flag. When a client resolves this flag, it will
-  // be assigned exactly one of the variants in this list along with its value.
-  // (-- api-linter: core::0122::embedded-resource=disabled
-  //     aip.dev/not-precedent: these are embedded for historical reasons. --)
+  // List of variants for this flag.
   repeated Variant variants = 3;
 
   // The current state of the flag.
@@ -229,12 +70,7 @@ message Flag {
     (google.api.field_behavior) = REQUIRED
   ];
 
-  // List of ordered rules that determines how entities are assigned to
-  // variants. When a client resolves this flag, each rule will be tried in
-  // order, the first rule that match, will provide a variant assignment. If
-  // not rule matches, no variant will be assigned.
-  // (-- api-linter: core::0122::embedded-resource=disabled
-  //     aip.dev/not-precedent: these are embedded for historical reasons. --)
+  // List of ordered rules that determines how entities are assigned to variants.
   repeated Rule rules = 5;
 
   // List of clients that this flag is enabled for.
@@ -242,66 +78,14 @@ message Flag {
     (google.api.resource_reference).type = "iam.confidence.dev/Client"
   ];
 
-  // Time when the flag was first created.
-  google.protobuf.Timestamp create_time = 6 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Time when the flag was last updated.
-  google.protobuf.Timestamp update_time = 7 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Reference to the identity that created this flag.
-  string creator = 14 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
-    (google.api.field_behavior) = REQUIRED
-  ];
-
-  // Reference to the identity that last updated this flag.
-  string updater = 15 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
-    (google.api.field_behavior) = REQUIRED
-  ];
-
-  // General labels for this flag.
-  map<string, string> labels = 10;
-
-  // Semi-realtime usage statistics for the flag.
-  UsageMetadata usage_metadata = 11;
-
-  // The owner of the resource. If not set will default to the creator.
-  string owner = 16 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OPTIONAL
-  ];
-
   // State of the flag.
   enum State {
     // Unspecified state.
     STATE_UNSPECIFIED = 0;
-
     // The flag is active and can be resolved.
     ACTIVE = 1;
-
     // The flag is no longer active.
     ARCHIVED = 2;
-  }
-
-  // Usage statistics for the flag.
-  message UsageMetadata {
-    // The total number of resolves of this flag.
-    int64 resolve_count = 1;
-
-    // The last time this flag was resolved.
-    google.protobuf.Timestamp last_resolve_time = 2;
-
-    // The last time this flag was applied.
-    google.protobuf.Timestamp last_apply_time = 3;
   }
 
   // A possible named value the flag can assign.
@@ -314,47 +98,13 @@ message Flag {
     };
 
     // The resource name of the variant.
-    // For example:
-    // `flags/my-flag/variants/control`
     string name = 1 [
       (google.api.field_behavior) = REQUIRED,
       (google.api.field_behavior) = IDENTIFIER
     ];
 
-    // The value that this variant represents. A possibly nested json object.
+    // The value that this variant represents.
     google.protobuf.Struct value = 2 [
-      (google.api.field_behavior) = REQUIRED
-    ];
-
-    // General set of labels for this resource.
-    map<string, string> labels = 3;
-
-    // A human-friendly description of the variant.
-    string description = 8;
-
-    // Time when the flag was first created.
-    google.protobuf.Timestamp create_time = 4 [
-      (google.api.field_behavior) = REQUIRED,
-      (google.api.field_behavior) = OUTPUT_ONLY
-    ];
-
-    // Time when the flag was last updated.
-    google.protobuf.Timestamp update_time = 5 [
-      (google.api.field_behavior) = REQUIRED,
-      (google.api.field_behavior) = OUTPUT_ONLY
-    ];
-
-    // Reference to the identity that created this variant.
-    string creator = 9 [
-      (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-      (google.api.field_behavior) = OUTPUT_ONLY,
-      (google.api.field_behavior) = REQUIRED
-    ];
-
-    // Reference to the identity that last updated this variant.
-    string updater = 10 [
-      (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-      (google.api.field_behavior) = OUTPUT_ONLY,
       (google.api.field_behavior) = REQUIRED
     ];
   }
@@ -369,14 +119,19 @@ message Flag {
     };
 
     // The resource name of the rule.
-    // For example:
-    // `flags/my-flag/rules/1bhq4c2zqigdzqg6ufni`
     string name = 1 [(google.api.field_behavior) = IDENTIFIER];
 
-    // A reference to the segment that this rule uses to specify entities
-    // that are eligible.
+    // A reference to the segment that this rule uses.
     string segment = 2 [
       (google.api.resource_reference).type = "flags.confidence.dev/Segment",
+      (google.api.field_behavior) = REQUIRED
+    ];
+
+    // Selector of what key to randomize on from the evaluation context.
+    string targeting_key_selector = 5;
+
+    // Decides if the rule should be enabled for resolve or not.
+    bool enabled = 11 [
       (google.api.field_behavior) = REQUIRED
     ];
 
@@ -385,79 +140,29 @@ message Flag {
       (google.api.field_behavior) = REQUIRED
     ];
 
-    // Metadata about how the flag has been resolved.
-    UsageMetadata usage_metadata = 4 [
-      (google.api.field_behavior) = OUTPUT_ONLY,
-      (google.api.field_behavior) = REQUIRED
-    ];
-
-    // Selector of what key to randomize on from the evaluation context.
-    // "targeting_key" is the default if not specified
-    string targeting_key_selector = 5;
-
-    // Decides if the rule should be enabled for resolve or not.
-    bool enabled = 11 [
-      (google.api.field_behavior) = REQUIRED
-    ];;
-
-    // Time when the rule was first created.
-    google.protobuf.Timestamp create_time = 6 [
-      (google.api.field_behavior) = REQUIRED,
-      (google.api.field_behavior) = OUTPUT_ONLY
-    ];
-
-    // Time when the flag was last updated.
-    google.protobuf.Timestamp update_time = 7 [
-      (google.api.field_behavior) = REQUIRED,
-      (google.api.field_behavior) = OUTPUT_ONLY
-    ];
-
-    // Reference to the identity that created this rule.
-    string creator = 14 [
-      (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-      (google.api.field_behavior) = OUTPUT_ONLY,
-      (google.api.field_behavior) = REQUIRED
-    ];
-
-    // Reference to the identity that last updated this rule.
-    string updater = 15 [
-      (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-      (google.api.field_behavior) = OUTPUT_ONLY,
-      (google.api.field_behavior) = REQUIRED
-    ];
-
-    // General set of labels for this resource.
-    map<string, string> labels = 10;
-
-    // Specifies if materializations are written to/read from
+    // Specifies if materializations are written to/read from.
     MaterializationSpec materialization_spec = 13;
 
-    // Specifies if materializations are written to/read from
+    // Specifies if materializations are written to/read from.
     message MaterializationSpec {
-      // Feeds assignments into materialization
+      // Feeds assignments into materialization.
       string write_materialization = 1 [
         (google.api.resource_reference).type = "flags.confidence.dev/MaterializedSegment",
         (google.api.field_behavior) = OPTIONAL
       ];
-      //Reads assignments from materialization
+      // Reads assignments from materialization.
       string read_materialization = 2 [
         (google.api.resource_reference).type = "flags.confidence.dev/MaterializedSegment",
         (google.api.field_behavior) = OPTIONAL
       ];
-      // How materialization reads should be treated
+      // How materialization reads should be treated.
       MaterializationReadMode mode = 3 [(google.api.field_behavior) = OPTIONAL];
-      // How materialization reads should be treated
-      message MaterializationReadMode {
-        // If the materialization must match, only units in the materialization will be in the rule, all other units
-        // will skip this rule (also known as paused intake). If this is set to false units will match if they are in
-        // the materialization or if they match the segment.
-        bool materialization_must_match = 1;
 
-        // By default materialization will only be seen as a match of the targeting of the segment that the rule
-        // references also matches. Depending on the type of targeting, this may or may not be the wanted behaviour.
-        // Setting this to true will mean that any unit in the materialization will match the rule no matter if
-        // they match the targeting. Irrespective if this is set to false or true the segment allocation
-        // proportion/bucketing is ignored for any unit in the materialization.
+      // How materialization reads should be treated.
+      message MaterializationReadMode {
+        // If the materialization must match.
+        bool materialization_must_match = 1;
+        // If segment targeting can be ignored.
         bool segment_targeting_can_be_ignored = 2;
       }
     }
@@ -466,8 +171,7 @@ message Flag {
     message AssignmentSpec {
       // The total number of buckets to consider when randomizing.
       int32 bucket_count = 1;
-
-      // A list that divides the total buckets into assignments
+      // A list that divides the total buckets into assignments.
       repeated Assignment assignments = 2;
     }
 
@@ -489,308 +193,125 @@ message Flag {
       // The range of buckets that the variant occupies.
       repeated BucketRange bucket_ranges = 5;
 
-      // Assignment of a variant
+      // Assignment of a variant.
       message VariantAssignment {
-        // Reference to a variant in the flag. Note: the variant must be located
-        // in the same flag.
+        // Reference to a variant in the flag.
         string variant = 1 [
           (google.api.resource_reference).type = "flags.confidence.dev/Variant",
           (google.api.field_behavior) = REQUIRED
         ];
       }
 
-      // No value will be assigned and passed on to the next rule, an
-      // event with a fallthrough assignment will be generated.
-      message FallthroughAssignment {
+      // No value will be assigned and passed on to the next rule.
+      message FallthroughAssignment {}
 
-      }
-
-      // No variant will be assigned and the client should return the
-      // configured default values.
-      message ClientDefaultAssignment {
-
-      }
+      // No variant will be assigned and the client should return defaults.
+      message ClientDefaultAssignment {}
     }
 
     // The range of buckets that a variant occupies.
     message BucketRange {
       // The start bucket (inclusive).
       int32 lower = 1 [(google.api.field_behavior) = REQUIRED];
-
       // The end bucket (exclusive).
       int32 upper = 2 [(google.api.field_behavior) = REQUIRED];
-    }
-
-    // Usage statistics for the rule.
-    message UsageMetadata {
-      // The total number of resolves of this rule.
-      int64 resolve_count = 1;
-
-      // Total number of applies to this rule.
-      int64 apply_count = 4;
-
-      // The last time this rule was resolved.
-      google.protobuf.Timestamp last_resolve_time = 2;
-
-      // The last time this rule was applied.
-      google.protobuf.Timestamp last_apply_time = 3;
-
-      // Usage statistics for each assignment.
-      repeated AssignmentUsageMetadata assignment_usage_metadata = 5;
-    }
-
-    // Usage statistics for a particular assignment.
-    message AssignmentUsageMetadata {
-      // The assignment id, empty means no assignment id was passed.
-      string assignment_id = 1;
-
-      // Total number of resolves.
-      int64 resolve_count = 2;
-
-      // Total number of applies.
-      int64 apply_count = 3;
-
-      // The last time this rule was applied.
-      google.protobuf.Timestamp last_apply_time = 4;
-
-      // Total number of applies with empty targeting key.
-      int64 empty_targeting_key_count = 5;
     }
   }
 }
 
-// Configuration for setting up edge resolvers on Fastly for this account.
-message FastlyConfig {
-  option (google.api.resource) = {
-    type: "flags.confidence.dev/FastlyConfig"
-    pattern: "fastlyConfigs/{fastly_config}"
-    singular: "fastlyConfig"
-    plural: "fastlyConfigs"
-  };
-
-  // The resource name of the Fastly config.
-  // For example:
-  // `fastlyConfig/0smva5nxuhv4yts6paxt`
-  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
-
-  // A human-friendly name for the Fastly config.
-  string display_name = 2 [(google.api.field_behavior) = OPTIONAL];
-
-  // The Fastly Service ID that should be deployed to.
-  string service_id = 3;
-
-  // Determines if the Fastly config is enabled or not.
-  bool enabled = 9;
-
-  // Time of last deployment to Fastly.
-  google.protobuf.Timestamp last_deploy_time = 10 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // General labels for this resource.
-  map<string, string> labels = 4;
-
-  // Time when the Fastly config was first created.
-  google.protobuf.Timestamp create_time = 5 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Time when the Fastly config was last updated.
-  google.protobuf.Timestamp update_time = 6 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Reference to the identity that created this Fastly config.
-  string creator = 7 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
+// Information about how a client resolved.
+message ClientResolveInfo {
+  // Resource reference to a client.
+  string client = 1 [
+    (google.api.resource_reference).type = "iam.confidence.dev/Client",
     (google.api.field_behavior) = REQUIRED
   ];
 
-  // Reference to the identity that last updated this Fastly config.
-  string updater = 8 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
+  // Resource reference to a credential.
+  string client_credential = 2 [
+    (google.api.resource_reference).type = "iam.confidence.dev/ClientCredential",
     (google.api.field_behavior) = REQUIRED
   ];
+
+  // The different evaluation context schema of the client that have been seen recently.
+  repeated EvaluationContextSchemaInstance schema = 3;
+
+  // An instance of a schema that was seen.
+  message EvaluationContextSchemaInstance {
+    // Schema of each field in the evaluation context.
+    map<string, EvaluationContextSchemaField.Kind> schema = 1;
+    // Optional semantic type per field.
+    map<string, ContextFieldSemanticType> semantic_types = 2;
+  }
 }
 
-// Represents an evaluation context field that has been manually added
-message EvaluationContextFieldOverride {
-  option (google.api.resource) = {
-    type: "flags.confidence.dev/EvaluationContextFieldOverride"
-    pattern: "evaluationContextFieldOverrides/{evaluation_context_field}"
-    singular: "evaluationContextFieldOverride"
-    plural: "evaluationContextFieldOverrides"
-  };
-
-  // The resource name of the field.
-  // For example:
-  // `evaluationContextField/country`
-  string name = 1 [
-    (google.api.field_behavior) = IDENTIFIER
-  ];
-
-  // The path to the field. i.e: `country` or `foo.bar`
-  string field = 8 [(google.api.field_behavior) = REQUIRED];
-
-  // The clients this field should be available for. Empty list means all.
-  repeated string clients = 9 [(google.api.field_behavior) = OPTIONAL];
-
-  // The value type of this field
-  EvaluationContextSchemaField.Kind kind = 10 [(google.api.field_behavior) = REQUIRED];
-
-  // Semantic type of a field. Makes it possible to narrow the number of possible values for a field etc.
-  ContextFieldSemanticType semantic_type = 11 [(google.api.field_behavior) = OPTIONAL];
-
-  // Human friendly name of the field
-  string display_name = 12 [(google.api.field_behavior) = OPTIONAL];
-
-  // If this field should be hidden.
-  bool hidden = 13 [(google.api.field_behavior) = OPTIONAL];
-
-  // General labels for this resource.
-  map<string, string> labels = 2 [(google.api.field_behavior) = OPTIONAL];
-
-  // Time when the field was first created.
-  google.protobuf.Timestamp create_time = 3 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Time when the field was last updated.
-  google.protobuf.Timestamp update_time = 4 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = OUTPUT_ONLY
-  ];
-
-  // Reference to the identity that created this field.
-  string creator = 5 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
+message FlagResolveInfo {
+  // The flag the info is about.
+  string flag = 1 [
+    (google.api.resource_reference).type = "flags.confidence.dev/Flag",
     (google.api.field_behavior) = REQUIRED
   ];
+  // Information about how variants were resolved.
+  repeated VariantResolveInfo variant_resolve_info = 2;
+  // Information about how rules were resolved.
+  repeated RuleResolveInfo rule_resolve_info = 3;
 
-  // Reference to the identity that last updated this field.
-  string updater = 6 [
-    (google.api.resource_reference).type = "iam.confidence.dev/Identity",
-    (google.api.field_behavior) = OUTPUT_ONLY,
-    (google.api.field_behavior) = REQUIRED
-  ];
+  // Information about how a variant was resolved.
+  message VariantResolveInfo {
+    // If there was a variant assigned, otherwise not set.
+    string variant = 1 [
+      (google.api.resource_reference).type = "flags.confidence.dev/Variant",
+      (google.api.field_behavior) = OPTIONAL
+    ];
+    // Number of times the variant was resolved in this period.
+    int64 count = 3 [(google.api.field_behavior) = REQUIRED];
+  }
+
+  // Information about how a rule was resolved.
+  message RuleResolveInfo {
+    // The rule that was resolved.
+    string rule = 1 [
+      (google.api.resource_reference).type = "flags.confidence.dev/Rule",
+      (google.api.field_behavior) = REQUIRED
+    ];
+    // Number of times the rule was resolved in this period.
+    int64 count = 2 [(google.api.field_behavior) = REQUIRED];
+    // Resolve counts on each assignment.
+    repeated AssignmentResolveInfo assignment_resolve_info = 3 [(google.api.field_behavior) = OPTIONAL];
+  }
+
+  // Information about the assignment that was resolved.
+  message AssignmentResolveInfo {
+    // The assignment id of the resolved value, otherwise not set.
+    string assignment_id = 1 [(google.api.field_behavior) = OPTIONAL];
+    // Number of times the assignment id was resolved in this period.
+    int64 count = 2 [(google.api.field_behavior) = REQUIRED];
+  }
 }
-
-// Information about how a client resolved
-  message ClientResolveInfo {
-    // Resource reference to a client.
-    string client = 1 [
-      (google.api.resource_reference).type = "iam.confidence.dev/Client",
-      (google.api.field_behavior) = REQUIRED
-    ];
-
-    // Resource reference to a credential.
-    string client_credential = 2 [
-      (google.api.resource_reference).type = "iam.confidence.dev/ClientCredential",
-      (google.api.field_behavior) = REQUIRED
-    ];
-
-    // The different evaluation context schema of the client that have been seen recently.
-    repeated EvaluationContextSchemaInstance schema = 3;
-
-    // An instance of a schema that was seen
-    message EvaluationContextSchemaInstance {
-      // Schema of each field in the evaluation context.
-      map<string, EvaluationContextSchemaField.Kind> schema = 1;
-      // Optional semantic type per field.
-      map<string, ContextFieldSemanticType> semantic_types = 2;
-    }
- }
-
- message FlagResolveInfo {
-     // The flag the info is about
-     string flag = 1 [
-       (google.api.resource_reference).type = "flags.confidence.dev/Flag",
-       (google.api.field_behavior) = REQUIRED
-     ];
-     // Information about how variants were resolved.
-     repeated VariantResolveInfo variant_resolve_info = 2;
-     // Information about how rules were resolved.
-     repeated RuleResolveInfo rule_resolve_info = 3;
-
-     // Information about how a variant was resolved.
-     message VariantResolveInfo {
-       // If there was a variant assigned, otherwise not set
-       string variant = 1  [
-         (google.api.resource_reference).type = "flags.confidence.dev/Variant",
-         (google.api.field_behavior) = OPTIONAL
-       ];
-       // Number of times the variant was resolved in this period
-       int64 count = 3 [(google.api.field_behavior) = REQUIRED];
-     }
-
-     // Information about how a rule was resolved.
-     message RuleResolveInfo {
-       // The rule that was resolved
-       string rule = 1  [
-         (google.api.resource_reference).type = "flags.confidence.dev/Rule",
-         (google.api.field_behavior) = REQUIRED
-       ];
-       // Number of times the rule was resolved in this period
-       int64 count = 2 [(google.api.field_behavior) = REQUIRED];
-
-       // Resolve counts on each assignment
-       repeated AssignmentResolveInfo assignment_resolve_info = 3 [(google.api.field_behavior) = OPTIONAL];
-     }
-
-     // Information about the assignment that was resolved.
-     message AssignmentResolveInfo {
-       // The assignment id of the resolved value, otherwise not set.
-       string assignment_id = 1 [(google.api.field_behavior) = OPTIONAL];
-
-       // Number of times the assignment id was resolved in this period.
-       int64 count = 2 [(google.api.field_behavior) = REQUIRED];
-     }
- }
 
 // The type of fields observed in an evaluation context.
 message EvaluationContextSchemaField {
   // The observed types.
   repeated Kind types = 1;
 
-  // Human friendly name of the field
-  string display_name = 2;
-
-  // If the field should be visible or not
-  bool hidden = 3;
-
-  // Semantic type of a field. Makes it possible to narrow the number of possible values for a field etc.
-  ContextFieldSemanticType semantic_type = 4;
-
   // The type of a field in the schema.
   enum Kind {
     // Unspecified kind.
     KIND_UNSPECIFIED = 0;
-
     // Null value observed.
     NULL_KIND = 1;
-
     // A number, integer or double, observed.
     NUMBER_KIND = 2;
-
     // A string observed.
     STRING_KIND = 3;
-
     // A boolean observed.
     BOOL_KIND = 4;
   }
 }
-// Semantic type of a field. Makes it possible to narrow the number of possible values for a field etc.
+
+// Semantic type of a field.
 message ContextFieldSemanticType {
   oneof type {
-    // (-- api-linter: core::0143::standardized-codes=disabled
-    //     aip.dev/not-precedent: We use country. --)
     // If this is a country type, this specifies in what format.
     CountrySemanticType country = 1;
     // If this is an enum this specifies what value it has etc.
@@ -799,30 +320,20 @@ message ContextFieldSemanticType {
     EntitySemanticType entity_reference = 3;
     // If this field is a semantic type.
     VersionSemanticType version = 4;
-    // (-- api-linter: core::0142::time-field-type=disabled
-    //     aip.dev/not-precedent: This isn't a date but a spec of a date. --)
     // If this field is a date.
     DateSemanticType date = 5;
-    // (-- api-linter: core::0142::time-field-type=disabled
-    //     aip.dev/not-precedent: This isn't a timestamp but a spec of a timestamp. --)
     // If this field is a timestamp.
     TimestampSemanticType timestamp = 6;
   }
 
-  // Specifies a semver semantic type
-  message VersionSemanticType {
+  // Specifies a semver semantic type.
+  message VersionSemanticType {}
 
-  }
+  // Specifies a date semantic type.
+  message DateSemanticType {}
 
-  // Specifies a date semantic type
-  message DateSemanticType {
-
-  }
-
-  // Specifies a timestamp semantic type
-  message TimestampSemanticType {
-
-  }
+  // Specifies a timestamp semantic type.
+  message TimestampSemanticType {}
 
   // Specifies a country semantic type.
   message CountrySemanticType {
@@ -842,7 +353,7 @@ message ContextFieldSemanticType {
     // What allowed values exist for this enum.
     repeated EnumValue values = 1 [(google.api.field_behavior) = REQUIRED];
 
-    // An allowed value for the enum
+    // An allowed value for the enum.
     message EnumValue {
       // A possible value the enum can take.
       string value = 1;
@@ -851,22 +362,10 @@ message ContextFieldSemanticType {
 
   // Specifies a field that has a semantic type of entity.
   message EntitySemanticType {
-    // A reference to the entity that exists in this field.-
+    // A reference to the entity that exists in this field.
     string entity = 1 [
       (google.api.field_behavior) = REQUIRED,
       (google.api.resource_reference).type = "metrics.confidence.dev/Entity"
     ];
   }
-}
-
-// Enum specifying how much of a segments information should be returned.
-enum SegmentView {
-  // The default / unset value.
-  // The API will default to the BASIC view.
-  SEGMENT_VIEW_UNSPECIFIED = 0;
-  // Include basic information about the segment, excluding the bitset allocation.
-  // This is the default value (for both ListSegments and GetSegment).
-  BASIC = 1;
-  // Include everything.
-  FULL = 2;
 }
