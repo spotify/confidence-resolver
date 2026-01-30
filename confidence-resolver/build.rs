@@ -74,7 +74,6 @@ fn main() -> Result<()> {
                 ".confidence.flags.types.v1",
                 ".confidence.auth.v1",
                 ".confidence.iam.v1",
-                ".google.type",
             ])?;
 
         // Suppress all clippy lints in generated serde files
