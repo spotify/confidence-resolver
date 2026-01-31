@@ -236,7 +236,7 @@ fn build_client_resolve_info(state: &ResolveInfoState) -> Vec<pb::ClientResolveI
     mp.iter()
         .map(|(credential, info)| {
             let client = extract_client(credential);
-            let schemas = info.schemas.iter().map(to_pb_schema_instance).collect();
+            let schemas = info.schemas.iter().map(|arc| to_pb_schema_instance(&arc)).collect();
             pb::ClientResolveInfo {
                 client,
                 client_credential: credential.clone(),

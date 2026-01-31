@@ -123,65 +123,66 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
     }
 
     /// Returns the number of items currently in the set.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
-        let count = self.counter.load(Ordering::Acquire);
+        let count = self.counter.load(Ordering::Relaxed);
         count.min(N)
     }
 
-    /// Returns an iterator over references to items in the set.
-    ///
-    /// Iterates over the slots array, yielding &T for each non-null entry.
-    /// Only iterates up to min(counter, N) slots for efficiency.
-    pub fn iter(&self) -> BoundedSetIter<'_, T> {
-        let len = self.len();
-        // len is always <= N (from min(counter, N)), so this never fails
-        let slots = self.slots.get(..len).unwrap_or(&[]);
-        BoundedSetIter { slots, index: 0 }
+    /// Returns an iterator over items in the set, yielding cloned Arcs.
+    #[must_use]
+    pub fn iter(&self) -> BoundedSetIter<'_, T, N> {
+        BoundedSetIter {
+            slots: &self.slots,
+            index: 0,
+        }
     }
 }
 
-/// Iterator over references to items in a BoundedSet.
-pub struct BoundedSetIter<'a, T> {
-    slots: &'a [AtomicPtr<T>],
+/// Iterator over items in a BoundedSet, yielding cloned Arcs.
+#[must_use]
+pub struct BoundedSetIter<'a, T, const N: usize> {
+    slots: &'a [AtomicPtr<T>; N],
     index: usize,
 }
 
-impl<'a, T> Iterator for BoundedSetIter<'a, T> {
-    type Item = &'a T;
+impl<T, const N: usize> Iterator for BoundedSetIter<'_, T, N> {
+    type Item = Arc<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(slot) = self.slots.get(self.index) {
-            let ptr = slot.load(Ordering::Acquire);
-            self.index = self.index.saturating_add(1);
-            // Slot may be null during concurrent fill: counter is incremented
-            // before the pointer is stored, so we might see an in-range but
-            // not-yet-filled slot.
-            if !ptr.is_null() {
-                // SAFETY: ptr came from Arc::into_raw and the Arc is still alive
-                // (held by the set). We only yield a shared reference.
-                return Some(unsafe { &*ptr });
-            }
+        let slot = self.slots.get(self.index)?;
+        let ptr = slot.load(Ordering::Acquire);
+        
+        // Slots are filled sequentially and never go back to null.
+        // Bail at first null - we've seen all visible items.
+        if ptr.is_null() {
+            return None;
         }
-        None
+        
+        self.index = self.index.saturating_add(1);
+        
+        // SAFETY: ptr came from Arc::into_raw and the slot still owns it.
+        // We clone the Arc to keep the item alive even if evicted.
+        let arc = unsafe { Arc::from_raw(ptr) };
+        let cloned = Arc::clone(&arc);
+        std::mem::forget(arc); // Don't decrement - slot still owns its ref
+        Some(cloned)
     }
 }
 
 impl<T, const N: usize> Drop for BoundedSet<T, N> {
     fn drop(&mut self) {
-        // Reclaim all Arc references we hold via raw pointers in slots
-        let count = self.counter.load(Ordering::Acquire);
-        let limit = count.min(N);
-        // limit is always <= N, so this slice is always valid
-        let Some(slots) = self.slots.get(..limit) else {
-            return;
-        };
-        for slot in slots {
+        // Reclaim all Arc references we hold via raw pointers in slots.
+        // Slots are filled sequentially (0, 1, 2, ...) and never go back to null,
+        // so we can bail at the first null.
+        for slot in self.slots.iter() {
             let ptr = slot.load(Ordering::Acquire);
-            if !ptr.is_null() {
-                // SAFETY: Each non-null pointer was created by Arc::into_raw
-                // and represents one reference we own
-                unsafe { drop(Arc::from_raw(ptr)) };
+            if ptr.is_null() {
+                break; // Rest are definitely null (filled sequentially)
             }
+            // SAFETY: Each non-null pointer was created by Arc::into_raw
+            // and represents one reference we own
+            unsafe { drop(Arc::from_raw(ptr)) };
         }
         // The HashSet will drop its Arc references automatically
     }
@@ -225,7 +226,7 @@ mod tests {
 
         // With hybrid approach, first N inserts use sequential slots
         // so no eviction happens until we exceed capacity
-        let sum: i32 = set.iter().sum();
+        let sum: i32 = set.iter().map(|arc| *arc).sum();
         assert_eq!(sum, 6);
     }
 
