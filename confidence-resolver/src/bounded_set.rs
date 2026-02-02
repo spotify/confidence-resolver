@@ -130,7 +130,6 @@ impl<T: Hash + Eq, const N: usize> BoundedSet<T, N> {
     }
 
     /// Returns an iterator over items in the set, yielding cloned Arcs.
-    #[must_use]
     pub fn iter(&self) -> BoundedSetIter<'_, T, N> {
         BoundedSetIter {
             slots: &self.slots,
@@ -152,15 +151,15 @@ impl<T, const N: usize> Iterator for BoundedSetIter<'_, T, N> {
     fn next(&mut self) -> Option<Self::Item> {
         let slot = self.slots.get(self.index)?;
         let ptr = slot.load(Ordering::Acquire);
-        
+
         // Slots are filled sequentially and never go back to null.
         // Bail at first null - we've seen all visible items.
         if ptr.is_null() {
             return None;
         }
-        
+
         self.index = self.index.saturating_add(1);
-        
+
         // SAFETY: ptr came from Arc::into_raw and the slot still owns it.
         // We clone the Arc to keep the item alive even if evicted.
         let arc = unsafe { Arc::from_raw(ptr) };
