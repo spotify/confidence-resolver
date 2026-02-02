@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -11,10 +10,6 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::{
     LogMessage, ResolveWithStickyRequest, WriteFlagLogsRequest,
 };
 use confidence_resolver::resolve_logger::ResolveLogger;
-use rand::distr::Alphanumeric;
-use rand::distr::SampleString;
-use rand::rngs::SmallRng;
-use rand::SeedableRng;
 use wasm_msg::wasm_msg_guest;
 use wasm_msg::wasm_msg_host;
 use wasm_msg::WasmResult;
@@ -61,13 +56,6 @@ const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
-
-thread_local! {
-    static RNG: RefCell<SmallRng> = RefCell::new({
-        let t = WasmHost::current_time();
-        SmallRng::seed_from_u64((t.seconds as u64) ^ (t.nanos as u64))
-    });
-}
 
 impl<'a> From<&ResolvedValue<'a>> for proto::ResolvedValue {
     fn from(val: &ResolvedValue<'a>) -> Self {
@@ -117,10 +105,6 @@ fn convert_reason(reason: ResolveReason) -> i32 {
 struct WasmHost;
 
 impl Host for WasmHost {
-    fn random_alphanumeric(len: usize) -> String {
-        RNG.with_borrow_mut(|rng| Alphanumeric.sample_string(rng, len))
-    }
-
     fn log(message: &str) {
         log_message(LogMessage {
             message: message.to_string(),
@@ -180,6 +164,13 @@ fn get_resolver_state() -> Result<Arc<ResolverState>, String> {
 }
 
 wasm_msg_guest! {
+    // Initialize the current thread with entropy for the RNG.
+    // Should be called once per thread in multi-threaded WASM environments.
+    fn init_thread(request: proto::InitThreadRequest) -> WasmResult<Void> {
+        confidence_resolver::seed_rng(request.rng_seed);
+        Ok(VOID)
+    }
+
     fn set_resolver_state(request: SetResolverStateRequest) -> WasmResult<Void> {
         let state_pb = ResolverStatePb::decode(request.state.as_slice())
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;

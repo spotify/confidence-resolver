@@ -4,12 +4,16 @@ use std::sync::{
 };
 
 use crate::{
+    bounded_set::BoundedSet,
     schema_util::{DerivedClientSchema, SchemaFromEvaluationContext},
     Host,
 };
 use arc_swap::ArcSwap;
-use papaya::{HashMap, HashSet};
+use papaya::HashMap;
 use std::marker::PhantomData;
+
+/// Maximum number of unique schemas to sample per client credential.
+const SCHEMA_SAMPLE_COUNT: usize = 50;
 
 mod pb {
     pub use crate::proto::confidence::flags::admin::v1::{
@@ -73,7 +77,7 @@ impl<H: Host> ResolveLogger<H> {
                 .client_resolve_info
                 .with_default(client_credential, |client_resolve_info| {
                     let schema = SchemaFromEvaluationContext::get_schema(resolve_context);
-                    client_resolve_info.schemas.pin().insert(schema);
+                    client_resolve_info.schemas.insert(schema);
                 });
 
             // Store SDK info if not already set
@@ -175,7 +179,7 @@ struct FlagResolveInfo {
 
 #[derive(Debug, Default)]
 struct ClientResolveInfo {
-    schemas: HashSet<DerivedClientSchema>,
+    schemas: BoundedSet<DerivedClientSchema, SCHEMA_SAMPLE_COUNT>,
 }
 
 #[derive(Debug)]
@@ -232,8 +236,11 @@ fn build_client_resolve_info(state: &ResolveInfoState) -> Vec<pb::ClientResolveI
     mp.iter()
         .map(|(credential, info)| {
             let client = extract_client(credential);
-            let sp = info.schemas.pin();
-            let schemas = sp.iter().map(to_pb_schema_instance).collect();
+            let schemas = info
+                .schemas
+                .iter()
+                .map(|arc| to_pb_schema_instance(&arc))
+                .collect();
             pb::ClientResolveInfo {
                 client,
                 client_credential: credential.clone(),
@@ -344,17 +351,11 @@ mod tests {
         Account, Client, Host,
     };
     use crate::proto::confidence::flags::admin::v1::context_field_semantic_type::country_semantic_type::CountryFormat;
-    use crate::proto::google::Timestamp;
     use serde_json::json;
     use std::collections::BTreeMap;
 
     struct TestHost;
     impl Host for TestHost {
-        #[cfg(not(feature = "std"))]
-        fn random_alphanumeric(_len: usize) -> String {
-            "random".to_string()
-        }
-
         #[cfg(not(feature = "std"))]
         fn current_time() -> Timestamp {
             Timestamp {
