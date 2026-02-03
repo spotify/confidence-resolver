@@ -30,7 +30,7 @@ crossbeam-queue = { version = "0.3.12", default-features = false, features = ["a
 
 prost = { version = "0.12", default-features = false, features = ["derive" ] }
 prost-types = { version = "0.12", default-features = false }
-bytes = { version = "1.4.0", default-features = false }
+bytes = { version = "1.11.1", default-features = false }
 papaya = "0.2.3"
 arc-swap = "1.7.1"
 fastrand = "2"

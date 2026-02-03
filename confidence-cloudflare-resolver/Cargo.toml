@@ -21,7 +21,7 @@ wasm-opt = false
 ignored = ["getrandom"]
 
 [dependencies]
-bytes = "1.10.1"
+bytes = "1.11.1"
 confidence_resolver = { path = "../confidence-resolver", version = "0.11.0" }
 getrandom = { version = "0.3.3", features = ["wasm_js"] }
 worker = { version= "0.6.1", features=['queue'] }
