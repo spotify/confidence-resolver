@@ -40,9 +40,8 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-httpx>=0.30.0",
     "grpcio-tools>=1.60.0",
-    "black>=24.0.0",
-    "flake8>=7.0.0",
     "mypy>=1.10.0",
+    "ruff>=0.8.0",
 ]
 
 [project.urls]
@@ -58,17 +57,6 @@ packages = ["src/confidence"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-
-[tool.black]
-line-length = 88
-target-version = ["py39"]
-extend-exclude = '''
-/(
-    \.venv
-    | \.git
-    | proto
-)/
-'''
 
 [tool.mypy]
 python_version = "3.9"
@@ -96,3 +84,16 @@ ignore_errors = true
 module = ["confidence.wasm_resolver", "confidence.local_resolver", "confidence.flag_logger", "confidence.state_fetcher", "confidence.provider", "confidence.materialization"]
 # These modules use generated protobuf code which has incomplete type stubs
 disable_error_code = ["attr-defined", "name-defined", "union-attr", "operator", "override", "no-untyped-call"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+exclude = [".venv", ".git", "*_pb2.py", "*_pb2_grpc.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+# E501 is handled by ruff format; lines it can't break are intentional
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"

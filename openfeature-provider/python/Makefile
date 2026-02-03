@@ -67,13 +67,14 @@ test-e2e: $(INSTALL_STAMP) $(RESOURCES_WASM)
 
 # Run linting
 lint: $(INSTALL_STAMP)
-	$(PYTHON) -m black --check src/ tests/
-	$(PYTHON) -m flake8 src/ tests/
+	$(PYTHON) -m ruff check src/ tests/
+	$(PYTHON) -m ruff format --check src/ tests/
 	$(PYTHON) -m mypy src/
 
 # Format code
 format: $(INSTALL_STAMP)
-	$(PYTHON) -m black src/ tests/
+	$(PYTHON) -m ruff check --fix src/ tests/
+	$(PYTHON) -m ruff format src/ tests/
 
 # Generate protobuf files
 proto: $(INSTALL_STAMP)

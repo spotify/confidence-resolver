@@ -376,8 +376,10 @@ class ConfidenceProvider(AbstractProvider):
             default_value,
             evaluation_context,
             # Accept int (but not bool) or float that is a whole number
-            type_check=lambda v: (isinstance(v, int) and not isinstance(v, bool))
-            or (isinstance(v, float) and v.is_integer()),
+            type_check=lambda v: (
+                (isinstance(v, int) and not isinstance(v, bool))
+                or (isinstance(v, float) and v.is_integer())
+            ),
             type_convert=lambda v: int(v),
         )
 
@@ -393,8 +395,9 @@ class ConfidenceProvider(AbstractProvider):
             default_value,
             evaluation_context,
             # Accept int or float (but not bool)
-            type_check=lambda v: isinstance(v, (int, float))
-            and not isinstance(v, bool),
+            type_check=lambda v: (
+                isinstance(v, (int, float)) and not isinstance(v, bool)
+            ),
             type_convert=lambda v: float(v),
         )
 

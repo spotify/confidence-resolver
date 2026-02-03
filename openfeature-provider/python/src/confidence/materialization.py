@@ -232,9 +232,7 @@ class RemoteMaterializationStore:
         else:
             self._owns_channel = False
         self._channel = channel
-        self._stub = internal_api_pb2_grpc.InternalFlagLoggerServiceStub(
-            channel
-        )  # type: ignore[no-untyped-call]
+        self._stub = internal_api_pb2_grpc.InternalFlagLoggerServiceStub(channel)  # type: ignore[no-untyped-call]
 
     def _get_metadata(self) -> List[tuple[str, str]]:
         """Get the authorization metadata for gRPC calls."""

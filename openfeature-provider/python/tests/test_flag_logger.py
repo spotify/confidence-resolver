@@ -44,8 +44,7 @@ class TestGrpcFlagLoggerAsync:
         mock_stub.ClientWriteFlagLogs = slow_write
 
         stub_path = (
-            "confidence.flag_logger."
-            "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
             logger = GrpcFlagLogger(client_secret="test-secret", channel=mock_channel)
@@ -85,8 +84,7 @@ class TestGrpcFlagLoggerAsync:
         mock_stub.ClientWriteFlagLogs = slow_write
 
         stub_path = (
-            "confidence.flag_logger."
-            "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
             logger = GrpcFlagLogger(client_secret="test-secret", channel=mock_channel)
@@ -103,9 +101,9 @@ class TestGrpcFlagLoggerAsync:
             logger.shutdown()
 
             # After shutdown, the write should have completed
-            assert (
-                write_completed.is_set()
-            ), "shutdown() returned before write completed"
+            assert write_completed.is_set(), (
+                "shutdown() returned before write completed"
+            )
 
 
 class TestGrpcFlagLoggerEmptyRequests:
@@ -117,8 +115,7 @@ class TestGrpcFlagLoggerEmptyRequests:
         mock_stub = MagicMock()
 
         stub_path = (
-            "confidence.flag_logger."
-            "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
             logger = GrpcFlagLogger(client_secret="test-secret", channel=mock_channel)
@@ -139,8 +136,7 @@ class TestGrpcFlagLoggerEmptyRequests:
         mock_stub = MagicMock()
 
         stub_path = (
-            "confidence.flag_logger."
-            "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
             logger = GrpcFlagLogger(client_secret="test-secret", channel=mock_channel)
@@ -173,8 +169,7 @@ class TestGrpcFlagLoggerAuthorization:
         client_secret = "my-secret-key"
 
         stub_path = (
-            "confidence.flag_logger."
-            "internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
         )
         with patch(stub_path, return_value=mock_stub):
             logger = GrpcFlagLogger(client_secret=client_secret, channel=mock_channel)

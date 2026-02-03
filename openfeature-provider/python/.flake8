@@ -1,5 +1,0 @@
-[flake8]
-max-line-length = 88
-exclude = .venv/*,venv/*,.git,__pycache__,*_pb2.py,*_pb2_grpc.py
-# E203 is conflicts with black's formatting of slice notation
-extend-ignore = E203
