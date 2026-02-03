@@ -35,7 +35,7 @@ hex = "0.4"
 
 # Protobuf and bytes
 prost = "0.12"
-bytes = "1.4"
+bytes = "1.11"
 
 # Concurrent state management
 arc-swap = "1.7"
