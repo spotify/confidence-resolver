@@ -290,6 +290,14 @@ class ConfidenceProvider(AbstractProvider):
         if self._flag_logger is not None:
             self._flag_logger.shutdown()
 
+        # Close materialization store if it exposes a close method
+        close_store = getattr(self._materialization_store, "close", None)
+        if callable(close_store):
+            try:
+                close_store()
+            except Exception as e:
+                logger.error("Failed to close materialization store: %s", e)
+
         logger.info("ConfidenceProvider shutdown complete")
 
     def _resolve_typed(
@@ -367,9 +375,9 @@ class ConfidenceProvider(AbstractProvider):
             flag_key,
             default_value,
             evaluation_context,
-            # Accept int (but not bool) or float
+            # Accept int (but not bool) or float that is a whole number
             type_check=lambda v: (isinstance(v, int) and not isinstance(v, bool))
-            or isinstance(v, float),
+            or (isinstance(v, float) and v.is_integer()),
             type_convert=lambda v: int(v),
         )
 

@@ -228,6 +228,9 @@ class RemoteMaterializationStore:
                 self.GRPC_TARGET,
                 grpc.ssl_channel_credentials(),
             )
+            self._owns_channel = True
+        else:
+            self._owns_channel = False
         self._channel = channel
         self._stub = internal_api_pb2_grpc.InternalFlagLoggerServiceStub(
             channel
@@ -351,3 +354,8 @@ class RemoteMaterializationStore:
             raise
 
         logger.debug("Wrote %d materialization operations", len(ops))
+
+    def close(self) -> None:
+        """Close the underlying gRPC channel if owned."""
+        if self._owns_channel:
+            self._channel.close()

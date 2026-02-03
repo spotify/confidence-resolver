@@ -2,7 +2,7 @@
 
 from openfeature.evaluation_context import EvaluationContext
 from openfeature.exception import ErrorCode
-from openfeature.flag_evaluation import Reason
+from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 
 from confidence.provider import ConfidenceProvider
 from tests.conftest import MockFlagLogger, MockStateFetcher
@@ -188,6 +188,83 @@ class TestResolveInteger:
 
             # Since count doesn't exist in tutorial-feature, should return default
             assert result.value == 42
+        finally:
+            provider.shutdown()
+
+    def test_resolve_integer_accepts_whole_float(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Whole floats should be accepted for integer resolution."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+
+            def fake_resolve_object(*args, **kwargs):
+                return FlagResolutionDetails(value=2.0, reason=Reason.TARGETING_MATCH)
+
+            provider._resolve_object = fake_resolve_object  # type: ignore[method-assign]
+
+            result = provider.resolve_integer_details(
+                flag_key="any-flag",
+                default_value=7,
+                evaluation_context=EvaluationContext(),
+            )
+
+            assert result.value == 2
+            assert result.reason == Reason.TARGETING_MATCH
+        finally:
+            provider.shutdown()
+
+    def test_resolve_integer_rejects_fractional_float(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Fractional floats should be rejected for integer resolution."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+
+            def fake_resolve_object(*args, **kwargs):
+                return FlagResolutionDetails(value=2.5, reason=Reason.TARGETING_MATCH)
+
+            provider._resolve_object = fake_resolve_object  # type: ignore[method-assign]
+
+            result = provider.resolve_integer_details(
+                flag_key="any-flag",
+                default_value=7,
+                evaluation_context=EvaluationContext(),
+            )
+
+            assert result.value == 7
+            assert result.reason == Reason.ERROR
+            assert result.error_code == ErrorCode.TYPE_MISMATCH
         finally:
             provider.shutdown()
 
@@ -639,6 +716,45 @@ class TestShutdown:
 
         # Verify shutdown was called on logger
         assert mock_logger.shutdown_called
+
+    def test_shutdown_closes_materialization_store(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Shutdown should close materialization store when supported."""
+
+        class ClosableStore:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def read(self, ops):
+                return []
+
+            def write(self, ops) -> None:
+                return None
+
+            def close(self) -> None:
+                self.closed = True
+
+        store = ClosableStore()
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+            materialization_store=store,
+        )
+
+        provider.initialize(EvaluationContext())
+        provider.shutdown()
+
+        assert store.closed
 
 
 class TestDefaultOnError:
