@@ -237,23 +237,31 @@ struct ErrorCounts {
 }
 
 impl ErrorCounts {
+    /// Atomically increment the counter using saturating_add to prevent overflow.
+    fn saturating_increment(counter: &AtomicU32) {
+        // Use fetch_update with saturating_add to prevent overflow
+        let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+            Some(v.saturating_add(1))
+        });
+    }
+
     fn increment(&self, error_code: pb::OpenFeatureErrorCode) {
         match error_code {
             pb::OpenFeatureErrorCode::FlagNotFound => {
-                self.flag_not_found.fetch_add(1, Ordering::Relaxed);
+                Self::saturating_increment(&self.flag_not_found);
             }
             pb::OpenFeatureErrorCode::TargetingKeyMissing => {
-                self.targeting_key_missing.fetch_add(1, Ordering::Relaxed);
+                Self::saturating_increment(&self.targeting_key_missing);
             }
             pb::OpenFeatureErrorCode::InvalidContext => {
-                self.invalid_context.fetch_add(1, Ordering::Relaxed);
+                Self::saturating_increment(&self.invalid_context);
             }
             pb::OpenFeatureErrorCode::General => {
-                self.general.fetch_add(1, Ordering::Relaxed);
+                Self::saturating_increment(&self.general);
             }
             _ => {
                 // For other error codes, count as general
-                self.general.fetch_add(1, Ordering::Relaxed);
+                Self::saturating_increment(&self.general);
             }
         }
     }
