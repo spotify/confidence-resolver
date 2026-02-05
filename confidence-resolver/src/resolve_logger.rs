@@ -19,7 +19,9 @@ mod pb {
     pub use crate::proto::confidence::flags::admin::v1::{
         client_resolve_info, flag_resolve_info, ClientResolveInfo, FlagResolveInfo,
     };
-    pub use crate::proto::confidence::flags::resolver::v1::TelemetryData;
+    pub use crate::proto::confidence::flags::resolver::v1::{
+        OpenFeatureErrorCode, ResolveErrorCount, TelemetryData,
+    };
     pub use crate::proto::{confidence::flags::resolver::v1::WriteFlagLogsRequest, google::Struct};
 }
 
@@ -90,6 +92,23 @@ impl<H: Host> ResolveLogger<H> {
             }
 
             for value in values {
+                // Track errors based on ResolveReason
+                match value.reason {
+                    crate::ResolveReason::FlagArchived => {
+                        state
+                            .error_counts
+                            .increment(pb::OpenFeatureErrorCode::FlagNotFound);
+                    }
+                    crate::ResolveReason::TargetingKeyError => {
+                        state
+                            .error_counts
+                            .increment(pb::OpenFeatureErrorCode::TargetingKeyMissing);
+                    }
+                    _ => {
+                        // Match and NoSegmentMatch are not errors
+                    }
+                }
+
                 state
                     .flag_resolve_info
                     .with_default(&value.flag.name, |flag_state| {
@@ -131,6 +150,13 @@ impl<H: Host> ResolveLogger<H> {
         })
     }
 
+    /// Log an OpenFeature error code for telemetry reporting.
+    pub fn log_error(&self, error_code: pb::OpenFeatureErrorCode) {
+        self.with_state(|state: &ResolveInfoState| {
+            state.error_counts.increment(error_code);
+        });
+    }
+
     pub fn checkpoint(&self) -> pb::WriteFlagLogsRequest {
         let lock = self
             .state
@@ -149,7 +175,17 @@ impl<H: Host> ResolveLogger<H> {
 
                 let telemetry_data = {
                     let sdk = state.sdk.read().ok().and_then(|s| s.clone());
-                    sdk.map(|s| pb::TelemetryData { sdk: Some(s) })
+                    let resolve_errors = state.error_counts.to_resolve_error_counts();
+
+                    // Only include TelemetryData if we have SDK info or errors to report
+                    if sdk.is_some() || !resolve_errors.is_empty() {
+                        Some(pb::TelemetryData {
+                            sdk,
+                            resolve_errors,
+                        })
+                    } else {
+                        None
+                    }
                 };
 
                 pb::WriteFlagLogsRequest {
@@ -187,6 +223,78 @@ struct ResolveInfoState {
     flag_resolve_info: HashMap<String, FlagResolveInfo>,
     client_resolve_info: HashMap<String, ClientResolveInfo>,
     sdk: RwLock<Option<crate::flags_resolver::Sdk>>,
+    /// Error counts by OpenFeature error code
+    error_counts: ErrorCounts,
+}
+
+/// Thread-safe error counters for each OpenFeature error code
+#[derive(Debug, Default)]
+struct ErrorCounts {
+    flag_not_found: AtomicU32,
+    targeting_key_missing: AtomicU32,
+    invalid_context: AtomicU32,
+    general: AtomicU32,
+}
+
+impl ErrorCounts {
+    fn increment(&self, error_code: pb::OpenFeatureErrorCode) {
+        match error_code {
+            pb::OpenFeatureErrorCode::FlagNotFound => {
+                self.flag_not_found.fetch_add(1, Ordering::Relaxed);
+            }
+            pb::OpenFeatureErrorCode::TargetingKeyMissing => {
+                self.targeting_key_missing.fetch_add(1, Ordering::Relaxed);
+            }
+            pb::OpenFeatureErrorCode::InvalidContext => {
+                self.invalid_context.fetch_add(1, Ordering::Relaxed);
+            }
+            pb::OpenFeatureErrorCode::General => {
+                self.general.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {
+                // For other error codes, count as general
+                self.general.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    fn to_resolve_error_counts(&self) -> Vec<pb::ResolveErrorCount> {
+        let mut errors = Vec::new();
+
+        let flag_not_found = self.flag_not_found.load(Ordering::Relaxed);
+        if flag_not_found > 0 {
+            errors.push(pb::ResolveErrorCount {
+                error_code: pb::OpenFeatureErrorCode::FlagNotFound as i32,
+                count: flag_not_found as i64,
+            });
+        }
+
+        let targeting_key_missing = self.targeting_key_missing.load(Ordering::Relaxed);
+        if targeting_key_missing > 0 {
+            errors.push(pb::ResolveErrorCount {
+                error_code: pb::OpenFeatureErrorCode::TargetingKeyMissing as i32,
+                count: targeting_key_missing as i64,
+            });
+        }
+
+        let invalid_context = self.invalid_context.load(Ordering::Relaxed);
+        if invalid_context > 0 {
+            errors.push(pb::ResolveErrorCount {
+                error_code: pb::OpenFeatureErrorCode::InvalidContext as i32,
+                count: invalid_context as i64,
+            });
+        }
+
+        let general = self.general.load(Ordering::Relaxed);
+        if general > 0 {
+            errors.push(pb::ResolveErrorCount {
+                error_code: pb::OpenFeatureErrorCode::General as i32,
+                count: general as i64,
+            });
+        }
+
+        errors
+    }
 }
 
 impl ResolveInfoState {
@@ -195,6 +303,7 @@ impl ResolveInfoState {
             flag_resolve_info: HashMap::default(),
             client_resolve_info: HashMap::default(),
             sdk: RwLock::new(None),
+            error_counts: ErrorCounts::default(),
         }
     }
 }
@@ -205,6 +314,7 @@ impl Default for ResolveInfoState {
             flag_resolve_info: HashMap::default(),
             client_resolve_info: HashMap::default(),
             sdk: RwLock::new(None),
+            error_counts: ErrorCounts::default(),
         }
     }
 }
@@ -802,5 +912,156 @@ mod tests {
         assert_eq!(sum_variants, total_expected);
         assert_eq!(sum_rules, total_expected);
         assert_eq!(sum_assign, total_expected);
+    }
+
+    #[test]
+    fn tracks_error_counts_for_flag_archived() {
+        use crate::proto::confidence::flags::admin::v1::Flag;
+        use super::pb::OpenFeatureErrorCode;
+
+        let logger = ResolveLogger::<TestHost>::new();
+        let flag = Flag {
+            name: "flags/archived-test".into(),
+            ..Default::default()
+        };
+
+        // Create a resolved value with FlagArchived reason (simulating an archived flag)
+        let rv = [crate::ResolvedValue::new(&flag).error(crate::ResolveReason::FlagArchived)];
+
+        let client = test_client();
+        let cred = "clients/test/clientCredentials/test";
+        logger.log_resolve("id", &Struct::default(), cred, &rv, &client, &None);
+        let req = logger.checkpoint();
+
+        // Verify telemetry data contains the error
+        assert!(req.telemetry_data.is_some());
+        let telemetry = req.telemetry_data.unwrap();
+
+        // Should have one error count for FLAG_NOT_FOUND
+        assert!(!telemetry.resolve_errors.is_empty());
+        let flag_not_found_error = telemetry
+            .resolve_errors
+            .iter()
+            .find(|e| e.error_code == OpenFeatureErrorCode::FlagNotFound as i32);
+        assert!(flag_not_found_error.is_some());
+        assert_eq!(flag_not_found_error.unwrap().count, 1);
+    }
+
+    #[test]
+    fn tracks_error_counts_for_targeting_key_error() {
+        use crate::proto::confidence::flags::admin::v1::Flag;
+        use super::pb::OpenFeatureErrorCode;
+
+        let logger = ResolveLogger::<TestHost>::new();
+        let flag = Flag {
+            name: "flags/targeting-test".into(),
+            ..Default::default()
+        };
+
+        // Create a resolved value with TargetingKeyError reason
+        let rv = [crate::ResolvedValue::new(&flag).error(crate::ResolveReason::TargetingKeyError)];
+
+        let client = test_client();
+        let cred = "clients/test/clientCredentials/test";
+        logger.log_resolve("id", &Struct::default(), cred, &rv, &client, &None);
+        let req = logger.checkpoint();
+
+        // Verify telemetry data contains the error
+        assert!(req.telemetry_data.is_some());
+        let telemetry = req.telemetry_data.unwrap();
+
+        // Should have one error count for TARGETING_KEY_MISSING
+        assert!(!telemetry.resolve_errors.is_empty());
+        let targeting_key_error = telemetry
+            .resolve_errors
+            .iter()
+            .find(|e| e.error_code == OpenFeatureErrorCode::TargetingKeyMissing as i32);
+        assert!(targeting_key_error.is_some());
+        assert_eq!(targeting_key_error.unwrap().count, 1);
+    }
+
+    #[test]
+    fn tracks_multiple_error_counts() {
+        use crate::proto::confidence::flags::admin::v1::Flag;
+        use super::pb::OpenFeatureErrorCode;
+
+        let logger = ResolveLogger::<TestHost>::new();
+
+        let flag1 = Flag {
+            name: "flags/archived-1".into(),
+            ..Default::default()
+        };
+        let flag2 = Flag {
+            name: "flags/archived-2".into(),
+            ..Default::default()
+        };
+        let flag3 = Flag {
+            name: "flags/targeting-error".into(),
+            ..Default::default()
+        };
+
+        let client = test_client();
+        let cred = "clients/test/clientCredentials/test";
+
+        // Log multiple errors
+        let rv1 = [crate::ResolvedValue::new(&flag1).error(crate::ResolveReason::FlagArchived)];
+        logger.log_resolve("id1", &Struct::default(), cred, &rv1, &client, &None);
+
+        let rv2 = [crate::ResolvedValue::new(&flag2).error(crate::ResolveReason::FlagArchived)];
+        logger.log_resolve("id2", &Struct::default(), cred, &rv2, &client, &None);
+
+        let rv3 = [crate::ResolvedValue::new(&flag3).error(crate::ResolveReason::TargetingKeyError)];
+        logger.log_resolve("id3", &Struct::default(), cred, &rv3, &client, &None);
+
+        let req = logger.checkpoint();
+
+        // Verify telemetry data contains both error types
+        assert!(req.telemetry_data.is_some());
+        let telemetry = req.telemetry_data.unwrap();
+
+        let flag_not_found_error = telemetry
+            .resolve_errors
+            .iter()
+            .find(|e| e.error_code == OpenFeatureErrorCode::FlagNotFound as i32);
+        assert!(flag_not_found_error.is_some());
+        assert_eq!(flag_not_found_error.unwrap().count, 2); // Two archived flags
+
+        let targeting_key_error = telemetry
+            .resolve_errors
+            .iter()
+            .find(|e| e.error_code == OpenFeatureErrorCode::TargetingKeyMissing as i32);
+        assert!(targeting_key_error.is_some());
+        assert_eq!(targeting_key_error.unwrap().count, 1);
+    }
+
+    #[test]
+    fn log_error_directly_tracks_errors() {
+        use super::pb::OpenFeatureErrorCode;
+
+        let logger = ResolveLogger::<TestHost>::new();
+
+        // Use the direct log_error method
+        logger.log_error(OpenFeatureErrorCode::General);
+        logger.log_error(OpenFeatureErrorCode::General);
+        logger.log_error(OpenFeatureErrorCode::InvalidContext);
+
+        let req = logger.checkpoint();
+
+        assert!(req.telemetry_data.is_some());
+        let telemetry = req.telemetry_data.unwrap();
+
+        let general_error = telemetry
+            .resolve_errors
+            .iter()
+            .find(|e| e.error_code == OpenFeatureErrorCode::General as i32);
+        assert!(general_error.is_some());
+        assert_eq!(general_error.unwrap().count, 2);
+
+        let invalid_context_error = telemetry
+            .resolve_errors
+            .iter()
+            .find(|e| e.error_code == OpenFeatureErrorCode::InvalidContext as i32);
+        assert!(invalid_context_error.is_some());
+        assert_eq!(invalid_context_error.unwrap().count, 1);
     }
 }

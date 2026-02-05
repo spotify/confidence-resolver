@@ -43,6 +43,39 @@ message WriteFlagLogsResponse {}
 message TelemetryData {
   // Information about the SDK/provider
   Sdk sdk = 2;
+
+  // OpenFeature error counts by error code.
+  // Used to report errors encountered during flag evaluation.
+  repeated ResolveErrorCount resolve_errors = 3;
+}
+
+// OpenFeature error codes as defined in the OpenFeature specification.
+// https://openfeature.dev/specification/types#error-code
+enum OpenFeatureErrorCode {
+  // Unspecified error code.
+  OPEN_FEATURE_ERROR_CODE_UNSPECIFIED = 0;
+  // The value was resolved before the provider was ready.
+  OPEN_FEATURE_ERROR_CODE_PROVIDER_NOT_READY = 1;
+  // The flag could not be found.
+  OPEN_FEATURE_ERROR_CODE_FLAG_NOT_FOUND = 2;
+  // An error was encountered parsing data, such as a flag configuration.
+  OPEN_FEATURE_ERROR_CODE_PARSE_ERROR = 3;
+  // The type of the flag value does not match the expected type.
+  OPEN_FEATURE_ERROR_CODE_TYPE_MISMATCH = 4;
+  // The provider requires a targeting key and one was not provided in the evaluation context.
+  OPEN_FEATURE_ERROR_CODE_TARGETING_KEY_MISSING = 5;
+  // The evaluation context does not meet provider requirements.
+  OPEN_FEATURE_ERROR_CODE_INVALID_CONTEXT = 6;
+  // The error was for a reason not enumerated above.
+  OPEN_FEATURE_ERROR_CODE_GENERAL = 7;
+}
+
+// Count of errors for a specific error code.
+message ResolveErrorCount {
+  // The OpenFeature error code.
+  OpenFeatureErrorCode error_code = 1;
+  // The count of errors with this code since the last telemetry report.
+  int64 count = 2;
 }
 
 message ClientInfo {

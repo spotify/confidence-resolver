@@ -4,7 +4,9 @@ use crate::proto::confidence::flags::admin::v1::flag_resolve_info::{
 };
 use crate::proto::confidence::flags::admin::v1::{ClientResolveInfo, FlagResolveInfo};
 use crate::proto::confidence::flags::resolver::v1::events::FlagAssigned;
-use crate::proto::confidence::flags::resolver::v1::{TelemetryData, WriteFlagLogsRequest};
+use crate::proto::confidence::flags::resolver::v1::{
+    ResolveErrorCount, TelemetryData, WriteFlagLogsRequest,
+};
 use std::collections::{HashMap, HashSet};
 
 pub fn aggregate_batch(message_batch: Vec<WriteFlagLogsRequest>) -> WriteFlagLogsRequest {
@@ -14,11 +16,17 @@ pub fn aggregate_batch(message_batch: Vec<WriteFlagLogsRequest>) -> WriteFlagLog
     let mut flag_resolve_map: HashMap<String, VariantRuleResolveInfo> = HashMap::new();
     let mut flag_assigned: Vec<FlagAssigned> = vec![];
     let mut first_sdk: Option<crate::proto::confidence::flags::resolver::v1::Sdk> = None;
+    // Aggregate error counts by error code
+    let mut error_counts: HashMap<i32, i64> = HashMap::new();
 
     for flag_logs_message in message_batch {
         if let Some(td) = &flag_logs_message.telemetry_data {
             if first_sdk.is_none() && td.sdk.is_some() {
                 first_sdk = td.sdk.clone();
+            }
+            // Aggregate error counts
+            for error in &td.resolve_errors {
+                *error_counts.entry(error.error_code).or_insert(0) += error.count;
             }
         }
 
@@ -98,7 +106,22 @@ pub fn aggregate_batch(message_batch: Vec<WriteFlagLogsRequest>) -> WriteFlagLog
         })
     }
 
-    let telemetry_data = first_sdk.map(|sdk| TelemetryData { sdk: Some(sdk) });
+    // Build resolve_errors from aggregated counts
+    let resolve_errors: Vec<ResolveErrorCount> = error_counts
+        .into_iter()
+        .filter(|(_, count)| *count > 0)
+        .map(|(error_code, count)| ResolveErrorCount { error_code, count })
+        .collect();
+
+    // Only include TelemetryData if we have SDK info or errors to report
+    let telemetry_data = if first_sdk.is_some() || !resolve_errors.is_empty() {
+        Some(TelemetryData {
+            sdk: first_sdk,
+            resolve_errors,
+        })
+    } else {
+        None
+    };
 
     WriteFlagLogsRequest {
         telemetry_data,
