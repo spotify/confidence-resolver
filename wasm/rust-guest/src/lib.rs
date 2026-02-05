@@ -105,6 +105,7 @@ fn convert_reason(reason: ResolveReason) -> i32 {
 struct WasmHost;
 
 impl Host for WasmHost {
+    #[inline(never)]
     fn log(message: &str) {
         log_message(LogMessage {
             message: message.to_string(),
@@ -141,6 +142,13 @@ impl Host for WasmHost {
         sdk: &Option<Sdk>,
     ) {
         ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client, sdk);
+    }
+
+    fn track_flag_not_found(count: u32) {
+        use confidence_resolver::proto::confidence::flags::resolver::v1::OpenFeatureErrorCode;
+        for _ in 0..count {
+            RESOLVE_LOGGER.log_error(OpenFeatureErrorCode::FlagNotFound);
+        }
     }
 
     fn encrypt_resolve_token(token_data: &[u8], _encryption_key: &[u8]) -> Result<Vec<u8>, String> {

@@ -474,6 +474,10 @@ mod tests {
 
     struct TestHost;
     impl Host for TestHost {
+        fn log(_message: &str) {
+            // Do nothing in tests
+        }
+
         #[cfg(not(feature = "std"))]
         fn current_time() -> Timestamp {
             Timestamp {

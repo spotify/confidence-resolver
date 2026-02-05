@@ -22,7 +22,7 @@ default-members = [
 ]
 [profile.wasm]
 inherits = "release"
-opt-level = "z"
-lto = true
+opt-level = "s"  # Less aggressive than "z"
+lto = false      # Disable LTO to debug optimization issues
 codegen-units = 1
 strip = "symbols"

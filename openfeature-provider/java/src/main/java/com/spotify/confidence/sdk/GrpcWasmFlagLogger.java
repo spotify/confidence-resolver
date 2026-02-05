@@ -56,6 +56,22 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
             executorService.submit(
                 () -> {
                   try {
+                    // Debug: Print the payload being sent
+                    System.out.println("\n=== WriteFlagLogsRequest Payload (async) ===");
+                    System.out.println("Flag assigned count: " + request.getFlagAssignedCount());
+                    System.out.println("Client resolve info count: " + request.getClientResolveInfoCount());
+                    System.out.println("Flag resolve info count: " + request.getFlagResolveInfoCount());
+                    System.out.println("Has telemetry data: " + request.hasTelemetryData());
+                    if (request.hasTelemetryData()) {
+                      var telemetry = request.getTelemetryData();
+                      System.out.println("  SDK: " + (telemetry.hasSdk() ? telemetry.getSdk().getId() + " v" + telemetry.getSdk().getVersion() : "none"));
+                      System.out.println("  Resolve errors count: " + telemetry.getResolveErrorsCount());
+                      for (var error : telemetry.getResolveErrorsList()) {
+                        System.out.println("    - " + error.getErrorCode() + ": " + error.getCount());
+                      }
+                    }
+                    System.out.println("=== End Payload ===\n");
+
                     stub.clientWriteFlagLogs(request);
                     logger.debug(
                         "Successfully sent flag log with {} entries",
@@ -76,7 +92,8 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   public void write(WriteFlagLogsRequest request) {
     if (request.getClientResolveInfoList().isEmpty()
         && request.getFlagAssignedList().isEmpty()
-        && request.getFlagResolveInfoList().isEmpty()) {
+        && request.getFlagResolveInfoList().isEmpty()
+        && !hasTelemetryWithErrors(request)) {
       logger.debug("Skipping empty flag log request");
       return;
     }
@@ -135,7 +152,8 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   public void writeSync(WriteFlagLogsRequest request) {
     if (request.getClientResolveInfoList().isEmpty()
         && request.getFlagAssignedList().isEmpty()
-        && request.getFlagResolveInfoList().isEmpty()) {
+        && request.getFlagResolveInfoList().isEmpty()
+        && !hasTelemetryWithErrors(request)) {
       logger.debug("Skipping empty flag log request");
       return;
     }
@@ -162,6 +180,22 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
 
   private void sendSync(WriteFlagLogsRequest request) {
     try {
+      // Debug: Print the payload being sent
+      System.out.println("\n=== WriteFlagLogsRequest Payload (sync) ===");
+      System.out.println("Flag assigned count: " + request.getFlagAssignedCount());
+      System.out.println("Client resolve info count: " + request.getClientResolveInfoCount());
+      System.out.println("Flag resolve info count: " + request.getFlagResolveInfoCount());
+      System.out.println("Has telemetry data: " + request.hasTelemetryData());
+      if (request.hasTelemetryData()) {
+        var telemetry = request.getTelemetryData();
+        System.out.println("  SDK: " + (telemetry.hasSdk() ? telemetry.getSdk().getId() + " v" + telemetry.getSdk().getVersion() : "none"));
+        System.out.println("  Resolve errors count: " + telemetry.getResolveErrorsCount());
+        for (var error : telemetry.getResolveErrorsList()) {
+          System.out.println("    - " + error.getErrorCode() + ": " + error.getCount());
+        }
+      }
+      System.out.println("=== End Payload ===\n");
+
       stub.clientWriteFlagLogs(request);
       logger.debug("Synchronously sent flag log with {} entries", request.getFlagAssignedCount());
     } catch (Exception e) {
@@ -209,6 +243,15 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
         Thread.currentThread().interrupt();
       }
     }
+  }
+
+  /**
+   * Check if the request has telemetry data with non-empty resolve errors.
+   * This ensures error telemetry is sent even when there are no flag assignments.
+   */
+  private static boolean hasTelemetryWithErrors(WriteFlagLogsRequest request) {
+    return request.hasTelemetryData()
+        && !request.getTelemetryData().getResolveErrorsList().isEmpty();
   }
 
   private static InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub
