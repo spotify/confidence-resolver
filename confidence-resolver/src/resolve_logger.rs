@@ -924,8 +924,8 @@ mod tests {
 
     #[test]
     fn tracks_error_counts_for_flag_archived() {
-        use crate::proto::confidence::flags::admin::v1::Flag;
         use super::pb::OpenFeatureErrorCode;
+        use crate::proto::confidence::flags::admin::v1::Flag;
 
         let logger = ResolveLogger::<TestHost>::new();
         let flag = Flag {
@@ -957,8 +957,8 @@ mod tests {
 
     #[test]
     fn tracks_error_counts_for_targeting_key_error() {
-        use crate::proto::confidence::flags::admin::v1::Flag;
         use super::pb::OpenFeatureErrorCode;
+        use crate::proto::confidence::flags::admin::v1::Flag;
 
         let logger = ResolveLogger::<TestHost>::new();
         let flag = Flag {
@@ -990,8 +990,8 @@ mod tests {
 
     #[test]
     fn tracks_multiple_error_counts() {
-        use crate::proto::confidence::flags::admin::v1::Flag;
         use super::pb::OpenFeatureErrorCode;
+        use crate::proto::confidence::flags::admin::v1::Flag;
 
         let logger = ResolveLogger::<TestHost>::new();
 
@@ -1018,7 +1018,8 @@ mod tests {
         let rv2 = [crate::ResolvedValue::new(&flag2).error(crate::ResolveReason::FlagArchived)];
         logger.log_resolve("id2", &Struct::default(), cred, &rv2, &client, &None);
 
-        let rv3 = [crate::ResolvedValue::new(&flag3).error(crate::ResolveReason::TargetingKeyError)];
+        let rv3 =
+            [crate::ResolvedValue::new(&flag3).error(crate::ResolveReason::TargetingKeyError)];
         logger.log_resolve("id3", &Struct::default(), cred, &rv3, &client, &None);
 
         let req = logger.checkpoint();
