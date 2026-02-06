@@ -552,7 +552,6 @@ WORKDIR /app
 COPY openfeature-provider/python/Makefile ./
 COPY openfeature-provider/python/pyproject.toml ./
 COPY openfeature-provider/python/README.md ./
-COPY openfeature-provider/python/.flake8 ./
 
 # Copy proto files (needed for proto generation)
 COPY openfeature-provider/proto ../proto/
