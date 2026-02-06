@@ -49,6 +49,7 @@ COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
 COPY openfeature-provider/rust/Cargo.toml ./openfeature-provider/rust/
+COPY openfeature-provider/python/Cargo.toml ./openfeature-provider/python/
 
 # Copy proto files (needed by build.rs)
 COPY confidence-resolver/protos ./confidence-resolver/protos/
@@ -104,6 +105,7 @@ COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
 COPY openfeature-provider/rust/ ./openfeature-provider/rust/
+COPY openfeature-provider/python/Cargo.toml ./openfeature-provider/python/
 
 # Touch files to ensure rebuild (dependencies are cached)
 RUN find . -type f -name "*.rs" -exec touch {} +
@@ -159,6 +161,7 @@ COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
 COPY openfeature-provider/rust/ ./openfeature-provider/rust/
+COPY openfeature-provider/python/Cargo.toml ./openfeature-provider/python/
 
 # Copy data directory (needed by confidence-cloudflare-resolver include_str! macros)
 COPY data/ ./data/
@@ -532,6 +535,81 @@ RUN --mount=type=secret,id=rubygem_api_key \
     gem push pkg/*.gem
 
 # ==============================================================================
+# OpenFeature Provider (Python) - Build and test
+# ==============================================================================
+FROM python:3.11-slim AS openfeature-provider-python-base
+
+# Install protobuf and build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    protobuf-compiler \
+    libprotobuf-dev \
+    make \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy Makefile and pyproject.toml for dependency caching
+COPY openfeature-provider/python/Makefile ./
+COPY openfeature-provider/python/pyproject.toml ./
+COPY openfeature-provider/python/README.md ./
+
+# Copy proto files (needed for proto generation)
+COPY openfeature-provider/proto ../proto/
+
+# Copy source code
+COPY openfeature-provider/python/src ./src/
+COPY openfeature-provider/python/tests ./tests/
+
+# Copy WASM module into resources
+COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ./resources/wasm/confidence_resolver.wasm
+
+# Copy test data fixtures (needed by tests)
+# conftest.py expects data at ../../data relative to python dir
+COPY data/ ../../data/
+
+# Set environment variable
+ENV IN_DOCKER_BUILD=1
+
+# Install dependencies
+RUN make install
+
+# ==============================================================================
+# Test OpenFeature Provider (Python)
+# ==============================================================================
+FROM openfeature-provider-python-base AS openfeature-provider-python.test
+
+RUN make test
+
+# ==============================================================================
+# E2E Test OpenFeature Provider (Python) (requires credentials)
+# ==============================================================================
+FROM openfeature-provider-python.test AS openfeature-provider-python.test_e2e
+
+RUN make test-e2e
+
+# ==============================================================================
+# Lint OpenFeature Provider (Python)
+# ==============================================================================
+FROM openfeature-provider-python-base AS openfeature-provider-python.lint
+
+RUN make lint
+
+# ==============================================================================
+# Build OpenFeature Provider (Python)
+# ==============================================================================
+FROM openfeature-provider-python-base AS openfeature-provider-python.build
+
+RUN make build
+
+# ==============================================================================
+# Extract OpenFeature Provider (Python) package artifact
+# ==============================================================================
+FROM scratch AS openfeature-provider-python.artifact
+
+COPY --from=openfeature-provider-python.build /app/dist/*.whl /
+COPY --from=openfeature-provider-python.build /app/dist/*.tar.gz /
+
+# ==============================================================================
 # OpenFeature Provider (Rust) - Test
 # ==============================================================================
 FROM rust-test-base AS openfeature-provider-rust.test
@@ -647,6 +725,8 @@ COPY --from=openfeature-provider-java.test /app/pom.xml /markers/test-openfeatur
 COPY --from=openfeature-provider-java.test_e2e /app/pom.xml /markers/test-openfeature-java-e2e
 COPY --from=openfeature-provider-go.test /app/go.mod /markers/test-openfeature-go
 COPY --from=openfeature-provider-ruby.test /app/Gemfile /markers/test-openfeature-ruby
+COPY --from=openfeature-provider-python.test /app/pyproject.toml /markers/test-openfeature-python
+COPY --from=openfeature-provider-python.test_e2e /app/pyproject.toml /markers/test-openfeature-python-e2e
 COPY --from=openfeature-provider-rust.test /workspace/Cargo.toml /markers/test-openfeature-rust
 COPY --from=openfeature-provider-rust.test_e2e /workspace/Cargo.toml /markers/test-openfeature-rust-e2e
 
@@ -662,6 +742,7 @@ COPY --from=wasm-msg.lint /workspace/Cargo.toml /markers/lint-wasm-msg
 COPY --from=wasm-rust-guest.lint /workspace/Cargo.toml /markers/lint-guest
 COPY --from=openfeature-provider-go.lint /app/go.mod /markers/lint-openfeature-go
 COPY --from=openfeature-provider-ruby.lint /app/Gemfile /markers/lint-openfeature-ruby
+COPY --from=openfeature-provider-python.lint /app/pyproject.toml /markers/lint-openfeature-python
 COPY --from=openfeature-provider-rust.lint /workspace/Cargo.toml /markers/lint-openfeature-rust
 COPY --from=confidence-cloudflare-resolver.lint /workspace/Cargo.toml /markers/lint-cloudflare
 
@@ -671,4 +752,5 @@ COPY --from=openfeature-provider-js.build /app/dist/index.node.js /artifacts/ope
 COPY --from=openfeature-provider-java.build /app/target/*.jar /artifacts/openfeature-java/
 COPY --from=openfeature-provider-go.build /app/.build.stamp /artifacts/openfeature-go/
 COPY --from=openfeature-provider-ruby.build /app/.build.stamp /artifacts/openfeature-ruby/
+COPY --from=openfeature-provider-python.build /app/.build.stamp /artifacts/openfeature-python/
 COPY --from=openfeature-provider-rust.build /workspace/openfeature-provider/rust/.build.stamp /artifacts/openfeature-rust/
