@@ -31,8 +31,9 @@ class WasmResolver:
         Args:
             wasm_bytes: The compiled WASM binary bytes.
         """
-        # Create WASM engine and store
+        # Create WASM engine and store with caching enabled for faster startup
         config = Config()
+        config.cache = True
         self._engine = Engine(config)
         self._store = Store(self._engine)
 
