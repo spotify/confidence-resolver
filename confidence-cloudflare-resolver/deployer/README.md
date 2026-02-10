@@ -12,8 +12,12 @@ docker build --target confidence-cloudflare-resolver.deployer -t <YOUR_IMAGE_NAM
 
 ## Usage
 
-Only 2 environment variables are required:
+A CloudFlare queue named `flag-logs-queue` must be enabled on your CloudFlare project. If this is your first setup, make sure to run this first:
+```
+ wrangler queues create flag-logs-queue
+```
 
+Docker run to deploy the resolver and your latest flags state:
 ```bash
 docker run -it \
     -e CLOUDFLARE_API_TOKEN='<your-cloudflare-api-token>' \
@@ -21,17 +25,14 @@ docker run -it \
     <YOUR_IMAGE_NAME>
 ```
 
-Everything else is automatically detected:
-- **Cloudflare account ID**: Detected from the API token (fails with helpful message if token has access to multiple accounts)
-- **Resolver state**: Fetched from Confidence CDN using SHA256 hash of your client secret
-- **Resolver URL**: Detected from Cloudflare API to check etag and avoid unnecessary re-deploys
+You can get the `CONFIDENCE_CLIENT_SECRET` from the Confidence dashboard, under `Clients`.
 
 ## Optional Variables
 
 | Variable | Description |
 |----------|-------------|
 | `CLOUDFLARE_ACCOUNT_ID` | Required only if the API token has access to multiple accounts |
-| `CONFIDENCE_RESOLVER_STATE_URL` | Custom resolver state URL (overrides CDN) |
+| `CONFIDENCE_RESOLVER_STATE_URL` | Custom resolver state URL (overrides default URL to Confidence CDN) |
 | `CONFIDENCE_RESOLVER_ALLOWED_ORIGIN` | Configure allowed origins for CORS |
 | `RESOLVE_TOKEN_ENCRYPTION_KEY` | AES-128 key (base64 encoded) used to encrypt resolve tokens when `apply=false`. Not needed since the resolver defaults `apply` to `true` |
 | `FORCE_DEPLOY` | Force re-deploy regardless of state changes |
