@@ -1,0 +1,107 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "confidence-local-openfeature-provider"
+version = "0.0.1"
+description = "Confidence OpenFeature provider for local flag resolution using WebAssembly"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+authors = [
+    { name = "Spotify", email = "confidence@spotify.com" }
+]
+keywords = ["openfeature", "feature-flags", "confidence", "spotify", "wasm", "provider"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "openfeature-sdk>=0.8.0",
+    "wasmtime>=28.0.0",
+    "protobuf>=5.0.0",
+    "grpcio>=1.60.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.12.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-httpx>=0.30.0",
+    "grpcio-tools>=1.60.0",
+    "mypy>=1.10.0",
+    "ruff>=0.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/spotify/confidence-resolver"
+Repository = "https://github.com/spotify/confidence-resolver"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/confidence"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"resources/wasm/confidence_resolver.wasm" = "confidence/wasm/confidence_resolver.wasm"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/",
+    "resources/",
+    "pyproject.toml",
+    "README.md",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_unused_configs = true
+warn_redundant_casts = true
+strict_equality = true
+check_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_reexport = false
+warn_return_any = false
+# Relax strict checks that conflict with wasmtime and protobuf
+disallow_any_generics = false
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["openfeature.*", "wasmtime.*", "grpc.*", "google.protobuf.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["confidence.proto.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["confidence.wasm_resolver", "confidence.local_resolver", "confidence.flag_logger", "confidence.state_fetcher", "confidence.provider", "confidence.materialization"]
+# These modules use generated protobuf code which has incomplete type stubs
+disable_error_code = ["attr-defined", "name-defined", "union-attr", "operator", "override", "no-untyped-call"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+exclude = [".venv", ".git", "*_pb2.py", "*_pb2_grpc.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+# E501 is handled by ruff format; lines it can't break are intentional
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
