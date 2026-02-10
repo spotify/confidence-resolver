@@ -35,3 +35,8 @@ message ValidationSpec {
 extend google.protobuf.FieldOptions {
   ValidationSpec validation = 4324223;
 }
+
+extend google.protobuf.MessageOptions {
+  optional string metric_unit = 4399231;
+  optional double histogram_ratio = 4399232;
+}
