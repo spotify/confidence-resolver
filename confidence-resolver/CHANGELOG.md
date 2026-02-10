@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.11.0...confidence_resolver-v0.11.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* cap sampled schema count in resolve logging  ([#260](https://github.com/spotify/confidence-resolver/issues/260)) ([e84b724](https://github.com/spotify/confidence-resolver/commit/e84b7248f4b7ce9231902376ed56f3cb7b524f58))
+
 ## [0.11.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.10.0...confidence_resolver-v0.11.0) (2026-01-27)
 
 

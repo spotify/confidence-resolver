@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.11.2...openfeature-provider-java-v0.11.3) (2026-02-10)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.14 to 0.1.15
+
 ## [0.11.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.11.1...openfeature-provider-java-v0.11.2) (2026-01-27)
 
 

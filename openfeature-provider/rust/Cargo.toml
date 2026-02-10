@@ -1,6 +1,6 @@
 [package]
 name = "spotify-confidence-openfeature-provider-local"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "OpenFeature provider for Confidence using native Rust resolver"
 license = "Apache-2.0"
@@ -16,7 +16,7 @@ name = "spotify_confidence_openfeature_provider_local"
 
 [dependencies]
 # Core resolver (path for local dev, version for crates.io publish)
-confidence_resolver = { path = "../../confidence-resolver", version = "0.11.0" }
+confidence_resolver = { path = "../../confidence-resolver", version = "0.11.1" }
 
 # OpenFeature SDK
 open-feature = "0.2.7"
