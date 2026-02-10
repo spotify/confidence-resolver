@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.8.0...openfeature-provider/go/v0.8.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* cap sampled schema count in resolve logging  ([#260](https://github.com/spotify/confidence-resolver/issues/260)) ([e84b724](https://github.com/spotify/confidence-resolver/commit/e84b7248f4b7ce9231902376ed56f3cb7b524f58))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.14 to 0.1.15
+
 ## [0.8.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.7.0...openfeature-provider/go/v0.8.0) (2026-01-28)
 
 
