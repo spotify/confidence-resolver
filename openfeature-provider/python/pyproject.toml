@@ -51,8 +51,16 @@ Repository = "https://github.com/spotify/confidence-resolver"
 [tool.hatch.build.targets.wheel]
 packages = ["src/confidence"]
 
-[tool.hatch.build.targets.wheel.shared-data]
+[tool.hatch.build.targets.wheel.force-include]
 "resources/wasm/confidence_resolver.wasm" = "confidence/wasm/confidence_resolver.wasm"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/",
+    "resources/",
+    "pyproject.toml",
+    "README.md",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
