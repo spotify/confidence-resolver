@@ -19,6 +19,7 @@ jobs:
       js_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/js--release_created'] }}
       ruby_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/ruby--release_created'] }}
       rust_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/rust--release_created'] }}
+      python_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/python--release_created'] }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -262,3 +263,34 @@ jobs:
       - name: Publish to crates.io
         working-directory: openfeature-provider/rust
         run: cargo publish
+
+  publish-python-provider-release:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: deployment
+    permissions:
+      id-token: write  # Required for PyPI OIDC trusted publishing
+      contents: read
+    if: ${{ needs.release.outputs.python_provider_release_created == 'true' }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and extract package with Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: openfeature-provider-python.artifact
+          outputs: type=local,dest=./artifacts
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+
+      - name: List artifacts
+        run: ls -la ./artifacts/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: ./artifacts/

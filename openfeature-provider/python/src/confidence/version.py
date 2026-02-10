@@ -1,3 +1,3 @@
 """Version information for the Confidence OpenFeature provider."""
 
-__version__ = "0.0.1"  # x-release-please-version
+__version__ = "0.2.1"  # x-release-please-version

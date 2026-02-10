@@ -76,7 +76,7 @@
       "path": "openfeature-provider/python",
       "release-type": "rust",
       "changelog-path": "CHANGELOG.md",
-      "extra-files": ["pyproject.toml", "src/confidence_openfeature/version.py"]
+      "extra-files": ["pyproject.toml", "src/confidence/version.py"]
     }
   }
 }
