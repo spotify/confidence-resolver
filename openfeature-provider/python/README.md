@@ -5,7 +5,7 @@ This is the Python OpenFeature provider for [Confidence](https://confidence.spot
 ## Installation
 
 ```bash
-pip install confidence-local-openfeature-provider
+pip install confidence-openfeature-provider
 ```
 
 ## Usage
