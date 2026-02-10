@@ -286,6 +286,7 @@ jobs:
           target: openfeature-provider-python.artifact
           outputs: type=local,dest=./artifacts
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+          provenance: false
 
       - name: List artifacts
         run: ls -la ./artifacts/
