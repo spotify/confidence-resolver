@@ -257,14 +257,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     try {
       return wasmResolveApi
-          .resolveWithSticky(
-              ResolveWithStickyRequest.newBuilder()
-                  .setResolveRequest(req)
-                  .build())
+          .resolveWithSticky(ResolveWithStickyRequest.newBuilder().setResolveRequest(req).build())
           .toCompletableFuture()
           .get();
     } catch (ExecutionException | InterruptedException e) {
-      throw new RuntimeException("Failed to resolve flags", e);
+      log.warn("Failed to resolve flags", e);
+      return ResolveFlagsResponse.getDefaultInstance();
     }
   }
 
@@ -503,9 +501,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       resolveFlagResponse =
           wasmResolveApi
               .resolveWithSticky(
-                  ResolveWithStickyRequest.newBuilder()
-                      .setResolveRequest(req)
-                      .build())
+                  ResolveWithStickyRequest.newBuilder().setResolveRequest(req).build())
               .toCompletableFuture()
               .get();
 

@@ -272,6 +272,8 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
 
     // Verify the response contains the resolved flag
     assertThat(response.getResolvedFlagsList()).hasSize(1);
+    assertThat(response.getResolveId()).isNotNull();
+    assertThat(response.getResolveId()).isNotEmpty();
 
     final ResolvedFlag flag = response.getResolvedFlags(0);
     assertThat(flag).isNotNull();
@@ -289,6 +291,9 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
     // Resolve with apply=false
     final ResolveFlagsResponse response = provider.resolve(context, List.of("tutorial-feature"));
     final ResolvedFlag flag = response.getResolvedFlags(0);
+
+    // Verify no logs have been sent yet (apply=false means no exposure logged)
+    assertThat(mockFlagLoggerService.getTotalFlagAssignments()).isEqualTo(0);
 
     // Apply the flag later
     if (flag != null && flag.getShouldApply()) {

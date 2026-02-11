@@ -7,8 +7,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class SwapWasmResolverApi implements ResolverApi {
+  private static final Logger log = LoggerFactory.getLogger(SwapWasmResolverApi.class);
   private static final int MAX_CLOSED_RETRIES = 10;
   private static final int MAX_MATERIALIZATION_RETRIES = 3;
 
@@ -81,8 +84,8 @@ class SwapWasmResolverApi implements ResolverApi {
       instance.applyFlags(request);
     } catch (IsClosedException e) {
       if (closedRetries >= MAX_CLOSED_RETRIES) {
-        throw new RuntimeException(
-            "Max retries exceeded for IsClosedException: " + MAX_CLOSED_RETRIES, e);
+        log.warn("Max retries exceeded for applyFlags: {}", MAX_CLOSED_RETRIES, e);
+        return;
       }
       applyFlagsInternal(request, closedRetries + 1);
     }
