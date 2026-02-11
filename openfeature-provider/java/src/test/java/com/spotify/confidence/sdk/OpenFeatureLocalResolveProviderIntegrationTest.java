@@ -4,6 +4,8 @@ import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.spotify.confidence.sdk.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsResponse;
 import com.sun.net.httpserver.HttpServer;
@@ -225,6 +227,80 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
     assertThrows(
         FlagNotFoundError.class,
         () -> provider.getObjectEvaluation("non-existing-feature", new Value("default"), context));
+  }
+
+  @Test
+  void testMultiFlagResolveWithApplyFalse() throws Exception {
+    provider.initialize(new ImmutableContext());
+
+    final ImmutableContext context =
+        new ImmutableContext(
+            "tutorial_visitor", Map.of("visitor_id", new Value("tutorial_visitor")));
+
+    // Resolve a flag with apply=false (the default)
+    final ResolveFlagsResponse response = provider.resolve(context, List.of("tutorial-feature"));
+
+    // Verify the response contains the resolved flag
+    assertThat(response.getResolvedFlagsList()).hasSize(1);
+    assertThat(response.getResolveToken()).isNotNull();
+    assertThat(response.getResolveToken().isEmpty()).isFalse();
+    assertThat(response.getResolveId()).isNotNull();
+
+    final ResolvedFlag flag = response.getResolvedFlags(0);
+    assertThat(flag).isNotNull();
+    assertThat(flag.getFlag()).isEqualTo("flags/tutorial-feature");
+    assertThat(flag.getVariant()).isEqualTo("flags/tutorial-feature/variants/exciting-welcome");
+    assertThat(flag.getReason().toString()).isEqualTo("RESOLVE_REASON_MATCH");
+    assertThat(flag.getShouldApply()).isTrue();
+
+    // Verify the value structure
+    assertThat(flag.getValue().getFieldsMap()).containsKey("title");
+    assertThat(flag.getValue().getFieldsMap()).containsKey("message");
+  }
+
+  @Test
+  void testMultiFlagResolveWithApplyTrue() throws Exception {
+    provider.initialize(new ImmutableContext());
+
+    final ImmutableContext context =
+        new ImmutableContext(
+            "tutorial_visitor", Map.of("visitor_id", new Value("tutorial_visitor")));
+
+    // Resolve with apply=true
+    final ResolveFlagsResponse response =
+        provider.resolve(context, List.of("tutorial-feature"), true);
+
+    // Verify the response contains the resolved flag
+    assertThat(response.getResolvedFlagsList()).hasSize(1);
+
+    final ResolvedFlag flag = response.getResolvedFlags(0);
+    assertThat(flag).isNotNull();
+    assertThat(flag.getVariant()).isEqualTo("flags/tutorial-feature/variants/exciting-welcome");
+  }
+
+  @Test
+  void testApplyFlagAfterResolve() throws Exception {
+    provider.initialize(new ImmutableContext());
+
+    final ImmutableContext context =
+        new ImmutableContext(
+            "tutorial_visitor", Map.of("visitor_id", new Value("tutorial_visitor")));
+
+    // Resolve with apply=false
+    final ResolveFlagsResponse response = provider.resolve(context, List.of("tutorial-feature"));
+    final ResolvedFlag flag = response.getResolvedFlags(0);
+
+    // Apply the flag later
+    if (flag != null && flag.getShouldApply()) {
+      provider.applyFlag(response.getResolveToken(), "tutorial-feature");
+    }
+
+    // Shutdown to flush logs
+    provider.shutdown();
+
+    // Verify that the flag was applied (logged)
+    final int totalFlagAssignments = mockFlagLoggerService.getTotalFlagAssignments();
+    assertThat(totalFlagAssignments).isGreaterThanOrEqualTo(1);
   }
 
   @Test

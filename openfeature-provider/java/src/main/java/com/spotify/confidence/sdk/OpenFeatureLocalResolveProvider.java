@@ -3,6 +3,9 @@ package com.spotify.confidence.sdk;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.Struct;
+import com.google.protobuf.Timestamp;
+import com.spotify.confidence.sdk.flags.resolver.v1.AppliedFlag;
+import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
@@ -16,6 +19,8 @@ import dev.openfeature.sdk.exceptions.TypeMismatchError;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -193,6 +198,105 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   @Override
   public ProviderState getState() {
     return state.get();
+  }
+
+  /**
+   * Resolves multiple flags at once without applying them.
+   *
+   * <p>Use this method when you need to pre-fetch flag values but defer logging exposure until the
+   * flag value is actually used/rendered. Call {@link #applyFlag(com.google.protobuf.ByteString,
+   * String)} later to log the exposure.
+   *
+   * <p><strong>Example usage:</strong>
+   *
+   * <pre>{@code
+   * EvaluationContext ctx = new ImmutableContext("user-123");
+   * ResolveFlagsResponse response = provider.resolve(ctx, List.of("feature-a", "feature-b"));
+   *
+   * // Later, when actually using the flag:
+   * ResolvedFlag flag = response.getResolvedFlags(0);
+   * if (flag.getShouldApply()) {
+   *     provider.applyFlag(response.getResolveToken(), "feature-a");
+   * }
+   * }</pre>
+   *
+   * @param ctx The evaluation context
+   * @param flagNames Flag names (without "flags/" prefix)
+   * @return A ResolveFlagsResponse containing resolved values and the resolve token
+   */
+  public ResolveFlagsResponse resolve(EvaluationContext ctx, List<String> flagNames) {
+    return resolve(ctx, flagNames, false);
+  }
+
+  /**
+   * Resolves multiple flags at once.
+   *
+   * @param ctx The evaluation context
+   * @param flagNames Flag names (without "flags/" prefix)
+   * @param apply Whether to immediately log flag exposure
+   * @return A ResolveFlagsResponse containing resolved values and the resolve token
+   */
+  public ResolveFlagsResponse resolve(
+      EvaluationContext ctx, List<String> flagNames, boolean apply) {
+    final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
+    final List<String> requestFlagNames = flagNames.stream().map(name -> "flags/" + name).toList();
+
+    final var req =
+        ResolveFlagsRequest.newBuilder()
+            .addAllFlags(requestFlagNames)
+            .setApply(apply)
+            .setClientSecret(clientSecret)
+            .setEvaluationContext(
+                Struct.newBuilder().putAllFields(evaluationContext.getFieldsMap()).build())
+            .setSdk(
+                Sdk.newBuilder()
+                    .setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER)
+                    .setVersion(Version.VERSION)
+                    .build())
+            .build();
+
+    try {
+      return wasmResolveApi
+          .resolveWithSticky(
+              ResolveWithStickyRequest.newBuilder()
+                  .setResolveRequest(req)
+                  .setFailFastOnSticky(false)
+                  .build())
+          .toCompletableFuture()
+          .get();
+    } catch (ExecutionException | InterruptedException e) {
+      throw new RuntimeException("Failed to resolve flags", e);
+    }
+  }
+
+  /**
+   * Applies a previously resolved flag, logging that it was used/exposed.
+   *
+   * <p>Call this method when a flag value is actually rendered or used in the client, after
+   * resolving with {@link #resolve(EvaluationContext, List)}.
+   *
+   * @param resolveToken The resolve token from ResolveFlagsResponse.getResolveToken()
+   * @param flagName The name of the flag to apply (without "flags/" prefix)
+   */
+  public void applyFlag(com.google.protobuf.ByteString resolveToken, String flagName) {
+    final Instant now = Instant.now();
+    final Timestamp timestamp =
+        Timestamp.newBuilder().setSeconds(now.getEpochSecond()).setNanos(now.getNano()).build();
+
+    final ApplyFlagsRequest request =
+        ApplyFlagsRequest.newBuilder()
+            .addFlags(AppliedFlag.newBuilder().setFlag("flags/" + flagName).setApplyTime(timestamp))
+            .setClientSecret(clientSecret)
+            .setResolveToken(resolveToken)
+            .setSendTime(timestamp)
+            .setSdk(
+                Sdk.newBuilder()
+                    .setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER)
+                    .setVersion(Version.VERSION)
+                    .build())
+            .build();
+
+    wasmResolveApi.applyFlags(request);
   }
 
   @Override

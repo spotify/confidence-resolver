@@ -1,5 +1,6 @@
 package com.spotify.confidence.sdk;
 
+import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
 import java.util.concurrent.CompletionStage;
@@ -14,6 +15,13 @@ interface ResolverApi {
    * @return A future containing the resolve response
    */
   CompletionStage<ResolveFlagsResponse> resolveWithSticky(ResolveWithStickyRequest request);
+
+  /**
+   * Applies flags that were previously resolved with apply=false. This logs the flag exposure.
+   *
+   * @param request The apply flags request containing the resolve token and flags to apply
+   */
+  void applyFlags(ApplyFlagsRequest request);
 
   void init(byte[] state, String accountId);
 
