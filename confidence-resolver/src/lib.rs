@@ -49,6 +49,7 @@ mod gzip;
 pub mod proto;
 pub mod resolve_logger;
 mod schema_util;
+pub mod telemetry;
 mod value;
 
 use proto::confidence::flags::admin::v1 as flags_admin;
