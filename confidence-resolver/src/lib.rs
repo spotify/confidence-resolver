@@ -478,12 +478,17 @@ impl ResolveProcessRequest {
     }
 }
 impl ResolveProcessResponse {
-    fn resolved(response: ResolveFlagsResponse, to_write: Vec<MaterializationRecord>) -> Self {
+    pub fn resolved(
+        response: ResolveFlagsResponse,
+        to_write: Vec<MaterializationRecord>,
+        start_time: Option<Timestamp>,
+    ) -> Self {
         ResolveProcessResponse {
             result: Some(resolve_process_response::Result::Resolved(
                 resolve_process_response::Resolved {
                     response: Some(response),
                     materializations_to_write: to_write,
+                    start_time,
                 },
             )),
         }
@@ -897,6 +902,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         Ok(ResolveProcessResponse::resolved(
             response,
             materialization_context.to_write,
+            state.start_time.take(),
         ))
     }
 

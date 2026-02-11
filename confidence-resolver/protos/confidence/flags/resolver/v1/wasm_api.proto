@@ -3,6 +3,7 @@ syntax = "proto3";
 package confidence.flags.resolver.v1;
 
 import "confidence/flags/resolver/v1/api.proto";
+import "google/protobuf/timestamp.proto";
 
 option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;
@@ -43,6 +44,7 @@ message ResolveProcessResponse {
   message Resolved {
     ResolveFlagsResponse response = 1;
     repeated MaterializationRecord materializations_to_write = 2;
+    google.protobuf.Timestamp start_time = 3;
   }
 
   message Suspended {
