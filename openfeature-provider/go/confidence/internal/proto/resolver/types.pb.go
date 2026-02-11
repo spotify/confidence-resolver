@@ -338,8 +338,8 @@ const file_confidence_flags_resolver_v1_types_proto_rawDesc = "" +
 	"\x18SDK_ID_DOTNET_CONFIDENCE\x10\x13\x12\x1c\n" +
 	"\x18SDK_ID_GO_LOCAL_PROVIDER\x10\x14\x12\x1e\n" +
 	"\x1aSDK_ID_JAVA_LOCAL_PROVIDER\x10\x15\x12#\n" +
-	"\x1fSDK_ID_JS_LOCAL_SERVER_PROVIDER\x10\x16B\x9b\x01\n" +
-	"(com.spotify.confidence.flags.resolver.v1B\n" +
+	"\x1fSDK_ID_JS_LOCAL_SERVER_PROVIDER\x10\x16B\x9f\x01\n" +
+	",com.spotify.confidence.sdk.flags.resolver.v1B\n" +
 	"TypesProtoP\x01Zagithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverb\x06proto3"
 
 var (

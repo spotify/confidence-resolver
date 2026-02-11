@@ -287,7 +287,6 @@ class ResolveTest {
                 wasmResolverApi
                     .resolveWithSticky(
                         ResolveWithStickyRequest.newBuilder()
-                            .setFailFastOnSticky(false)
                             .setResolveRequest(
                                 ResolveFlagsRequest.newBuilder()
                                     .addAllFlags(List.of(flag1))
@@ -437,7 +436,6 @@ class ResolveTest {
     return resolverApi
         .resolveWithSticky(
             ResolveWithStickyRequest.newBuilder()
-                .setFailFastOnSticky(false)
                 .setResolveRequest(
                     ResolveFlagsRequest.newBuilder()
                         .addAllFlags(flags)
@@ -473,7 +471,6 @@ class ResolveTest {
     final var request =
         ResolveWithStickyRequest.newBuilder()
             .setResolveRequest(builder)
-            .setFailFastOnSticky(false)
             .build();
     return resolverApi.resolveWithSticky(request).toCompletableFuture().join();
   }

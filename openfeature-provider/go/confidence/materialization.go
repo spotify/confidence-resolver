@@ -138,7 +138,6 @@ func (m *materializationSupportedResolver) handleMissingMaterializations(request
 	return &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   request.GetResolveRequest(),
 		Materializations: materializations,
-		FailFastOnSticky: request.GetFailFastOnSticky(),
 		NotProcessSticky: request.GetNotProcessSticky(),
 	}, nil
 }

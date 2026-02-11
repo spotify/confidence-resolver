@@ -470,7 +470,6 @@ impl ResolveWithStickyRequest {
     fn without_sticky(resolve_request: ResolveFlagsRequest) -> ResolveWithStickyRequest {
         ResolveWithStickyRequest {
             resolve_request: Some(resolve_request),
-            fail_fast_on_sticky: false,
             not_process_sticky: true,
             materializations: vec![],
         }
@@ -538,17 +537,8 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                 continue;
                             }
                             // We hit a rule that needs materializations - collect what's missing
-                            if request.fail_fast_on_sticky {
-                                // Collect missing materializations for this flag
-                                let missing =
-                                    self.collect_missing_materializations_for_flag(flag)?;
-                                Ok(ResolveWithStickyResponse::with_read_materialization_ops(
-                                    missing,
-                                ))
-                            } else {
-                                has_missing_materializations = true;
-                                break;
-                            }
+                            has_missing_materializations = true;
+                            break;
                         }
                     };
                 }
@@ -3953,7 +3943,6 @@ mod tests {
             let sticky_req = ResolveWithStickyRequest {
                 resolve_request: Some(resolve_flags_req),
                 materializations: vec![],
-                fail_fast_on_sticky: true,
                 not_process_sticky: false,
             };
 
@@ -4010,7 +3999,6 @@ mod tests {
             let sticky_req = ResolveWithStickyRequest {
                 resolve_request: Some(resolve_flags_req),
                 materializations,
-                fail_fast_on_sticky: false,
                 not_process_sticky: false,
             };
 
@@ -4064,7 +4052,6 @@ mod tests {
             let sticky_req = ResolveWithStickyRequest {
                 resolve_request: Some(resolve_flags_req),
                 materializations,
-                fail_fast_on_sticky: false,
                 not_process_sticky: false,
             };
 
@@ -4166,7 +4153,7 @@ mod tests {
             .get_resolver_with_json_context("test-secret", context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        // Request all three flags with fail_fast_on_sticky = false
+        // Request all three flags
         let resolve_flags_req = flags_resolver::ResolveFlagsRequest {
             evaluation_context: Some(Struct::default()),
             client_secret: "test-secret".to_string(),
@@ -4181,8 +4168,7 @@ mod tests {
 
         let sticky_req = ResolveWithStickyRequest {
             resolve_request: Some(resolve_flags_req),
-            materializations: vec![],   // No materializations provided
-            fail_fast_on_sticky: false, // Collect all missing materializations
+            materializations: vec![], // No materializations provided
             not_process_sticky: false,
         };
 

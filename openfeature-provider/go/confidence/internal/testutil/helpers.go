@@ -367,7 +367,6 @@ func CreateStateWithStickyFlag() []byte {
 func CreateResolveWithStickyRequest(
 	resolveRequest *resolver.ResolveFlagsRequest,
 	materializations []*resolverv1.ReadResult,
-	failFast bool,
 	notProcessSticky bool,
 ) *wasm.ResolveWithStickyRequest {
 	if materializations == nil {
@@ -376,7 +375,6 @@ func CreateResolveWithStickyRequest(
 	return &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   resolveRequest,
 		Materializations: materializations,
-		FailFastOnSticky: failFast,
 		NotProcessSticky: notProcessSticky,
 	}
 }

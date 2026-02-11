@@ -87,13 +87,13 @@ message ResolveWithStickyRequest {
   // The standard resolve request
   ResolveFlagsRequest resolve_request = 1;
 
-  // if a materialization info is missing, we want tor return to the caller immediately
-  bool fail_fast_on_sticky = 3;
   // if we should support sticky or completely skip the flag if they had sticky rules
   bool not_process_sticky = 4;
 
   // Context about the materialization required for the resolve
   repeated ReadResult materializations = 5;
+
+  reserved 3;
 }
 
 // Response from resolving with sticky assignments

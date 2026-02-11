@@ -184,9 +184,6 @@ message ResolveWithStickyRequest {
   // Context about the materialization required for the resolve
   // Map from unit (targeting key) to materialization data
   map<string, MaterializationMap> materializations_per_unit = 2;
-
-  // if a materialization info is missing, return immediately
-  bool fail_fast_on_sticky = 3;
 }
 
 message MaterializationMap {
@@ -276,13 +273,12 @@ These updates should be persisted by the client and included in the `materializa
 
 ### Error Handling
 
-- **Missing Materializations**: When required materialization data is unavailable
-- **Fail Fast**: `fail_fast_on_sticky` controls whether to return immediately or continue processing
+- **Missing Materializations**: When required materialization data is unavailable, the resolver collects all missing materializations across all flags before returning
 - **Dependency Checking**: The resolver validates all materialization dependencies before evaluation
 
 ## Multi-Flag Resolution Flow
 
-When resolving multiple flags with sticky assignments, the resolver uses a sophisticated flow to handle missing materializations efficiently:
+When resolving multiple flags with sticky assignments, the resolver uses a flow to handle missing materializations efficiently:
 
 ```mermaid
 flowchart TD
@@ -291,8 +287,6 @@ flowchart TD
     TryResolve[Try to resolve flag]
     Result{Result?}
     OtherError[Other Error]
-    FailFast{fail_fast_on_<br/>sticky = true?}
-    ReturnEmpty[Return Missing Mat.<br/>empty]
     SetHasMissing[Set has_missing = true<br/>break loop]
     AllProcessed{All flags processed?}
     CheckHasMissing{has_missing<br/>= true?}
@@ -305,10 +299,8 @@ flowchart TD
     TryResolve --> Result
     Result -->|Success| AllProcessed
     Result -->|Error| Result2{Error Type?}
-    Result2 -->|Missing Mat.| FailFast
+    Result2 -->|Missing Mat.| SetHasMissing
     Result2 -->|Other Error| OtherError
-    FailFast -->|YES| ReturnEmpty
-    FailFast -->|NO| SetHasMissing
     SetHasMissing --> AllProcessed
     AllProcessed -->|NO| ForEach
     AllProcessed -->|YES| CheckHasMissing
@@ -317,46 +309,12 @@ flowchart TD
     CollectMissing --> ReturnMissingList
 ```
 
-### Fail Fast vs. Discovery Mode
-
-**Fail Fast Mode (`fail_fast_on_sticky = true`)**:
-- Immediately returns when first missing materialization is detected
-- Returns empty missing materialization list (signals caller to handle it)
-- Stops processing remaining flags
-- Best for production: fast failure for immediate remediation
-
-**Discovery Mode (`fail_fast_on_sticky = false`)**:
-- Continues processing all flags even when missing materializations are found
-- Collects ALL missing materializations across all flags
-- Calls `collect_missing_materializations()` to gather complete dependency list
-- Best for initialization: discover all required materializations in one pass
-
 ## Advanced Optimizations
-
-### Fail Fast on First Missing Materialization
-
-The `fail_fast_on_sticky` parameter provides a performance optimization for handling missing materializations:
-
-**Behavior:**
-- When `fail_fast_on_sticky = true`: As soon as any flag encounters a missing materialization dependency, the resolver immediately returns all accumulated missing materializations without processing remaining flags
-- When `fail_fast_on_sticky = false`: The resolver continues processing all flags and collects all missing materializations before returning
-
-**Use Cases:**
-- **Discovery Mode**: Set to `false` when you want to collect all missing materializations across all flags in a single request
-- **Production Mode**: Set to `true` when you want immediate feedback about missing dependencies to avoid unnecessary processing
-
-**Example Flow:**
-```
-Flag A: ✅ Has materialization → Process normally
-Flag B: ❌ Missing materialization + fail_fast=true → Return immediately with [Flag B missing item]
-Flag C: (Not processed due to fail_fast)
-```
 
 ### Performance Considerations
 
 - **Early dependency validation**: When a rule requires a read_materialization, the resolver checks for it in the context before processing the rule logic
-- **Fail fast on missing dependencies**: When a required MaterializationInfo is not found in the context, the resolver immediately returns an error without attempting rule evaluation
-- **Selective dependency collection**: In discovery mode (`fail_fast_on_sticky = false`), after detecting any missing materialization, the resolver uses `collect_missing_materializations()` to efficiently gather all missing dependencies across all flags without full rule evaluation
+- **Missing dependency collection**: When a required MaterializationInfo is not found in the context, the resolver collects all missing materializations across all flags before returning
 - **Shared context efficiency**: Multiple flags can reference the same materialization context, avoiding redundant lookups
 
 ## Best Practices
@@ -390,8 +348,6 @@ This approach ensures assignment consistency while allowing new users to be assi
 | `materialization_must_match` | `false` | Accept both existing and new units |
 | `segment_targeting_can_be_ignored` | `true` | Units in materialization bypass segment checks |
 | `segment_targeting_can_be_ignored` | `false` | Units in materialization still need segment match |
-| `fail_fast_on_sticky` | `true` | Return immediately on first missing materialization |
-| `fail_fast_on_sticky` | `false` | Collect all missing materializations before returning |
 
 ### Behavior Matrix
 

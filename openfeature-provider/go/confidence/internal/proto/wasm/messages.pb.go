@@ -250,8 +250,8 @@ const file_confidence_wasm_messages_proto_rawDesc = "" +
 	"\bResponse\x12\x14\n" +
 	"\x04data\x18\x01 \x01(\fH\x00R\x04data\x12\x16\n" +
 	"\x05error\x18\x02 \x01(\tH\x00R\x05errorB\b\n" +
-	"\x06resultB\x88\x01\n" +
-	"\x1bcom.spotify.confidence.wasmB\bMessagesP\x00Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
+	"\x06resultB\x8c\x01\n" +
+	"\x1fcom.spotify.confidence.sdk.wasmB\bMessagesP\x00Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
 
 var (
 	file_confidence_wasm_messages_proto_rawDescOnce sync.Once

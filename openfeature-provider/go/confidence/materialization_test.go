@@ -29,7 +29,6 @@ func TestMaterializationLocalResolverProvider_EmitsErrorFromInnerResolver(t *tes
 	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
 		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
 		NotProcessSticky: false,
 	}
 
@@ -55,7 +54,6 @@ func TestMaterializationLocalResolverProvider_WorksWithoutMaterializations(t *te
 	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
 		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
 		NotProcessSticky: false,
 	}
 
@@ -135,7 +133,6 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
 		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
 		NotProcessSticky: false,
 	}
 	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)
@@ -194,7 +191,6 @@ func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t 
 	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
 		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
 		NotProcessSticky: false,
 	}
 	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)
@@ -264,7 +260,6 @@ func TestMaterializationLocalResolverProvider_DoesNotRetryBeyondMaxDepth(t *test
 	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
 		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
 		NotProcessSticky: false,
 	}
 	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)

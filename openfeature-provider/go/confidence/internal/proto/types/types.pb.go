@@ -441,8 +441,8 @@ const file_confidence_flags_types_v1_types_proto_rawDesc = "" +
 	"\x0eBoolFlagSchema\x1a^\n" +
 	"\x0eListFlagSchema\x12L\n" +
 	"\x0eelement_schema\x18\x01 \x01(\v2%.confidence.flags.types.v1.FlagSchemaR\relementSchemaB\r\n" +
-	"\vschema_typeB\x95\x01\n" +
-	"%com.spotify.confidence.flags.types.v1B\n" +
+	"\vschema_typeB\x99\x01\n" +
+	")com.spotify.confidence.sdk.flags.types.v1B\n" +
 	"TypesProtoP\x01Z^github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/typesb\x06proto3"
 
 var (

@@ -395,7 +395,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               .resolveWithSticky(
                   ResolveWithStickyRequest.newBuilder()
                       .setResolveRequest(req)
-                      .setFailFastOnSticky(false)
                       .build())
               .toCompletableFuture()
               .get();

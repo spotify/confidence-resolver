@@ -323,7 +323,6 @@ impl ConfidenceProvider {
         let mut sticky_request = ResolveWithStickyRequest {
             resolve_request: Some(request),
             materializations: vec![],
-            fail_fast_on_sticky: false,
             not_process_sticky,
         };
 

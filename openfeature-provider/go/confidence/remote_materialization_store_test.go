@@ -262,7 +262,6 @@ func TestRemoteMaterializationStore_ErrorPropagation_InProvider(t *testing.T) {
 	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
 		Materializations: []*pb.ReadResult{},
-		FailFastOnSticky: false,
 		NotProcessSticky: false,
 	}
 
@@ -316,7 +315,6 @@ func TestRemoteMaterializationStore_WriteErrorDoesNotBlock(t *testing.T) {
 	request := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
 		Materializations: []*pb.ReadResult{},
-		FailFastOnSticky: false,
 		NotProcessSticky: false,
 	}
 

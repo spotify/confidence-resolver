@@ -64,7 +64,6 @@ func TestSwapWasmResolverApi_WithRealState(t *testing.T) {
 	request := tu.CreateResolveWithStickyRequest(
 		tu.CreateTutorialFeatureRequest(),
 		nil,   // empty materializations
-		true,  // failFast
 		false, // notProcessSticky
 	)
 
@@ -168,7 +167,6 @@ func TestSwapWasmResolverApi_UpdateStateAndFlushLogs(t *testing.T) {
 	request := tu.CreateResolveWithStickyRequest(
 		tu.CreateTutorialFeatureRequest(),
 		nil,   // empty materializations
-		true,  // failFast
 		false, // notProcessSticky
 	)
 
@@ -227,7 +225,6 @@ func TestSwapWasmResolverApi_MultipleUpdates(t *testing.T) {
 		request := tu.CreateResolveWithStickyRequest(
 			tu.CreateTutorialFeatureRequest(),
 			nil,   // empty materializations
-			true,  // failFast
 			false, // notProcessSticky
 		)
 
@@ -307,7 +304,6 @@ func TestSwapWasmResolverApi_ResolveFlagWithNoStickyRules(t *testing.T) {
 	stickyRequest := tu.CreateResolveWithStickyRequest(
 		tu.CreateTutorialFeatureRequest(),
 		nil,   // empty materializations
-		true,  // failFast
 		false, // notProcessSticky
 	)
 
@@ -400,7 +396,6 @@ func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(
 			},
 		},
 		nil,   // empty materializations - missing the required "experiment_v1" materialization
-		true,  // failFast
 		false, // notProcessSticky
 	)
 

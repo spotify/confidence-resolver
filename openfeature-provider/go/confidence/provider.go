@@ -225,7 +225,6 @@ func evaluate[T any](
 	stickyRequest := &wasm.ResolveWithStickyRequest{
 		ResolveRequest:   request,
 		Materializations: make([]*resolverinternal.ReadResult, 0),
-		FailFastOnSticky: false,
 		NotProcessSticky: false,
 	}
 

@@ -362,7 +362,9 @@ type ResolvedFlag struct {
 	// The schema of the value that was returned.
 	FlagSchema *types.FlagSchema_StructFlagSchema `protobuf:"bytes,4,opt,name=flag_schema,json=flagSchema,proto3" json:"flag_schema,omitempty"`
 	// The reason to why the flag could be resolved or not.
-	Reason        ResolveReason `protobuf:"varint,5,opt,name=reason,proto3,enum=confidence.flags.resolver.v1.ResolveReason" json:"reason,omitempty"`
+	Reason ResolveReason `protobuf:"varint,5,opt,name=reason,proto3,enum=confidence.flags.resolver.v1.ResolveReason" json:"reason,omitempty"`
+	// Determines whether the flag should be applied in the clients
+	ShouldApply   bool `protobuf:"varint,6,opt,name=should_apply,json=shouldApply,proto3" json:"should_apply,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -432,6 +434,13 @@ func (x *ResolvedFlag) GetReason() ResolveReason {
 	return ResolveReason_RESOLVE_REASON_UNSPECIFIED
 }
 
+func (x *ResolvedFlag) GetShouldApply() bool {
+	if x != nil {
+		return x.ShouldApply
+	}
+	return false
+}
+
 var File_confidence_flags_resolver_v1_api_proto protoreflect.FileDescriptor
 
 const file_confidence_flags_resolver_v1_api_proto_rawDesc = "" +
@@ -458,17 +467,18 @@ const file_confidence_flags_resolver_v1_api_proto_rawDesc = "" +
 	"\vAppliedFlag\x12\x12\n" +
 	"\x04flag\x18\x01 \x01(\tR\x04flag\x129\n" +
 	"\n" +
-	"apply_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tapplyTime\"\x89\x02\n" +
+	"apply_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tapplyTime\"\xac\x02\n" +
 	"\fResolvedFlag\x12\x12\n" +
 	"\x04flag\x18\x01 \x01(\tR\x04flag\x12\x18\n" +
 	"\avariant\x18\x02 \x01(\tR\avariant\x12-\n" +
 	"\x05value\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x05value\x12W\n" +
 	"\vflag_schema\x18\x04 \x01(\v26.confidence.flags.types.v1.FlagSchema.StructFlagSchemaR\n" +
 	"flagSchema\x12C\n" +
-	"\x06reason\x18\x05 \x01(\x0e2+.confidence.flags.resolver.v1.ResolveReasonR\x06reason2\x8e\x01\n" +
+	"\x06reason\x18\x05 \x01(\x0e2+.confidence.flags.resolver.v1.ResolveReasonR\x06reason\x12!\n" +
+	"\fshould_apply\x18\x06 \x01(\bR\vshouldApply2\x8e\x01\n" +
 	"\x13FlagResolverService\x12w\n" +
-	"\fResolveFlags\x121.confidence.flags.resolver.v1.ResolveFlagsRequest\x1a2.confidence.flags.resolver.v1.ResolveFlagsResponse\"\x00B\x99\x01\n" +
-	"(com.spotify.confidence.flags.resolver.v1B\bApiProtoP\x01Zagithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverb\x06proto3"
+	"\fResolveFlags\x121.confidence.flags.resolver.v1.ResolveFlagsRequest\x1a2.confidence.flags.resolver.v1.ResolveFlagsResponse\"\x00B\x9d\x01\n" +
+	",com.spotify.confidence.sdk.flags.resolver.v1B\bApiProtoP\x01Zagithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverb\x06proto3"
 
 var (
 	file_confidence_flags_resolver_v1_api_proto_rawDescOnce sync.Once

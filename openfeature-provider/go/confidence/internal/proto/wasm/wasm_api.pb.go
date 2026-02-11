@@ -28,8 +28,6 @@ type ResolveWithStickyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The standard resolve request
 	ResolveRequest *resolver.ResolveFlagsRequest `protobuf:"bytes,1,opt,name=resolve_request,json=resolveRequest,proto3" json:"resolve_request,omitempty"`
-	// if a materialization info is missing, we want tor return to the caller immediately
-	FailFastOnSticky bool `protobuf:"varint,3,opt,name=fail_fast_on_sticky,json=failFastOnSticky,proto3" json:"fail_fast_on_sticky,omitempty"`
 	// if we should support sticky or completely skip the flag if they had sticky rules
 	NotProcessSticky bool `protobuf:"varint,4,opt,name=not_process_sticky,json=notProcessSticky,proto3" json:"not_process_sticky,omitempty"`
 	// Context about the materialization required for the resolve
@@ -73,13 +71,6 @@ func (x *ResolveWithStickyRequest) GetResolveRequest() *resolver.ResolveFlagsReq
 		return x.ResolveRequest
 	}
 	return nil
-}
-
-func (x *ResolveWithStickyRequest) GetFailFastOnSticky() bool {
-	if x != nil {
-		return x.FailFastOnSticky
-	}
-	return false
 }
 
 func (x *ResolveWithStickyRequest) GetNotProcessSticky() bool {
@@ -281,12 +272,11 @@ var File_confidence_wasm_wasm_api_proto protoreflect.FileDescriptor
 
 const file_confidence_wasm_wasm_api_proto_rawDesc = "" +
 	"\n" +
-	"\x1econfidence/wasm/wasm_api.proto\x12\x1cconfidence.flags.resolver.v1\x1a&confidence/flags/resolver/v1/api.proto\x1a/confidence/flags/resolver/v1/internal_api.proto\"\xa9\x02\n" +
+	"\x1econfidence/wasm/wasm_api.proto\x12\x1cconfidence.flags.resolver.v1\x1a&confidence/flags/resolver/v1/api.proto\x1a/confidence/flags/resolver/v1/internal_api.proto\"\x80\x02\n" +
 	"\x18ResolveWithStickyRequest\x12Z\n" +
-	"\x0fresolve_request\x18\x01 \x01(\v21.confidence.flags.resolver.v1.ResolveFlagsRequestR\x0eresolveRequest\x12-\n" +
-	"\x13fail_fast_on_sticky\x18\x03 \x01(\bR\x10failFastOnSticky\x12,\n" +
+	"\x0fresolve_request\x18\x01 \x01(\v21.confidence.flags.resolver.v1.ResolveFlagsRequestR\x0eresolveRequest\x12,\n" +
 	"\x12not_process_sticky\x18\x04 \x01(\bR\x10notProcessSticky\x12T\n" +
-	"\x10materializations\x18\x05 \x03(\v2(.confidence.flags.resolver.v1.ReadResultR\x10materializations\"\xab\x03\n" +
+	"\x10materializations\x18\x05 \x03(\v2(.confidence.flags.resolver.v1.ReadResultR\x10materializationsJ\x04\b\x03\x10\x04\"\xab\x03\n" +
 	"\x19ResolveWithStickyResponse\x12[\n" +
 	"\asuccess\x18\x01 \x01(\v2?.confidence.flags.resolver.v1.ResolveWithStickyResponse.SuccessH\x00R\asuccess\x12_\n" +
 	"\x10read_ops_request\x18\x03 \x01(\v23.confidence.flags.resolver.v1.ReadOperationsRequestH\x00R\x0ereadOpsRequest\x1a\xbd\x01\n" +
@@ -296,8 +286,8 @@ const file_confidence_wasm_wasm_api_proto_rawDesc = "" +
 	"\x0eresolve_result\"&\n" +
 	"\n" +
 	"LogMessage\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessageB\x99\x01\n" +
-	"(com.spotify.confidence.flags.resolver.v1B\fWasmApiProtoP\x01Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
+	"\amessage\x18\x01 \x01(\tR\amessageB\x9d\x01\n" +
+	",com.spotify.confidence.sdk.flags.resolver.v1B\fWasmApiProtoP\x01Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
 
 var (
 	file_confidence_wasm_wasm_api_proto_rawDescOnce sync.Once
