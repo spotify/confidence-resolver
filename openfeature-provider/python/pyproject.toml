@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "confidence-openfeature-provider"
-version = "0.2.1"
+version = "0.3.0" # x-release-please-version
 description = "Confidence OpenFeature provider for local flag resolution using WebAssembly"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     { name = "Spotify", email = "confidence@spotify.com" }
 ]
@@ -18,7 +18,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -67,7 +66,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_unused_configs = true
 warn_redundant_casts = true
 strict_equality = true
@@ -95,7 +94,7 @@ disable_error_code = ["attr-defined", "name-defined", "union-attr", "operator", 
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py310"
 exclude = [".venv", ".git", "*_pb2.py", "*_pb2_grpc.py"]
 
 [tool.ruff.lint]
