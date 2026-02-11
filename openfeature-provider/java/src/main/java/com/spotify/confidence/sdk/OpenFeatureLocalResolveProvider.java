@@ -261,7 +261,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
           .toCompletableFuture()
           .get();
     } catch (ExecutionException | InterruptedException e) {
-      log.warn("Failed to resolve flags", e);
+      log.error("Failed to resolve flags", e);
       return ResolveFlagsResponse.getDefaultInstance();
     }
   }
