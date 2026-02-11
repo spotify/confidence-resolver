@@ -8,5 +8,5 @@
   "openfeature-provider/go": "0.8.1",
   "openfeature-provider/ruby": "0.1.1",
   "openfeature-provider/rust": "0.2.2",
-  "openfeature-provider/python": "0.3.0"
+  "openfeature-provider/python": "0.3.1"
 }

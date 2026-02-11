@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.3.0...openfeature-provider-python-v0.3.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* **python:** update minimum Python version to 3.10 ([#269](https://github.com/spotify/confidence-resolver/issues/269)) ([648f384](https://github.com/spotify/confidence-resolver/commit/648f384c2137a8d2fd182acccc6d57a695ed521f))
+
 ## [0.3.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.2.1...openfeature-provider-python-v0.3.0) (2026-02-10)
 
 
