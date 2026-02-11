@@ -14,7 +14,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.10+
 - OpenFeature SDK 0.8.0+
 
 ## Installation
