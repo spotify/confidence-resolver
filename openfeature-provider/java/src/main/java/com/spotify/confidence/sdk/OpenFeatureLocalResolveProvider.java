@@ -221,7 +221,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * }</pre>
    *
    * @param ctx The evaluation context
-   * @param flagNames Flag names (without "flags/" prefix)
+   * @param flagNames Flag names
    * @return A ResolveFlagsResponse containing resolved values and the resolve token
    */
   public ResolveFlagsResponse resolve(EvaluationContext ctx, List<String> flagNames) {
@@ -232,14 +232,14 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * Resolves multiple flags at once.
    *
    * @param ctx The evaluation context
-   * @param flagNames Flag names (without "flags/" prefix)
+   * @param flagNames Flag names
    * @param apply Whether to immediately log flag exposure
    * @return A ResolveFlagsResponse containing resolved values and the resolve token
    */
   public ResolveFlagsResponse resolve(
       EvaluationContext ctx, List<String> flagNames, boolean apply) {
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
-    final List<String> requestFlagNames = flagNames.stream().map(name -> "flags/" + name).toList();
+    final List<String> requestFlagNames = flagNames.stream().map(this::ensureFlagPrefix).toList();
 
     final var req =
         ResolveFlagsRequest.newBuilder()
@@ -260,7 +260,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
           .resolveWithSticky(
               ResolveWithStickyRequest.newBuilder()
                   .setResolveRequest(req)
-                  .setFailFastOnSticky(false)
                   .build())
           .toCompletableFuture()
           .get();
@@ -276,7 +275,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * resolving with {@link #resolve(EvaluationContext, List)}.
    *
    * @param resolveToken The resolve token from ResolveFlagsResponse.getResolveToken()
-   * @param flagName The name of the flag to apply (without "flags/" prefix)
+   * @param flagName The name of the flag to apply
    */
   public void applyFlag(com.google.protobuf.ByteString resolveToken, String flagName) {
     final Instant now = Instant.now();
@@ -285,7 +284,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     final ApplyFlagsRequest request =
         ApplyFlagsRequest.newBuilder()
-            .addFlags(AppliedFlag.newBuilder().setFlag("flags/" + flagName).setApplyTime(timestamp))
+            .addFlags(
+                AppliedFlag.newBuilder()
+                    .setFlag(ensureFlagPrefix(flagName))
+                    .setApplyTime(timestamp))
             .setClientSecret(clientSecret)
             .setResolveToken(resolveToken)
             .setSendTime(timestamp)
@@ -297,6 +299,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             .build();
 
     wasmResolveApi.applyFlags(request);
+  }
+
+  private String ensureFlagPrefix(String flagName) {
+    return flagName.startsWith("flags/") ? flagName : "flags/" + flagName;
   }
 
   @Override
@@ -499,7 +505,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               .resolveWithSticky(
                   ResolveWithStickyRequest.newBuilder()
                       .setResolveRequest(req)
-                      .setFailFastOnSticky(false)
                       .build())
               .toCompletableFuture()
               .get();
