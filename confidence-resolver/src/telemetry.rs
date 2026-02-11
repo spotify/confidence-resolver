@@ -122,8 +122,7 @@ pub struct Telemetry {
 
 impl Telemetry {
     pub fn new() -> Self {
-        let resolve_rates: Vec<AtomicU32> =
-            (0..REASON_COUNT).map(|_| AtomicU32::new(0)).collect();
+        let resolve_rates: Vec<AtomicU32> = (0..REASON_COUNT).map(|_| AtomicU32::new(0)).collect();
         Telemetry {
             // 162 exponential buckets from 1 µs to 10s (10_000_000 µs), ratio ≈ 1.1
             resolve_latency: Histogram::new(1, 10_000_000, 162),
