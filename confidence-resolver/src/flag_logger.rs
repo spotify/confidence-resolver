@@ -98,7 +98,10 @@ pub fn aggregate_batch(message_batch: Vec<WriteFlagLogsRequest>) -> WriteFlagLog
         })
     }
 
-    let telemetry_data = first_sdk.map(|sdk| TelemetryData { sdk: Some(sdk) });
+    let telemetry_data = first_sdk.map(|sdk| TelemetryData {
+        sdk: Some(sdk),
+        ..Default::default()
+    });
 
     WriteFlagLogsRequest {
         telemetry_data,
