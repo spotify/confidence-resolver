@@ -274,6 +274,8 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
     assertThat(response.getResolvedFlagsList()).hasSize(1);
     assertThat(response.getResolveId()).isNotNull();
     assertThat(response.getResolveId()).isNotEmpty();
+    // resolveToken is empty when apply=true since deferred application isn't needed
+    assertThat(response.getResolveToken().isEmpty()).isTrue();
 
     final ResolvedFlag flag = response.getResolvedFlags(0);
     assertThat(flag).isNotNull();
