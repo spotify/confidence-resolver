@@ -218,10 +218,107 @@ OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
 For detailed information on how to implement custom storage backends, see [STICKY_RESOLVE.md](STICKY_RESOLVE.md).
 See the `InMemoryMaterializationStoreExample` class in the test sources for a reference implementation, or review the `MaterializationStore` javadoc for detailed API documentation.
 
+## Multi-Flag Resolve (Advanced and Experimental)
+
+> ⚠️ **Experimental**: This feature is experimental and may change.
+
+The provider exposes a `resolve()` method that resolves multiple flags in a single call with deferred application (exposure logging). This is useful when building a backend service that proxies flag resolution for client SDKs.
+
+### Use Case: Backend Proxy for Legacy Clients
+
+This feature enables you to build resilient architectures where your backend service handles flag resolution on behalf of client SDKs that don't have local resolve capability. Benefits include:
+
+- **Increased Resilience**: Client SDKs don't need direct connectivity to Confidence
+- **Reduced Client Latency**: Your backend can pre-resolve flags before the client needs them
+- **Centralized Control**: All flag resolution flows through your infrastructure
+- **Legacy SDK Support**: Works with any client SDK that can make HTTP requests
+
+### Prerequisites
+
+To use this feature, you need:
+
+1. **A compatible client SDK version**: The client SDK must support configuring custom base URLs for **both** resolve and apply requests. Not all SDK versions support this — check your SDK's documentation for `resolveBaseUrl` / `applyBaseUrl` configuration options (or equivalent).
+
+2. **Backend endpoints exposed in your environment**: You must implement and expose HTTP endpoints in your backend service that the client SDK can call. These endpoints will:
+   - Receive resolve requests from the client SDK and forward them to the Java provider
+   - Receive apply requests from the client SDK and forward them to the Java provider
+   - Handle any authentication/authorization between your client and backend
+
+### How It Works
+
+```
+┌─────────────┐     resolve      ┌─────────────────┐    (local WASM)    ┌────────────┐
+│  Client SDK │ ───────────────► │  Your Backend   │ ◄───────────────── │ Confidence │
+│             │                  │  (Java Provider)│     sync flags     │  Service   │
+│             │ ◄─────────────── │                 │                    │            │
+│             │  values + token  │                 │                    │            │
+│             │                  │                 │                    │            │
+│             │     apply        │                 │    log exposure    │            │
+│             │ ───────────────► │                 │ ─────────────────► │            │
+└─────────────┘                  └─────────────────┘                    └────────────┘
+```
+
+1. Client SDK sends a resolve request to _your_ backend endpoint.
+2. Your backend calls `provider.resolve(context, flagNames)` with `apply=false`
+3. Your backend returns the resolved values and `resolveToken` to the client
+4. When the Client SDK renders/uses a flag value, it sends an apply request to _your_ endpoint.
+5. Your backend calls `provider.applyFlag(resolveToken, flagName)` to log exposure
+
+### Important: Client Secret Behavior
+
+**The Java provider's client secret is used for all flag resolution**, not the client SDK's secret. This means:
+
+- The client SDK's credentials are only used for authenticating with *your* backend service
+- The provider resolves flags based on the client/secret it was initialized with
+- All flags enabled for the provider's client will be available, regardless of what client the SDK claims to be
+
+This is by design — it allows you to use a single backend client for resolution while your client SDKs authenticate with your service using their own credentials.
+
+### Example Implementation
+
+```java
+// Initialize provider with YOUR backend client secret
+OpenFeatureLocalResolveProvider provider =
+    new OpenFeatureLocalResolveProvider("your-backend-client-secret");
+OpenFeatureAPI.getInstance().setProviderAndWait(provider);
+
+// In your resolve endpoint handler:
+public ResolveResponse handleResolve(ResolveRequest request) {
+    // Build evaluation context from client request
+    MutableContext ctx = new MutableContext(request.getTargetingKey());
+    request.getAttributes().forEach(ctx::add);
+
+    // Resolve flags WITHOUT applying (apply=false is the default)
+    ResolveFlagsResponse response = provider.resolve(ctx, request.getFlagNames());
+
+    // Return resolved values and token to client
+    return new ResolveResponse(
+        response.getResolvedFlagsList(),
+        response.getResolveToken().toByteArray(),
+        response.getResolveId()
+    );
+}
+
+// In your apply endpoint handler:
+public void handleApply(ApplyRequest request) {
+    // Log exposure for flags the client actually used
+    for (String flagName : request.getAppliedFlags()) {
+        provider.applyFlag(
+            ByteString.copyFrom(request.getResolveToken()),
+            flagName
+        );
+    }
+}
+```
+
+### API Note
+
+The `resolve()` method returns `ResolveFlagsResponse` and `applyFlag()` accepts `ByteString` — both are protobuf types from the shaded `com.spotify.confidence.sdk.shaded.com.google.protobuf` package. If you're serializing these for client communication, use `.toByteArray()` and `ByteString.copyFrom()` to convert to/from `byte[]`.
+
 ## Requirements
 
 - Java 17+
-- OpenFeature SDK 1.6.1+
+- OpenFeature SDK 1.18.2+
 
 ## Contributing
 
