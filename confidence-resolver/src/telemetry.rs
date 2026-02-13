@@ -35,10 +35,12 @@ impl Histogram {
     ///
     /// The ratio is derived as `(max_value / min_value)^(1 / (max_buckets - 3))`.
     pub fn new(min_value: u32, max_value: u32, max_buckets: usize) -> Self {
-        let closed_buckets = max_buckets - 2; // exclude underflow + overflow
+        assert!(max_buckets >= 3, "max_buckets must be at least 3");
+        let closed_buckets = max_buckets.saturating_sub(2); // exclude underflow + overflow
         let ln_min = (min_value as f64).ln();
         let ln_max = (max_value as f64).ln();
-        let ln_ratio = (ln_max - ln_min) / (closed_buckets - 1) as f64;
+        let denominator = closed_buckets.saturating_sub(1).max(1) as f64;
+        let ln_ratio = (ln_max - ln_min) / denominator;
         let min_exponent = (ln_min / ln_ratio).floor() as i32;
         let buckets: Vec<AtomicU32> = (0..max_buckets).map(|_| AtomicU32::new(0)).collect();
         Histogram {
@@ -59,11 +61,14 @@ impl Histogram {
             0 // underflow
         } else {
             let k = (value as f64).ln() / self.ln_ratio;
-            let k = k.floor() as i32 - self.min_exponent;
-            // +1 to skip the underflow bucket, clamped to [1, len-1] (overflow)
-            (k as usize + 1).clamp(1, self.buckets.len() - 1)
+            let k = k.floor() as i32;
+            let k = k.saturating_sub(self.min_exponent);
+            let last = self.buckets.len().saturating_sub(1);
+            (k as usize).saturating_add(1).clamp(1, last)
         };
-        self.buckets[idx].fetch_add(1, Ordering::Relaxed);
+        if let Some(bucket) = self.buckets.get(idx) {
+            bucket.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Drain the histogram into a proto `ResolveLatency` message, resetting all counters.
@@ -81,9 +86,9 @@ impl Histogram {
         let mut spans: Vec<pb::BucketSpan> = Vec::new();
         let mut current_span: Option<(i32, Vec<u32>)> = None;
 
-        for i in 0..self.buckets.len() {
-            let v = self.buckets[i].swap(0, Ordering::Relaxed);
-            let exponent = self.min_exponent + i as i32 - 1;
+        for (i, bucket) in self.buckets.iter().enumerate() {
+            let v = bucket.swap(0, Ordering::Relaxed);
+            let exponent = self.min_exponent.saturating_add(i as i32).saturating_sub(1);
             if v > 0 {
                 match &mut current_span {
                     Some((_, counts)) => counts.push(v),
@@ -138,9 +143,8 @@ impl Telemetry {
 
     /// Increment the resolve rate counter for the given reason.
     pub fn mark_resolve(&self, reason: pb::Reason) {
-        let idx = reason as usize;
-        if idx < REASON_COUNT {
-            self.resolve_rates[idx].fetch_add(1, Ordering::Relaxed);
+        if let Some(counter) = self.resolve_rates.get(reason as usize) {
+            counter.fetch_add(1, Ordering::Relaxed);
         }
     }
 
