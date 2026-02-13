@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
@@ -25,69 +24,87 @@ func wrapResolverSupplierWithMaterializations(supplier LocalResolverSupplier, ma
 	}
 }
 
-func (m *materializationSupportedResolver) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (resp *wasm.ResolveWithStickyResponse, err error) {
-	response, err := m.current.ResolveWithSticky(request)
+func (m *materializationSupportedResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (resp *wasm.ResolveProcessResponse, err error) {
+	// Convert to a simple Resolve so the inner resolver can suspend when
+	// materializations are needed — the wrapper handles the suspend/resume cycle.
+	innerRequest := request
+	if rwm, ok := request.Request.(*wasm.ResolveProcessRequest_ResolveWithMaterializations_); ok {
+		innerRequest = &wasm.ResolveProcessRequest{
+			Request: &wasm.ResolveProcessRequest_Resolve{
+				Resolve: rwm.ResolveWithMaterializations.ResolveRequest,
+			},
+		}
+	}
+	response, err := m.current.ResolveProcess(innerRequest)
 	if err != nil {
 		return nil, err
 	}
-	return m.handleStickyResponseWithDepth(request, response, 0)
-
+	return m.handleResponseWithDepth(innerRequest, response, 0)
 }
 
 // max number of recursive retries when handling missing materializations
 const maxStickyRetryDepth = 5
 
-func (m *materializationSupportedResolver) handleStickyResponseWithDepth(request *wasm.ResolveWithStickyRequest, response *wasm.ResolveWithStickyResponse, depth int) (*wasm.ResolveWithStickyResponse, error) {
+func (m *materializationSupportedResolver) handleResponseWithDepth(request *wasm.ResolveProcessRequest, response *wasm.ResolveProcessResponse, depth int) (*wasm.ResolveProcessResponse, error) {
 	if depth >= maxStickyRetryDepth {
-		// Stop retrying to avoid potential infinite recursion
 		return nil, fmt.Errorf("exceeded maximum retries (%d) for handling missing materializations", maxStickyRetryDepth)
 	}
-	switch result := response.ResolveResult.(type) {
-	case *wasm.ResolveWithStickyResponse_Success_:
-		success := result.Success
-		// Store updates if present
-		if len(success.GetMaterializationUpdates()) > 0 {
-			m.storeUpdates(success.GetMaterializationUpdates())
+
+	switch result := response.Result.(type) {
+	case *wasm.ResolveProcessResponse_Resolved_:
+		resolved := result.Resolved
+		// Store writes if present
+		if len(resolved.GetMaterializationsToWrite()) > 0 {
+			m.storeWrites(resolved.GetMaterializationsToWrite())
 		}
 		return response, nil
 
-	case *wasm.ResolveWithStickyResponse_ReadOpsRequest:
-		missingMaterializations := result.ReadOpsRequest
-		// Try to load missing materializations from store
-		updatedRequest, err := m.handleMissingMaterializations(request, missingMaterializations.GetOps())
+	case *wasm.ResolveProcessResponse_Suspended_:
+		suspended := result.Suspended
+		// Convert MaterializationRecord to ReadOps and fetch from store
+		readOps := materializationRecordsToReadOps(suspended.GetMaterializationsToRead())
+		results, err := m.store.Read(context.Background(), readOps)
 		if err != nil {
-			return nil, fmt.Errorf("failed to handle missing materializations: %w", err)
+			return nil, fmt.Errorf("failed to read materializations: %w", err)
 		}
-		// Retry with the updated request
-		retryResponse, err := m.current.ResolveWithSticky(updatedRequest)
+
+		// Convert read results back to MaterializationRecords for the resume
+		materializations := readResultsToMaterializationRecords(results)
+
+		// Resume with the fetched materializations
+		resumeRequest := &wasm.ResolveProcessRequest{
+			Request: &wasm.ResolveProcessRequest_Resume{
+				Resume: &wasm.ResolveProcessRequest_ResumeRequest{
+					Materializations: materializations,
+					State:            suspended.GetState(),
+				},
+			},
+		}
+
+		retryResponse, err := m.current.ResolveProcess(resumeRequest)
 		if err != nil {
 			return nil, err
 		}
-		// Recursively handle the response (in case there are more missing materializations)
-		return m.handleStickyResponseWithDepth(updatedRequest, retryResponse, depth+1)
+		return m.handleResponseWithDepth(resumeRequest, retryResponse, depth+1)
 
 	default:
-		return nil, fmt.Errorf("unexpected resolve result type: %T", response.ResolveResult)
-
+		return nil, fmt.Errorf("unexpected resolve result type: %T", response.Result)
 	}
 }
 
-func (m *materializationSupportedResolver) storeUpdates(updates []*resolverinternal.VariantData) {
-	// Convert protobuf updates to WriteOp slice
-	writeOps := make([]WriteOp, len(updates))
-	for i, update := range updates {
+func (m *materializationSupportedResolver) storeWrites(records []*wasm.MaterializationRecord) {
+	writeOps := make([]WriteOp, len(records))
+	for i, record := range records {
 		writeOps[i] = newWriteOpVariant(
-			update.GetMaterialization(),
-			update.GetUnit(),
-			update.GetRule(),
-			update.GetVariant(),
+			record.GetMaterialization(),
+			record.GetUnit(),
+			record.GetRule(),
+			record.GetVariant(),
 		)
 	}
 
-	// Store updates asynchronously
 	go func() {
 		if err := m.store.Write(context.Background(), writeOps); err != nil {
-			// Check if it's an unsupported operation error (expected for UnsupportedMaterializationStore)
 			if _, ok := err.(*MaterializationNotSupportedError); !ok {
 				// TODO: Add proper logging
 				_ = err
@@ -96,83 +113,49 @@ func (m *materializationSupportedResolver) storeUpdates(updates []*resolverinter
 	}()
 }
 
-// handleMissingMaterializations loads missing materializations from the store
-// and returns an updated request with the materializations added
-func (m *materializationSupportedResolver) handleMissingMaterializations(request *wasm.ResolveWithStickyRequest, missingItems []*resolverinternal.ReadOp) (*wasm.ResolveWithStickyRequest, error) {
-	// Convert missing items to ReadOp slice
-	readOps := make([]ReadOp, len(missingItems))
-	for i, item := range missingItems {
-		if item.GetInclusionReadOp() != nil {
-			readOps[i] = newReadOpInclusion(
-				item.GetInclusionReadOp().GetMaterialization(),
-				item.GetInclusionReadOp().GetUnit(),
-			)
+// materializationRecordsToReadOps converts MaterializationRecord protos to ReadOp interface values.
+// Records with a non-empty rule are treated as variant reads; others as inclusion reads.
+func materializationRecordsToReadOps(records []*wasm.MaterializationRecord) []ReadOp {
+	ops := make([]ReadOp, len(records))
+	for i, record := range records {
+		if record.GetRule() != "" {
+			ops[i] = newReadOpVariant(record.GetMaterialization(), record.GetUnit(), record.GetRule())
 		} else {
-			readOps[i] = newReadOpVariant(
-				item.GetVariantReadOp().GetMaterialization(),
-				item.GetVariantReadOp().GetUnit(),
-				item.GetVariantReadOp().GetRule(),
-			)
+			ops[i] = newReadOpInclusion(record.GetMaterialization(), record.GetUnit())
 		}
 	}
-
-	// Read from the store
-	results, err := m.store.Read(context.Background(), readOps)
-	if err != nil {
-		return nil, err
-	}
-
-	// Start with existing materializations
-	materializations := make([]*resolverinternal.ReadResult, len(request.GetMaterializations()))
-	copy(materializations, request.GetMaterializations())
-
-	for _, result := range results {
-		protoResult, err := readResultToProto(result)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert read result to proto: %w", err)
-		}
-		materializations = append(materializations, protoResult)
-	}
-
-	// Create a new request with the updated materializations
-	return &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   request.GetResolveRequest(),
-		Materializations: materializations,
-		FailFastOnSticky: request.GetFailFastOnSticky(),
-		NotProcessSticky: request.GetNotProcessSticky(),
-	}, nil
+	return ops
 }
 
-func readResultToProto(result ReadResult) (*resolverinternal.ReadResult, error) {
-	switch v := result.(type) {
-	case *ReadResultVariant:
-		var variant string
-		if v.Variant() != nil {
-			variant = *v.Variant()
+// readResultsToMaterializationRecords converts ReadResult interface values back to
+// MaterializationRecord protos for a Resume request. Inclusion results that are not
+// included are omitted (absence = not included).
+func readResultsToMaterializationRecords(results []ReadResult) []*wasm.MaterializationRecord {
+	var records []*wasm.MaterializationRecord
+	for _, result := range results {
+		switch v := result.(type) {
+		case *ReadResultVariant:
+			variant := ""
+			if v.Variant() != nil {
+				variant = *v.Variant()
+			}
+			records = append(records, &wasm.MaterializationRecord{
+				Unit:            v.Unit(),
+				Materialization: v.Materialization(),
+				Rule:            v.Rule(),
+				Variant:         variant,
+			})
+		case *ReadResultInclusion:
+			if v.Included() {
+				records = append(records, &wasm.MaterializationRecord{
+					Unit:            v.Unit(),
+					Materialization: v.Materialization(),
+				})
+			}
+			// Not included → omit (absence = not included)
 		}
-		return &resolverinternal.ReadResult{
-			Result: &resolverinternal.ReadResult_VariantResult{
-				VariantResult: &resolverinternal.VariantData{
-					Materialization: v.Materialization(),
-					Unit:            v.Unit(),
-					Rule:            v.Rule(),
-					Variant:         variant,
-				},
-			},
-		}, nil
-	case *ReadResultInclusion:
-		return &resolverinternal.ReadResult{
-			Result: &resolverinternal.ReadResult_InclusionResult{
-				InclusionResult: &resolverinternal.InclusionData{
-					Materialization: v.Materialization(),
-					Unit:            v.Unit(),
-					IsIncluded:      v.Included(),
-				},
-			},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown read result type: %T", result)
 	}
+	return records
 }
 
 func (m *materializationSupportedResolver) FlushAllLogs() (err error) {

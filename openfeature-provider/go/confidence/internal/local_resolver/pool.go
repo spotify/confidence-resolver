@@ -58,8 +58,8 @@ func NewPooledResolver(size int, supplier LocalResolverSupplier) *PooledResolver
 	}
 }
 
-// ResolveWithSticky implements LocalResolver.
-func (s *PooledResolver) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
+// ResolveProcess implements LocalResolver.
+func (s *PooledResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
 	n := uint64(len(s.slots))
 	idx := s.rr.Add(1)
 	for !s.slots[idx%n].rw.TryRLock() {
@@ -67,7 +67,7 @@ func (s *PooledResolver) ResolveWithSticky(request *wasm.ResolveWithStickyReques
 	}
 	slot := &s.slots[idx%n]
 	defer slot.rw.RUnlock()
-	return slot.lr.ResolveWithSticky(request)
+	return slot.lr.ResolveProcess(request)
 }
 
 // SetResolverState implements LocalResolver.
