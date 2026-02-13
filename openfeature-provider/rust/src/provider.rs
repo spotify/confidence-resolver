@@ -19,8 +19,8 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    resolve_with_sticky_response::ResolveResult as ProtoResolveResult, ReadOperationsRequest,
-    ReadResult, ResolveFlagsRequest, ResolveReason, ResolveWithStickyRequest, Sdk, SdkId,
+    resolve_process_request, resolve_process_response, MaterializationRecord, ResolveFlagsRequest,
+    ResolveProcessRequest, ResolveReason, Sdk, SdkId,
 };
 use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
 
@@ -29,7 +29,8 @@ use crate::gateway::GatewayMiddleware;
 use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER};
 use crate::logger::LogManager;
 use crate::materialization::{
-    read_ops_from_proto, read_results_to_proto, write_ops_from_proto, MaterializationStore,
+    materialization_records_to_read_ops, materialization_records_to_write_ops,
+    read_results_to_materialization_records, MaterializationStore,
 };
 use crate::state::{SharedState, StateFetcher};
 use crate::VERSION;
@@ -316,15 +317,25 @@ impl ConfidenceProvider {
             }),
         };
 
-        // Determine if sticky processing is enabled (based on materialization store)
-        let not_process_sticky = self.materialization_store.is_none();
-
-        // Create sticky request
-        let mut sticky_request = ResolveWithStickyRequest {
-            resolve_request: Some(request),
-            materializations: vec![],
-            fail_fast_on_sticky: false,
-            not_process_sticky,
+        // Build the initial process request.
+        // If a materialization store is configured, use simple Resolve (allows suspension).
+        // Otherwise, use ResolveWithMaterializations (empty, complete) to skip materializations.
+        let has_store = self.materialization_store.is_some();
+        let initial_request = if has_store {
+            ResolveProcessRequest {
+                request: Some(resolve_process_request::Request::Resolve(request)),
+            }
+        } else {
+            ResolveProcessRequest {
+                request: Some(
+                    resolve_process_request::Request::ResolveWithMaterializations(
+                        resolve_process_request::ResolveWithMaterializations {
+                            resolve_request: Some(request),
+                            materializations: vec![],
+                        },
+                    ),
+                ),
+            }
         };
 
         // Get resolver
@@ -339,10 +350,11 @@ impl ConfidenceProvider {
                     .build()
             })?;
 
-        // Resolve with sticky loop
-        let success = loop {
+        // Resolve with suspend/resume loop
+        let mut current_request = initial_request;
+        let resolved = loop {
             let response = resolver
-                .resolve_flags_sticky(&sticky_request)
+                .resolve_flags_process(&current_request)
                 .map_err(|e| {
                     EvaluationError::builder()
                         .code(EvaluationErrorCode::General(format!(
@@ -352,12 +364,12 @@ impl ConfidenceProvider {
                         .build()
                 })?;
 
-            match response.resolve_result {
-                Some(ProtoResolveResult::Success(s)) => break s,
-                Some(ProtoResolveResult::ReadOpsRequest(read_ops_request)) => {
+            match response.result {
+                Some(resolve_process_response::Result::Resolved(r)) => break r,
+                Some(resolve_process_response::Result::Suspended(suspended)) => {
                     // Fetch materializations from store
                     let materializations = self
-                        .read_materializations(&read_ops_request)
+                        .read_materializations(&suspended.materializations_to_read)
                         .await
                         .map_err(|e| {
                             EvaluationError::builder()
@@ -368,8 +380,14 @@ impl ConfidenceProvider {
                                 .build()
                         })?;
 
-                    // Re-resolve with materializations
-                    sticky_request.materializations = materializations;
+                    current_request = ResolveProcessRequest {
+                        request: Some(resolve_process_request::Request::Resume(
+                            resolve_process_request::ResumeRequest {
+                                materializations,
+                                state: suspended.state,
+                            },
+                        )),
+                    };
                 }
                 None => {
                     return Err(EvaluationError::builder()
@@ -381,13 +399,13 @@ impl ConfidenceProvider {
             }
         };
 
-        // Handle materialization updates (writes)
-        if !success.materialization_updates.is_empty() {
-            self.write_materializations(&success.materialization_updates)
+        // Handle materialization writes
+        if !resolved.materializations_to_write.is_empty() {
+            self.write_materializations(&resolved.materializations_to_write)
                 .await;
         }
 
-        let flags_response = success.response.ok_or_else(|| {
+        let flags_response = resolved.response.ok_or_else(|| {
             EvaluationError::builder()
                 .code(EvaluationErrorCode::General(
                     "No response in success".to_string(),
@@ -427,27 +445,24 @@ impl ConfidenceProvider {
         })
     }
 
-    /// Read materializations from the store.
+    /// Read materializations from the store, converting MaterializationRecord to/from store types.
     async fn read_materializations(
         &self,
-        read_ops_request: &ReadOperationsRequest,
-    ) -> Result<Vec<ReadResult>> {
+        records: &[MaterializationRecord],
+    ) -> Result<Vec<MaterializationRecord>> {
         let store = self.materialization_store.as_ref().ok_or_else(|| {
             Error::Materialization("No materialization store configured".to_string())
         })?;
 
-        let read_ops = read_ops_from_proto(read_ops_request);
+        let read_ops = materialization_records_to_read_ops(records);
         let results = store.read_materializations(read_ops).await?;
-        Ok(read_results_to_proto(results))
+        Ok(read_results_to_materialization_records(results))
     }
 
     /// Write materializations to the store (fire and forget).
-    async fn write_materializations(
-        &self,
-        materialization_updates: &[confidence_resolver::proto::confidence::flags::resolver::v1::VariantData],
-    ) {
+    async fn write_materializations(&self, records: &[MaterializationRecord]) {
         if let Some(ref store) = self.materialization_store {
-            let write_ops = write_ops_from_proto(materialization_updates);
+            let write_ops = materialization_records_to_write_ops(records);
             if let Err(e) = store.write_materializations(write_ops).await {
                 tracing::warn!("Failed to write materializations: {}", e);
             }

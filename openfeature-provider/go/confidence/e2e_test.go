@@ -110,7 +110,7 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreWi
 	if err == nil {
 		t.Fatalf("Expected to fail resolve got: %v", details)
 	}
-	if err.Error() != "error code: GENERAL: resolve failed: failed to handle missing materializations: materialization read not supported" {
+	if err.Error() != "error code: GENERAL: resolve failed: failed to read materializations: materialization read not supported" {
 		t.Fatalf("Expected different error message, got: %v", err)
 	}
 	if details.Reason != "ERROR" {

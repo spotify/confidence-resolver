@@ -285,10 +285,9 @@ class ResolveTest {
         .isThrownBy(
             () ->
                 wasmResolverApi
-                    .resolveWithSticky(
-                        ResolveWithStickyRequest.newBuilder()
-                            .setFailFastOnSticky(false)
-                            .setResolveRequest(
+                    .resolveProcess(
+                        ResolveProcessRequest.newBuilder()
+                            .setResolve(
                                 ResolveFlagsRequest.newBuilder()
                                     .addAllFlags(List.of(flag1))
                                     .setClientSecret(secret.getSecret())
@@ -384,12 +383,11 @@ class ResolveTest {
 
   @Test
   public void testTooLongKey() {
-    assertThatExceptionOfType(RuntimeException.class)
-        .isThrownBy(
-            () ->
-                resolveWithContext(
-                    List.of(flag1), "a".repeat(101), Struct.newBuilder().build(), false))
-        .withMessageContaining("Targeting key is too larger, max 100 characters.");
+    // Targeting key > 100 chars results in a TargetingKeyError reason, not an exception
+    ResolveFlagsResponse response =
+        resolveWithContext(List.of(flag1), "a".repeat(101), Struct.newBuilder().build(), false);
+    assertEquals(
+        ResolveReason.RESOLVE_REASON_TARGETING_KEY_ERROR, response.getResolvedFlags(0).getReason());
   }
 
   @Test
@@ -435,17 +433,21 @@ class ResolveTest {
   private ResolveFlagsResponse resolveWithContext(
       List<String> flags, String username, Struct struct, boolean apply, String secret) {
     return resolverApi
-        .resolveWithSticky(
-            ResolveWithStickyRequest.newBuilder()
-                .setFailFastOnSticky(false)
-                .setResolveRequest(
-                    ResolveFlagsRequest.newBuilder()
-                        .addAllFlags(flags)
-                        .setClientSecret(secret)
-                        .setEvaluationContext(
-                            Structs.of(
-                                "targeting_key", Values.of(username), "bar", Values.of(struct)))
-                        .setApply(apply))
+        .resolveProcess(
+            ResolveProcessRequest.newBuilder()
+                .setResolveWithMaterializations(
+                    ResolveProcessRequest.ResolveWithMaterializations.newBuilder()
+                        .setResolveRequest(
+                            ResolveFlagsRequest.newBuilder()
+                                .addAllFlags(flags)
+                                .setClientSecret(secret)
+                                .setEvaluationContext(
+                                    Structs.of(
+                                        "targeting_key",
+                                        Values.of(username),
+                                        "bar",
+                                        Values.of(struct)))
+                                .setApply(apply)))
                 .build())
         .toCompletableFuture()
         .join();
@@ -471,11 +473,12 @@ class ResolveTest {
     }
 
     final var request =
-        ResolveWithStickyRequest.newBuilder()
-            .setResolveRequest(builder)
-            .setFailFastOnSticky(false)
+        ResolveProcessRequest.newBuilder()
+            .setResolveWithMaterializations(
+                ResolveProcessRequest.ResolveWithMaterializations.newBuilder()
+                    .setResolveRequest(builder))
             .build();
-    return resolverApi.resolveWithSticky(request).toCompletableFuture().join();
+    return resolverApi.resolveProcess(request).toCompletableFuture().join();
   }
 
   private ResolveFlagsResponse resolveWithContext(

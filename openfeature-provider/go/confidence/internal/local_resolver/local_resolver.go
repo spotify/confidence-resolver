@@ -17,7 +17,7 @@ type LocalResolverFactory interface {
 
 type LocalResolver interface {
 	SetResolverState(*wasm.SetResolverStateRequest) error
-	ResolveWithSticky(*wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error)
+	ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error)
 	FlushAllLogs() error
 	FlushAssignLogs() error
 	Close(context.Context) error

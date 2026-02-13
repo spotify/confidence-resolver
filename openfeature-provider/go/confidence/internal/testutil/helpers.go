@@ -363,21 +363,27 @@ func CreateStateWithStickyFlag() []byte {
 	return data
 }
 
-// Helper function to create a ResolveWithStickyRequest
-func CreateResolveWithStickyRequest(
-	resolveRequest *resolver.ResolveFlagsRequest,
-	materializations []*resolverv1.ReadResult,
-	failFast bool,
-	notProcessSticky bool,
-) *wasm.ResolveWithStickyRequest {
-	if materializations == nil {
-		materializations = []*resolverv1.ReadResult{}
+// CreateSimpleResolveProcessRequest creates a ResolveProcessRequest with a simple Resolve (no materializations).
+func CreateSimpleResolveProcessRequest(resolveRequest *resolver.ResolveFlagsRequest) *wasm.ResolveProcessRequest {
+	return &wasm.ResolveProcessRequest{
+		Request: &wasm.ResolveProcessRequest_Resolve{
+			Resolve: resolveRequest,
+		},
 	}
-	return &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   resolveRequest,
-		Materializations: materializations,
-		FailFastOnSticky: failFast,
-		NotProcessSticky: notProcessSticky,
+}
+
+// CreateResolveWithMaterializationsRequest creates a ResolveProcessRequest with complete materializations.
+func CreateResolveWithMaterializationsRequest(
+	resolveRequest *resolver.ResolveFlagsRequest,
+	materializations []*wasm.MaterializationRecord,
+) *wasm.ResolveProcessRequest {
+	return &wasm.ResolveProcessRequest{
+		Request: &wasm.ResolveProcessRequest_ResolveWithMaterializations_{
+			ResolveWithMaterializations: &wasm.ResolveProcessRequest_ResolveWithMaterializations{
+				ResolveRequest:   resolveRequest,
+				Materializations: materializations,
+			},
+		},
 	}
 }
 
@@ -414,21 +420,20 @@ func CreateTutorialFeatureResponse() *resolver.ResolveFlagsResponse {
 // MockedLocalResolver is a test double implementing the LocalResolver API used in tests.
 type MockedLocalResolver struct {
 	// Single response fallback
-	Response *wasm.ResolveWithStickyResponse
+	Response *wasm.ResolveProcessResponse
 	Err      error
 	// Sequenced responses support
-	Responses []*wasm.ResolveWithStickyResponse
+	Responses []*wasm.ResolveProcessResponse
 	callIdx   int
 }
 
 func (m MockedLocalResolver) Close(context.Context) error { return nil }
 func (m MockedLocalResolver) FlushAllLogs() error         { return nil }
 func (m MockedLocalResolver) FlushAssignLogs() error      { return nil }
-func (m *MockedLocalResolver) ResolveWithSticky(*wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
+func (m *MockedLocalResolver) ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
 	if len(m.Responses) > 0 {
 		idx := m.callIdx
 		if idx >= len(m.Responses) {
-			// If calls exceed provided responses, return last response
 			return m.Responses[len(m.Responses)-1], m.Err
 		}
 		resp := m.Responses[idx]

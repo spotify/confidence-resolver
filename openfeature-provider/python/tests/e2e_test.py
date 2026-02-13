@@ -80,8 +80,8 @@ class TestFlagResolveWithRemoteMaterializationStore:
 class TestFlagResolveWithoutMaterializationStore:
     """E2E tests for flag resolution without materialization store."""
 
-    def test_resolve_without_materialization_returns_error(self) -> None:
-        """Without materialization store, flags needing it return error."""
+    def test_resolve_without_materialization_falls_through(self) -> None:
+        """Without materialization store, flags needing it fall through to default variant."""
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
             use_remote_materialization_store=False,
@@ -102,8 +102,9 @@ class TestFlagResolveWithoutMaterializationStore:
                 evaluation_context=ctx,
             )
 
-            # Without materialization store, should return default with error
-            assert result.value == "client default"
-            assert "materialization" in (result.error_message or "").lower()
+            # Without materialization store, the materialized segment rule doesn't match
+            # and the flag falls through to the default variant
+            assert result.value == "nothing fun"
+            assert result.variant == "flags/custom-targeted-flag/variants/default"
         finally:
             provider.shutdown()
