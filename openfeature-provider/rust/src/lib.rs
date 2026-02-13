@@ -7,6 +7,12 @@ pub mod provider;
 pub mod state;
 mod version;
 
+/// Generated proto types for the remote materialization API (from internal_api.proto).
+#[allow(dead_code)]
+pub(crate) mod remote_proto {
+    include!(concat!(env!("OUT_DIR"), "/confidence.flags.resolver.v1.rs"));
+}
+
 #[cfg(test)]
 pub mod test_utils;
 
