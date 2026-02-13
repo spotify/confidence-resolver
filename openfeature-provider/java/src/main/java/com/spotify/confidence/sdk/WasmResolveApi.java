@@ -17,8 +17,8 @@ import com.google.protobuf.Timestamp;
 import com.spotify.confidence.sdk.flags.resolver.v1.LogMessage;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
 import java.io.IOException;
@@ -44,7 +44,7 @@ class WasmResolveApi {
   private final ExportFunction wasmMsgGuestSetResolverState;
   private final ExportFunction wasmMsgFlushLogs;
   private final ExportFunction wasmMsgGuestResolve;
-  private final ExportFunction wasmMsgGuestResolveWithSticky;
+  private final ExportFunction wasmMsgGuestResolveProcess;
   private final ReadWriteLock wasmLock = new ReentrantReadWriteLock();
 
   public WasmResolveApi(WasmFlagLogger flagLogger) {
@@ -78,7 +78,7 @@ class WasmResolveApi {
       wasmMsgGuestSetResolverState = instance.export("wasm_msg_guest_set_resolver_state");
       wasmMsgFlushLogs = instance.export("wasm_msg_guest_flush_logs");
       wasmMsgGuestResolve = instance.export("wasm_msg_guest_resolve");
-      wasmMsgGuestResolveWithSticky = instance.export("wasm_msg_guest_resolve_with_sticky");
+      wasmMsgGuestResolveProcess = instance.export("wasm_msg_guest_resolve_process");
     } catch (IOException e) {
       throw new RuntimeException("Failed to load WASM module", e);
     }
@@ -127,15 +127,15 @@ class WasmResolveApi {
     }
   }
 
-  public ResolveWithStickyResponse resolveWithSticky(ResolveWithStickyRequest request)
+  public ResolveProcessResponse resolveProcess(ResolveProcessRequest request)
       throws IsClosedException {
     if (!wasmLock.writeLock().tryLock() || isConsumed) {
       throw new IsClosedException();
     }
     try {
       final int reqPtr = transferRequest(request);
-      final int respPtr = (int) wasmMsgGuestResolveWithSticky.apply(reqPtr)[0];
-      return consumeResponse(respPtr, ResolveWithStickyResponse::parseFrom);
+      final int respPtr = (int) wasmMsgGuestResolveProcess.apply(reqPtr)[0];
+      return consumeResponse(respPtr, ResolveProcessResponse::parseFrom);
     } finally {
       wasmLock.writeLock().unlock();
     }
