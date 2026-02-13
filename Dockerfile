@@ -251,45 +251,6 @@ RUN chmod +x confidence-cloudflare-resolver/deployer/script.sh
 CMD ["./confidence-cloudflare-resolver/deployer/script.sh"]
 
 # ==============================================================================
-# Python Host - Run Python host example
-# ==============================================================================
-FROM python:3.11-slim AS python-host-base
-
-# Install protobuf and dependencies (libprotobuf-dev includes google proto files)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev make && \
-    rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# Copy Makefile and proto generation script
-COPY wasm/python-host/Makefile ./
-COPY wasm/python-host/generate_proto.py ./
-
-# Copy proto files (wasm proto + confidence-resolver protos needed for imports)
-COPY wasm/proto ../proto/
-COPY confidence-resolver/protos ../../confidence-resolver/protos/
-
-# Build using Makefile (creates venv + installs deps + generates proto)
-ENV IN_DOCKER_BUILD=1
-RUN make build
-
-# Copy source code
-COPY wasm/python-host/*.py ./
-
-# Copy WASM module
-COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ../confidence_resolver.wasm
-
-# Copy resolver state
-COPY wasm/resolver_state.pb ../resolver_state.pb
-
-# ==============================================================================
-# Test Python Host (integration test)
-# ==============================================================================
-FROM python-host-base AS python-host.test
-RUN make run
-
-# ==============================================================================
 # OpenFeature Provider (TypeScript) - Build and test
 # ==============================================================================
 FROM node:20-alpine AS openfeature-provider-js-base
@@ -732,9 +693,6 @@ COPY --from=openfeature-provider-rust.test_e2e /workspace/Cargo.toml /markers/te
 
 # Force validation stages to run
 COPY --from=openfeature-provider-go.validate-wasm /built/confidence_resolver.wasm /markers/validate-wasm-go
-
-# Force integration test stages to run (host examples)
-COPY --from=python-host.test /app/Makefile /markers/integration-python
 
 # Force lint stages to run by copying marker files
 COPY --from=confidence-resolver.lint /workspace/Cargo.toml /markers/lint-resolver
