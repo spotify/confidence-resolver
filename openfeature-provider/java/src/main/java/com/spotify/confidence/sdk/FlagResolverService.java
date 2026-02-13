@@ -1,0 +1,223 @@
+package com.spotify.confidence.sdk;
+
+import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.Struct;
+import com.google.protobuf.util.JsonFormat;
+import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
+import dev.openfeature.sdk.MutableContext;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * HTTP service layer for the local resolve provider. Handles resolve and apply requests from client
+ * SDKs (like confidence-sdk-js).
+ *
+ * <p>This service can proxy resolve/apply requests through the local provider, enabling low-latency
+ * flag resolution without external network calls.
+ *
+ * <p><strong>Usage Example with Javalin:</strong>
+ *
+ * <pre>{@code
+ * // Create provider
+ * OpenFeatureLocalResolveProvider provider =
+ *     new OpenFeatureLocalResolveProvider("client-secret");
+ * OpenFeatureAPI.getInstance().setProviderAndWait(provider);
+ *
+ * // Create service with optional context decoration
+ * FlagResolverService flagResolver = new FlagResolverService(provider, (ctx, req) -> {
+ *     // Add user ID from auth header
+ *     List<String> userIds = req.getHeaders().get("X-User-Id");
+ *     if (userIds != null && !userIds.isEmpty()) {
+ *         ctx.add("user_id", userIds.get(0));
+ *     }
+ * });
+ *
+ * // Register endpoints
+ * app.post("/v1/flags:resolve", ctx -> {
+ *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
+ *     ConfidenceHttpResponse response = flagResolver.handleResolve(request);
+ *     ctx.status(response.getStatusCode())
+ *        .contentType("application/json")
+ *        .result(response.getBody());
+ * });
+ *
+ * app.post("/v1/flags:apply", ctx -> {
+ *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
+ *     ConfidenceHttpResponse response = flagResolver.handleApply(request);
+ *     ctx.status(response.getStatusCode())
+ *        .contentType("application/json")
+ *        .result(response.getBody());
+ * });
+ * }</pre>
+ */
+@Experimental
+public class FlagResolverService {
+  private static final Logger log = LoggerFactory.getLogger(FlagResolverService.class);
+  private static final JsonFormat.Printer JSON_PRINTER =
+      JsonFormat.printer().omittingInsignificantWhitespace();
+  private static final JsonFormat.Parser JSON_PARSER = JsonFormat.parser().ignoringUnknownFields();
+
+  private final OpenFeatureLocalResolveProvider provider;
+  private final ContextDecorator contextDecorator;
+
+  /**
+   * Creates a new FlagResolverService with no context decoration.
+   *
+   * @param provider the local resolve provider to use for flag resolution
+   */
+  public FlagResolverService(OpenFeatureLocalResolveProvider provider) {
+    this(provider, (ctx, req) -> {});
+  }
+
+  /**
+   * Creates a new FlagResolverService with context decoration.
+   *
+   * @param provider the local resolve provider to use for flag resolution
+   * @param contextDecorator decorator to add additional context from requests
+   */
+  public FlagResolverService(
+      OpenFeatureLocalResolveProvider provider, ContextDecorator contextDecorator) {
+    this.provider = provider;
+    this.contextDecorator = contextDecorator;
+  }
+
+  /**
+   * Handles POST /v1/flags:resolve requests from client SDKs.
+   *
+   * <p>Note: clientSecret and sdk fields from client are ignored - provider's credentials are used.
+   *
+   * @param request the incoming HTTP request
+   * @return the response to send back to the client
+   */
+  public ConfidenceHttpResponse handleResolve(ConfidenceHttpRequest request) {
+    // Validate HTTP method
+    if (!"POST".equalsIgnoreCase(request.getMethod())) {
+      return DefaultConfidenceHttpResponse.error(405);
+    }
+
+    try {
+      // Parse request body
+      final String requestBody = new String(request.getBody(), StandardCharsets.UTF_8);
+      final ResolveFlagsRequest.Builder resolveRequestBuilder = ResolveFlagsRequest.newBuilder();
+      JSON_PARSER.merge(requestBody, resolveRequestBuilder);
+
+      // Build evaluation context from request
+      final MutableContext ctx =
+          buildEvaluationContext(resolveRequestBuilder.getEvaluationContext());
+
+      // Apply context decorator
+      contextDecorator.decorate(ctx, request);
+
+      // Get flag names
+      final List<String> flagNames = new ArrayList<>(resolveRequestBuilder.getFlagsList());
+
+      // Resolve flags
+      final ResolveFlagsResponse response =
+          provider.resolve(ctx, flagNames, resolveRequestBuilder.getApply());
+
+      // Convert response to JSON
+      final String jsonResponse = JSON_PRINTER.print(response);
+      return DefaultConfidenceHttpResponse.ok(jsonResponse);
+
+    } catch (InvalidProtocolBufferException e) {
+      log.warn("Invalid request format", e);
+      return DefaultConfidenceHttpResponse.error(400);
+    } catch (Exception e) {
+      log.error("Error resolving flags", e);
+      return DefaultConfidenceHttpResponse.error(500);
+    }
+  }
+
+  /**
+   * Handles POST /v1/flags:apply requests from client SDKs.
+   *
+   * @param request the incoming HTTP request
+   * @return the response to send back to the client
+   */
+  public ConfidenceHttpResponse handleApply(ConfidenceHttpRequest request) {
+    // Validate HTTP method
+    if (!"POST".equalsIgnoreCase(request.getMethod())) {
+      return DefaultConfidenceHttpResponse.error(405);
+    }
+
+    try {
+      // Parse request body
+      final String requestBody = new String(request.getBody(), StandardCharsets.UTF_8);
+      final ApplyFlagsRequest.Builder applyRequestBuilder = ApplyFlagsRequest.newBuilder();
+      JSON_PARSER.merge(requestBody, applyRequestBuilder);
+
+      // Build the apply request - the resolve token is already in the protobuf
+      final ApplyFlagsRequest applyRequest = applyRequestBuilder.build();
+
+      // Apply each flag
+      provider.applyFlags(applyRequest);
+
+      // Return empty JSON response
+      return DefaultConfidenceHttpResponse.ok("{}");
+
+    } catch (InvalidProtocolBufferException e) {
+      log.warn("Invalid request format", e);
+      return DefaultConfidenceHttpResponse.error(400);
+    } catch (Exception e) {
+      log.error("Error applying flags", e);
+      return DefaultConfidenceHttpResponse.error(500);
+    }
+  }
+
+  private MutableContext buildEvaluationContext(Struct evaluationContext) {
+    final MutableContext ctx = new MutableContext();
+
+    evaluationContext
+        .getFieldsMap()
+        .forEach(
+            (key, value) -> {
+              switch (value.getKindCase()) {
+                case STRING_VALUE -> {
+                  if ("targeting_key".equals(key)) {
+                    ctx.setTargetingKey(value.getStringValue());
+                  } else {
+                    ctx.add(key, value.getStringValue());
+                  }
+                }
+                case NUMBER_VALUE -> ctx.add(key, value.getNumberValue());
+                case BOOL_VALUE -> ctx.add(key, value.getBoolValue());
+                case STRUCT_VALUE -> {
+                  // For nested structures, convert to string representation
+                  try {
+                    ctx.add(key, JSON_PRINTER.print(value.getStructValue()));
+                  } catch (InvalidProtocolBufferException e) {
+                    log.warn("Failed to convert struct value for key {}", key, e);
+                  }
+                }
+                case LIST_VALUE -> {
+                  // For lists, convert to List<Value>
+                  final List<dev.openfeature.sdk.Value> valueList =
+                      value.getListValue().getValuesList().stream()
+                          .map(this::protoValueToOpenFeatureValue)
+                          .toList();
+                  ctx.add(key, valueList);
+                }
+                default ->
+                    log.debug(
+                        "Skipping unsupported value type for key {}: {}", key, value.getKindCase());
+              }
+            });
+
+    return ctx;
+  }
+
+  private dev.openfeature.sdk.Value protoValueToOpenFeatureValue(com.google.protobuf.Value value) {
+    return switch (value.getKindCase()) {
+      case STRING_VALUE -> new dev.openfeature.sdk.Value(value.getStringValue());
+      case NUMBER_VALUE -> new dev.openfeature.sdk.Value(value.getNumberValue());
+      case BOOL_VALUE -> new dev.openfeature.sdk.Value(value.getBoolValue());
+      case NULL_VALUE -> new dev.openfeature.sdk.Value();
+      default -> new dev.openfeature.sdk.Value(value.toString());
+    };
+  }
+}

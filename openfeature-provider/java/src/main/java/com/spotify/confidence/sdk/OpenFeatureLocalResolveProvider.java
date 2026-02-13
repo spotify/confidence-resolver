@@ -3,6 +3,7 @@ package com.spotify.confidence.sdk;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.Struct;
+import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
@@ -16,6 +17,7 @@ import dev.openfeature.sdk.exceptions.TypeMismatchError;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -447,6 +449,63 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  /**
+   * Resolves multiple flags at once for the given evaluation context. This method is intended for
+   * use by {@link FlagResolverService} to proxy resolve requests from client SDKs.
+   *
+   * @param ctx the evaluation context containing targeting key and other attributes
+   * @param flagNames the names of flags to resolve (without "flags/" prefix)
+   * @param apply whether to mark the flags as applied immediately
+   * @return the resolve response containing all resolved flags
+   */
+  ResolveFlagsResponse resolve(EvaluationContext ctx, List<String> flagNames, boolean apply) {
+    final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
+
+    final var reqBuilder =
+        ResolveFlagsRequest.newBuilder()
+            .setApply(apply)
+            .setClientSecret(clientSecret)
+            .setEvaluationContext(
+                Struct.newBuilder().putAllFields(evaluationContext.getFieldsMap()).build())
+            .setSdk(
+                Sdk.newBuilder()
+                    .setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER)
+                    .setVersion(Version.VERSION)
+                    .build());
+
+    // Add flags with proper prefix
+    for (String flagName : flagNames) {
+      if (flagName.startsWith("flags/")) {
+        reqBuilder.addFlags(flagName);
+      } else {
+        reqBuilder.addFlags("flags/" + flagName);
+      }
+    }
+
+    try {
+      return wasmResolveApi
+          .resolveWithSticky(
+              ResolveWithStickyRequest.newBuilder()
+                  .setResolveRequest(reqBuilder.build())
+                  .setFailFastOnSticky(false)
+                  .build())
+          .toCompletableFuture()
+          .get();
+    } catch (ExecutionException | InterruptedException e) {
+      throw new RuntimeException("Failed to resolve flags", e);
+    }
+  }
+
+  /**
+   * Applies flags that were previously resolved with apply=false. This method is intended for use
+   * by {@link FlagResolverService} to proxy apply requests from client SDKs.
+   *
+   * @param request the apply flags request containing resolve token and flags to apply
+   */
+  void applyFlags(ApplyFlagsRequest request) {
+    wasmResolveApi.applyFlags(request);
   }
 
   private static void handleStatusRuntimeException(StatusRuntimeException e) {
