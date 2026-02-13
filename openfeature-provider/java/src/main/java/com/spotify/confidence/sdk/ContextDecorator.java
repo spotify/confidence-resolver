@@ -33,5 +33,5 @@ public interface ContextDecorator {
    * @param context the mutable evaluation context to decorate
    * @param request the incoming HTTP request containing headers and other metadata
    */
-  void decorate(MutableContext context, FlagResolverRequest request);
+  void decorate(MutableContext context, ConfidenceHttpRequest request);
 }

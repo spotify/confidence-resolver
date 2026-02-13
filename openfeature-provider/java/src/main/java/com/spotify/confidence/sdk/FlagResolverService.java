@@ -7,9 +7,6 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import dev.openfeature.sdk.MutableContext;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,16 +39,16 @@ import org.slf4j.LoggerFactory;
  *
  * // Register endpoints
  * app.post("/v1/flags:resolve", ctx -> {
- *     FlagResolverRequest request = new JavalinFlagResolverRequest(ctx);
- *     FlagResolverResponse response = flagResolver.handleResolve(request);
+ *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
+ *     ConfidenceHttpResponse response = flagResolver.handleResolve(request);
  *     ctx.status(response.getStatusCode())
  *        .contentType("application/json")
  *        .result(response.getBody());
  * });
  *
  * app.post("/v1/flags:apply", ctx -> {
- *     FlagResolverRequest request = new JavalinFlagResolverRequest(ctx);
- *     FlagResolverResponse response = flagResolver.handleApply(request);
+ *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
+ *     ConfidenceHttpResponse response = flagResolver.handleApply(request);
  *     ctx.status(response.getStatusCode())
  *        .contentType("application/json")
  *        .result(response.getBody());
@@ -97,15 +94,15 @@ public class FlagResolverService {
    * @param request the incoming HTTP request
    * @return the response to send back to the client
    */
-  public FlagResolverResponse handleResolve(FlagResolverRequest request) {
+  public ConfidenceHttpResponse handleResolve(ConfidenceHttpRequest request) {
     // Validate HTTP method
     if (!"POST".equalsIgnoreCase(request.getMethod())) {
-      return FlagResolverResponse.error(405, "Method not allowed. Use POST.");
+      return DefaultConfidenceHttpResponse.error(405);
     }
 
     try {
       // Parse request body
-      final String requestBody = readRequestBody(request.getBody());
+      final String requestBody = new String(request.getBody(), StandardCharsets.UTF_8);
       final ResolveFlagsRequest.Builder resolveRequestBuilder = ResolveFlagsRequest.newBuilder();
       JSON_PARSER.merge(requestBody, resolveRequestBuilder);
 
@@ -125,17 +122,14 @@ public class FlagResolverService {
 
       // Convert response to JSON
       final String jsonResponse = JSON_PRINTER.print(response);
-      return FlagResolverResponse.ok(jsonResponse);
+      return DefaultConfidenceHttpResponse.ok(jsonResponse);
 
     } catch (InvalidProtocolBufferException e) {
       log.warn("Invalid request format", e);
-      return FlagResolverResponse.error(400, "Invalid request format: " + e.getMessage());
-    } catch (IOException e) {
-      log.error("Error reading request body", e);
-      return FlagResolverResponse.error(500, "Error reading request body");
+      return DefaultConfidenceHttpResponse.error(400);
     } catch (Exception e) {
       log.error("Error resolving flags", e);
-      return FlagResolverResponse.error(500, "Error resolving flags: " + e.getMessage());
+      return DefaultConfidenceHttpResponse.error(500);
     }
   }
 
@@ -145,15 +139,15 @@ public class FlagResolverService {
    * @param request the incoming HTTP request
    * @return the response to send back to the client
    */
-  public FlagResolverResponse handleApply(FlagResolverRequest request) {
+  public ConfidenceHttpResponse handleApply(ConfidenceHttpRequest request) {
     // Validate HTTP method
     if (!"POST".equalsIgnoreCase(request.getMethod())) {
-      return FlagResolverResponse.error(405, "Method not allowed. Use POST.");
+      return DefaultConfidenceHttpResponse.error(405);
     }
 
     try {
       // Parse request body
-      final String requestBody = readRequestBody(request.getBody());
+      final String requestBody = new String(request.getBody(), StandardCharsets.UTF_8);
       final ApplyFlagsRequest.Builder applyRequestBuilder = ApplyFlagsRequest.newBuilder();
       JSON_PARSER.merge(requestBody, applyRequestBuilder);
 
@@ -164,29 +158,14 @@ public class FlagResolverService {
       provider.applyFlags(applyRequest);
 
       // Return empty JSON response
-      return FlagResolverResponse.ok("{}");
+      return DefaultConfidenceHttpResponse.ok("{}");
 
     } catch (InvalidProtocolBufferException e) {
       log.warn("Invalid request format", e);
-      return FlagResolverResponse.error(400, "Invalid request format: " + e.getMessage());
-    } catch (IOException e) {
-      log.error("Error reading request body", e);
-      return FlagResolverResponse.error(500, "Error reading request body");
+      return DefaultConfidenceHttpResponse.error(400);
     } catch (Exception e) {
       log.error("Error applying flags", e);
-      return FlagResolverResponse.error(500, "Error applying flags: " + e.getMessage());
-    }
-  }
-
-  private String readRequestBody(InputStream body) throws IOException {
-    try (InputStreamReader reader = new InputStreamReader(body, StandardCharsets.UTF_8)) {
-      StringBuilder sb = new StringBuilder();
-      char[] buffer = new char[8192];
-      int charsRead;
-      while ((charsRead = reader.read(buffer)) != -1) {
-        sb.append(buffer, 0, charsRead);
-      }
-      return sb.toString();
+      return DefaultConfidenceHttpResponse.error(500);
     }
   }
 

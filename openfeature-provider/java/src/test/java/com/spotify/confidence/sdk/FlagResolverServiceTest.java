@@ -16,9 +16,6 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveReason;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import dev.openfeature.sdk.EvaluationContext;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -43,27 +40,25 @@ class FlagResolverServiceTest {
   class HandleResolve {
 
     @Test
-    void shouldReturn405ForNonPostMethod() throws IOException {
-      FlagResolverRequest request = createRequest("GET", "{}");
+    void shouldReturn405ForNonPostMethod() {
+      ConfidenceHttpRequest request = createRequest("GET", "{}");
 
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(405);
-      assertThat(response.getBodyAsString()).contains("Method not allowed");
     }
 
     @Test
-    void shouldReturn400ForInvalidJson() throws IOException {
-      FlagResolverRequest request = createRequest("POST", "not valid json {{{");
+    void shouldReturn400ForInvalidJson() {
+      ConfidenceHttpRequest request = createRequest("POST", "not valid json {{{");
 
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(400);
-      assertThat(response.getBodyAsString()).contains("Invalid request format");
     }
 
     @Test
-    void shouldResolveFlags() throws IOException {
+    void shouldResolveFlags() {
       String requestBody =
           """
           {
@@ -90,13 +85,13 @@ class FlagResolverServiceTest {
       when(mockProvider.resolve(any(EvaluationContext.class), anyList(), eq(false)))
           .thenReturn(mockResponse);
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
       assertThat(response.getHeaders().get("Content-Type")).isEqualTo("application/json");
 
-      String body = response.getBodyAsString();
+      String body = readBody(response);
       assertThat(body).contains("flags/flag1");
       assertThat(body).contains("RESOLVE_REASON_MATCH");
       assertThat(body).contains("resolveId");
@@ -106,7 +101,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldResolveFlagsWithApplyTrue() throws IOException {
+    void shouldResolveFlagsWithApplyTrue() {
       String requestBody =
           """
           {
@@ -119,15 +114,15 @@ class FlagResolverServiceTest {
       when(mockProvider.resolve(any(), anyList(), eq(true)))
           .thenReturn(ResolveFlagsResponse.getDefaultInstance());
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
       verify(mockProvider).resolve(any(), eq(List.of("my-flag")), eq(true));
     }
 
     @Test
-    void shouldHandleFlagsWithPrefix() throws IOException {
+    void shouldHandleFlagsWithPrefix() {
       String requestBody =
           """
           {
@@ -140,14 +135,14 @@ class FlagResolverServiceTest {
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
           .thenReturn(ResolveFlagsResponse.getDefaultInstance());
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
       service.handleResolve(request);
 
       verify(mockProvider).resolve(any(), eq(List.of("flags/already-prefixed")), eq(false));
     }
 
     @Test
-    void shouldExtractTargetingKeyFromContext() throws IOException {
+    void shouldExtractTargetingKeyFromContext() {
       String requestBody =
           """
           {
@@ -167,14 +162,14 @@ class FlagResolverServiceTest {
                 return ResolveFlagsResponse.getDefaultInstance();
               });
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
       service.handleResolve(request);
 
       assertThat(capturedContext.get().getTargetingKey()).isEqualTo("user-abc-123");
     }
 
     @Test
-    void shouldExtractStringValuesFromContext() throws IOException {
+    void shouldExtractStringValuesFromContext() {
       String requestBody =
           """
           {
@@ -195,7 +190,7 @@ class FlagResolverServiceTest {
                 return ResolveFlagsResponse.getDefaultInstance();
               });
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
       service.handleResolve(request);
 
       assertThat(capturedContext.get().getValue("country").asString()).isEqualTo("US");
@@ -203,7 +198,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldExtractNumberValuesFromContext() throws IOException {
+    void shouldExtractNumberValuesFromContext() {
       String requestBody =
           """
           {
@@ -224,7 +219,7 @@ class FlagResolverServiceTest {
                 return ResolveFlagsResponse.getDefaultInstance();
               });
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
       service.handleResolve(request);
 
       assertThat(capturedContext.get().getValue("age").asDouble()).isEqualTo(25.0);
@@ -232,7 +227,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldExtractBooleanValuesFromContext() throws IOException {
+    void shouldExtractBooleanValuesFromContext() {
       String requestBody =
           """
           {
@@ -253,7 +248,7 @@ class FlagResolverServiceTest {
                 return ResolveFlagsResponse.getDefaultInstance();
               });
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
       service.handleResolve(request);
 
       assertThat(capturedContext.get().getValue("premium").asBoolean()).isTrue();
@@ -261,7 +256,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldExtractListValuesFromContext() throws IOException {
+    void shouldExtractListValuesFromContext() {
       String requestBody =
           """
           {
@@ -281,7 +276,7 @@ class FlagResolverServiceTest {
                 return ResolveFlagsResponse.getDefaultInstance();
               });
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
       service.handleResolve(request);
 
       var tagsList = capturedContext.get().getValue("tags").asList();
@@ -292,7 +287,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldExtractComplexContextWithNestedStructsAndLists() throws IOException {
+    void shouldExtractComplexContextWithNestedStructsAndLists() {
       String requestBody =
           """
           {
@@ -327,8 +322,8 @@ class FlagResolverServiceTest {
                 return ResolveFlagsResponse.getDefaultInstance();
               });
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
 
@@ -385,7 +380,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldReturn500WhenProviderThrowsException() throws IOException {
+    void shouldReturn500WhenProviderThrowsException() {
       String requestBody =
           """
           {
@@ -398,16 +393,14 @@ class FlagResolverServiceTest {
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
           .thenThrow(new RuntimeException("Provider error"));
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(500);
-      assertThat(response.getBodyAsString()).contains("Error resolving flags");
-      assertThat(response.getBodyAsString()).contains("Provider error");
     }
 
     @Test
-    void shouldHandleEmptyFlagsList() throws IOException {
+    void shouldHandleEmptyFlagsList() {
       String requestBody =
           """
           {
@@ -420,15 +413,15 @@ class FlagResolverServiceTest {
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
           .thenReturn(ResolveFlagsResponse.getDefaultInstance());
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
       verify(mockProvider).resolve(any(), eq(List.of()), eq(false));
     }
 
     @Test
-    void shouldIgnoreUnknownFieldsInRequest() throws IOException {
+    void shouldIgnoreUnknownFieldsInRequest() {
       String requestBody =
           """
           {
@@ -444,8 +437,8 @@ class FlagResolverServiceTest {
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
           .thenReturn(ResolveFlagsResponse.getDefaultInstance());
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
     }
@@ -455,27 +448,25 @@ class FlagResolverServiceTest {
   class HandleApply {
 
     @Test
-    void shouldReturn405ForNonPostMethod() throws IOException {
-      FlagResolverRequest request = createRequest("GET", "{}");
+    void shouldReturn405ForNonPostMethod() {
+      ConfidenceHttpRequest request = createRequest("GET", "{}");
 
-      FlagResolverResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request);
 
       assertThat(response.getStatusCode()).isEqualTo(405);
-      assertThat(response.getBodyAsString()).contains("Method not allowed");
     }
 
     @Test
-    void shouldReturn400ForInvalidJson() throws IOException {
-      FlagResolverRequest request = createRequest("POST", "invalid json");
+    void shouldReturn400ForInvalidJson() {
+      ConfidenceHttpRequest request = createRequest("POST", "invalid json");
 
-      FlagResolverResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request);
 
       assertThat(response.getStatusCode()).isEqualTo(400);
-      assertThat(response.getBodyAsString()).contains("Invalid request format");
     }
 
     @Test
-    void shouldApplyFlags() throws IOException {
+    void shouldApplyFlags() {
       String requestBody =
           """
           {
@@ -484,11 +475,11 @@ class FlagResolverServiceTest {
           }
           """;
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleApply(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleApply(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
-      assertThat(response.getBodyAsString()).isEqualTo("{}");
+      assertThat(readBody(response)).isEqualTo("{}");
 
       ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
       verify(mockProvider).applyFlags(captor.capture());
@@ -498,7 +489,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldApplyMultipleFlags() throws IOException {
+    void shouldApplyMultipleFlags() {
       String requestBody =
           """
           {
@@ -510,8 +501,8 @@ class FlagResolverServiceTest {
           }
           """;
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleApply(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleApply(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
 
@@ -521,7 +512,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldReturn500WhenProviderThrowsException() throws IOException {
+    void shouldReturn500WhenProviderThrowsException() {
       String requestBody =
           """
           {
@@ -532,16 +523,14 @@ class FlagResolverServiceTest {
 
       doThrow(new RuntimeException("Apply failed")).when(mockProvider).applyFlags(any());
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleApply(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleApply(request);
 
       assertThat(response.getStatusCode()).isEqualTo(500);
-      assertThat(response.getBodyAsString()).contains("Error applying flags");
-      assertThat(response.getBodyAsString()).contains("Apply failed");
     }
 
     @Test
-    void shouldHandleEmptyFlagsList() throws IOException {
+    void shouldHandleEmptyFlagsList() {
       String requestBody =
           """
           {
@@ -550,8 +539,8 @@ class FlagResolverServiceTest {
           }
           """;
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
-      FlagResolverResponse response = service.handleApply(request);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response = service.handleApply(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
 
@@ -565,7 +554,7 @@ class FlagResolverServiceTest {
   class ContextDecoration {
 
     @Test
-    void shouldApplyContextDecorator() throws IOException {
+    void shouldApplyContextDecorator() {
       ContextDecorator decorator =
           (ctx, req) -> {
             var userIds = req.getHeaders().get("X-User-Id");
@@ -593,7 +582,7 @@ class FlagResolverServiceTest {
                 return ResolveFlagsResponse.getDefaultInstance();
               });
 
-      FlagResolverRequest request =
+      ConfidenceHttpRequest request =
           createRequestWithHeaders(
               "POST", requestBody, Map.of("X-User-Id", List.of("decorated-123")));
       serviceWithDecorator.handleResolve(request);
@@ -603,7 +592,7 @@ class FlagResolverServiceTest {
     }
 
     @Test
-    void shouldCombineRequestContextWithDecorator() throws IOException {
+    void shouldCombineRequestContextWithDecorator() {
       ContextDecorator decorator = (ctx, req) -> ctx.add("source", "backend_proxy");
 
       FlagResolverService serviceWithDecorator = new FlagResolverService(mockProvider, decorator);
@@ -627,7 +616,7 @@ class FlagResolverServiceTest {
                 return ResolveFlagsResponse.getDefaultInstance();
               });
 
-      FlagResolverRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
       serviceWithDecorator.handleResolve(request);
 
       assertThat(capturedContext.get().getValue("country").asString()).isEqualTo("SE");
@@ -639,7 +628,7 @@ class FlagResolverServiceTest {
   class MethodCaseInsensitivity {
 
     @Test
-    void shouldAcceptLowercasePost() throws IOException {
+    void shouldAcceptLowercasePost() {
       String requestBody =
           """
           {"flags": [], "evaluationContext": {}, "apply": false}
@@ -648,14 +637,14 @@ class FlagResolverServiceTest {
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
           .thenReturn(ResolveFlagsResponse.getDefaultInstance());
 
-      FlagResolverRequest request = createRequest("post", requestBody);
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpRequest request = createRequest("post", requestBody);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
     }
 
     @Test
-    void shouldAcceptMixedCasePost() throws IOException {
+    void shouldAcceptMixedCasePost() {
       String requestBody =
           """
           {"flags": [], "evaluationContext": {}, "apply": false}
@@ -664,28 +653,28 @@ class FlagResolverServiceTest {
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
           .thenReturn(ResolveFlagsResponse.getDefaultInstance());
 
-      FlagResolverRequest request = createRequest("Post", requestBody);
-      FlagResolverResponse response = service.handleResolve(request);
+      ConfidenceHttpRequest request = createRequest("Post", requestBody);
+      ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.getStatusCode()).isEqualTo(200);
     }
   }
 
-  private FlagResolverRequest createRequest(String method, String body) {
+  private ConfidenceHttpRequest createRequest(String method, String body) {
     return createRequestWithHeaders(method, body, Map.of());
   }
 
-  private FlagResolverRequest createRequestWithHeaders(
+  private ConfidenceHttpRequest createRequestWithHeaders(
       String method, String body, Map<String, List<String>> headers) {
-    return new FlagResolverRequest() {
+    return new ConfidenceHttpRequest() {
       @Override
       public String getMethod() {
         return method;
       }
 
       @Override
-      public InputStream getBody() {
-        return new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8));
+      public byte[] getBody() {
+        return body.getBytes(StandardCharsets.UTF_8);
       }
 
       @Override
@@ -693,5 +682,13 @@ class FlagResolverServiceTest {
         return headers;
       }
     };
+  }
+
+  private String readBody(ConfidenceHttpResponse response) {
+    byte[] body = response.getBody();
+    if (body == null) {
+      return null;
+    }
+    return new String(body, StandardCharsets.UTF_8);
   }
 }
