@@ -149,7 +149,10 @@ impl<H: Host> ResolveLogger<H> {
 
                 let telemetry_data = {
                     let sdk = state.sdk.read().ok().and_then(|s| s.clone());
-                    sdk.map(|s| pb::TelemetryData { sdk: Some(s), ..Default::default() })
+                    sdk.map(|s| pb::TelemetryData {
+                        sdk: Some(s),
+                        ..Default::default()
+                    })
                 };
 
                 pb::WriteFlagLogsRequest {
