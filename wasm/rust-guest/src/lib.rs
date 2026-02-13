@@ -7,9 +7,10 @@ use confidence_resolver::assign_logger::AssignLogger;
 use prost::Message;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    LogMessage, ResolveWithStickyRequest, WriteFlagLogsRequest,
+    resolve_process_request, LogMessage, ResolveProcessRequest, WriteFlagLogsRequest,
 };
 use confidence_resolver::resolve_logger::ResolveLogger;
+use confidence_resolver::ResolveContinuationState;
 use wasm_msg::wasm_msg_guest;
 use wasm_msg::wasm_msg_host;
 use wasm_msg::WasmResult;
@@ -23,8 +24,8 @@ use confidence_resolver::{
     proto::{
         confidence::flags::admin::v1::ResolverState as ResolverStatePb,
         confidence::flags::resolver::v1::{
-            ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse,
-            ResolveWithStickyResponse, Sdk,
+            ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse, ResolveProcessResponse,
+            Sdk,
         },
         google::{Struct, Timestamp},
     },
@@ -179,12 +180,26 @@ wasm_msg_guest! {
         Ok(VOID)
     }
 
-    fn resolve_with_sticky(request: ResolveWithStickyRequest) -> WasmResult<ResolveWithStickyResponse> {
+    fn resolve_process(request: ResolveProcessRequest) -> WasmResult<ResolveProcessResponse> {
         let resolver_state = get_resolver_state()?;
-        let resolve_request = &request.resolve_request.clone().unwrap();
-        let evaluation_context = resolve_request.evaluation_context.clone().unwrap();
+
+        // Extract client_secret and evaluation_context to set up the resolver
+        let resolve_request = match &request.request {
+            Some(resolve_process_request::Request::Resolve(req)) => req.clone(),
+            Some(resolve_process_request::Request::ResolveWithMaterializations(req)) => {
+                req.resolve_request.clone().ok_or("resolve_request is required")?
+            }
+            Some(resolve_process_request::Request::Resume(resume)) => {
+                let cont = ResolveContinuationState::decode(resume.state.as_slice())
+                    .map_err(|e| format!("Failed to decode continuation state: {}", e))?;
+                cont.resolve_request.ok_or("continuation missing resolve_request")?
+            }
+            None => return Err("request is required".to_string()),
+        };
+
+        let evaluation_context = resolve_request.evaluation_context.clone().unwrap_or_default();
         let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
-        resolver.resolve_flags_sticky(&request)
+        resolver.resolve_flags_process(&request)
     }
 
     fn resolve(request: ResolveFlagsRequest) -> WasmResult<ResolveFlagsResponse> {
