@@ -14,7 +14,6 @@ import "confidence/flags/resolver/v1/events/events.proto";
 import "confidence/auth/v1/auth.proto";
 import "confidence/api/annotations.proto";
 import "confidence/flags/admin/v1/events/events.proto";
-
 option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;
 option java_outer_classname = "InternalApiProto";
@@ -102,11 +101,63 @@ message WriteFlagAssignedResponse {
 
 // Collection of telemetry metrics, usually included in request messages to
 // monitor sender-side issues or performance
+//
+// Histograms use exponential bucketing with boundaries at ratio^k in the
+// chosen unit. BucketSpans encode dense regions of consecutive exponents,
+// each with their observation count. Ratio and unit are defined per histogram.
 message TelemetryData {
   // Information about the SDK/provider
   Sdk sdk = 2 [
     (google.api.field_behavior) = OPTIONAL
   ];
+
+  // Timestamp client_time = 3;
+
+  ResolveLatency resolve_latency = 4;
+  repeated ResolveRate resolve_rate = 5;
+  StateAge state_age = 6;
+
+
+  message ResolveLatency {
+    option (confidence.api.metric_unit) = "microseconds";
+    option (confidence.api.histogram_ratio) = 1.1;
+
+    uint32 sum = 1;
+    uint32 count = 2;
+    repeated BucketSpan buckets = 3;
+  }
+
+  // resolve rate tagged by reason/error
+  message ResolveRate {
+    uint32 count = 1;
+    Reason reason = 2;
+
+    enum Reason {
+      UNKNOWN = 0;
+      MATCH = 1;
+      NO_SEGMENT_MATCH = 2;
+      NO_TREATMENT_MATCH = 3;
+      FLAG_ARCHIVED = 4;
+      TARGETING_KEY_ERROR = 5;
+      ERROR = 6; // generic error
+      
+      reserved 7 to 19; // other reasons
+      ERROR_TYPE_MISMATCH = 20;
+    }
+  }
+
+  message StateAge {
+    // millisecond epoch
+    uint64 last_state_update = 1;
+  }
+
+  // a dense region of buckets
+  message BucketSpan {
+    int32 offset = 1;
+    repeated uint32 counts = 2;
+  }
+  
+
 }
 
 message ResolveToken {

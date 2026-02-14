@@ -4,12 +4,16 @@ use std::sync::LazyLock;
 use arc_swap::ArcSwapOption;
 use bytes::Bytes;
 use confidence_resolver::assign_logger::AssignLogger;
+use confidence_resolver::telemetry::Telemetry;
 use prost::Message;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    LogMessage, ResolveWithStickyRequest, WriteFlagLogsRequest,
+    resolve_process_request, resolve_process_response, LogMessage, ResolveProcessRequest,
+    WriteFlagLogsRequest,
 };
 use confidence_resolver::resolve_logger::ResolveLogger;
+use confidence_resolver::telemetry::Reason;
+use confidence_resolver::ResolveContinuationState;
 use wasm_msg::wasm_msg_guest;
 use wasm_msg::wasm_msg_host;
 use wasm_msg::WasmResult;
@@ -23,8 +27,8 @@ use confidence_resolver::{
     proto::{
         confidence::flags::admin::v1::ResolverState as ResolverStatePb,
         confidence::flags::resolver::v1::{
-            ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse,
-            ResolveWithStickyResponse, Sdk,
+            ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse, ResolveProcessResponse,
+            Sdk,
         },
         google::{Struct, Timestamp},
     },
@@ -56,6 +60,7 @@ const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
+static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(Telemetry::new);
 
 impl<'a> From<&ResolvedValue<'a>> for proto::ResolvedValue {
     fn from(val: &ResolvedValue<'a>) -> Self {
@@ -100,6 +105,24 @@ fn convert_reason(reason: ResolveReason) -> i32 {
         ResolveReason::FlagArchived => i32::from(proto::ResolveReason::FlagArchived),
         ResolveReason::TargetingKeyError => i32::from(proto::ResolveReason::TargetingKeyError),
     }
+}
+
+fn reason_to_telemetry(reason: i32) -> Option<Reason> {
+    match reason {
+        x if x == ResolveReason::Match as i32 => Some(Reason::Match),
+        x if x == ResolveReason::NoSegmentMatch as i32 => Some(Reason::NoSegmentMatch),
+        x if x == ResolveReason::FlagArchived as i32 => Some(Reason::FlagArchived),
+        x if x == ResolveReason::TargetingKeyError as i32 => Some(Reason::TargetingKeyError),
+        _ => None,
+    }
+}
+
+/// Compute elapsed microseconds between two timestamps.
+fn elapsed_us(start: &Timestamp, end: &Timestamp) -> u32 {
+    let secs = end.seconds.saturating_sub(start.seconds);
+    let nanos = end.nanos as i64 - start.nanos as i64;
+    let total_us = secs.saturating_mul(1_000_000) + nanos / 1_000;
+    total_us.max(0) as u32
 }
 
 struct WasmHost;
@@ -176,22 +199,65 @@ wasm_msg_guest! {
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
         let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str())?;
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
+        // let now = WasmHost::current_time();
+        // let epoch_ms = now.seconds as u64 * 1000 + now.nanos as u64 / 1_000_000;
+        // TELEMETRY.set_last_state_update(epoch_ms);
         Ok(VOID)
     }
 
-    fn resolve_with_sticky(request: ResolveWithStickyRequest) -> WasmResult<ResolveWithStickyResponse> {
+    fn resolve_process(request: ResolveProcessRequest) -> WasmResult<ResolveProcessResponse> {
         let resolver_state = get_resolver_state()?;
-        let resolve_request = &request.resolve_request.clone().unwrap();
-        let evaluation_context = resolve_request.evaluation_context.clone().unwrap();
+
+        // Extract client_secret and evaluation_context to set up the resolver
+        let resolve_request = match &request.request {
+            Some(resolve_process_request::Request::Resolve(req)) => req.clone(),
+            Some(resolve_process_request::Request::ResolveWithMaterializations(req)) => {
+                req.resolve_request.clone().ok_or("resolve_request is required")?
+            }
+            Some(resolve_process_request::Request::Resume(resume)) => {
+                let cont = ResolveContinuationState::decode(resume.state.as_slice())
+                    .map_err(|e| format!("Failed to decode continuation state: {}", e))?;
+                cont.resolve_request.ok_or("continuation missing resolve_request")?
+            }
+            None => return Err("request is required".to_string()),
+        };
+
+        let evaluation_context = resolve_request.evaluation_context.clone().unwrap_or_default();
         let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
-        resolver.resolve_flags_sticky(&request)
+        let start = WasmHost::current_time();
+        let result = resolver.resolve_flags_process(&request);
+        let end = WasmHost::current_time();
+        TELEMETRY.record_latency_us(elapsed_us(&start, &end));
+        if let Ok(ref response) = result {
+            if let Some(resolve_process_response::Result::Resolved(resolved)) = &response.result {
+                if let Some(ref inner) = resolved.response {
+                    for flag in &inner.resolved_flags {
+                        if let Some(reason) = reason_to_telemetry(flag.reason) {
+                            TELEMETRY.mark_resolve(reason);
+                        }
+                    }
+                }
+            }
+        }
+        result
     }
 
     fn resolve(request: ResolveFlagsRequest) -> WasmResult<ResolveFlagsResponse> {
         let resolver_state = get_resolver_state()?;
         let evaluation_context = request.evaluation_context.as_ref().cloned().unwrap_or_default();
         let resolver = resolver_state.get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &ENCRYPTION_KEY)?;
-        resolver.resolve_flags(&request)
+        let start = WasmHost::current_time();
+        let result = resolver.resolve_flags(&request);
+        let end = WasmHost::current_time();
+        TELEMETRY.record_latency_us(elapsed_us(&start, &end));
+        if let Ok(ref response) = result {
+            for flag in &response.resolved_flags {
+                if let Some(reason) = reason_to_telemetry(flag.reason) {
+                    TELEMETRY.mark_resolve(reason);
+                }
+            }
+        }
+        result
     }
 
     // deprecated
@@ -203,6 +269,7 @@ wasm_msg_guest! {
 
     fn bounded_flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
         let mut req = RESOLVE_LOGGER.checkpoint();
+        req.telemetry_data = Some(TELEMETRY.snapshot());
         ASSIGN_LOGGER.checkpoint_fill_with_limit(&mut req, LOG_TARGET_BYTES, false);
         Ok(req)
     }
