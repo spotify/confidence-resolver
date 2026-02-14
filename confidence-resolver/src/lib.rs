@@ -236,9 +236,7 @@ pub struct FlagToApply {
 }
 
 pub trait Host {
-    fn log(_: &str) {
-        // noop
-    }
+    fn log(message: &str);
 
     #[cfg(not(feature = "std"))]
     fn current_time() -> Timestamp;
@@ -266,6 +264,12 @@ pub trait Host {
         client: &Client,
         sdk: &Option<flags_resolver::Sdk>,
     );
+
+    /// Track FLAG_NOT_FOUND errors for flags that were requested but don't exist.
+    /// Default implementation is a no-op.
+    fn track_flag_not_found(_count: u32) {
+        // Default no-op
+    }
 
     fn encrypt_resolve_token(token_data: &[u8], encryption_key: &[u8]) -> Result<Vec<u8>, String> {
         #[cfg(feature = "std")]
@@ -509,6 +513,19 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             .filter(|flag| flag.clients.contains(&self.client.client_name))
             .filter(|flag| flag_names.is_empty() || flag_names.contains(&flag.name))
             .collect::<Vec<&Flag>>();
+
+        // Track FLAG_NOT_FOUND errors for requested flags that don't exist
+        if !flag_names.is_empty() {
+            let resolved_flag_names: std::collections::HashSet<&String> =
+                flags_to_resolve.iter().map(|f| &f.name).collect();
+            let not_found_count = flag_names
+                .iter()
+                .filter(|name| !resolved_flag_names.contains(name))
+                .count();
+            if not_found_count > 0 {
+                H::track_flag_not_found(not_found_count as u32);
+            }
+        }
 
         if flags_to_resolve.len() > MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE {
             return Err(format!(
@@ -1585,6 +1602,10 @@ mod tests {
     struct L;
 
     impl Host for L {
+        fn log(_message: &str) {
+            // In tests, we don't need to print anything
+        }
+
         fn log_resolve(
             _resolve_id: &str,
             _evaluation_context: &Struct,
@@ -1974,6 +1995,10 @@ mod tests {
         }
 
         impl Host for TestLogger {
+            fn log(_message: &str) {
+                // Do nothing in tests
+            }
+
             fn log_resolve(
                 _resolve_id: &str,
                 _evaluation_context: &Struct,
@@ -2116,6 +2141,10 @@ mod tests {
         }
 
         impl Host for TestLogger {
+            fn log(_message: &str) {
+                // Do nothing in tests
+            }
+
             fn log_resolve(
                 _resolve_id: &str,
                 _evaluation_context: &Struct,
