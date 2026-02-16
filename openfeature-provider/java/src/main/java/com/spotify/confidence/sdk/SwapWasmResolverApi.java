@@ -1,11 +1,19 @@
 package com.spotify.confidence.sdk;
 
+import com.dylibso.chicory.compiler.MachineFactoryCompiler;
+import com.dylibso.chicory.runtime.Instance;
+import com.dylibso.chicory.runtime.Machine;
+import com.dylibso.chicory.wasm.Parser;
+import com.dylibso.chicory.wasm.WasmModule;
 import com.spotify.confidence.sdk.flags.resolver.v1.*;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 class SwapWasmResolverApi implements ResolverApi {
@@ -15,6 +23,8 @@ class SwapWasmResolverApi implements ResolverApi {
   private final AtomicReference<WasmResolveApi> wasmResolverApiRef = new AtomicReference<>();
   private final MaterializationStore materializationStore;
   private final WasmFlagLogger flagLogger;
+  private final WasmModule wasmModule;
+  private final Function<Instance, Machine> machineFactory;
 
   public SwapWasmResolverApi(
       WasmFlagLogger flagLogger,
@@ -24,8 +34,21 @@ class SwapWasmResolverApi implements ResolverApi {
     this.materializationStore = materializationStore;
     this.flagLogger = flagLogger;
 
-    // Create initial instance
-    final WasmResolveApi initialInstance = new WasmResolveApi(flagLogger);
+    // Parse and compile WASM module once, reused across all instances
+    try (InputStream wasmStream =
+        getClass().getClassLoader().getResourceAsStream("wasm/confidence_resolver.wasm")) {
+      if (wasmStream == null) {
+        throw new RuntimeException("Could not find confidence_resolver.wasm in resources");
+      }
+      this.wasmModule = Parser.parse(wasmStream);
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to load WASM module", e);
+    }
+    this.machineFactory = MachineFactoryCompiler.compile(wasmModule);
+
+    // Create initial instance using pre-compiled factory
+    final WasmResolveApi initialInstance =
+        new WasmResolveApi(flagLogger, wasmModule, machineFactory);
     initialInstance.setResolverState(initialState, accountId);
     this.wasmResolverApiRef.set(initialInstance);
   }
@@ -42,8 +65,8 @@ class SwapWasmResolverApi implements ResolverApi {
 
   @Override
   public void updateStateAndFlushLogs(byte[] state, String accountId) {
-    // Create new instance with updated state
-    final WasmResolveApi newInstance = new WasmResolveApi(flagLogger);
+    // Create new instance using pre-compiled WASM factory (no recompilation)
+    final WasmResolveApi newInstance = new WasmResolveApi(flagLogger, wasmModule, machineFactory);
     newInstance.setResolverState(state, accountId);
 
     // Get current instance before switching
