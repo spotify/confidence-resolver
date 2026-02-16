@@ -7,11 +7,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 class SwapWasmResolverApi implements ResolverApi {
-  private static final Logger logger = LoggerFactory.getLogger(SwapWasmResolverApi.class);
   private static final int MAX_CLOSED_RETRIES = 10;
   private static final int MAX_MATERIALIZATION_RETRIES = 3;
 
