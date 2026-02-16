@@ -156,11 +156,6 @@
       <version>1.4.0</version>
     </dependency>
     <dependency>
-      <groupId>com.dylibso.chicory</groupId>
-      <artifactId>compiler</artifactId>
-      <version>1.4.0</version>
-    </dependency>
-    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
       <version>${junit.version}</version>
@@ -279,14 +274,50 @@
               <sources>
                 <source>${project.build.directory}/generated-sources/protobuf/java</source>
                 <source>${project.build.directory}/generated-sources/protobuf/grpc-java</source>
+                <source>${project.build.directory}/generated-sources/chicory-compiler</source>
               </sources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>add-chicory-classes</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-resource</goal>
+            </goals>
+            <configuration>
+              <resources>
+                <resource>
+                  <directory>${project.build.directory}/generated-resources/chicory-compiler</directory>
+                </resource>
+              </resources>
             </configuration>
           </execution>
         </executions>
       </plugin>
 
       <!-- Makefile copies local WASM into resources; no download/clean plugin needed -->
-      
+
+      <!-- AOT compile WASM to Java bytecode at build time -->
+      <plugin>
+        <groupId>com.dylibso.chicory</groupId>
+        <artifactId>chicory-compiler-maven-plugin</artifactId>
+        <version>1.4.0</version>
+        <executions>
+          <execution>
+            <id>compile-wasm</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+            <configuration>
+              <wasmFile>src/main/resources/wasm/confidence_resolver.wasm</wasmFile>
+              <name>com.spotify.confidence.sdk.ConfidenceResolverModule</name>
+              <interpreterFallback>WARN</interpreterFallback>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
       <!-- JUnit 5 - Unit tests -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
