@@ -102,7 +102,12 @@ public class FlagResolverService {
 
     try {
       // Parse request body
-      final String requestBody = new String(request.getBody(), StandardCharsets.UTF_8);
+      final byte[] body = request.getBody();
+      if (body == null || body.length == 0) {
+        log.warn("Empty request body");
+        return DefaultConfidenceHttpResponse.error(400);
+      }
+      final String requestBody = new String(body, StandardCharsets.UTF_8);
       final ResolveFlagsRequest.Builder resolveRequestBuilder = ResolveFlagsRequest.newBuilder();
       JSON_PARSER.merge(requestBody, resolveRequestBuilder);
 
@@ -147,7 +152,12 @@ public class FlagResolverService {
 
     try {
       // Parse request body
-      final String requestBody = new String(request.getBody(), StandardCharsets.UTF_8);
+      final byte[] body = request.getBody();
+      if (body == null || body.length == 0) {
+        log.warn("Empty request body");
+        return DefaultConfidenceHttpResponse.error(400);
+      }
+      final String requestBody = new String(body, StandardCharsets.UTF_8);
       final ApplyFlagsRequest.Builder applyRequestBuilder = ApplyFlagsRequest.newBuilder();
       JSON_PARSER.merge(requestBody, applyRequestBuilder);
 
