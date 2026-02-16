@@ -304,7 +304,33 @@ public class FlagServlet extends HttpServlet {
     }
 
     private ConfidenceHttpRequest toConfidenceRequest(HttpServletRequest req) {
-        ...
+        // Cache body bytes since InputStream can only be read once
+        final byte[] bodyBytes;
+        try {
+            bodyBytes = req.getInputStream().readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        return new ConfidenceHttpRequest() {
+            @Override
+            public String getMethod() {
+                return req.getMethod();
+            }
+
+            @Override
+            public byte[] getBody() {
+                return bodyBytes;
+            }
+
+            @Override
+            public Map<String, List<String>> getHeaders() {
+                Map<String, List<String>> headers = new HashMap<>();
+                Collections.list(req.getHeaderNames()).forEach(name ->
+                    headers.put(name, Collections.list(req.getHeaders(name))));
+                return headers;
+            }
+        };
     }
 }
 ```
