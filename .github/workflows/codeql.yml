@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  packages: read
 
 jobs:
   analyze:
@@ -19,6 +20,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - language: actions
+            build-mode: none
           - language: java-kotlin
             build-mode: manual
           - language: go
@@ -28,6 +31,8 @@ jobs:
           - language: python
             build-mode: none
           - language: ruby
+            build-mode: none
+          - language: rust
             build-mode: none
 
     steps:
@@ -48,8 +53,10 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
 
       - name: Build Java provider
-        if: matrix.language == 'java-kotlin'
+        if: matrix.build-mode == 'manual'
         run: mvn -B compile -f openfeature-provider/java/pom.xml
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
