@@ -7,9 +7,12 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import dev.openfeature.sdk.MutableContext;
+import dev.openfeature.sdk.MutableStructure;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -196,14 +199,8 @@ public class FlagResolverService {
                 }
                 case NUMBER_VALUE -> ctx.add(key, value.getNumberValue());
                 case BOOL_VALUE -> ctx.add(key, value.getBoolValue());
-                case STRUCT_VALUE -> {
-                  // For nested structures, convert to string representation
-                  try {
-                    ctx.add(key, JSON_PRINTER.print(value.getStructValue()));
-                  } catch (InvalidProtocolBufferException e) {
-                    log.warn("Failed to convert struct value for key {}", key, e);
-                  }
-                }
+                case STRUCT_VALUE ->
+                    ctx.add(key, protoStructToOpenFeatureStructure(value.getStructValue()));
                 case LIST_VALUE -> {
                   // For lists, convert to List<Value>
                   final List<dev.openfeature.sdk.Value> valueList =
@@ -227,7 +224,24 @@ public class FlagResolverService {
       case NUMBER_VALUE -> new dev.openfeature.sdk.Value(value.getNumberValue());
       case BOOL_VALUE -> new dev.openfeature.sdk.Value(value.getBoolValue());
       case NULL_VALUE -> new dev.openfeature.sdk.Value();
+      case STRUCT_VALUE ->
+          new dev.openfeature.sdk.Value(protoStructToOpenFeatureStructure(value.getStructValue()));
+      case LIST_VALUE -> {
+        final List<dev.openfeature.sdk.Value> list =
+            value.getListValue().getValuesList().stream()
+                .map(this::protoValueToOpenFeatureValue)
+                .toList();
+        yield new dev.openfeature.sdk.Value(list);
+      }
       default -> new dev.openfeature.sdk.Value(value.toString());
     };
+  }
+
+  private MutableStructure protoStructToOpenFeatureStructure(Struct struct) {
+    final Map<String, dev.openfeature.sdk.Value> map = new HashMap<>();
+    struct
+        .getFieldsMap()
+        .forEach((key, value) -> map.put(key, protoValueToOpenFeatureValue(value)));
+    return new MutableStructure(map);
   }
 }

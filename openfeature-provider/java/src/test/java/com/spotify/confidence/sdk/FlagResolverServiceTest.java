@@ -363,11 +363,13 @@ class FlagResolverServiceTest {
       assertThat(mixedList.get(1).asDouble()).isEqualTo(42.0);
       assertThat(mixedList.get(2).asBoolean()).isTrue();
 
-      // Verify nested struct is converted to JSON string
-      String userJson = ctx.getValue("user").asString();
-      assertThat(userJson).contains("u123");
-      assertThat(userJson).contains("Test User");
-      assertThat(userJson).contains("dark");
+      // Verify nested struct is properly converted to Structure
+      var userStruct = ctx.getValue("user").asStructure();
+      assertThat(userStruct.getValue("id").asString()).isEqualTo("u123");
+      assertThat(userStruct.getValue("name").asString()).isEqualTo("Test User");
+      // Verify deeply nested struct
+      var settingsStruct = userStruct.getValue("settings").asStructure();
+      assertThat(settingsStruct.getValue("theme").asString()).isEqualTo("dark");
 
       // Verify features list
       var featuresList = ctx.getValue("features").asList();
