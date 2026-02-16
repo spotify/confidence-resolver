@@ -24,7 +24,6 @@ class SwapWasmResolverApi implements ResolverApi {
     this.materializationStore = materializationStore;
     this.flagLogger = flagLogger;
 
-    // Create initial instance
     final WasmResolveApi initialInstance = new WasmResolveApi(flagLogger);
     initialInstance.setResolverState(initialState, accountId);
     this.wasmResolverApiRef.set(initialInstance);
@@ -42,7 +41,6 @@ class SwapWasmResolverApi implements ResolverApi {
 
   @Override
   public void updateStateAndFlushLogs(byte[] state, String accountId) {
-    // Create new instance with updated state
     final WasmResolveApi newInstance = new WasmResolveApi(flagLogger);
     newInstance.setResolverState(state, accountId);
 
@@ -50,6 +48,14 @@ class SwapWasmResolverApi implements ResolverApi {
     final WasmResolveApi oldInstance = wasmResolverApiRef.getAndSet(newInstance);
     if (oldInstance != null) {
       oldInstance.close();
+    }
+  }
+
+  @Override
+  public void flushAssignLogs() {
+    final WasmResolveApi currentInstance = wasmResolverApiRef.get();
+    if (currentInstance != null) {
+      currentInstance.flushAssignLogs();
     }
   }
 
