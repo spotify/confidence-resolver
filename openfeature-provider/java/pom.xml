@@ -239,6 +239,8 @@
           <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
           <pluginId>grpc-java</pluginId>
           <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
+          <!-- Don't bundle .proto files in the JAR – consumers use the generated Java API -->
+          <attachProtoSources>false</attachProtoSources>
         </configuration>
         <executions>
           <!-- Compile the Confidence API protos and WASM interop messages from this repo to satisfy imports and stubs -->
@@ -551,6 +553,8 @@
                     <exclude>META-INF/*.DSA</exclude>
                     <exclude>META-INF/*.RSA</exclude>
                     <exclude>module-info.class</exclude>
+                    <!-- Exclude .proto files from shaded deps to avoid classpath collisions -->
+                    <exclude>**/*.proto</exclude>
                   </excludes>
                 </filter>
               </filters>
