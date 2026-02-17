@@ -12,7 +12,7 @@ import java.util.concurrent.CompletionStage;
  * <pre>{@code
  * ContextDecorator decorator = (ctx, req) -> {
  *     // Add user ID from auth header
- *     List<String> userIds = req.getHeaders().get("X-User-Id");
+ *     List<String> userIds = req.headers().get("X-User-Id");
  *     if (userIds != null && !userIds.isEmpty()) {
  *         ctx.add("user_id", userIds.get(0));
  *     }

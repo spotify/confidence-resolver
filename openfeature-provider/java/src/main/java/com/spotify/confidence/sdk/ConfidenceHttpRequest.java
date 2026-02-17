@@ -16,13 +16,13 @@ import java.util.Map;
  *     JavalinConfidenceHttpRequest(Context ctx) { this.ctx = ctx; }
  *
  *     @Override
- *     public String getMethod() { return ctx.method().name(); }
+ *     public String method() { return ctx.method().name(); }
  *
  *     @Override
- *     public byte[] getBody() { return ctx.bodyAsBytes(); }
+ *     public byte[] body() { return ctx.bodyAsBytes(); }
  *
  *     @Override
- *     public Map<String, List<String>> getHeaders() { return ctx.headerMap(); }
+ *     public Map<String, List<String>> headers() { return ctx.headerMap(); }
  * }
  * }</pre>
  */
@@ -30,10 +30,10 @@ import java.util.Map;
 public interface ConfidenceHttpRequest {
 
   /** Returns the HTTP method (GET, POST, etc.) */
-  String getMethod();
+  String method();
 
   /** Returns the request body as a byte array. */
-  byte[] getBody();
+  byte[] body();
 
   /**
    * Returns request headers. Used by {@link ContextDecorator} to add additional context from
@@ -41,5 +41,5 @@ public interface ConfidenceHttpRequest {
    *
    * @return a map of header names to their values
    */
-  Map<String, List<String>> getHeaders();
+  Map<String, List<String>> headers();
 }

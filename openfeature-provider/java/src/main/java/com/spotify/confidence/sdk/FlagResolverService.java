@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
  * // Create service with optional context decoration
  * FlagResolverService flagResolver = new FlagResolverService(provider, (ctx, req) -> {
  *     // Add user ID from auth header
- *     List<String> userIds = req.getHeaders().get("X-User-Id");
+ *     List<String> userIds = req.headers().get("X-User-Id");
  *     if (userIds != null && !userIds.isEmpty()) {
  *         ctx.add("user_id", userIds.get(0));
  *     }
@@ -45,17 +45,17 @@ import org.slf4j.LoggerFactory;
  * app.post("/v1/flags:resolve", ctx -> {
  *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
  *     ConfidenceHttpResponse response = flagResolver.handleResolve(request);
- *     ctx.status(response.getStatusCode())
+ *     ctx.status(response.statusCode())
  *        .contentType("application/json")
- *        .result(response.getBody());
+ *        .result(response.body());
  * });
  *
  * app.post("/v1/flags:apply", ctx -> {
  *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
  *     ConfidenceHttpResponse response = flagResolver.handleApply(request);
- *     ctx.status(response.getStatusCode())
+ *     ctx.status(response.statusCode())
  *        .contentType("application/json")
- *        .result(response.getBody());
+ *        .result(response.body());
  * });
  * }</pre>
  */
@@ -100,16 +100,16 @@ public class FlagResolverService {
    */
   public ConfidenceHttpResponse handleResolve(ConfidenceHttpRequest request) {
     // Validate HTTP method
-    if (!"POST".equalsIgnoreCase(request.getMethod())) {
-      return DefaultConfidenceHttpResponse.error(405);
+    if (!"POST".equalsIgnoreCase(request.method())) {
+      return ConfidenceHttpResponse.error(405);
     }
 
     try {
       // Parse request body
-      final byte[] body = request.getBody();
+      final byte[] body = request.body();
       if (body == null || body.length == 0) {
         log.warn("Empty request body");
-        return DefaultConfidenceHttpResponse.error(400);
+        return ConfidenceHttpResponse.error(400);
       }
       final String requestBody = new String(body, StandardCharsets.UTF_8);
       final ResolveFlagsRequest.Builder resolveRequestBuilder = ResolveFlagsRequest.newBuilder();
@@ -131,14 +131,14 @@ public class FlagResolverService {
 
       // Convert response to JSON
       final String jsonResponse = JSON_PRINTER.print(response);
-      return DefaultConfidenceHttpResponse.ok(jsonResponse);
+      return ConfidenceHttpResponse.ok(jsonResponse);
 
     } catch (InvalidProtocolBufferException e) {
       log.warn("Invalid request format", e);
-      return DefaultConfidenceHttpResponse.error(400);
+      return ConfidenceHttpResponse.error(400);
     } catch (Exception e) {
       log.error("Error resolving flags", e);
-      return DefaultConfidenceHttpResponse.error(500);
+      return ConfidenceHttpResponse.error(500);
     }
   }
 
@@ -150,16 +150,16 @@ public class FlagResolverService {
    */
   public ConfidenceHttpResponse handleApply(ConfidenceHttpRequest request) {
     // Validate HTTP method
-    if (!"POST".equalsIgnoreCase(request.getMethod())) {
-      return DefaultConfidenceHttpResponse.error(405);
+    if (!"POST".equalsIgnoreCase(request.method())) {
+      return ConfidenceHttpResponse.error(405);
     }
 
     try {
       // Parse request body
-      final byte[] body = request.getBody();
+      final byte[] body = request.body();
       if (body == null || body.length == 0) {
         log.warn("Empty request body");
-        return DefaultConfidenceHttpResponse.error(400);
+        return ConfidenceHttpResponse.error(400);
       }
       final String requestBody = new String(body, StandardCharsets.UTF_8);
       final ApplyFlagsRequest.Builder applyRequestBuilder = ApplyFlagsRequest.newBuilder();
@@ -172,14 +172,14 @@ public class FlagResolverService {
       provider.applyFlags(applyRequest);
 
       // Return empty JSON response
-      return DefaultConfidenceHttpResponse.ok("{}");
+      return ConfidenceHttpResponse.ok("{}");
 
     } catch (InvalidProtocolBufferException e) {
       log.warn("Invalid request format", e);
-      return DefaultConfidenceHttpResponse.error(400);
+      return ConfidenceHttpResponse.error(400);
     } catch (Exception e) {
       log.error("Error applying flags", e);
-      return DefaultConfidenceHttpResponse.error(500);
+      return ConfidenceHttpResponse.error(500);
     }
   }
 

@@ -46,7 +46,7 @@ class FlagResolverServiceTest {
 
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(405);
+      assertThat(response.statusCode()).isEqualTo(405);
     }
 
     @Test
@@ -55,7 +55,7 @@ class FlagResolverServiceTest {
 
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(400);
+      assertThat(response.statusCode()).isEqualTo(400);
     }
 
     @Test
@@ -89,8 +89,8 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
-      assertThat(response.getHeaders().get("Content-Type")).isEqualTo("application/json");
+      assertThat(response.statusCode()).isEqualTo(200);
+      assertThat(response.headers().get("Content-Type")).isEqualTo("application/json");
 
       String body = readBody(response);
       assertThat(body).contains("flags/flag1");
@@ -118,7 +118,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
       verify(mockProvider).resolve(any(), eq(List.of("my-flag")), eq(true));
     }
 
@@ -326,7 +326,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
 
       EvaluationContext ctx = capturedContext.get();
 
@@ -399,7 +399,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(500);
+      assertThat(response.statusCode()).isEqualTo(500);
     }
 
     @Test
@@ -419,7 +419,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
       verify(mockProvider).resolve(any(), eq(List.of()), eq(false));
     }
 
@@ -443,7 +443,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
     }
   }
 
@@ -456,7 +456,7 @@ class FlagResolverServiceTest {
 
       ConfidenceHttpResponse response = service.handleApply(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(405);
+      assertThat(response.statusCode()).isEqualTo(405);
     }
 
     @Test
@@ -465,7 +465,7 @@ class FlagResolverServiceTest {
 
       ConfidenceHttpResponse response = service.handleApply(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(400);
+      assertThat(response.statusCode()).isEqualTo(400);
     }
 
     @Test
@@ -481,7 +481,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleApply(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
       assertThat(readBody(response)).isEqualTo("{}");
 
       ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
@@ -507,7 +507,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleApply(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
 
       ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
       verify(mockProvider).applyFlags(captor.capture());
@@ -529,7 +529,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleApply(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(500);
+      assertThat(response.statusCode()).isEqualTo(500);
     }
 
     @Test
@@ -545,7 +545,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
       ConfidenceHttpResponse response = service.handleApply(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
 
       ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
       verify(mockProvider).applyFlags(captor.capture());
@@ -560,7 +560,7 @@ class FlagResolverServiceTest {
     void shouldApplyContextDecorator() {
       ContextDecorator decorator =
           (ctx, req) -> {
-            var userIds = req.getHeaders().get("X-User-Id");
+            var userIds = req.headers().get("X-User-Id");
             if (userIds != null && !userIds.isEmpty()) {
               ctx.add("decorated_user_id", userIds.get(0));
             }
@@ -648,7 +648,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("post", requestBody);
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
     }
 
     @Test
@@ -664,7 +664,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request = createRequest("Post", requestBody);
       ConfidenceHttpResponse response = service.handleResolve(request);
 
-      assertThat(response.getStatusCode()).isEqualTo(200);
+      assertThat(response.statusCode()).isEqualTo(200);
     }
   }
 
@@ -676,24 +676,24 @@ class FlagResolverServiceTest {
       String method, String body, Map<String, List<String>> headers) {
     return new ConfidenceHttpRequest() {
       @Override
-      public String getMethod() {
+      public String method() {
         return method;
       }
 
       @Override
-      public byte[] getBody() {
+      public byte[] body() {
         return body.getBytes(StandardCharsets.UTF_8);
       }
 
       @Override
-      public Map<String, List<String>> getHeaders() {
+      public Map<String, List<String>> headers() {
         return headers;
       }
     };
   }
 
   private String readBody(ConfidenceHttpResponse response) {
-    byte[] body = response.getBody();
+    byte[] body = response.body();
     if (body == null) {
       return null;
     }

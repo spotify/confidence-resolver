@@ -1,5 +1,6 @@
 package com.spotify.confidence.sdk;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
@@ -11,21 +12,43 @@ import java.util.Map;
  * app.post("/v1/flags:resolve", ctx -> {
  *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
  *     ConfidenceHttpResponse response = flagResolver.handleResolve(request);
- *     ctx.status(response.getStatusCode())
+ *     ctx.status(response.statusCode())
  *        .contentType("application/json")
- *        .result(response.getBody());
+ *        .result(response.body());
  * });
  * }</pre>
  */
 @Experimental
-public interface ConfidenceHttpResponse {
+public record ConfidenceHttpResponse(int statusCode, byte[] body, Map<String, String> headers) {
 
-  /** Returns the HTTP status code for this response. */
-  int getStatusCode();
+  /**
+   * Creates a successful response with the given body.
+   *
+   * @param body the response body as a byte array
+   * @return a 200 OK response with application/json content type
+   */
+  public static ConfidenceHttpResponse ok(byte[] body) {
+    return new ConfidenceHttpResponse(200, body, Map.of("Content-Type", "application/json"));
+  }
 
-  /** Returns the response body as a byte array. May be null for error responses. */
-  byte[] getBody();
+  /**
+   * Creates a successful response with the given JSON body.
+   *
+   * @param jsonBody the response body as a JSON string
+   * @return a 200 OK response with application/json content type
+   */
+  public static ConfidenceHttpResponse ok(String jsonBody) {
+    return new ConfidenceHttpResponse(
+        200, jsonBody.getBytes(StandardCharsets.UTF_8), Map.of("Content-Type", "application/json"));
+  }
 
-  /** Returns the response headers. */
-  Map<String, String> getHeaders();
+  /**
+   * Creates an error response with the given status code.
+   *
+   * @param statusCode the HTTP status code
+   * @return an error response with the given status code and no body
+   */
+  public static ConfidenceHttpResponse error(int statusCode) {
+    return new ConfidenceHttpResponse(statusCode, null, Map.of());
+  }
 }

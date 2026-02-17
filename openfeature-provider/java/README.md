@@ -250,13 +250,14 @@ Add server-side context to requests before resolution:
 ```java
 FlagResolverService flagResolver = new FlagResolverService(provider, (ctx, req) -> {
     // Add user ID from auth header
-    List<String> userIds = req.getHeaders().get("X-User-Id");
+    List<String> userIds = req.headers().get("X-User-Id");
     if (userIds != null && !userIds.isEmpty()) {
         ctx.add("user_id", userIds.get(0));
     }
 
     // Add request metadata
     ctx.add("request_source", "backend_proxy");
+    return CompletableFuture.completedFuture(null);
 });
 ```
 
@@ -273,13 +274,14 @@ public class FlagServlet extends HttpServlet {
     public FlagServlet(OpenFeatureLocalResolveProvider provider) {
         // Add context decoration to extract user ID from Authorization header
         this.flagResolverService = new FlagResolverService(provider, (context, request) -> {
-            List<String> authHeaders = request.getHeaders().get("Authorization");
+            List<String> authHeaders = request.headers().get("Authorization");
             if (authHeaders != null && !authHeaders.isEmpty()) {
                 String auth = authHeaders.get(0);
                 if (auth.startsWith("Bearer ")) {
                     context.add("user_id", auth.substring(7));
                 }
             }
+            return CompletableFuture.completedFuture(null);
         });
     }
 
@@ -296,10 +298,10 @@ public class FlagServlet extends HttpServlet {
             return;
         }
 
-        resp.setStatus(response.getStatusCode());
-        response.getHeaders().forEach(resp::setHeader);
-        if (response.getBody() != null) {
-            resp.getOutputStream().write(response.getBody());
+        resp.setStatus(response.statusCode());
+        response.headers().forEach(resp::setHeader);
+        if (response.body() != null) {
+            resp.getOutputStream().write(response.body());
         }
     }
 
@@ -314,17 +316,17 @@ public class FlagServlet extends HttpServlet {
 
         return new ConfidenceHttpRequest() {
             @Override
-            public String getMethod() {
+            public String method() {
                 return req.getMethod();
             }
 
             @Override
-            public byte[] getBody() {
+            public byte[] body() {
                 return bodyBytes;
             }
 
             @Override
-            public Map<String, List<String>> getHeaders() {
+            public Map<String, List<String>> headers() {
                 Map<String, List<String>> headers = new HashMap<>();
                 Collections.list(req.getHeaderNames()).forEach(name ->
                     headers.put(name, Collections.list(req.getHeaders(name))));
