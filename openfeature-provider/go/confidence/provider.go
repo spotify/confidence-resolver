@@ -95,11 +95,11 @@ func NewLocalResolverProvider(
 	// Use defaults if not provided
 	statePollInterval := options.statePollInterval
 	if statePollInterval <= 0 {
-		statePollInterval = getStatePollInterval()
+		statePollInterval = getStatePollInterval(logger)
 	}
 	logPollInterval := options.logPollInterval
 	if logPollInterval <= 0 {
-		logPollInterval = getLogPollInterval()
+		logPollInterval = getLogPollInterval(logger)
 	}
 
 	return &LocalResolverProvider{
@@ -517,9 +517,13 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 }
 
 // getStatePollInterval gets the state poll interval from environment or returns default
-func getStatePollInterval() time.Duration {
+// Deprecated: Use ProviderConfig.StatePollInterval instead. Environment variable support will be removed in a future version.
+func getStatePollInterval(logger *slog.Logger) time.Duration {
 	if envVal := os.Getenv("CONFIDENCE_STATE_POLL_INTERVAL_SECONDS"); envVal != "" {
 		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
+			if logger != nil {
+				logger.Warn("CONFIDENCE_STATE_POLL_INTERVAL_SECONDS is deprecated, use ProviderConfig.StatePollInterval instead")
+			}
 			return time.Duration(seconds) * time.Second
 		}
 	}
@@ -527,9 +531,13 @@ func getStatePollInterval() time.Duration {
 }
 
 // getLogPollInterval gets the log poll interval from environment or returns default
-func getLogPollInterval() time.Duration {
+// Deprecated: Use ProviderConfig.LogPollInterval instead. Environment variable support will be removed in a future version.
+func getLogPollInterval(logger *slog.Logger) time.Duration {
 	if envVal := os.Getenv("CONFIDENCE_LOG_POLL_INTERVAL_SECONDS"); envVal != "" {
 		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
+			if logger != nil {
+				logger.Warn("CONFIDENCE_LOG_POLL_INTERVAL_SECONDS is deprecated, use ProviderConfig.LogPollInterval instead")
+			}
 			return time.Duration(seconds) * time.Second
 		}
 	}

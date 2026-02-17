@@ -35,11 +35,14 @@ type localResolverImpl struct {
 	factory LocalResolverFactory
 }
 
-func NewLocalResolver(ctx context.Context, logSink LogSink) LocalResolver {
+func NewLocalResolverWithPoolSize(ctx context.Context, logSink LogSink, poolSize int) LocalResolver {
 	factory := NewWasmResolverFactory(logSink)
 	factory = NewRecoveringResolverFactory(factory)
+	if poolSize <= 0 {
+		poolSize = runtime.GOMAXPROCS(0)
+	}
 	return &localResolverImpl{
-		PooledResolver: *NewPooledResolver(runtime.GOMAXPROCS(0), factory.New),
+		PooledResolver: *NewPooledResolver(poolSize, factory.New),
 		factory:        factory,
 	}
 }
