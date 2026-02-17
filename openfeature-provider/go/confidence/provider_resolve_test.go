@@ -238,8 +238,8 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		unsupportedMatStore := newUnsupportedMaterializationStore()
 
 		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
-	}, unsupportedMatStore)
+			return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		}, unsupportedMatStore)
 		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
 		client := openfeature.NewClient("test-client")
 
@@ -279,8 +279,8 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		unsupportedMatStore := newUnsupportedMaterializationStore()
 
 		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
-	}, unsupportedMatStore)
+			return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		}, unsupportedMatStore)
 		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
 		client := openfeature.NewClient("test-client")
 
