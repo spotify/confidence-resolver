@@ -133,10 +133,13 @@ class WasmResolveApi {
 
   public ResolveWithStickyResponse resolveWithSticky(ResolveWithStickyRequest request)
       throws IsClosedException {
-    if (!wasmLock.writeLock().tryLock() || isConsumed) {
+    if (!wasmLock.writeLock().tryLock()) {
       throw new IsClosedException();
     }
     try {
+      if (isConsumed) {
+        throw new IsClosedException();
+      }
       final int reqPtr = transferRequest(request);
       final int respPtr = (int) wasmMsgGuestResolveWithSticky.apply(reqPtr)[0];
       return consumeResponse(respPtr, ResolveWithStickyResponse::parseFrom);
@@ -150,6 +153,9 @@ class WasmResolveApi {
       throw new IsClosedException();
     }
     try {
+      if (isConsumed) {
+        throw new IsClosedException();
+      }
       final int reqPtr = transferRequest(request);
       final int respPtr = (int) wasmMsgGuestResolve.apply(reqPtr)[0];
       return consumeResponse(respPtr, ResolveFlagsResponse::parseFrom);
@@ -159,10 +165,13 @@ class WasmResolveApi {
   }
 
   public void applyFlags(ApplyFlagsRequest request) throws IsClosedException {
-    if (!wasmLock.writeLock().tryLock() || isConsumed) {
+    if (!wasmLock.writeLock().tryLock()) {
       throw new IsClosedException();
     }
     try {
+      if (isConsumed) {
+        throw new IsClosedException();
+      }
       final int reqPtr = transferRequest(request);
       final int respPtr = (int) wasmMsgGuestApplyFlags.apply(reqPtr)[0];
       consumeResponse(respPtr, ApplyFlagsResponse::parseFrom);
