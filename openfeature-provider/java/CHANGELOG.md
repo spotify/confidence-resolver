@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.11.3...openfeature-provider-java-v0.11.4) (2026-02-17)
+
+
+### Bug Fixes
+
+* **java:** exclude .proto files from JAR ([#276](https://github.com/spotify/confidence-resolver/issues/276)) ([93d3f95](https://github.com/spotify/confidence-resolver/commit/93d3f95e548c25c480cd957e0a6d2e28c1f13f2f))
+
 ## [0.11.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.11.2...openfeature-provider-java-v0.11.3) (2026-02-10)
 
 
