@@ -19,6 +19,7 @@ import dev.openfeature.sdk.EvaluationContext;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -563,6 +564,7 @@ class FlagResolverServiceTest {
             if (userIds != null && !userIds.isEmpty()) {
               ctx.add("decorated_user_id", userIds.get(0));
             }
+            return CompletableFuture.completedFuture(null);
           };
 
       FlagResolverService serviceWithDecorator = new FlagResolverService(mockProvider, decorator);
@@ -595,7 +597,11 @@ class FlagResolverServiceTest {
 
     @Test
     void shouldCombineRequestContextWithDecorator() {
-      ContextDecorator decorator = (ctx, req) -> ctx.add("source", "backend_proxy");
+      ContextDecorator decorator =
+          (ctx, req) -> {
+            ctx.add("source", "backend_proxy");
+            return CompletableFuture.completedFuture(null);
+          };
 
       FlagResolverService serviceWithDecorator = new FlagResolverService(mockProvider, decorator);
 

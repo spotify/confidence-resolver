@@ -1,6 +1,7 @@
 package com.spotify.confidence.sdk;
 
 import dev.openfeature.sdk.MutableContext;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Decorates the evaluation context with additional data from the request. Use cases include adding
@@ -18,6 +19,7 @@ import dev.openfeature.sdk.MutableContext;
  *
  *     // Add request source
  *     ctx.add("request_source", "backend_proxy");
+ *     return CompletableFuture.completedFuture(null);
  * };
  *
  * FlagResolverService service = new FlagResolverService(provider, decorator);
@@ -28,10 +30,13 @@ import dev.openfeature.sdk.MutableContext;
 public interface ContextDecorator {
 
   /**
-   * Decorates the evaluation context with additional data from the request.
+   * Decorates the evaluation context with additional data from the request. The returned
+   * CompletionStage completes when the decoration is done, allowing async operations such as
+   * fetching data from external services.
    *
    * @param context the mutable evaluation context to decorate
    * @param request the incoming HTTP request containing headers and other metadata
+   * @return a CompletionStage that completes when decoration is done
    */
-  void decorate(MutableContext context, ConfidenceHttpRequest request);
+  CompletionStage<Void> decorate(MutableContext context, ConfidenceHttpRequest request);
 }

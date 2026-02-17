@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,7 +75,7 @@ public class FlagResolverService {
    * @param provider the local resolve provider to use for flag resolution
    */
   public FlagResolverService(OpenFeatureLocalResolveProvider provider) {
-    this(provider, (ctx, req) -> {});
+    this(provider, (ctx, req) -> CompletableFuture.completedFuture(null));
   }
 
   /**
@@ -119,7 +120,7 @@ public class FlagResolverService {
           buildEvaluationContext(resolveRequestBuilder.getEvaluationContext());
 
       // Apply context decorator
-      contextDecorator.decorate(ctx, request);
+      contextDecorator.decorate(ctx, request).toCompletableFuture().join();
 
       // Get flag names
       final List<String> flagNames = new ArrayList<>(resolveRequestBuilder.getFlagsList());
