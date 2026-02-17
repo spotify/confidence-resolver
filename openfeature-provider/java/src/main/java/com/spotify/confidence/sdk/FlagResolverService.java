@@ -22,7 +22,8 @@ import org.slf4j.LoggerFactory;
  * SDKs (like confidence-sdk-js).
  *
  * <p>This service can proxy resolve/apply requests through the local provider, enabling low-latency
- * flag resolution without external network calls.
+ * flag resolution without external network calls. Only {@code application/json} content type is
+ * supported; requests with other content types will receive a 415 Unsupported Media Type response.
  *
  * <p><strong>Usage Example with Javalin:</strong>
  *
@@ -104,6 +105,11 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
       return ConfidenceHttpResponse.error(405);
     }
 
+    // Validate content type
+    if (!isJsonContentType(request)) {
+      return ConfidenceHttpResponse.error(415);
+    }
+
     try {
       // Parse request body
       final byte[] body = request.body();
@@ -152,6 +158,11 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
     // Validate HTTP method
     if (!"POST".equalsIgnoreCase(request.method())) {
       return ConfidenceHttpResponse.error(405);
+    }
+
+    // Validate content type
+    if (!isJsonContentType(request)) {
+      return ConfidenceHttpResponse.error(415);
     }
 
     try {
@@ -244,5 +255,14 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
         .getFieldsMap()
         .forEach((key, value) -> map.put(key, protoValueToOpenFeatureValue(value)));
     return new MutableStructure(map);
+  }
+
+  private static boolean isJsonContentType(ConfidenceHttpRequest request) {
+    final List<String> contentTypes = request.headers().get("Content-Type");
+    if (contentTypes == null || contentTypes.isEmpty()) {
+      return false;
+    }
+    final String contentType = contentTypes.get(0).toLowerCase();
+    return contentType.startsWith("application/json");
   }
 }

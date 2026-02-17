@@ -226,6 +226,7 @@ The `FlagResolverService` enables you to proxy flag resolution requests from cli
 - **Low-latency resolution**: Client SDKs make requests to your backend instead of Confidence servers
 - **Backend-controlled credentials**: Client SDKs don't need their own client secrets
 - **Context enrichment**: Add server-side context (user ID from auth, request metadata) before resolution
+- **JSON only**: Only `application/json` content type is supported. Requests with other content types will receive a 415 response.
 
 ### Basic Setup
 

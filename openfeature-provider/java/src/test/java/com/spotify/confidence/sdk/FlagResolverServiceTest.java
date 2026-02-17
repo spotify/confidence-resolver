@@ -29,12 +29,12 @@ import org.mockito.ArgumentCaptor;
 class FlagResolverServiceTest {
 
   private OpenFeatureLocalResolveProvider mockProvider;
-  private FlagResolverService service;
+  private FlagResolverService<ConfidenceHttpRequest> service;
 
   @BeforeEach
   void setUp() {
     mockProvider = mock(OpenFeatureLocalResolveProvider.class);
-    service = new FlagResolverService(mockProvider);
+    service = new FlagResolverService<>(mockProvider);
   }
 
   @Nested
@@ -47,6 +47,25 @@ class FlagResolverServiceTest {
       ConfidenceHttpResponse response = service.handleResolve(request);
 
       assertThat(response.statusCode()).isEqualTo(405);
+    }
+
+    @Test
+    void shouldReturn415ForNonJsonContentType() {
+      ConfidenceHttpRequest request =
+          createRequestWithHeaders("POST", "{}", Map.of("Content-Type", List.of("text/plain")));
+
+      ConfidenceHttpResponse response = service.handleResolve(request);
+
+      assertThat(response.statusCode()).isEqualTo(415);
+    }
+
+    @Test
+    void shouldReturn415ForMissingContentType() {
+      ConfidenceHttpRequest request = createRequestWithHeaders("POST", "{}", Map.of());
+
+      ConfidenceHttpResponse response = service.handleResolve(request);
+
+      assertThat(response.statusCode()).isEqualTo(415);
     }
 
     @Test
@@ -460,6 +479,17 @@ class FlagResolverServiceTest {
     }
 
     @Test
+    void shouldReturn415ForNonJsonContentType() {
+      ConfidenceHttpRequest request =
+          createRequestWithHeaders(
+              "POST", "{}", Map.of("Content-Type", List.of("application/xml")));
+
+      ConfidenceHttpResponse response = service.handleApply(request);
+
+      assertThat(response.statusCode()).isEqualTo(415);
+    }
+
+    @Test
     void shouldReturn400ForInvalidJson() {
       ConfidenceHttpRequest request = createRequest("POST", "invalid json");
 
@@ -558,7 +588,7 @@ class FlagResolverServiceTest {
 
     @Test
     void shouldApplyContextDecorator() {
-      ContextDecorator decorator =
+      ContextDecorator<ConfidenceHttpRequest> decorator =
           (ctx, req) -> {
             var userIds = req.headers().get("X-User-Id");
             if (userIds != null && !userIds.isEmpty()) {
@@ -567,7 +597,8 @@ class FlagResolverServiceTest {
             return CompletableFuture.completedFuture(null);
           };
 
-      FlagResolverService serviceWithDecorator = new FlagResolverService(mockProvider, decorator);
+      FlagResolverService<ConfidenceHttpRequest> serviceWithDecorator =
+          new FlagResolverService<>(mockProvider, decorator);
 
       String requestBody =
           """
@@ -588,7 +619,11 @@ class FlagResolverServiceTest {
 
       ConfidenceHttpRequest request =
           createRequestWithHeaders(
-              "POST", requestBody, Map.of("X-User-Id", List.of("decorated-123")));
+              "POST",
+              requestBody,
+              Map.of(
+                  "Content-Type", List.of("application/json"),
+                  "X-User-Id", List.of("decorated-123")));
       serviceWithDecorator.handleResolve(request);
 
       assertThat(capturedContext.get().getValue("decorated_user_id").asString())
@@ -597,13 +632,14 @@ class FlagResolverServiceTest {
 
     @Test
     void shouldCombineRequestContextWithDecorator() {
-      ContextDecorator decorator =
+      ContextDecorator<ConfidenceHttpRequest> decorator =
           (ctx, req) -> {
             ctx.add("source", "backend_proxy");
             return CompletableFuture.completedFuture(null);
           };
 
-      FlagResolverService serviceWithDecorator = new FlagResolverService(mockProvider, decorator);
+      FlagResolverService<ConfidenceHttpRequest> serviceWithDecorator =
+          new FlagResolverService<>(mockProvider, decorator);
 
       String requestBody =
           """
@@ -669,7 +705,8 @@ class FlagResolverServiceTest {
   }
 
   private ConfidenceHttpRequest createRequest(String method, String body) {
-    return createRequestWithHeaders(method, body, Map.of());
+    return createRequestWithHeaders(
+        method, body, Map.of("Content-Type", List.of("application/json")));
   }
 
   private ConfidenceHttpRequest createRequestWithHeaders(
