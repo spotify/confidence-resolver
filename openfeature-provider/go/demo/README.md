@@ -42,7 +42,4 @@ provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
 |--------|---------|-------------|
 | `StatePollInterval` | 10s | Interval for polling flag state updates |
 | `LogPollInterval` | 60s | Interval for flushing evaluation logs |
-
-You can also set defaults via environment variables:
-- `CONFIDENCE_STATE_POLL_INTERVAL_SECONDS`
-- `CONFIDENCE_LOG_POLL_INTERVAL_SECONDS`
+| `ResolverPoolSize` | GOMAXPROCS | Number of WASM resolver instances |

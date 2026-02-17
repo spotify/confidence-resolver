@@ -25,6 +25,7 @@ type ProviderConfig struct {
 	UseRemoteMaterializationStore bool                 // set to true to use a Remote lookup for materializations. Requires that MaterializationStore is nil.
 	StatePollInterval             time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
+	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to GOMAXPROCS
 }
 
 type ProviderTestConfig struct {
@@ -35,6 +36,7 @@ type ProviderTestConfig struct {
 	MaterializationStore MaterializationStore // Optional
 	StatePollInterval    time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
+	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to GOMAXPROCS
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
@@ -80,7 +82,10 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		materializationStore = newRemoteMaterializationStore(resolverv1.NewInternalFlagLoggerServiceClient(conn), config.ClientSecret)
 	}
 
-	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
+	resolverSupplier := func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, config.ResolverPoolSize)
+	}
+	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
@@ -106,7 +111,10 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	if materializationStore == nil {
 		materializationStore = newUnsupportedMaterializationStore()
 	}
-	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, materializationStore)
+	resolverSupplier := func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, config.ResolverPoolSize)
+	}
+	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 

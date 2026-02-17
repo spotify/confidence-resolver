@@ -201,7 +201,9 @@ func TestIntegration_OpenFeatureResolveStickyFlagMatStoreReadAndWrite(t *testing
 		lastWriteCompleted: make(chan struct{}, 1),
 	}
 	matStore := newInMemoryMaterializationStore(nil)
-	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+	}, matStore)
 
 	// Create provider with test state
 	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -330,7 +332,9 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 			},
 		}
 		matStore := newInMemoryMaterializationStoreWithInclusions(nil, initialInclusions)
-		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+	}, matStore)
 
 		// Create provider with test state
 		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -390,7 +394,9 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 			},
 		}
 		matStore := newInMemoryMaterializationStoreWithInclusions(nil, initialInclusions)
-		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+	}, matStore)
 
 		// Create provider with test state
 		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -429,7 +435,9 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 	t.Run("without materialization context", func(t *testing.T) {
 		// Create empty materialization store (no context for tutorial_visitor)
 		matStore := newInMemoryMaterializationStore(nil)
-		resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+	}, matStore)
 
 		// Create provider with test state
 		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -685,7 +693,9 @@ func createProviderWithTestState(
 	logger FlagLogger,
 	matStore MaterializationStore,
 ) (*LocalResolverProvider, error) {
-	resolverSupplier := wrapResolverSupplierWithMaterializations(lr.NewLocalResolver, matStore)
+	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+	}, matStore)
 	// Create provider with the client secret from test state
 	// The test state includes client secret: mkjJruAATQWjeY7foFIWfVAcBWnci2YF
 	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, logger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))

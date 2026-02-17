@@ -141,10 +141,15 @@ if err != nil {
 
 Configure the provider behavior using environment variables:
 
-- `CONFIDENCE_STATE_POLL_INTERVAL_SECONDS`: How often to poll Confidence to get flag state updates (default: `10` seconds)
-- `CONFIDENCE_LOG_POLL_INTERVAL_SECONDS`: How often to flush evaluation logs (default: `60` seconds)
 - `CONFIDENCE_MATERIALIZATION_READ_TIMEOUT_SECONDS`: Timeout for remote materialization store read operations (default: `2` seconds)
 - `CONFIDENCE_MATERIALIZATION_WRITE_TIMEOUT_SECONDS`: Timeout for remote materialization store write operations (default: `5` seconds)
+
+#### Deprecated Environment Variables
+
+The following environment variables are deprecated and will be removed in a future version. Use `ProviderConfig` fields instead:
+
+- `CONFIDENCE_STATE_POLL_INTERVAL_SECONDS`: Use `ProviderConfig.StatePollInterval` instead
+- `CONFIDENCE_LOG_POLL_INTERVAL_SECONDS`: Use `ProviderConfig.LogPollInterval` instead
 
 ### ProviderConfig
 
@@ -160,6 +165,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration)
 - `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
 - `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
+- `ResolverPoolSize` (int): Number of WASM resolver instances in the pool (default: `GOMAXPROCS`, i.e., number of CPU cores)
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
 
   - `nil` (default): Falls back to default values for flags requiring materializations
