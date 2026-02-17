@@ -60,14 +60,14 @@ import org.slf4j.LoggerFactory;
  * }</pre>
  */
 @Experimental
-public class FlagResolverService {
+public class FlagResolverService<R extends ConfidenceHttpRequest> {
   private static final Logger log = LoggerFactory.getLogger(FlagResolverService.class);
   private static final JsonFormat.Printer JSON_PRINTER =
       JsonFormat.printer().omittingInsignificantWhitespace();
   private static final JsonFormat.Parser JSON_PARSER = JsonFormat.parser().ignoringUnknownFields();
 
   private final OpenFeatureLocalResolveProvider provider;
-  private final ContextDecorator contextDecorator;
+  private final ContextDecorator<R> contextDecorator;
 
   /**
    * Creates a new FlagResolverService with no context decoration.
@@ -85,7 +85,7 @@ public class FlagResolverService {
    * @param contextDecorator decorator to add additional context from requests
    */
   public FlagResolverService(
-      OpenFeatureLocalResolveProvider provider, ContextDecorator contextDecorator) {
+      OpenFeatureLocalResolveProvider provider, ContextDecorator<R> contextDecorator) {
     this.provider = provider;
     this.contextDecorator = contextDecorator;
   }
@@ -98,7 +98,7 @@ public class FlagResolverService {
    * @param request the incoming HTTP request
    * @return the response to send back to the client
    */
-  public ConfidenceHttpResponse handleResolve(ConfidenceHttpRequest request) {
+  public ConfidenceHttpResponse handleResolve(R request) {
     // Validate HTTP method
     if (!"POST".equalsIgnoreCase(request.method())) {
       return ConfidenceHttpResponse.error(405);
@@ -148,7 +148,7 @@ public class FlagResolverService {
    * @param request the incoming HTTP request
    * @return the response to send back to the client
    */
-  public ConfidenceHttpResponse handleApply(ConfidenceHttpRequest request) {
+  public ConfidenceHttpResponse handleApply(R request) {
     // Validate HTTP method
     if (!"POST".equalsIgnoreCase(request.method())) {
       return ConfidenceHttpResponse.error(405);

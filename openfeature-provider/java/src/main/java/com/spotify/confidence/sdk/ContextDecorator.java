@@ -7,10 +7,13 @@ import java.util.concurrent.CompletionStage;
  * Decorates the evaluation context with additional data from the request. Use cases include adding
  * user ID from auth headers, adding request metadata, etc.
  *
+ * <p>The type parameter {@code R} allows decorators to work with richer request types that extend
+ * {@link ConfidenceHttpRequest} with additional framework-specific methods.
+ *
  * <p>Example:
  *
  * <pre>{@code
- * ContextDecorator decorator = (ctx, req) -> {
+ * ContextDecorator<ConfidenceHttpRequest> decorator = (ctx, req) -> {
  *     // Add user ID from auth header
  *     List<String> userIds = req.headers().get("X-User-Id");
  *     if (userIds != null && !userIds.isEmpty()) {
@@ -22,12 +25,15 @@ import java.util.concurrent.CompletionStage;
  *     return CompletableFuture.completedFuture(null);
  * };
  *
- * FlagResolverService service = new FlagResolverService(provider, decorator);
+ * FlagResolverService<ConfidenceHttpRequest> service =
+ *     new FlagResolverService<>(provider, decorator);
  * }</pre>
+ *
+ * @param <R> the request type, must extend {@link ConfidenceHttpRequest}
  */
 @FunctionalInterface
 @Experimental
-public interface ContextDecorator {
+public interface ContextDecorator<R extends ConfidenceHttpRequest> {
 
   /**
    * Decorates the evaluation context with additional data from the request. The returned
@@ -35,8 +41,8 @@ public interface ContextDecorator {
    * fetching data from external services.
    *
    * @param context the mutable evaluation context to decorate
-   * @param request the incoming HTTP request containing headers and other metadata
+   * @param request the incoming request containing headers and other metadata
    * @return a CompletionStage that completes when decoration is done
    */
-  CompletionStage<Void> decorate(MutableContext context, ConfidenceHttpRequest request);
+  CompletionStage<Void> decorate(MutableContext context, R request);
 }
