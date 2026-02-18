@@ -615,6 +615,12 @@ mod tests {
     }
 
     #[test]
+    fn starts_with_empty_value_and_empty_prefix() {
+        let list = make_list_value(vec![make_string_value("")]);
+        assert!(evaluate_criterion(&make_starts_with_criterion(""), &list));
+    }
+
+    #[test]
     fn starts_with_no_value() {
         let list = make_list_value(vec![targeting::Value { value: None }]);
         assert!(!evaluate_criterion(&make_starts_with_criterion("hello"), &list));
@@ -657,6 +663,12 @@ mod tests {
     #[test]
     fn ends_with_empty_suffix() {
         let list = make_list_value(vec![make_string_value("hello")]);
+        assert!(evaluate_criterion(&make_ends_with_criterion(""), &list));
+    }
+
+    #[test]
+    fn ends_with_empty_value_and_empty_suffix() {
+        let list = make_list_value(vec![make_string_value("")]);
         assert!(evaluate_criterion(&make_ends_with_criterion(""), &list));
     }
 
