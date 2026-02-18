@@ -1,13 +1,10 @@
 package com.spotify.confidence.sdk;
 
-import com.dylibso.chicory.compiler.MachineFactoryCompiler;
 import com.dylibso.chicory.runtime.ExportFunction;
 import com.dylibso.chicory.runtime.ImportFunction;
 import com.dylibso.chicory.runtime.ImportValues;
 import com.dylibso.chicory.runtime.Instance;
 import com.dylibso.chicory.runtime.Memory;
-import com.dylibso.chicory.wasm.Parser;
-import com.dylibso.chicory.wasm.WasmModule;
 import com.dylibso.chicory.wasm.types.FunctionType;
 import com.dylibso.chicory.wasm.types.ValType;
 import com.google.protobuf.ByteString;
@@ -21,8 +18,6 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
-import java.io.IOException;
-import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -49,39 +44,30 @@ class WasmResolveApi {
 
   public WasmResolveApi(WasmFlagLogger flagLogger) {
     this.writeFlagLogs = flagLogger;
-    try (InputStream wasmStream =
-        getClass().getClassLoader().getResourceAsStream("wasm/confidence_resolver.wasm")) {
-      if (wasmStream == null) {
-        throw new RuntimeException("Could not find confidence_resolver.wasm in resources");
-      }
-      final WasmModule module = Parser.parse(wasmStream);
-      instance =
-          Instance.builder(module)
-              .withImportValues(
-                  ImportValues.builder()
-                      .addFunction(
-                          createImportFunction(
-                              "current_time", Messages.Void::parseFrom, this::currentTime))
-                      .addFunction(
-                          createImportFunction("log_message", LogMessage::parseFrom, this::log))
-                      .addFunction(
-                          new ImportFunction(
-                              "wasm_msg",
-                              "wasm_msg_current_thread_id",
-                              FunctionType.of(List.of(), List.of(ValType.I32)),
-                              this::currentThreadId))
-                      .build())
-              .withMachineFactory(MachineFactoryCompiler::compile)
-              .build();
-      wasmMsgAlloc = instance.export("wasm_msg_alloc");
-      wasmMsgFree = instance.export("wasm_msg_free");
-      wasmMsgGuestSetResolverState = instance.export("wasm_msg_guest_set_resolver_state");
-      wasmMsgFlushLogs = instance.export("wasm_msg_guest_flush_logs");
-      wasmMsgGuestResolve = instance.export("wasm_msg_guest_resolve");
-      wasmMsgGuestResolveWithSticky = instance.export("wasm_msg_guest_resolve_with_sticky");
-    } catch (IOException e) {
-      throw new RuntimeException("Failed to load WASM module", e);
-    }
+    instance =
+        Instance.builder(ConfidenceResolverModule.load())
+            .withImportValues(
+                ImportValues.builder()
+                    .addFunction(
+                        createImportFunction(
+                            "current_time", Messages.Void::parseFrom, this::currentTime))
+                    .addFunction(
+                        createImportFunction("log_message", LogMessage::parseFrom, this::log))
+                    .addFunction(
+                        new ImportFunction(
+                            "wasm_msg",
+                            "wasm_msg_current_thread_id",
+                            FunctionType.of(List.of(), List.of(ValType.I32)),
+                            this::currentThreadId))
+                    .build())
+            .withMachineFactory(ConfidenceResolverModule::create)
+            .build();
+    wasmMsgAlloc = instance.export("wasm_msg_alloc");
+    wasmMsgFree = instance.export("wasm_msg_free");
+    wasmMsgGuestSetResolverState = instance.export("wasm_msg_guest_set_resolver_state");
+    wasmMsgFlushLogs = instance.export("wasm_msg_guest_flush_logs");
+    wasmMsgGuestResolve = instance.export("wasm_msg_guest_resolve");
+    wasmMsgGuestResolveWithSticky = instance.export("wasm_msg_guest_resolve_with_sticky");
   }
 
   private Message log(LogMessage message) {
