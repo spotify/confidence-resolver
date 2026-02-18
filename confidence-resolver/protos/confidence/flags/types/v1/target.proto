@@ -28,6 +28,8 @@ message Targeting {
         RangeRule range_rule = 4;
         AnyRule any_rule = 5;
         AllRule all_rule = 6;
+        StartsWithRule starts_with_rule = 7;
+        EndsWithRule ends_with_rule = 8;
       }
     }
 
@@ -57,6 +59,8 @@ message Targeting {
       EqRule eq_rule = 1;
       SetRule set_rule = 2;
       RangeRule range_rule = 3;
+      StartsWithRule starts_with_rule = 4;
+      EndsWithRule ends_with_rule = 5;
     }
   }
 
@@ -85,6 +89,16 @@ message Targeting {
       Value end_inclusive = 3;
       Value end_exclusive = 4;
     }
+  }
+
+  // matches if the string value starts with the given prefix
+  message StartsWithRule {
+    string value = 1;
+  }
+
+  // matches if the string value ends with the given suffix
+  message EndsWithRule {
+    string value = 1;
   }
 
   // equality (==, !=, ∈) defined for all types

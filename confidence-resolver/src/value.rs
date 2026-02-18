@@ -13,6 +13,9 @@ use crate::proto::google::{value::Kind, Timestamp, Value};
 use crate::proto::confidence::flags::types::v1::targeting;
 use crate::proto::confidence::flags::types::v1::targeting::criterion;
 
+static STRING_VALUE_TYPE: targeting::value::Value =
+    targeting::value::Value::StringValue(String::new());
+
 pub fn convert_to_targeting_value(
     attribute_value: &Value,
     expected_type: Option<&targeting::value::Value>,
@@ -100,6 +103,12 @@ pub fn evaluate_criterion(
         }) => context_values
             .iter()
             .all(|v| evaluate_inner_rule(inner_rule, v)),
+        criterion::attribute_criterion::Rule::StartsWithRule(targeting::StartsWithRule {
+            value,
+        }) => context_values.iter().any(|v| starts_with(v, value)),
+        criterion::attribute_criterion::Rule::EndsWithRule(targeting::EndsWithRule { value }) => {
+            context_values.iter().any(|v| ends_with(v, value))
+        }
         _ => false,
     }
 }
@@ -121,8 +130,22 @@ fn evaluate_inner_rule(
         targeting::inner_rule::Rule::RangeRule(range_rule) => {
             evaluate_range_rule(range_rule, context_value)
         }
+        targeting::inner_rule::Rule::StartsWithRule(targeting::StartsWithRule { value }) => {
+            starts_with(context_value, value)
+        }
+        targeting::inner_rule::Rule::EndsWithRule(targeting::EndsWithRule { value }) => {
+            ends_with(context_value, value)
+        }
         _ => false,
     }
+}
+
+fn starts_with(value: &targeting::Value, prefix: &str) -> bool {
+    matches!(&value.value, Some(targeting::value::Value::StringValue(s)) if s.starts_with(prefix))
+}
+
+fn ends_with(value: &targeting::Value, suffix: &str) -> bool {
+    matches!(&value.value, Some(targeting::value::Value::StringValue(s)) if s.ends_with(suffix))
 }
 
 fn evaluate_range_rule(
@@ -300,24 +323,23 @@ impl ExpectedValueType for targeting::criterion::AttributeCriterion {
     fn expected_value_type(&self) -> Option<&targeting::value::Value> {
         match self.rule.as_ref()? {
             criterion::attribute_criterion::Rule::EqRule(eq_rule) => {
-                // println!("    {:?}", eq_rule);
                 eq_rule.expected_value_type()
             }
             criterion::attribute_criterion::Rule::SetRule(set_rule) => {
-                // println!("    {:?}", set_rule);
                 set_rule.expected_value_type()
             }
             criterion::attribute_criterion::Rule::RangeRule(range_rule) => {
-                // println!("    {:?}", range_rule);
                 range_rule.expected_value_type()
             }
             criterion::attribute_criterion::Rule::AnyRule(any_rule) => {
-                // println!("    {:?}", any_rule);
                 any_rule.rule.as_ref()?.expected_value_type()
             }
             criterion::attribute_criterion::Rule::AllRule(all_rule) => {
-                // println!("    {:?}", all_rule);
                 all_rule.rule.as_ref()?.expected_value_type()
+            }
+            criterion::attribute_criterion::Rule::StartsWithRule(_)
+            | criterion::attribute_criterion::Rule::EndsWithRule(_) => {
+                Some(&STRING_VALUE_TYPE)
             }
         }
     }
@@ -327,16 +349,17 @@ impl ExpectedValueType for targeting::InnerRule {
     fn expected_value_type(&self) -> Option<&targeting::value::Value> {
         match self.rule.as_ref()? {
             targeting::inner_rule::Rule::EqRule(eq_rule) => {
-                // println!("      {:?}", eq_rule);
                 eq_rule.expected_value_type()
             }
             targeting::inner_rule::Rule::SetRule(set_rule) => {
-                // println!("      {:?}", set_rule);
                 set_rule.expected_value_type()
             }
             targeting::inner_rule::Rule::RangeRule(range_rule) => {
-                // println!("      {:?}", range_rule);
                 range_rule.expected_value_type()
+            }
+            targeting::inner_rule::Rule::StartsWithRule(_)
+            | targeting::inner_rule::Rule::EndsWithRule(_) => {
+                Some(&STRING_VALUE_TYPE)
             }
         }
     }
@@ -531,6 +554,168 @@ mod tests {
 
         assert_bool(&bool_t, true);
         assert_bool(&bool_f, false);
+    }
+
+    fn make_string_value(s: &str) -> targeting::Value {
+        targeting::Value {
+            value: Some(targeting::value::Value::StringValue(s.to_string())),
+        }
+    }
+
+    fn make_list_value(values: Vec<targeting::Value>) -> targeting::ListValue {
+        targeting::ListValue { values }
+    }
+
+    fn make_starts_with_criterion(prefix: &str) -> criterion::AttributeCriterion {
+        criterion::AttributeCriterion {
+            attribute_name: "attr".to_string(),
+            rule: Some(criterion::attribute_criterion::Rule::StartsWithRule(
+                targeting::StartsWithRule {
+                    value: prefix.to_string(),
+                },
+            )),
+        }
+    }
+
+    fn make_ends_with_criterion(suffix: &str) -> criterion::AttributeCriterion {
+        criterion::AttributeCriterion {
+            attribute_name: "attr".to_string(),
+            rule: Some(criterion::attribute_criterion::Rule::EndsWithRule(
+                targeting::EndsWithRule {
+                    value: suffix.to_string(),
+                },
+            )),
+        }
+    }
+
+    // --- startsWith tests (mirrors Java EvalUtilTest) ---
+
+    #[test]
+    fn starts_with_match() {
+        let list = make_list_value(vec![make_string_value("hello-world")]);
+        assert!(evaluate_criterion(&make_starts_with_criterion("hello"), &list));
+    }
+
+    #[test]
+    fn starts_with_no_match() {
+        let list = make_list_value(vec![make_string_value("hello-world")]);
+        assert!(!evaluate_criterion(&make_starts_with_criterion("world"), &list));
+    }
+
+    #[test]
+    fn starts_with_exact_match() {
+        let list = make_list_value(vec![make_string_value("hello")]);
+        assert!(evaluate_criterion(&make_starts_with_criterion("hello"), &list));
+    }
+
+    #[test]
+    fn starts_with_empty_prefix() {
+        let list = make_list_value(vec![make_string_value("hello")]);
+        assert!(evaluate_criterion(&make_starts_with_criterion(""), &list));
+    }
+
+    #[test]
+    fn starts_with_no_value() {
+        let list = make_list_value(vec![targeting::Value { value: None }]);
+        assert!(!evaluate_criterion(&make_starts_with_criterion("hello"), &list));
+    }
+
+    #[test]
+    fn starts_with_empty_list() {
+        let list = make_list_value(vec![]);
+        assert!(!evaluate_criterion(&make_starts_with_criterion("hello"), &list));
+    }
+
+    #[test]
+    fn starts_with_non_string_value() {
+        let list = make_list_value(vec![targeting::Value {
+            value: Some(targeting::value::Value::NumberValue(42.0)),
+        }]);
+        assert!(!evaluate_criterion(&make_starts_with_criterion("4"), &list));
+    }
+
+    // --- endsWith tests (mirrors Java EvalUtilTest) ---
+
+    #[test]
+    fn ends_with_match() {
+        let list = make_list_value(vec![make_string_value("hello-world")]);
+        assert!(evaluate_criterion(&make_ends_with_criterion("world"), &list));
+    }
+
+    #[test]
+    fn ends_with_no_match() {
+        let list = make_list_value(vec![make_string_value("hello-world")]);
+        assert!(!evaluate_criterion(&make_ends_with_criterion("hello"), &list));
+    }
+
+    #[test]
+    fn ends_with_exact_match() {
+        let list = make_list_value(vec![make_string_value("world")]);
+        assert!(evaluate_criterion(&make_ends_with_criterion("world"), &list));
+    }
+
+    #[test]
+    fn ends_with_empty_suffix() {
+        let list = make_list_value(vec![make_string_value("hello")]);
+        assert!(evaluate_criterion(&make_ends_with_criterion(""), &list));
+    }
+
+    #[test]
+    fn ends_with_no_value() {
+        let list = make_list_value(vec![targeting::Value { value: None }]);
+        assert!(!evaluate_criterion(&make_ends_with_criterion("hello"), &list));
+    }
+
+    #[test]
+    fn ends_with_empty_list() {
+        let list = make_list_value(vec![]);
+        assert!(!evaluate_criterion(&make_ends_with_criterion("hello"), &list));
+    }
+
+    #[test]
+    fn ends_with_non_string_value() {
+        let list = make_list_value(vec![targeting::Value {
+            value: Some(targeting::value::Value::NumberValue(42.0)),
+        }]);
+        assert!(!evaluate_criterion(&make_ends_with_criterion("2"), &list));
+    }
+
+    // --- list-level tests (Rust-specific, evaluate_criterion works on lists) ---
+
+    #[test]
+    fn starts_with_any_value_in_list_matches() {
+        let list = make_list_value(vec![
+            make_string_value("user@gmail.com"),
+            make_string_value("admin@example.com"),
+        ]);
+        assert!(evaluate_criterion(&make_starts_with_criterion("admin"), &list));
+    }
+
+    #[test]
+    fn starts_with_no_value_in_list_matches() {
+        let list = make_list_value(vec![
+            make_string_value("user@gmail.com"),
+            make_string_value("user@example.com"),
+        ]);
+        assert!(!evaluate_criterion(&make_starts_with_criterion("admin"), &list));
+    }
+
+    #[test]
+    fn ends_with_any_value_in_list_matches() {
+        let list = make_list_value(vec![
+            make_string_value("user@gmail.com"),
+            make_string_value("user@spotify.com"),
+        ]);
+        assert!(evaluate_criterion(&make_ends_with_criterion("@spotify.com"), &list));
+    }
+
+    #[test]
+    fn ends_with_no_value_in_list_matches() {
+        let list = make_list_value(vec![
+            make_string_value("user@gmail.com"),
+            make_string_value("user@example.com"),
+        ]);
+        assert!(!evaluate_criterion(&make_ends_with_criterion("@spotify.com"), &list));
     }
 
     fn assert_bool(value: &targeting::value::Value, expected: bool) {
