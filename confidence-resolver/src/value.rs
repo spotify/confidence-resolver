@@ -322,9 +322,7 @@ trait ExpectedValueType {
 impl ExpectedValueType for targeting::criterion::AttributeCriterion {
     fn expected_value_type(&self) -> Option<&targeting::value::Value> {
         match self.rule.as_ref()? {
-            criterion::attribute_criterion::Rule::EqRule(eq_rule) => {
-                eq_rule.expected_value_type()
-            }
+            criterion::attribute_criterion::Rule::EqRule(eq_rule) => eq_rule.expected_value_type(),
             criterion::attribute_criterion::Rule::SetRule(set_rule) => {
                 set_rule.expected_value_type()
             }
@@ -338,9 +336,7 @@ impl ExpectedValueType for targeting::criterion::AttributeCriterion {
                 all_rule.rule.as_ref()?.expected_value_type()
             }
             criterion::attribute_criterion::Rule::StartsWithRule(_)
-            | criterion::attribute_criterion::Rule::EndsWithRule(_) => {
-                Some(&STRING_VALUE_TYPE)
-            }
+            | criterion::attribute_criterion::Rule::EndsWithRule(_) => Some(&STRING_VALUE_TYPE),
         }
     }
 }
@@ -348,19 +344,11 @@ impl ExpectedValueType for targeting::criterion::AttributeCriterion {
 impl ExpectedValueType for targeting::InnerRule {
     fn expected_value_type(&self) -> Option<&targeting::value::Value> {
         match self.rule.as_ref()? {
-            targeting::inner_rule::Rule::EqRule(eq_rule) => {
-                eq_rule.expected_value_type()
-            }
-            targeting::inner_rule::Rule::SetRule(set_rule) => {
-                set_rule.expected_value_type()
-            }
-            targeting::inner_rule::Rule::RangeRule(range_rule) => {
-                range_rule.expected_value_type()
-            }
+            targeting::inner_rule::Rule::EqRule(eq_rule) => eq_rule.expected_value_type(),
+            targeting::inner_rule::Rule::SetRule(set_rule) => set_rule.expected_value_type(),
+            targeting::inner_rule::Rule::RangeRule(range_rule) => range_rule.expected_value_type(),
             targeting::inner_rule::Rule::StartsWithRule(_)
-            | targeting::inner_rule::Rule::EndsWithRule(_) => {
-                Some(&STRING_VALUE_TYPE)
-            }
+            | targeting::inner_rule::Rule::EndsWithRule(_) => Some(&STRING_VALUE_TYPE),
         }
     }
 }
@@ -593,19 +581,28 @@ mod tests {
     #[test]
     fn starts_with_match() {
         let list = make_list_value(vec![make_string_value("hello-world")]);
-        assert!(evaluate_criterion(&make_starts_with_criterion("hello"), &list));
+        assert!(evaluate_criterion(
+            &make_starts_with_criterion("hello"),
+            &list
+        ));
     }
 
     #[test]
     fn starts_with_no_match() {
         let list = make_list_value(vec![make_string_value("hello-world")]);
-        assert!(!evaluate_criterion(&make_starts_with_criterion("world"), &list));
+        assert!(!evaluate_criterion(
+            &make_starts_with_criterion("world"),
+            &list
+        ));
     }
 
     #[test]
     fn starts_with_exact_match() {
         let list = make_list_value(vec![make_string_value("hello")]);
-        assert!(evaluate_criterion(&make_starts_with_criterion("hello"), &list));
+        assert!(evaluate_criterion(
+            &make_starts_with_criterion("hello"),
+            &list
+        ));
     }
 
     #[test]
@@ -623,13 +620,19 @@ mod tests {
     #[test]
     fn starts_with_no_value() {
         let list = make_list_value(vec![targeting::Value { value: None }]);
-        assert!(!evaluate_criterion(&make_starts_with_criterion("hello"), &list));
+        assert!(!evaluate_criterion(
+            &make_starts_with_criterion("hello"),
+            &list
+        ));
     }
 
     #[test]
     fn starts_with_empty_list() {
         let list = make_list_value(vec![]);
-        assert!(!evaluate_criterion(&make_starts_with_criterion("hello"), &list));
+        assert!(!evaluate_criterion(
+            &make_starts_with_criterion("hello"),
+            &list
+        ));
     }
 
     #[test]
@@ -645,19 +648,28 @@ mod tests {
     #[test]
     fn ends_with_match() {
         let list = make_list_value(vec![make_string_value("hello-world")]);
-        assert!(evaluate_criterion(&make_ends_with_criterion("world"), &list));
+        assert!(evaluate_criterion(
+            &make_ends_with_criterion("world"),
+            &list
+        ));
     }
 
     #[test]
     fn ends_with_no_match() {
         let list = make_list_value(vec![make_string_value("hello-world")]);
-        assert!(!evaluate_criterion(&make_ends_with_criterion("hello"), &list));
+        assert!(!evaluate_criterion(
+            &make_ends_with_criterion("hello"),
+            &list
+        ));
     }
 
     #[test]
     fn ends_with_exact_match() {
         let list = make_list_value(vec![make_string_value("world")]);
-        assert!(evaluate_criterion(&make_ends_with_criterion("world"), &list));
+        assert!(evaluate_criterion(
+            &make_ends_with_criterion("world"),
+            &list
+        ));
     }
 
     #[test]
@@ -675,13 +687,19 @@ mod tests {
     #[test]
     fn ends_with_no_value() {
         let list = make_list_value(vec![targeting::Value { value: None }]);
-        assert!(!evaluate_criterion(&make_ends_with_criterion("hello"), &list));
+        assert!(!evaluate_criterion(
+            &make_ends_with_criterion("hello"),
+            &list
+        ));
     }
 
     #[test]
     fn ends_with_empty_list() {
         let list = make_list_value(vec![]);
-        assert!(!evaluate_criterion(&make_ends_with_criterion("hello"), &list));
+        assert!(!evaluate_criterion(
+            &make_ends_with_criterion("hello"),
+            &list
+        ));
     }
 
     #[test]
@@ -700,7 +718,10 @@ mod tests {
             make_string_value("user@gmail.com"),
             make_string_value("admin@example.com"),
         ]);
-        assert!(evaluate_criterion(&make_starts_with_criterion("admin"), &list));
+        assert!(evaluate_criterion(
+            &make_starts_with_criterion("admin"),
+            &list
+        ));
     }
 
     #[test]
@@ -709,7 +730,10 @@ mod tests {
             make_string_value("user@gmail.com"),
             make_string_value("user@example.com"),
         ]);
-        assert!(!evaluate_criterion(&make_starts_with_criterion("admin"), &list));
+        assert!(!evaluate_criterion(
+            &make_starts_with_criterion("admin"),
+            &list
+        ));
     }
 
     #[test]
@@ -718,7 +742,10 @@ mod tests {
             make_string_value("user@gmail.com"),
             make_string_value("user@spotify.com"),
         ]);
-        assert!(evaluate_criterion(&make_ends_with_criterion("@spotify.com"), &list));
+        assert!(evaluate_criterion(
+            &make_ends_with_criterion("@spotify.com"),
+            &list
+        ));
     }
 
     #[test]
@@ -727,7 +754,10 @@ mod tests {
             make_string_value("user@gmail.com"),
             make_string_value("user@example.com"),
         ]);
-        assert!(!evaluate_criterion(&make_ends_with_criterion("@spotify.com"), &list));
+        assert!(!evaluate_criterion(
+            &make_ends_with_criterion("@spotify.com"),
+            &list
+        ));
     }
 
     fn assert_bool(value: &targeting::value::Value, expected: bool) {
