@@ -53,6 +53,14 @@ class SwapWasmResolverApi implements ResolverApi {
     }
   }
 
+  @Override
+  public void flushAssignLogs() {
+    final WasmResolveApi currentInstance = wasmResolverApiRef.get();
+    if (currentInstance != null) {
+      currentInstance.flushAssignLogs();
+    }
+  }
+
   /**
    * Closes the current WasmResolveApi instance, flushing any pending logs. This ensures all
    * buffered log data is sent before shutdown completes.

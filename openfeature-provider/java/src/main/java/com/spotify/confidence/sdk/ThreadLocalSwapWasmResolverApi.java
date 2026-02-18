@@ -95,6 +95,11 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
     CompletableFutures.allAsList(futures).join();
   }
 
+  @Override
+  public void flushAssignLogs() {
+    resolverInstances.values().forEach(SwapWasmResolverApi::flushAssignLogs);
+  }
+
   /**
    * Maps the current thread to a resolver instance using round-robin assignment. Each thread gets
    * assigned to an instance index when first accessed, ensuring even distribution across available

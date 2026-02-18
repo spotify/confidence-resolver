@@ -42,7 +42,8 @@ class WasmResolveApi {
 
   // api
   private final ExportFunction wasmMsgGuestSetResolverState;
-  private final ExportFunction wasmMsgFlushLogs;
+  private final ExportFunction wasmMsgBoundedFlushLogs;
+  private final ExportFunction wasmMsgBoundedFlushAssign;
   private final ExportFunction wasmMsgGuestResolve;
   private final ExportFunction wasmMsgGuestResolveWithSticky;
   private final ReadWriteLock wasmLock = new ReentrantReadWriteLock();
@@ -76,7 +77,8 @@ class WasmResolveApi {
       wasmMsgAlloc = instance.export("wasm_msg_alloc");
       wasmMsgFree = instance.export("wasm_msg_free");
       wasmMsgGuestSetResolverState = instance.export("wasm_msg_guest_set_resolver_state");
-      wasmMsgFlushLogs = instance.export("wasm_msg_guest_flush_logs");
+      wasmMsgBoundedFlushLogs = instance.export("wasm_msg_guest_bounded_flush_logs");
+      wasmMsgBoundedFlushAssign = instance.export("wasm_msg_guest_bounded_flush_assign");
       wasmMsgGuestResolve = instance.export("wasm_msg_guest_resolve");
       wasmMsgGuestResolveWithSticky = instance.export("wasm_msg_guest_resolve_with_sticky");
     } catch (IOException e) {
@@ -118,10 +120,26 @@ class WasmResolveApi {
     try {
       final var voidRequest = Messages.Void.getDefaultInstance();
       final var reqPtr = transferRequest(voidRequest);
-      final var respPtr = (int) wasmMsgFlushLogs.apply(reqPtr)[0];
+      final var respPtr = (int) wasmMsgBoundedFlushLogs.apply(reqPtr)[0];
       final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
       writeFlagLogs.writeSync(request);
       isConsumed = true;
+    } finally {
+      wasmLock.readLock().unlock();
+    }
+  }
+
+  public void flushAssignLogs() {
+    wasmLock.readLock().lock();
+    try {
+      if (isConsumed) {
+        return;
+      }
+      final var voidRequest = Messages.Void.getDefaultInstance();
+      final var reqPtr = transferRequest(voidRequest);
+      final var respPtr = (int) wasmMsgBoundedFlushAssign.apply(reqPtr)[0];
+      final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
+      writeFlagLogs.write(request);
     } finally {
       wasmLock.readLock().unlock();
     }

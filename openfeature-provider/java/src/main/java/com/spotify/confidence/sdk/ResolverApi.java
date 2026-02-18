@@ -28,6 +28,9 @@ interface ResolverApi {
    */
   void updateStateAndFlushLogs(byte[] state, String accountId);
 
+  /** Flushes pending assignment logs using bounded flush. */
+  void flushAssignLogs();
+
   /** Closes the resolver and releases any resources. */
   void close();
 }
