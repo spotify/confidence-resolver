@@ -7,7 +7,6 @@ import com.spotify.confidence.sdk.flags.resolver.v1.InternalFlagLoggerServiceGrp
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import io.grpc.*;
 import java.time.Duration;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
