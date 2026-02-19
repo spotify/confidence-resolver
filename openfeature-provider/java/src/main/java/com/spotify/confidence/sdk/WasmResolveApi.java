@@ -14,6 +14,8 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import com.google.protobuf.Timestamp;
+import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.LogMessage;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
@@ -45,6 +47,7 @@ class WasmResolveApi {
   private final ExportFunction wasmMsgFlushLogs;
   private final ExportFunction wasmMsgGuestResolve;
   private final ExportFunction wasmMsgGuestResolveWithSticky;
+  private final ExportFunction wasmMsgGuestApplyFlags;
   private final ReadWriteLock wasmLock = new ReentrantReadWriteLock();
 
   public WasmResolveApi(WasmFlagLogger flagLogger) {
@@ -79,6 +82,7 @@ class WasmResolveApi {
       wasmMsgFlushLogs = instance.export("wasm_msg_guest_flush_logs");
       wasmMsgGuestResolve = instance.export("wasm_msg_guest_resolve");
       wasmMsgGuestResolveWithSticky = instance.export("wasm_msg_guest_resolve_with_sticky");
+      wasmMsgGuestApplyFlags = instance.export("wasm_msg_guest_apply_flags");
     } catch (IOException e) {
       throw new RuntimeException("Failed to load WASM module", e);
     }
@@ -129,10 +133,13 @@ class WasmResolveApi {
 
   public ResolveWithStickyResponse resolveWithSticky(ResolveWithStickyRequest request)
       throws IsClosedException {
-    if (!wasmLock.writeLock().tryLock() || isConsumed) {
+    if (!wasmLock.writeLock().tryLock()) {
       throw new IsClosedException();
     }
     try {
+      if (isConsumed) {
+        throw new IsClosedException();
+      }
       final int reqPtr = transferRequest(request);
       final int respPtr = (int) wasmMsgGuestResolveWithSticky.apply(reqPtr)[0];
       return consumeResponse(respPtr, ResolveWithStickyResponse::parseFrom);
@@ -146,9 +153,28 @@ class WasmResolveApi {
       throw new IsClosedException();
     }
     try {
+      if (isConsumed) {
+        throw new IsClosedException();
+      }
       final int reqPtr = transferRequest(request);
       final int respPtr = (int) wasmMsgGuestResolve.apply(reqPtr)[0];
       return consumeResponse(respPtr, ResolveFlagsResponse::parseFrom);
+    } finally {
+      wasmLock.writeLock().unlock();
+    }
+  }
+
+  public void applyFlags(ApplyFlagsRequest request) throws IsClosedException {
+    if (!wasmLock.writeLock().tryLock()) {
+      throw new IsClosedException();
+    }
+    try {
+      if (isConsumed) {
+        throw new IsClosedException();
+      }
+      final int reqPtr = transferRequest(request);
+      final int respPtr = (int) wasmMsgGuestApplyFlags.apply(reqPtr)[0];
+      consumeResponse(respPtr, ApplyFlagsResponse::parseFrom);
     } finally {
       wasmLock.writeLock().unlock();
     }

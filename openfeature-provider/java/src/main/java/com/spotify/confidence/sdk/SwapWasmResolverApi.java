@@ -174,4 +174,22 @@ class SwapWasmResolverApi implements ResolverApi {
               return requestBuilder.build();
             });
   }
+
+  @Override
+  public void applyFlags(ApplyFlagsRequest request) {
+    applyFlagsInternal(request, 0);
+  }
+
+  private void applyFlagsInternal(ApplyFlagsRequest request, int closedRetries) {
+    final var instance = wasmResolverApiRef.get();
+    try {
+      instance.applyFlags(request);
+    } catch (IsClosedException e) {
+      if (closedRetries >= MAX_CLOSED_RETRIES) {
+        throw new RuntimeException(
+            "Max retries exceeded for IsClosedException: " + MAX_CLOSED_RETRIES, e);
+      }
+      applyFlagsInternal(request, closedRetries + 1);
+    }
+  }
 }

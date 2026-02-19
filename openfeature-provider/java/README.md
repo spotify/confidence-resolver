@@ -11,6 +11,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 - **Automatic Sync**: Periodically syncs flag configurations from Confidence
 - **Exposure Logging**: Fully supported exposure logging (and other resolve analytics)
 - **OpenFeature Compatible**: Works with the standard OpenFeature SDK
+- **HTTP Proxy Service**: Proxy requests from client SDKs through your backend for enhanced control
 
 ## Installation
 
@@ -217,6 +218,137 @@ OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
 
 For detailed information on how to implement custom storage backends, see [STICKY_RESOLVE.md](STICKY_RESOLVE.md).
 See the `InMemoryMaterializationStoreExample` class in the test sources for a reference implementation, or review the `MaterializationStore` javadoc for detailed API documentation.
+
+## HTTP Proxy Service (FlagResolverService)
+
+The `FlagResolverService` enables you to proxy flag resolution requests from client SDKs (like `confidence-sdk-js`) through your backend service. This is useful when you want:
+
+- **Low-latency resolution**: Client SDKs make requests to your backend instead of Confidence servers
+- **Backend-controlled credentials**: Client SDKs don't need their own client secrets
+- **Context enrichment**: Add server-side context (user ID from auth, request metadata) before resolution
+- **JSON only**: Only `application/json` content type is supported. Requests with other content types will receive a 415 response.
+
+### Basic Setup
+
+```java
+import com.spotify.confidence.sdk.OpenFeatureLocalResolveProvider;
+import com.spotify.confidence.sdk.FlagResolverService;
+
+// Create and initialize the provider
+OpenFeatureLocalResolveProvider provider =
+    new OpenFeatureLocalResolveProvider("your-client-secret");
+// If you're not using OpenFeature, don't forget to call provider.initialize()
+OpenFeatureAPI.getInstance().setProviderAndWait(provider);
+
+// Create the HTTP service
+FlagResolverService flagResolver = new FlagResolverService(provider);
+```
+
+### With Context Decoration
+
+Add server-side context to requests before resolution:
+
+```java
+FlagResolverService flagResolver = new FlagResolverService(provider,
+    ContextDecorator.sync((ctx, req) -> {
+        // Set targeting key from upstream auth middleware header
+        List<String> userIds = req.headers().get("X-User-Id");
+        if (userIds != null && !userIds.isEmpty()) {
+            return ctx.merge(new ImmutableContext(userIds.get(0)));
+        }
+        return ctx;
+    }));
+```
+
+### Framework Integration
+
+The service uses simple interfaces that can be adapted to any HTTP framework.
+
+#### Servlet Example
+
+```java
+public class FlagServlet extends HttpServlet {
+    private final FlagResolverService flagResolverService;
+
+    public FlagServlet(OpenFeatureLocalResolveProvider provider) {
+        // Set targeting key from upstream auth middleware header
+        this.flagResolverService = new FlagResolverService(provider,
+            ContextDecorator.sync((context, request) -> {
+                List<String> userIds = request.headers().get("X-User-Id");
+                if (userIds != null && !userIds.isEmpty()) {
+                    return context.merge(new ImmutableContext(userIds.get(0)));
+                }
+                return context;
+            }));
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        ConfidenceHttpResponse response;
+
+        if (req.getPathInfo().endsWith("v1/flags:resolve")) {
+            response = flagResolverService.handleResolve(toConfidenceRequest(req))
+                    .toCompletableFuture().join();
+        } else if (req.getPathInfo().endsWith("v1/flags:apply")) {
+            response = flagResolverService.handleApply(toConfidenceRequest(req))
+                    .toCompletableFuture().join();
+        } else {
+            resp.setStatus(404);
+            return;
+        }
+
+        resp.setStatus(response.statusCode());
+        response.headers().forEach(resp::setHeader);
+        resp.getOutputStream().write(response.body());
+    }
+
+    private ConfidenceHttpRequest toConfidenceRequest(HttpServletRequest req) {
+        // Cache body bytes since InputStream can only be read once
+        final byte[] bodyBytes;
+        try {
+            bodyBytes = req.getInputStream().readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        return new ConfidenceHttpRequest() {
+            @Override
+            public String method() {
+                return req.getMethod();
+            }
+
+            @Override
+            public byte[] body() {
+                return bodyBytes;
+            }
+
+            @Override
+            public Map<String, List<String>> headers() {
+                Map<String, List<String>> headers = new HashMap<>();
+                Collections.list(req.getHeaderNames()).forEach(name ->
+                    headers.put(name, Collections.list(req.getHeaders(name))));
+                return headers;
+            }
+        };
+    }
+}
+```
+
+Register the servlet at `/confidence-flags/*` to handle requests to `/confidence-flags/v1/flags:resolve` and `/confidence-flags/v1/flags:apply`.
+
+### Client SDK Configuration
+
+Configure your client SDK (e.g., `confidence-sdk-js`) to use your backend:
+
+```javascript
+import { Confidence } from '@spotify-confidence/sdk';
+
+const confidence = Confidence.create({
+  clientSecret: 'not-used-but-required',
+  resolveBaseUrl: 'https://your-backend.com/confidence-flags',
+  applyBaseUrl: 'https://your-backend.com/confidence-flags',
+});
+```
 
 ## Requirements
 
