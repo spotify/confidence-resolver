@@ -7,9 +7,10 @@ use confidence_resolver::assign_logger::AssignLogger;
 use prost::Message;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    LogMessage, ResolveWithStickyRequest, WriteFlagLogsRequest,
+    resolve_process_request, LogMessage, ResolveProcessRequest, WriteFlagLogsRequest,
 };
 use confidence_resolver::resolve_logger::ResolveLogger;
+use confidence_resolver::ResolveProcessState;
 use wasm_msg::wasm_msg_guest;
 use wasm_msg::wasm_msg_host;
 use wasm_msg::WasmResult;
@@ -22,13 +23,10 @@ use crate::proto::SetResolverStateRequest;
 use confidence_resolver::{
     proto::{
         confidence::flags::admin::v1::ResolverState as ResolverStatePb,
-        confidence::flags::resolver::v1::{
-            ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse,
-            ResolveWithStickyResponse, Sdk,
-        },
+        confidence::flags::resolver::v1::{ApplyFlagsRequest, ResolveProcessResponse, Sdk},
         google::{Struct, Timestamp},
     },
-    Client, FlagToApply, Host, ResolveReason, ResolvedValue, ResolverState,
+    Client, FlagToApply, Host, ResolvedValue, ResolverState,
 };
 use proto::Void;
 
@@ -56,54 +54,6 @@ const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
-
-impl<'a> From<&ResolvedValue<'a>> for proto::ResolvedValue {
-    fn from(val: &ResolvedValue<'a>) -> Self {
-        proto::ResolvedValue {
-            flag: Some(proto::Flag {
-                name: val.flag.name.clone(),
-            }),
-            reason: convert_reason(val.reason),
-            assignment_match: val
-                .assignment_match
-                .as_ref()
-                .map(|am| proto::AssignmentMatch {
-                    matched_rule: Some(proto::MatchedRule {
-                        name: am.rule.clone().name,
-                    }),
-                    targeting_key: am.targeting_key.clone(),
-                    segment: am.segment.name.clone(),
-                    variant: am.variant.map(|v| proto::Variant {
-                        name: v.clone().name,
-                        value: v.value.clone(),
-                    }),
-                    assignment_id: am.assignment_id.to_string(),
-                }),
-            fallthrough_rules: val
-                .fallthrough_rules
-                .iter()
-                .map(|fr| proto::FallthroughRule {
-                    name: fr.rule.clone().name,
-                    assignment_id: fr.clone().assignment_id,
-                    targeting_key: fr.clone().targeting_key,
-                    targeting_key_selector: fr.rule.clone().targeting_key_selector,
-                })
-                .collect(),
-        }
-    }
-}
-
-fn convert_reason(reason: ResolveReason) -> i32 {
-    match reason {
-        ResolveReason::Match => i32::from(proto::ResolveReason::Match),
-        ResolveReason::NoSegmentMatch => i32::from(proto::ResolveReason::NoSegmentMatch),
-        ResolveReason::FlagArchived => i32::from(proto::ResolveReason::FlagArchived),
-        ResolveReason::TargetingKeyError => i32::from(proto::ResolveReason::TargetingKeyError),
-        ResolveReason::UnrecognizedTargetingRule => {
-            i32::from(proto::ResolveReason::UnrecognizedTargetingRule)
-        }
-    }
-}
 
 struct WasmHost;
 
@@ -182,19 +132,27 @@ wasm_msg_guest! {
         Ok(VOID)
     }
 
-    fn resolve_with_sticky(request: ResolveWithStickyRequest) -> WasmResult<ResolveWithStickyResponse> {
+    fn resolve_flags(request: ResolveProcessRequest) -> WasmResult<ResolveProcessResponse> {
         let resolver_state = get_resolver_state()?;
-        let resolve_request = &request.resolve_request.clone().unwrap();
-        let evaluation_context = resolve_request.evaluation_context.clone().unwrap();
-        let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
-        resolver.resolve_flags_sticky(&request)
-    }
 
-    fn resolve(request: ResolveFlagsRequest) -> WasmResult<ResolveFlagsResponse> {
-        let resolver_state = get_resolver_state()?;
-        let evaluation_context = request.evaluation_context.as_ref().cloned().unwrap_or_default();
-        let resolver = resolver_state.get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &ENCRYPTION_KEY)?;
-        resolver.resolve_flags(&request)
+        // Extract client_secret and evaluation_context to set up the resolver
+        let resolve_request = match &request.resolve {
+            Some(resolve_process_request::Resolve::DeferredMaterializations(req)) => req.clone(),
+            Some(resolve_process_request::Resolve::StaticMaterializations(req)) => {
+                req.resolve_request.clone().ok_or("resolve_request is required")?
+            }
+            Some(resolve_process_request::Resolve::WithoutMaterializations(req)) => req.clone(),
+            Some(resolve_process_request::Resolve::Resume(resume)) => {
+                let cont = ResolveProcessState::decode(resume.state.as_slice())
+                    .map_err(|e| format!("Failed to decode continuation state: {}", e))?;
+                cont.resolve_request.ok_or("continuation missing resolve_request")?
+            }
+            None => return Err("request is required".to_string()),
+        };
+
+        let evaluation_context = resolve_request.evaluation_context.clone().unwrap_or_default();
+        let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
+        resolver.resolve_flags(request)
     }
 
     // deprecated
