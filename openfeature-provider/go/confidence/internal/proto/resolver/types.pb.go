@@ -41,6 +41,8 @@ const (
 	ResolveReason_RESOLVE_REASON_TARGETING_KEY_ERROR ResolveReason = 5
 	// Unknown error occurred during the resolve
 	ResolveReason_RESOLVE_REASON_ERROR ResolveReason = 6
+	// The flag could not be resolved because a targeting rule was not recognized
+	ResolveReason_RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE ResolveReason = 7
 )
 
 // Enum value maps for ResolveReason.
@@ -53,6 +55,7 @@ var (
 		4: "RESOLVE_REASON_FLAG_ARCHIVED",
 		5: "RESOLVE_REASON_TARGETING_KEY_ERROR",
 		6: "RESOLVE_REASON_ERROR",
+		7: "RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE",
 	}
 	ResolveReason_value = map[string]int32{
 		"RESOLVE_REASON_UNSPECIFIED":         0,
@@ -60,8 +63,9 @@ var (
 		"RESOLVE_REASON_NO_SEGMENT_MATCH":    2,
 		"RESOLVE_REASON_NO_TREATMENT_MATCH":  3,
 		"RESOLVE_REASON_FLAG_ARCHIVED":       4,
-		"RESOLVE_REASON_TARGETING_KEY_ERROR": 5,
-		"RESOLVE_REASON_ERROR":               6,
+		"RESOLVE_REASON_TARGETING_KEY_ERROR":            5,
+		"RESOLVE_REASON_ERROR":                          6,
+		"RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE":    7,
 	}
 )
 

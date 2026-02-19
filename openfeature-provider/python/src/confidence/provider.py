@@ -907,6 +907,7 @@ class ConfidenceProvider(AbstractProvider):
         elif reason in (
             types_pb2.ResolveReason.RESOLVE_REASON_TARGETING_KEY_ERROR,
             types_pb2.ResolveReason.RESOLVE_REASON_ERROR,
+            types_pb2.ResolveReason.RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE,
         ):
             return Reason.ERROR
         else:

@@ -667,6 +667,8 @@ func mapResolveReasonToOpenFeature(reason resolvertypes.ResolveReason) openfeatu
 		return openfeature.ErrorReason
 	case resolvertypes.ResolveReason_RESOLVE_REASON_ERROR:
 		return openfeature.ErrorReason
+	case resolvertypes.ResolveReason_RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE:
+		return openfeature.ErrorReason
 	default:
 		return openfeature.UnknownReason
 	}

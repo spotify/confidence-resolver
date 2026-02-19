@@ -773,6 +773,7 @@ fn map_resolve_reason(reason: i32) -> EvaluationReason {
         Ok(ResolveReason::FlagArchived) => EvaluationReason::Disabled,
         Ok(ResolveReason::TargetingKeyError) => EvaluationReason::Error,
         Ok(ResolveReason::Error) => EvaluationReason::Error,
+        Ok(ResolveReason::UnrecognizedTargetingRule) => EvaluationReason::Error,
         _ => EvaluationReason::Unknown,
     }
 }
@@ -1279,6 +1280,12 @@ mod tests {
     #[test]
     fn test_map_resolve_reason_error() {
         let result = map_resolve_reason(ResolveReason::Error as i32);
+        assert_eq!(result, EvaluationReason::Error);
+    }
+
+    #[test]
+    fn test_map_resolve_reason_unrecognized_targeting_rule() {
+        let result = map_resolve_reason(ResolveReason::UnrecognizedTargetingRule as i32);
         assert_eq!(result, EvaluationReason::Error);
     }
 

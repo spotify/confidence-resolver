@@ -912,6 +912,13 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                             &materializations,
                                         ) {
                                         Ok(matched) => matched,
+                                        Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
+                                            return Ok(FlagResolveResult {
+                                                resolved_value: resolved_value
+                                                    .error(ResolveReason::UnrecognizedTargetingRule),
+                                                updates: vec![],
+                                            });
+                                        }
                                         Err(_) => {
                                             return Err(
                                                 ResolveFlagError::missing_materializations(),
@@ -980,6 +987,13 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                             &materializations,
                                         ) {
                                         Ok(matched) => matched,
+                                        Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
+                                            return Ok(FlagResolveResult {
+                                                resolved_value: resolved_value
+                                                    .error(ResolveReason::UnrecognizedTargetingRule),
+                                                updates: vec![],
+                                            });
+                                        }
                                         Err(_) => {
                                             return Err(
                                                 ResolveFlagError::missing_materializations(),
@@ -1008,8 +1022,13 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         // Segment doesn't match, try next rule
                         continue;
                     }
+                    Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
+                        return Ok(FlagResolveResult {
+                            resolved_value: resolved_value.error(ResolveReason::UnrecognizedTargetingRule),
+                            updates: vec![],
+                        });
+                    }
                     Err(_) => {
-                        // Error during segment matching (likely missing materialization data)
                         return Err(ResolveFlagError::missing_materializations());
                     }
                 }
@@ -1210,7 +1229,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         value::convert_to_targeting_value(attribute_value, expected_value_type)?;
                     let wrapped = list_wrapper(&converted);
 
-                    Ok(value::evaluate_criterion(attribute_criterion, &wrapped))
+                    value::evaluate_criterion(attribute_criterion, &wrapped)
                 }
                 criterion::Criterion::Segment(segment_criterion) => {
                     let Some(ref_segment) = self.state.segments.get(&segment_criterion.segment)
@@ -1550,6 +1569,8 @@ pub enum ResolveReason {
     FlagArchived = 4,
     // The flag could not be resolved because the targeting key field was invalid
     TargetingKeyError = 5,
+    // The flag could not be resolved because a targeting rule was not recognized
+    UnrecognizedTargetingRule = 7,
 }
 
 pub fn hash(key: &str) -> u128 {
