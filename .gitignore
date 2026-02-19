@@ -9,6 +9,7 @@ openfeature-provider/go/demo/demo
 .java-version
 .bundle
 .claude
+.cursor/
 target/
 # Ignore WASM in root wasm/ directory (build artifact)
 wasm/confidence_resolver.wasm

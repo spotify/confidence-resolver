@@ -92,11 +92,9 @@ pub fn evaluate_criterion(
         criterion::attribute_criterion::Rule::SetRule(targeting::SetRule { values }) => {
             Ok(context_values.iter().any(|v| values.contains(v)))
         }
-        criterion::attribute_criterion::Rule::RangeRule(range_rule) => {
-            Ok(context_values
-                .iter()
-                .any(|v| evaluate_range_rule(range_rule, v)))
-        }
+        criterion::attribute_criterion::Rule::RangeRule(range_rule) => Ok(context_values
+            .iter()
+            .any(|v| evaluate_range_rule(range_rule, v))),
         criterion::attribute_criterion::Rule::AnyRule(targeting::AnyRule {
             rule: Some(inner_rule),
         }) => {
