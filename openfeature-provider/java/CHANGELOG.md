@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.11.4...openfeature-provider-java-v0.12.0) (2026-02-19)
+
+
+### Features
+
+* **java:** add FlagResolverService for HTTP integration ([#274](https://github.com/spotify/confidence-resolver/issues/274)) ([ead98ac](https://github.com/spotify/confidence-resolver/commit/ead98ac69d35a10a3c8729c1d30dd713be88fe3e))
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.15 to 0.1.16
+
 ## [0.11.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.11.3...openfeature-provider-java-v0.11.4) (2026-02-17)
 
 

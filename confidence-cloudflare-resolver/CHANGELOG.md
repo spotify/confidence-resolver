@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.5.2...confidence-cloudflare-resolver-v0.6.0) (2026-02-19)
+
+
+### Features
+
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.11.1 to 0.12.0
+
 ## [0.5.2](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.5.1...confidence-cloudflare-resolver-v0.5.2) (2026-02-10)
 
 

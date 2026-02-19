@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.3.1...openfeature-provider-python-v0.4.0) (2026-02-19)
+
+
+### Features
+
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.15 to 0.1.16
+
 ## [0.3.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.3.0...openfeature-provider-python-v0.3.1) (2026-02-11)
 
 
