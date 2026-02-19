@@ -164,6 +164,8 @@ function convertReason(reason: ResolveReason): ResolutionReason {
       return 'TARGETING_KEY_ERROR';
     case ResolveReason.RESOLVE_REASON_NO_TREATMENT_MATCH:
       return 'NO_TREATMENT_MATCH';
+    case ResolveReason.RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE:
+      return 'ERROR';
     default:
       return 'UNSPECIFIED';
   }

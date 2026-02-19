@@ -39,6 +39,8 @@ enum ResolveReason {
   RESOLVE_REASON_TARGETING_KEY_ERROR = 5;
   // Unknown error occurred during the resolve
   RESOLVE_REASON_ERROR = 6;
+  // The flag could not be resolved because a targeting rule was not recognized
+  RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE = 7;
 }
 
 enum SdkId {

@@ -99,6 +99,9 @@ fn convert_reason(reason: ResolveReason) -> i32 {
         ResolveReason::NoSegmentMatch => i32::from(proto::ResolveReason::NoSegmentMatch),
         ResolveReason::FlagArchived => i32::from(proto::ResolveReason::FlagArchived),
         ResolveReason::TargetingKeyError => i32::from(proto::ResolveReason::TargetingKeyError),
+        ResolveReason::UnrecognizedTargetingRule => {
+            i32::from(proto::ResolveReason::UnrecognizedTargetingRule)
+        }
     }
 }
 

@@ -210,7 +210,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       this.state.set(ProviderState.READY);
     } else {
       log.warn(
-          "Initial state load failed, provider starting in NOT_READY state, serving default values.");
+          "Initial state load failed, provider starting in NOT_READY state, serving default"
+              + " values.");
     }
 
     final long pollIntervalSeconds = getPollIntervalSeconds();
