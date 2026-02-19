@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.2.2...openfeature-provider/rust-v0.3.0) (2026-02-19)
+
+
+### Features
+
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.11.1 to 0.12.0
+
 ## [0.2.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.2.1...openfeature-provider/rust-v0.2.2) (2026-02-10)
 
 

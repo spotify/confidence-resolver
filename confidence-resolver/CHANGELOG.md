@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.11.1...confidence_resolver-v0.12.0) (2026-02-19)
+
+
+### Features
+
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+
 ## [0.11.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.11.0...confidence_resolver-v0.11.1) (2026-02-10)
 
 
