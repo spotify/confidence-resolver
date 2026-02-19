@@ -52,6 +52,7 @@ message ResolveProcessResponse {
 }
 
 // This message is used both as a query and a result when reading materializations.
+// Records with a non-empty rule should be treated as variant reads; others as inclusion reads
 message MaterializationRecord {
   string unit = 1;
   string materialization = 2;
