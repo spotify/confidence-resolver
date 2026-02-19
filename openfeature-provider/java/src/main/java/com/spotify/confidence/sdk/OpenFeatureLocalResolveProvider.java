@@ -5,9 +5,9 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.Struct;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveReason;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveReason;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
 import dev.openfeature.sdk.*;
@@ -209,7 +209,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       this.state.set(ProviderState.READY);
     } else {
       log.warn(
-          "Initial state load failed, provider starting in NOT_READY state, serving default values.");
+          "Initial state load failed, provider starting in NOT_READY state, serving default"
+              + " values.");
     }
 
     final long pollIntervalSeconds = getPollIntervalSeconds();
