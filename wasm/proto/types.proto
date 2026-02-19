@@ -116,6 +116,8 @@ enum ResolveReason {
   RESOLVE_REASON_ERROR = 6;
   // The flag could not be resolved because a targeting rule was not recognized
   RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE = 7;
+  // The flag could not be resolved because a rule is using materialization
+  RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED = 8;
 }
 
 message Client {

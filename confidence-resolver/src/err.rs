@@ -135,10 +135,10 @@ macro_rules! module_err {
 #[macro_export]
 macro_rules! fail {
     () => {
-        return Err($crate::ErrorCode::from_location())
+        return Err($crate::ErrorCode::from_location().into())
     };
     ($tag:literal) => {
-        return Err($crate::module_err!($tag))
+        return Err($crate::module_err!($tag).into())
     };
 }
 
@@ -159,6 +159,61 @@ impl<T, E> OrFailExt<T> for Result<T, E> {
 impl core::fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "internal error [{}]", self.b64_str())
+    }
+}
+
+/// Unified error type for the resolve path.
+///
+/// - `Internal(ErrorCode)` — low-level "should never happen" errors (from `.or_fail()?`)
+/// - `Message(String)` — descriptive errors for API boundaries
+/// - `MissingMaterializations` — flag needs materializations, triggers suspend
+/// - `MaterializationsUnsupported` — caller has no materialization support, flag should error
+#[derive(Debug, PartialEq)]
+pub enum ResolveError {
+    Internal(ErrorCode),
+    Message(String),
+    MissingMaterializations,
+    MaterializationsUnsupported,
+    UnrecognizedRule,
+}
+
+impl ResolveError {
+    pub fn message(msg: &str) -> Self {
+        ResolveError::Message(msg.to_string())
+    }
+}
+
+impl From<ErrorCode> for ResolveError {
+    fn from(e: ErrorCode) -> Self {
+        ResolveError::Internal(e)
+    }
+}
+
+impl From<ResolveError> for String {
+    fn from(e: ResolveError) -> String {
+        match e {
+            ResolveError::Internal(code) => code.to_string(),
+            ResolveError::Message(msg) => msg,
+            ResolveError::MissingMaterializations => "Missing materializations".to_string(),
+            ResolveError::MaterializationsUnsupported => {
+                "Materializations not supported".to_string()
+            }
+            ResolveError::UnrecognizedRule => "Unrecognized rule".to_string(),
+        }
+    }
+}
+
+impl core::fmt::Display for ResolveError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ResolveError::Internal(code) => write!(f, "{}", code),
+            ResolveError::Message(msg) => write!(f, "{}", msg),
+            ResolveError::MissingMaterializations => write!(f, "Missing materializations"),
+            ResolveError::MaterializationsUnsupported => {
+                write!(f, "Materializations not supported")
+            }
+            ResolveError::UnrecognizedRule => write!(f, "Unrecognized rule"),
+        }
     }
 }
 

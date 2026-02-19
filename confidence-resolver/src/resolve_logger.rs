@@ -90,12 +90,13 @@ impl<H: Host> ResolveLogger<H> {
             }
 
             for value in values {
+                let af = &value.inner;
                 state
                     .flag_resolve_info
-                    .with_default(&value.flag.name, |flag_state| {
-                        for fallthrough in &value.fallthrough_rules {
+                    .with_default(&af.flag, |flag_state| {
+                        for fallthrough in &af.fallthrough_assignments {
                             flag_state.rule_resolve_info.with_default(
-                                &fallthrough.rule.name,
+                                &fallthrough.rule,
                                 |rule_state| {
                                     rule_state.count.fetch_add(1, Ordering::Relaxed);
                                     rule_state
@@ -105,26 +106,21 @@ impl<H: Host> ResolveLogger<H> {
                             );
                         }
 
-                        match &value.assignment_match {
-                            Some(assignment) => {
-                                let variant_key: &str = match assignment.variant {
-                                    Some(variant) => &variant.name,
-                                    None => "",
-                                };
-                                flag_state.variant_resolve_info.increment(variant_key);
-                                flag_state.rule_resolve_info.with_default(
-                                    &assignment.rule.name,
-                                    |rule_state| {
-                                        rule_state.count.fetch_add(1, Ordering::Relaxed);
-                                        rule_state
-                                            .assignment_counts
-                                            .increment(&assignment.assignment_id);
-                                    },
-                                );
-                            }
-                            None => {
-                                flag_state.variant_resolve_info.increment("");
-                            }
+                        if !af.rule.is_empty() {
+                            let variant_key = if af.variant.is_empty() {
+                                ""
+                            } else {
+                                &af.variant
+                            };
+                            flag_state.variant_resolve_info.increment(variant_key);
+                            flag_state
+                                .rule_resolve_info
+                                .with_default(&af.rule, |rule_state| {
+                                    rule_state.count.fetch_add(1, Ordering::Relaxed);
+                                    rule_state.assignment_counts.increment(&af.assignment_id);
+                                });
+                        } else {
+                            flag_state.variant_resolve_info.increment("");
                         }
                     });
             }
