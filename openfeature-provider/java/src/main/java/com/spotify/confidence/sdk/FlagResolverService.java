@@ -5,6 +5,8 @@ import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
+import dev.openfeature.sdk.EvaluationContext;
+import dev.openfeature.sdk.ImmutableContext;
 import dev.openfeature.sdk.MutableContext;
 import dev.openfeature.sdk.MutableStructure;
 import java.nio.charset.StandardCharsets;
@@ -36,11 +38,12 @@ import org.slf4j.LoggerFactory;
  * // Create service with optional context decoration
  * FlagResolverService flagResolver = new FlagResolverService(provider,
  *     ContextDecorator.sync((ctx, req) -> {
- *         // Add user ID from auth header
+ *         // Set targeting key from auth middleware header
  *         List<String> userIds = req.headers().get("X-User-Id");
  *         if (userIds != null && !userIds.isEmpty()) {
- *             ctx.add("user_id", userIds.get(0));
+ *             return ctx.merge(new ImmutableContext(userIds.get(0)));
  *         }
+ *         return ctx;
  *     }));
  *
  * // Register endpoints
@@ -78,7 +81,7 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
    * @param provider the local resolve provider to use for flag resolution
    */
   public FlagResolverService(OpenFeatureLocalResolveProvider provider) {
-    this(provider, ContextDecorator.sync((ctx, req) -> {}));
+    this(provider, ContextDecorator.sync((ctx, req) -> ctx));
   }
 
   /**
@@ -132,7 +135,7 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
               }
 
               // Build evaluation context from request
-              final MutableContext ctx =
+              final EvaluationContext ctx =
                   buildEvaluationContext(resolveRequestBuilder.getEvaluationContext());
 
               // Apply context decorator and resolve flags
@@ -209,7 +212,7 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
     }
   }
 
-  private MutableContext buildEvaluationContext(Struct evaluationContext) {
+  private EvaluationContext buildEvaluationContext(Struct evaluationContext) {
     final MutableContext ctx = new MutableContext();
 
     evaluationContext
@@ -242,7 +245,7 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
               }
             });
 
-    return ctx;
+    return new ImmutableContext(ctx.getTargetingKey(), ctx.asMap());
   }
 
   private dev.openfeature.sdk.Value protoValueToOpenFeatureValue(com.google.protobuf.Value value) {

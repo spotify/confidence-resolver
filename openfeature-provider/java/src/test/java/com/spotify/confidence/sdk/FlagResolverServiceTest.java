@@ -16,6 +16,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveReason;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import dev.openfeature.sdk.EvaluationContext;
+import dev.openfeature.sdk.ImmutableContext;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -593,8 +594,12 @@ class FlagResolverServiceTest {
               (ctx, req) -> {
                 var userIds = req.headers().get("X-User-Id");
                 if (userIds != null && !userIds.isEmpty()) {
-                  ctx.add("decorated_user_id", userIds.get(0));
+                  return ctx.merge(
+                      new ImmutableContext(
+                          Map.of(
+                              "decorated_user_id", new dev.openfeature.sdk.Value(userIds.get(0)))));
                 }
+                return ctx;
               });
 
       FlagResolverService<ConfidenceHttpRequest> serviceWithDecorator =
@@ -633,7 +638,11 @@ class FlagResolverServiceTest {
     @Test
     void shouldCombineRequestContextWithDecorator() {
       ContextDecorator<ConfidenceHttpRequest> decorator =
-          ContextDecorator.sync((ctx, req) -> ctx.add("source", "backend_proxy"));
+          ContextDecorator.sync(
+              (ctx, req) ->
+                  ctx.merge(
+                      new ImmutableContext(
+                          Map.of("source", new dev.openfeature.sdk.Value("backend_proxy")))));
 
       FlagResolverService<ConfidenceHttpRequest> serviceWithDecorator =
           new FlagResolverService<>(mockProvider, decorator);
