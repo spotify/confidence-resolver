@@ -104,6 +104,6 @@ class TestFlagResolveWithoutMaterializationStore:
 
             # Without materialization store, should return default with error
             assert result.value == "client default"
-            assert "materialization" in (result.error_message or "").lower()
+            assert result.reason.value == "ERROR"
         finally:
             provider.shutdown()

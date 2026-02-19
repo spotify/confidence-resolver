@@ -31,10 +31,7 @@ from confidence.materialization import (
     VariantReadResult,
     VariantWriteOp,
 )
-from confidence.proto.confidence.flags.resolver.v1 import types_pb2
-from confidence.proto.confidence.flags.resolver.v1 import (
-    internal_api_pb2,
-)
+from confidence.proto.confidence.flags.resolver.v1 import api_pb2, types_pb2
 from confidence.proto.confidence.wasm import wasm_api_pb2
 from confidence.state_fetcher import StateFetcher
 from confidence.version import __version__
@@ -449,30 +446,38 @@ class ConfidenceProvider(AbstractProvider):
             proto_context = self._context_to_proto(evaluation_context)
 
             # Build resolve request
-            request = wasm_api_pb2.ResolveWithStickyRequest()
-            request.resolve_request.flags.append(f"flags/{flag_name}")
-            request.resolve_request.client_secret = self._client_secret
-            request.resolve_request.apply = True
+            resolve_req = api_pb2.ResolveFlagsRequest()
+            resolve_req.flags.append(f"flags/{flag_name}")
+            resolve_req.client_secret = self._client_secret
+            resolve_req.apply = True
             if proto_context is not None:
-                request.resolve_request.evaluation_context.CopyFrom(proto_context)
+                resolve_req.evaluation_context.CopyFrom(proto_context)
+            resolve_req.sdk.id = types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER
+            resolve_req.sdk.version = __version__
 
-            # Set SDK info
-            request.resolve_request.sdk.id = types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER
-            request.resolve_request.sdk.version = __version__
+            # Build process request — use DeferredMaterializations if store is configured,
+            # otherwise WithoutMaterializations (error flags that need materializations).
+            request = wasm_api_pb2.ResolveProcessRequest()
+            if self._materialization_store is not None and not isinstance(
+                self._materialization_store, UnsupportedMaterializationStore
+            ):
+                request.deferred_materializations.CopyFrom(resolve_req)
+            else:
+                request.without_materializations.CopyFrom(resolve_req)
 
             # Resolve with materialization handling
             response = self._resolve_with_materialization(request)
 
             # Check for resolved flags
-            if not response.HasField("success"):
+            if not response.HasField("resolved"):
                 return FlagResolutionDetails(
                     value=default_value,
                     reason=Reason.ERROR,
                     error_code=ErrorCode.GENERAL,
-                    error_message="Missing materializations",
+                    error_message="Unexpected suspended response",
                 )
 
-            resolved_flags = response.success.response.resolved_flags
+            resolved_flags = response.resolved.response.resolved_flags
             if len(resolved_flags) == 0:
                 return FlagResolutionDetails(
                     value=default_value,
@@ -530,113 +535,148 @@ class ConfidenceProvider(AbstractProvider):
             )
 
     def _resolve_with_materialization(
-        self, request: wasm_api_pb2.ResolveWithStickyRequest
-    ) -> wasm_api_pb2.ResolveWithStickyResponse:
-        """Resolve with materialization handling.
+        self, request: wasm_api_pb2.ResolveProcessRequest
+    ) -> wasm_api_pb2.ResolveProcessResponse:
+        """Resolve with materialization handling (suspend/resume).
 
         Args:
-            request: The resolve request.
+            request: The resolve process request.
 
         Returns:
-            The resolve response.
+            The resolve process response.
 
         Raises:
             RuntimeError: If resolution fails.
         """
         with self._resolver_lock:
-            response = self._resolver.resolve_with_sticky(request)
+            response = self._resolver.resolve_process(request)
 
-        # Check if materializations are needed
-        if response.HasField("read_ops_request"):
-            # Read materializations
-            try:
-                read_results = self._read_materializations(response.read_ops_request)
-            except MaterializationNotSupportedError as e:
-                raise RuntimeError(
-                    f"failed to handle missing materializations: {e.message}"
+        return self._handle_response(response)
+
+    def _handle_response(
+        self, response: wasm_api_pb2.ResolveProcessResponse
+    ) -> wasm_api_pb2.ResolveProcessResponse:
+        """Handle initial resolve response."""
+        if response.HasField("resolved"):
+            if response.resolved.materializations_to_write:
+                self._write_materializations(
+                    response.resolved.materializations_to_write
                 )
+            return response
 
-            # Retry with materializations
-            request.materializations.extend(read_results)
+        if response.HasField("suspended"):
+            # Read materializations from store
+            try:
+                materializations = self._read_materializations(
+                    response.suspended.materializations_to_read
+                )
+            except MaterializationNotSupportedError as e:
+                raise RuntimeError(f"failed to read materializations: {e.message}")
+
+            # Build resume request
+            resume_request = wasm_api_pb2.ResolveProcessRequest()
+            resume_request.resume.state = response.suspended.state
+            for mat in materializations:
+                resume_request.resume.materializations.append(mat)
+
             with self._resolver_lock:
-                response = self._resolver.resolve_with_sticky(request)
+                resume_response = self._resolver.resolve_process(resume_request)
 
-        # Handle materialization writes
-        if response.HasField("success"):
-            updates = response.success.materialization_updates
-            if updates:
-                self._write_materializations(updates)
+            return self._handle_resume_response(resume_response)
 
-        return response
+        raise RuntimeError("Unexpected empty resolve response")
+
+    def _handle_resume_response(
+        self, response: wasm_api_pb2.ResolveProcessResponse
+    ) -> wasm_api_pb2.ResolveProcessResponse:
+        """Handle response after resume - should not suspend again."""
+        if response.HasField("resolved"):
+            if response.resolved.materializations_to_write:
+                self._write_materializations(
+                    response.resolved.materializations_to_write
+                )
+            return response
+
+        if response.HasField("suspended"):
+            raise RuntimeError("Unexpected second suspend after resume")
+
+        raise RuntimeError("Unexpected empty resolve response after resume")
 
     def _read_materializations(
-        self, read_request: internal_api_pb2.ReadOperationsRequest
-    ) -> List[internal_api_pb2.ReadResult]:
+        self, records: List[wasm_api_pb2.MaterializationRecord]
+    ) -> List[wasm_api_pb2.MaterializationRecord]:
         """Read materializations from the store.
 
+        Converts MaterializationRecords to ReadOps, queries the store,
+        then converts results back to MaterializationRecords for a Resume request.
+
         Args:
-            read_request: The read request.
+            records: The MaterializationRecords from a Suspended response.
 
         Returns:
-            List of read results.
+            List of MaterializationRecords for the Resume request.
         """
         ops: List[ReadOp] = []
-        for op in read_request.ops:
-            if op.HasField("variant_read_op"):
-                vop = op.variant_read_op
+        for record in records:
+            if record.rule:
                 ops.append(
                     VariantReadOp(
-                        unit=vop.unit,
-                        materialization=vop.materialization,
-                        rule=vop.rule,
+                        unit=record.unit,
+                        materialization=record.materialization,
+                        rule=record.rule,
                     )
                 )
-            elif op.HasField("inclusion_read_op"):
-                iop = op.inclusion_read_op
+            else:
                 ops.append(
                     InclusionReadOp(
-                        unit=iop.unit,
-                        materialization=iop.materialization,
+                        unit=record.unit,
+                        materialization=record.materialization,
                     )
                 )
 
         results = self._materialization_store.read(ops)
 
-        # Convert to proto format
-        proto_results = []
+        # Convert results back to MaterializationRecords.
+        # Records with empty variant and "not included" inclusion results are omitted
+        # (absence = no prior assignment / not included).
+        materialization_records = []
         for result in results:
-            proto_result = internal_api_pb2.ReadResult()
             if isinstance(result, VariantReadResult):
-                proto_result.variant_result.unit = result.unit
-                proto_result.variant_result.materialization = result.materialization
-                proto_result.variant_result.rule = result.rule
-                if result.variant is not None:
-                    proto_result.variant_result.variant = result.variant
+                if result.variant:  # Only include if variant is non-empty
+                    rec = wasm_api_pb2.MaterializationRecord()
+                    rec.unit = result.unit
+                    rec.materialization = result.materialization
+                    rec.rule = result.rule
+                    rec.variant = result.variant
+                    materialization_records.append(rec)
+                # No prior assignment → omit (absence = no sticky assignment)
             elif isinstance(result, InclusionReadResult):
-                proto_result.inclusion_result.unit = result.unit
-                proto_result.inclusion_result.materialization = result.materialization
-                proto_result.inclusion_result.is_included = result.included
-            proto_results.append(proto_result)
+                if result.included:
+                    rec = wasm_api_pb2.MaterializationRecord()
+                    rec.unit = result.unit
+                    rec.materialization = result.materialization
+                    materialization_records.append(rec)
+                # Not included → omit (absence = not included)
 
-        return proto_results
+        return materialization_records
 
     def _write_materializations(
-        self, updates: List[internal_api_pb2.VariantData]
+        self, records: List[wasm_api_pb2.MaterializationRecord]
     ) -> None:
         """Write materializations to the store.
 
         Args:
-            updates: The materialization updates to write.
+            records: The MaterializationRecords from a Resolved response.
         """
         try:
             ops = []
-            for update in updates:
+            for record in records:
                 ops.append(
                     VariantWriteOp(
-                        unit=update.unit,
-                        materialization=update.materialization,
-                        rule=update.rule,
-                        variant=update.variant,
+                        unit=record.unit,
+                        materialization=record.materialization,
+                        rule=record.rule,
+                        variant=record.variant,
                     )
                 )
             self._materialization_store.write(ops)

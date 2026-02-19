@@ -52,14 +52,14 @@ class TestLocalResolverSetState:
 class TestLocalResolverResolve:
     """Test LocalResolver resolve functionality."""
 
-    def test_resolve_with_sticky_delegates(
+    def test_resolve_process_delegates(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
         test_account_id: str,
         test_client_secret: str,
     ) -> None:
-        """resolve_with_sticky delegates to WasmResolver."""
+        """resolve_process delegates to WasmResolver."""
         resolver = LocalResolver(wasm_bytes)
         resolver.set_resolver_state(test_resolver_state, test_account_id)
 
@@ -70,10 +70,10 @@ class TestLocalResolverResolve:
         evaluation_context.fields["targeting_key"].string_value = "user-123"
         resolve_request.evaluation_context.CopyFrom(evaluation_context)
 
-        request = wasm_api_pb2.ResolveWithStickyRequest()
-        request.resolve_request.CopyFrom(resolve_request)
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
 
-        response = resolver.resolve_with_sticky(request)
+        response = resolver.resolve_process(request)
         assert response is not None
 
 
@@ -89,17 +89,17 @@ class TestLocalResolverCrashRecovery:
 
         # Mock the delegate to raise RuntimeError
         mock_delegate = Mock(spec=WasmResolver)
-        mock_delegate.resolve_with_sticky.side_effect = RuntimeError(
+        mock_delegate.resolve_process.side_effect = RuntimeError(
             "WASM trap: unreachable"
         )
         mock_delegate.flush_logs.return_value = b""
         resolver._delegate = mock_delegate
 
-        request = wasm_api_pb2.ResolveWithStickyRequest()
+        request = wasm_api_pb2.ResolveProcessRequest()
 
         # Should raise the error but also reload
         with pytest.raises(RuntimeError):
-            resolver.resolve_with_sticky(request)
+            resolver.resolve_process(request)
 
         # Delegate should be replaced
         assert resolver._delegate is not mock_delegate
@@ -130,11 +130,11 @@ class TestLocalResolverCrashRecovery:
         evaluation_context.fields["targeting_key"].string_value = "user-123"
         resolve_request.evaluation_context.CopyFrom(evaluation_context)
 
-        request = wasm_api_pb2.ResolveWithStickyRequest()
-        request.resolve_request.CopyFrom(resolve_request)
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
 
         # Should work after recovery
-        response = resolver.resolve_with_sticky(request)
+        response = resolver.resolve_process(request)
         assert response is not None
 
 

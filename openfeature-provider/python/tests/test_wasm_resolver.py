@@ -45,17 +45,17 @@ class TestSetResolverState:
         resolver.set_resolver_state(b"", test_account_id)
 
 
-class TestResolveWithSticky:
-    """Test resolve_with_sticky method."""
+class TestResolveProcess:
+    """Test resolve_process method."""
 
-    def test_resolve_with_sticky_returns_response(
+    def test_resolve_process_returns_response(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
         test_account_id: str,
         test_client_secret: str,
     ) -> None:
-        """resolve_with_sticky returns a ResolveWithStickyResponse."""
+        """resolve_process returns a ResolveProcessResponse."""
         resolver = WasmResolver(wasm_bytes)
         resolver.set_resolver_state(test_resolver_state, test_account_id)
 
@@ -67,30 +67,30 @@ class TestResolveWithSticky:
         evaluation_context.fields["targeting_key"].string_value = "user-123"
         resolve_request.evaluation_context.CopyFrom(evaluation_context)
 
-        request = wasm_api_pb2.ResolveWithStickyRequest()
-        request.resolve_request.CopyFrom(resolve_request)
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
 
-        response = resolver.resolve_with_sticky(request)
+        response = resolver.resolve_process(request)
 
         assert response is not None
-        assert isinstance(response, wasm_api_pb2.ResolveWithStickyResponse)
+        assert isinstance(response, wasm_api_pb2.ResolveProcessResponse)
 
-    def test_resolve_with_sticky_without_state_raises(
+    def test_resolve_process_without_state_raises(
         self, wasm_bytes: bytes, test_client_secret: str
     ) -> None:
-        """resolve_with_sticky raises error without state set."""
+        """resolve_process raises error without state set."""
         resolver = WasmResolver(wasm_bytes)
 
         resolve_request = api_pb2.ResolveFlagsRequest()
         resolve_request.flags.append(TEST_FLAG_NAME)
         resolve_request.client_secret = test_client_secret
 
-        request = wasm_api_pb2.ResolveWithStickyRequest()
-        request.resolve_request.CopyFrom(resolve_request)
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
 
         # Without state, the WASM module will raise an error (client secret not found)
         with pytest.raises(RuntimeError):
-            resolver.resolve_with_sticky(request)
+            resolver.resolve_process(request)
 
 
 class TestFlushLogs:
@@ -115,9 +115,9 @@ class TestFlushLogs:
         evaluation_context.fields["targeting_key"].string_value = "user-123"
         resolve_request.evaluation_context.CopyFrom(evaluation_context)
 
-        request = wasm_api_pb2.ResolveWithStickyRequest()
-        request.resolve_request.CopyFrom(resolve_request)
-        resolver.resolve_with_sticky(request)
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
+        resolver.resolve_process(request)
 
         logs = resolver.flush_logs()
         assert isinstance(logs, bytes)
@@ -151,9 +151,9 @@ class TestFlushAssigned:
         evaluation_context.fields["targeting_key"].string_value = "user-123"
         resolve_request.evaluation_context.CopyFrom(evaluation_context)
 
-        request = wasm_api_pb2.ResolveWithStickyRequest()
-        request.resolve_request.CopyFrom(resolve_request)
-        resolver.resolve_with_sticky(request)
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
+        resolver.resolve_process(request)
 
         assigned = resolver.flush_assigned()
         assert isinstance(assigned, bytes)
@@ -181,9 +181,9 @@ class TestMemoryManagement:
             evaluation_context.fields["targeting_key"].string_value = f"user-{i}"
             resolve_request.evaluation_context.CopyFrom(evaluation_context)
 
-            request = wasm_api_pb2.ResolveWithStickyRequest()
-            request.resolve_request.CopyFrom(resolve_request)
-            resolver.resolve_with_sticky(request)
+            request = wasm_api_pb2.ResolveProcessRequest()
+            request.deferred_materializations.CopyFrom(resolve_request)
+            resolver.resolve_process(request)
 
         # Should complete without issues
         logs = resolver.flush_logs()

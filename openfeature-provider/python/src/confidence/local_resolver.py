@@ -93,25 +93,25 @@ class LocalResolver:
             self._reload_instance(error)
             raise
 
-    def resolve_with_sticky(
-        self, request: wasm_api_pb2.ResolveWithStickyRequest
-    ) -> wasm_api_pb2.ResolveWithStickyResponse:
+    def resolve_process(
+        self, request: wasm_api_pb2.ResolveProcessRequest
+    ) -> wasm_api_pb2.ResolveProcessResponse:
         """Resolve flags using the WASM module.
 
         On WASM crash (RuntimeError or Trap), reloads the WASM instance and re-raises.
 
         Args:
-            request: The resolve request with flags and evaluation context.
+            request: The resolve process request.
 
         Returns:
-            The resolve response with resolved flag values.
+            The resolve process response.
 
         Raises:
             RuntimeError: If the WASM module encounters an error.
             WasmTrap: If the WASM module hits a trap (e.g., unreachable).
         """
         try:
-            return self._delegate.resolve_with_sticky(request)
+            return self._delegate.resolve_process(request)
         except WasmCrashError as error:
             self._reload_instance(error)
             raise
