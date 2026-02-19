@@ -251,11 +251,12 @@ Add server-side context to requests before resolution:
 ```java
 FlagResolverService flagResolver = new FlagResolverService(provider,
     ContextDecorator.sync((ctx, req) -> {
-        // Add user ID set by upstream auth middleware
+        // Set targeting key from upstream auth middleware header
         List<String> userIds = req.headers().get("X-User-Id");
         if (userIds != null && !userIds.isEmpty()) {
-            ctx.setTargetingKey(userIds.get(0));
+            return ctx.merge(new ImmutableContext(userIds.get(0)));
         }
+        return ctx;
     }));
 ```
 
@@ -270,13 +271,14 @@ public class FlagServlet extends HttpServlet {
     private final FlagResolverService flagResolverService;
 
     public FlagServlet(OpenFeatureLocalResolveProvider provider) {
-        // Add user ID set by upstream auth middleware
+        // Set targeting key from upstream auth middleware header
         this.flagResolverService = new FlagResolverService(provider,
             ContextDecorator.sync((context, request) -> {
                 List<String> userIds = request.headers().get("X-User-Id");
                 if (userIds != null && !userIds.isEmpty()) {
-                    context.setTargetingKey(userIds.get(0));
+                    return context.merge(new ImmutableContext(userIds.get(0)));
                 }
+                return context;
             }));
     }
 
