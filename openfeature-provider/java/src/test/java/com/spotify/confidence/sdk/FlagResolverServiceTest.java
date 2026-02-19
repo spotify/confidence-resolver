@@ -44,7 +44,7 @@ class FlagResolverServiceTest {
     void shouldReturn405ForNonPostMethod() {
       ConfidenceHttpRequest request = createRequest("GET", "{}");
 
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(405);
     }
@@ -54,7 +54,7 @@ class FlagResolverServiceTest {
       ConfidenceHttpRequest request =
           createRequestWithHeaders("POST", "{}", Map.of("Content-Type", List.of("text/plain")));
 
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(415);
     }
@@ -63,7 +63,7 @@ class FlagResolverServiceTest {
     void shouldReturn415ForMissingContentType() {
       ConfidenceHttpRequest request = createRequestWithHeaders("POST", "{}", Map.of());
 
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(415);
     }
@@ -72,7 +72,7 @@ class FlagResolverServiceTest {
     void shouldReturn400ForInvalidJson() {
       ConfidenceHttpRequest request = createRequest("POST", "not valid json {{{");
 
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(400);
     }
@@ -103,10 +103,10 @@ class FlagResolverServiceTest {
               .build();
 
       when(mockProvider.resolve(any(EvaluationContext.class), anyList(), eq(false)))
-          .thenReturn(mockResponse);
+          .thenReturn(CompletableFuture.completedFuture(mockResponse));
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
       assertThat(response.headers().get("Content-Type")).isEqualTo("application/json");
@@ -132,10 +132,10 @@ class FlagResolverServiceTest {
           """;
 
       when(mockProvider.resolve(any(), anyList(), eq(true)))
-          .thenReturn(ResolveFlagsResponse.getDefaultInstance());
+          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
       verify(mockProvider).resolve(any(), eq(List.of("my-flag")), eq(true));
@@ -153,10 +153,10 @@ class FlagResolverServiceTest {
           """;
 
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(ResolveFlagsResponse.getDefaultInstance());
+          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request);
+      service.handleResolve(request).toCompletableFuture().join();
 
       verify(mockProvider).resolve(any(), eq(List.of("flags/already-prefixed")), eq(false));
     }
@@ -179,11 +179,11 @@ class FlagResolverServiceTest {
           .thenAnswer(
               invocation -> {
                 capturedContext.set(invocation.getArgument(0));
-                return ResolveFlagsResponse.getDefaultInstance();
+                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
               });
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request);
+      service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(capturedContext.get().getTargetingKey()).isEqualTo("user-abc-123");
     }
@@ -207,11 +207,11 @@ class FlagResolverServiceTest {
           .thenAnswer(
               invocation -> {
                 capturedContext.set(invocation.getArgument(0));
-                return ResolveFlagsResponse.getDefaultInstance();
+                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
               });
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request);
+      service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(capturedContext.get().getValue("country").asString()).isEqualTo("US");
       assertThat(capturedContext.get().getValue("version").asString()).isEqualTo("1.2.3");
@@ -236,11 +236,11 @@ class FlagResolverServiceTest {
           .thenAnswer(
               invocation -> {
                 capturedContext.set(invocation.getArgument(0));
-                return ResolveFlagsResponse.getDefaultInstance();
+                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
               });
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request);
+      service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(capturedContext.get().getValue("age").asDouble()).isEqualTo(25.0);
       assertThat(capturedContext.get().getValue("score").asDouble()).isEqualTo(99.5);
@@ -265,11 +265,11 @@ class FlagResolverServiceTest {
           .thenAnswer(
               invocation -> {
                 capturedContext.set(invocation.getArgument(0));
-                return ResolveFlagsResponse.getDefaultInstance();
+                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
               });
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request);
+      service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(capturedContext.get().getValue("premium").asBoolean()).isTrue();
       assertThat(capturedContext.get().getValue("trial").asBoolean()).isFalse();
@@ -293,11 +293,11 @@ class FlagResolverServiceTest {
           .thenAnswer(
               invocation -> {
                 capturedContext.set(invocation.getArgument(0));
-                return ResolveFlagsResponse.getDefaultInstance();
+                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
               });
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request);
+      service.handleResolve(request).toCompletableFuture().join();
 
       var tagsList = capturedContext.get().getValue("tags").asList();
       assertThat(tagsList).hasSize(3);
@@ -339,11 +339,11 @@ class FlagResolverServiceTest {
           .thenAnswer(
               invocation -> {
                 capturedContext.set(invocation.getArgument(0));
-                return ResolveFlagsResponse.getDefaultInstance();
+                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
               });
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
 
@@ -416,7 +416,7 @@ class FlagResolverServiceTest {
           .thenThrow(new RuntimeException("Provider error"));
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(500);
     }
@@ -433,10 +433,10 @@ class FlagResolverServiceTest {
           """;
 
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(ResolveFlagsResponse.getDefaultInstance());
+          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
       verify(mockProvider).resolve(any(), eq(List.of()), eq(false));
@@ -457,10 +457,10 @@ class FlagResolverServiceTest {
           """;
 
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(ResolveFlagsResponse.getDefaultInstance());
+          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
     }
@@ -589,13 +589,13 @@ class FlagResolverServiceTest {
     @Test
     void shouldApplyContextDecorator() {
       ContextDecorator<ConfidenceHttpRequest> decorator =
-          (ctx, req) -> {
-            var userIds = req.headers().get("X-User-Id");
-            if (userIds != null && !userIds.isEmpty()) {
-              ctx.add("decorated_user_id", userIds.get(0));
-            }
-            return CompletableFuture.completedFuture(null);
-          };
+          ContextDecorator.sync(
+              (ctx, req) -> {
+                var userIds = req.headers().get("X-User-Id");
+                if (userIds != null && !userIds.isEmpty()) {
+                  ctx.add("decorated_user_id", userIds.get(0));
+                }
+              });
 
       FlagResolverService<ConfidenceHttpRequest> serviceWithDecorator =
           new FlagResolverService<>(mockProvider, decorator);
@@ -614,7 +614,7 @@ class FlagResolverServiceTest {
           .thenAnswer(
               invocation -> {
                 capturedContext.set(invocation.getArgument(0));
-                return ResolveFlagsResponse.getDefaultInstance();
+                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
               });
 
       ConfidenceHttpRequest request =
@@ -624,7 +624,7 @@ class FlagResolverServiceTest {
               Map.of(
                   "Content-Type", List.of("application/json"),
                   "X-User-Id", List.of("decorated-123")));
-      serviceWithDecorator.handleResolve(request);
+      serviceWithDecorator.handleResolve(request).toCompletableFuture().join();
 
       assertThat(capturedContext.get().getValue("decorated_user_id").asString())
           .isEqualTo("decorated-123");
@@ -633,10 +633,7 @@ class FlagResolverServiceTest {
     @Test
     void shouldCombineRequestContextWithDecorator() {
       ContextDecorator<ConfidenceHttpRequest> decorator =
-          (ctx, req) -> {
-            ctx.add("source", "backend_proxy");
-            return CompletableFuture.completedFuture(null);
-          };
+          ContextDecorator.sync((ctx, req) -> ctx.add("source", "backend_proxy"));
 
       FlagResolverService<ConfidenceHttpRequest> serviceWithDecorator =
           new FlagResolverService<>(mockProvider, decorator);
@@ -657,11 +654,11 @@ class FlagResolverServiceTest {
           .thenAnswer(
               invocation -> {
                 capturedContext.set(invocation.getArgument(0));
-                return ResolveFlagsResponse.getDefaultInstance();
+                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
               });
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      serviceWithDecorator.handleResolve(request);
+      serviceWithDecorator.handleResolve(request).toCompletableFuture().join();
 
       assertThat(capturedContext.get().getValue("country").asString()).isEqualTo("SE");
       assertThat(capturedContext.get().getValue("source").asString()).isEqualTo("backend_proxy");
@@ -679,10 +676,10 @@ class FlagResolverServiceTest {
           """;
 
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(ResolveFlagsResponse.getDefaultInstance());
+          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
 
       ConfidenceHttpRequest request = createRequest("post", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
     }
@@ -695,10 +692,10 @@ class FlagResolverServiceTest {
           """;
 
       when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(ResolveFlagsResponse.getDefaultInstance());
+          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
 
       ConfidenceHttpRequest request = createRequest("Post", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request);
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
     }

@@ -5,7 +5,6 @@ import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import dev.openfeature.sdk.MutableContext;
 import dev.openfeature.sdk.MutableStructure;
 import java.nio.charset.StandardCharsets;
@@ -14,6 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,21 +34,23 @@ import org.slf4j.LoggerFactory;
  * OpenFeatureAPI.getInstance().setProviderAndWait(provider);
  *
  * // Create service with optional context decoration
- * FlagResolverService flagResolver = new FlagResolverService(provider, (ctx, req) -> {
- *     // Add user ID from auth header
- *     List<String> userIds = req.headers().get("X-User-Id");
- *     if (userIds != null && !userIds.isEmpty()) {
- *         ctx.add("user_id", userIds.get(0));
- *     }
- * });
+ * FlagResolverService flagResolver = new FlagResolverService(provider,
+ *     ContextDecorator.sync((ctx, req) -> {
+ *         // Add user ID from auth header
+ *         List<String> userIds = req.headers().get("X-User-Id");
+ *         if (userIds != null && !userIds.isEmpty()) {
+ *             ctx.add("user_id", userIds.get(0));
+ *         }
+ *     }));
  *
  * // Register endpoints
  * app.post("/v1/flags:resolve", ctx -> {
  *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
- *     ConfidenceHttpResponse response = flagResolver.handleResolve(request);
- *     ctx.status(response.statusCode())
- *        .contentType("application/json")
- *        .result(response.body());
+ *     flagResolver.handleResolve(request).thenAccept(response -> {
+ *         ctx.status(response.statusCode())
+ *            .contentType("application/json")
+ *            .result(response.body());
+ *     });
  * });
  *
  * app.post("/v1/flags:apply", ctx -> {
@@ -76,7 +78,7 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
    * @param provider the local resolve provider to use for flag resolution
    */
   public FlagResolverService(OpenFeatureLocalResolveProvider provider) {
-    this(provider, (ctx, req) -> CompletableFuture.completedFuture(null));
+    this(provider, ContextDecorator.sync((ctx, req) -> {}));
   }
 
   /**
@@ -97,55 +99,68 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
    * <p>Note: clientSecret and sdk fields from client are ignored - provider's credentials are used.
    *
    * @param request the incoming HTTP request
-   * @return the response to send back to the client
+   * @return a CompletionStage that completes with the response to send back to the client
    */
-  public ConfidenceHttpResponse handleResolve(R request) {
+  public CompletionStage<ConfidenceHttpResponse> handleResolve(R request) {
     // Validate HTTP method
     if (!"POST".equalsIgnoreCase(request.method())) {
-      return ConfidenceHttpResponse.error(405);
+      return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(405));
     }
 
     // Validate content type
     if (!isJsonContentType(request)) {
-      return ConfidenceHttpResponse.error(415);
+      return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(415));
     }
 
-    try {
-      // Parse request body
-      final byte[] body = request.body();
-      if (body == null || body.length == 0) {
-        log.warn("Empty request body");
-        return ConfidenceHttpResponse.error(400);
-      }
-      final String requestBody = new String(body, StandardCharsets.UTF_8);
-      final ResolveFlagsRequest.Builder resolveRequestBuilder = ResolveFlagsRequest.newBuilder();
-      JSON_PARSER.merge(requestBody, resolveRequestBuilder);
+    return CompletableFuture.completedFuture(request)
+        .thenCompose(
+            req -> {
+              // Parse request body
+              final byte[] body = req.body();
+              if (body == null || body.length == 0) {
+                log.warn("Empty request body");
+                return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(400));
+              }
+              final String requestBody = new String(body, StandardCharsets.UTF_8);
+              final ResolveFlagsRequest.Builder resolveRequestBuilder =
+                  ResolveFlagsRequest.newBuilder();
+              try {
+                JSON_PARSER.merge(requestBody, resolveRequestBuilder);
+              } catch (InvalidProtocolBufferException e) {
+                log.warn("Invalid request format", e);
+                return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(400));
+              }
 
-      // Build evaluation context from request
-      final MutableContext ctx =
-          buildEvaluationContext(resolveRequestBuilder.getEvaluationContext());
+              // Build evaluation context from request
+              final MutableContext ctx =
+                  buildEvaluationContext(resolveRequestBuilder.getEvaluationContext());
 
-      // Apply context decorator
-      contextDecorator.decorate(ctx, request).toCompletableFuture().join();
-
-      // Get flag names
-      final List<String> flagNames = new ArrayList<>(resolveRequestBuilder.getFlagsList());
-
-      // Resolve flags
-      final ResolveFlagsResponse response =
-          provider.resolve(ctx, flagNames, resolveRequestBuilder.getApply());
-
-      // Convert response to JSON
-      final String jsonResponse = JSON_PRINTER.print(response);
-      return ConfidenceHttpResponse.ok(jsonResponse);
-
-    } catch (InvalidProtocolBufferException e) {
-      log.warn("Invalid request format", e);
-      return ConfidenceHttpResponse.error(400);
-    } catch (Exception e) {
-      log.error("Error resolving flags", e);
-      return ConfidenceHttpResponse.error(500);
-    }
+              // Apply context decorator and resolve flags
+              return contextDecorator
+                  .decorate(ctx, req)
+                  .thenCompose(
+                      decoratedCtx -> {
+                        final List<String> flagNames =
+                            new ArrayList<>(resolveRequestBuilder.getFlagsList());
+                        return provider.resolve(
+                            decoratedCtx, flagNames, resolveRequestBuilder.getApply());
+                      })
+                  .thenApply(
+                      response -> {
+                        try {
+                          final String jsonResponse = JSON_PRINTER.print(response);
+                          return ConfidenceHttpResponse.ok(jsonResponse);
+                        } catch (InvalidProtocolBufferException e) {
+                          log.warn("Invalid response format", e);
+                          return ConfidenceHttpResponse.error(500);
+                        }
+                      });
+            })
+        .exceptionally(
+            e -> {
+              log.error("Error resolving flags", e);
+              return ConfidenceHttpResponse.error(500);
+            });
   }
 
   /**

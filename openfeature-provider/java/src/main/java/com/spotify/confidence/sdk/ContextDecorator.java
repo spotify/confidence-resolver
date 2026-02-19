@@ -1,7 +1,9 @@
 package com.spotify.confidence.sdk;
 
 import dev.openfeature.sdk.MutableContext;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.BiConsumer;
 
 /**
  * Decorates the evaluation context with additional data from the request. Use cases include adding
@@ -10,23 +12,15 @@ import java.util.concurrent.CompletionStage;
  * <p>The type parameter {@code R} allows decorators to work with richer request types that extend
  * {@link ConfidenceHttpRequest} with additional framework-specific methods.
  *
- * <p>Example:
+ * <p>For synchronous decorators, use the {@link #sync(BiConsumer)} factory method:
  *
  * <pre>{@code
- * ContextDecorator<ConfidenceHttpRequest> decorator = (ctx, req) -> {
- *     // Add user ID from auth header
+ * ContextDecorator<ConfidenceHttpRequest> decorator = ContextDecorator.sync((ctx, req) -> {
  *     List<String> userIds = req.headers().get("X-User-Id");
  *     if (userIds != null && !userIds.isEmpty()) {
  *         ctx.add("user_id", userIds.get(0));
  *     }
- *
- *     // Add request source
- *     ctx.add("request_source", "backend_proxy");
- *     return CompletableFuture.completedFuture(null);
- * };
- *
- * FlagResolverService<ConfidenceHttpRequest> service =
- *     new FlagResolverService<>(provider, decorator);
+ * });
  * }</pre>
  *
  * @param <R> the request type, must extend {@link ConfidenceHttpRequest}
@@ -37,12 +31,28 @@ public interface ContextDecorator<R extends ConfidenceHttpRequest> {
 
   /**
    * Decorates the evaluation context with additional data from the request. The returned
-   * CompletionStage completes when the decoration is done, allowing async operations such as
+   * CompletionStage completes with the decorated context, allowing async operations such as
    * fetching data from external services.
    *
    * @param context the mutable evaluation context to decorate
    * @param request the incoming request containing headers and other metadata
-   * @return a CompletionStage that completes when decoration is done
+   * @return a CompletionStage that completes with the decorated context
    */
-  CompletionStage<Void> decorate(MutableContext context, R request);
+  CompletionStage<MutableContext> decorate(MutableContext context, R request);
+
+  /**
+   * Creates a synchronous context decorator from a {@link BiConsumer}. The consumer mutates the
+   * context in place and the decorated context is returned in a completed future.
+   *
+   * @param decorator the synchronous decorator
+   * @param <R> the request type
+   * @return a context decorator that completes immediately
+   */
+  static <R extends ConfidenceHttpRequest> ContextDecorator<R> sync(
+      BiConsumer<MutableContext, R> decorator) {
+    return (ctx, req) -> {
+      decorator.accept(ctx, req);
+      return CompletableFuture.completedFuture(ctx);
+    };
+  }
 }

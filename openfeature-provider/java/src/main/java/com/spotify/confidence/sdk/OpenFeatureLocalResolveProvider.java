@@ -460,7 +460,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * @param apply whether to mark the flags as applied immediately
    * @return the resolve response containing all resolved flags
    */
-  ResolveFlagsResponse resolve(EvaluationContext ctx, List<String> flagNames, boolean apply) {
+  CompletionStage<ResolveFlagsResponse> resolve(
+      EvaluationContext ctx, List<String> flagNames, boolean apply) {
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
 
     final var reqBuilder =
@@ -484,18 +485,13 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       }
     }
 
-    try {
-      return wasmResolveApi
-          .resolveWithSticky(
-              ResolveWithStickyRequest.newBuilder()
-                  .setResolveRequest(reqBuilder.build())
-                  .setFailFastOnSticky(false)
-                  .build())
-          .toCompletableFuture()
-          .get();
-    } catch (ExecutionException | InterruptedException e) {
-      throw new RuntimeException("Failed to resolve flags", e);
-    }
+    return wasmResolveApi
+        .resolveWithSticky(
+            ResolveWithStickyRequest.newBuilder()
+                .setResolveRequest(reqBuilder.build())
+                .setFailFastOnSticky(false)
+                .build())
+        .toCompletableFuture();
   }
 
   /**

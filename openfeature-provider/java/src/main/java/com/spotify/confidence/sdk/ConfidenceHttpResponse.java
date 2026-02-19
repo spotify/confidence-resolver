@@ -11,10 +11,11 @@ import java.util.Map;
  * <pre>{@code
  * app.post("/v1/flags:resolve", ctx -> {
  *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
- *     ConfidenceHttpResponse response = flagResolver.handleResolve(request);
- *     ctx.status(response.statusCode())
- *        .contentType("application/json")
- *        .result(response.body());
+ *     flagResolver.handleResolve(request).thenAccept(response -> {
+ *         ctx.status(response.statusCode())
+ *            .contentType("application/json")
+ *            .result(response.body());
+ *     });
  * });
  * }</pre>
  */
