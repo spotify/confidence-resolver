@@ -177,7 +177,7 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
     final ProviderEvaluation<Value> evaluation =
         provider.getObjectEvaluation("tutorial-feature", new Value("default"), context);
 
-    assertThat(evaluation.getReason()).isEqualTo("RESOLVE_REASON_MATCH");
+    assertThat(evaluation.getReason()).isEqualTo("TARGETING_MATCH");
     assertThat(evaluation.getVariant()).isNotNull();
     assertThat(evaluation.getVariant())
         .isEqualTo("flags/tutorial-feature/variants/exciting-welcome");
