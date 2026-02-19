@@ -290,7 +290,8 @@ public class FlagServlet extends HttpServlet {
             response = flagResolverService.handleResolve(toConfidenceRequest(req))
                     .toCompletableFuture().join();
         } else if (req.getPathInfo().endsWith("v1/flags:apply")) {
-            response = flagResolverService.handleApply(toConfidenceRequest(req));
+            response = flagResolverService.handleApply(toConfidenceRequest(req))
+                    .toCompletableFuture().join();
         } else {
             resp.setStatus(404);
             return;
@@ -298,9 +299,7 @@ public class FlagServlet extends HttpServlet {
 
         resp.setStatus(response.statusCode());
         response.headers().forEach(resp::setHeader);
-        if (response.body() != null) {
-            resp.getOutputStream().write(response.body());
-        }
+        resp.getOutputStream().write(response.body());
     }
 
     private ConfidenceHttpRequest toConfidenceRequest(HttpServletRequest req) {

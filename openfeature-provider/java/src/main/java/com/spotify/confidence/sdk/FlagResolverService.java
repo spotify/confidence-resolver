@@ -10,7 +10,6 @@ import dev.openfeature.sdk.ImmutableContext;
 import dev.openfeature.sdk.MutableContext;
 import dev.openfeature.sdk.MutableStructure;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,10 +57,11 @@ import org.slf4j.LoggerFactory;
  *
  * app.post("/v1/flags:apply", ctx -> {
  *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
- *     ConfidenceHttpResponse response = flagResolver.handleApply(request);
- *     ctx.status(response.statusCode())
- *        .contentType("application/json")
- *        .result(response.body());
+ *     flagResolver.handleApply(request).thenAccept(response -> {
+ *         ctx.status(response.statusCode())
+ *            .contentType("application/json")
+ *            .result(response.body());
+ *     });
  * });
  * }</pre>
  */
@@ -143,10 +143,10 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
                   .decorate(ctx, req)
                   .thenCompose(
                       decoratedCtx -> {
-                        final List<String> flagNames =
-                            new ArrayList<>(resolveRequestBuilder.getFlagsList());
                         return provider.resolve(
-                            decoratedCtx, flagNames, resolveRequestBuilder.getApply());
+                            decoratedCtx,
+                            resolveRequestBuilder.getFlagsList(),
+                            resolveRequestBuilder.getApply());
                       })
                   .thenApply(
                       response -> {
@@ -170,17 +170,17 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
    * Handles POST /v1/flags:apply requests from client SDKs.
    *
    * @param request the incoming HTTP request
-   * @return the response to send back to the client
+   * @return a CompletionStage that completes with the response to send back to the client
    */
-  public ConfidenceHttpResponse handleApply(R request) {
+  public CompletionStage<ConfidenceHttpResponse> handleApply(R request) {
     // Validate HTTP method
     if (!"POST".equalsIgnoreCase(request.method())) {
-      return ConfidenceHttpResponse.error(405);
+      return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(405));
     }
 
     // Validate content type
     if (!isJsonContentType(request)) {
-      return ConfidenceHttpResponse.error(415);
+      return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(415));
     }
 
     try {
@@ -188,7 +188,7 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
       final byte[] body = request.body();
       if (body == null || body.length == 0) {
         log.warn("Empty request body");
-        return ConfidenceHttpResponse.error(400);
+        return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(400));
       }
       final String requestBody = new String(body, StandardCharsets.UTF_8);
       final ApplyFlagsRequest.Builder applyRequestBuilder = ApplyFlagsRequest.newBuilder();
@@ -201,14 +201,14 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
       provider.applyFlags(applyRequest);
 
       // Return empty JSON response
-      return ConfidenceHttpResponse.ok("{}");
+      return CompletableFuture.completedFuture(ConfidenceHttpResponse.ok("{}"));
 
     } catch (InvalidProtocolBufferException e) {
       log.warn("Invalid request format", e);
-      return ConfidenceHttpResponse.error(400);
+      return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(400));
     } catch (Exception e) {
       log.error("Error applying flags", e);
-      return ConfidenceHttpResponse.error(500);
+      return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(500));
     }
   }
 
@@ -276,11 +276,12 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
   }
 
   private static boolean isJsonContentType(ConfidenceHttpRequest request) {
-    final List<String> contentTypes = request.headers().get("Content-Type");
-    if (contentTypes == null || contentTypes.isEmpty()) {
-      return false;
-    }
-    final String contentType = contentTypes.get(0).toLowerCase();
-    return contentType.startsWith("application/json");
+    return request.headers().entrySet().stream()
+        .filter(e -> e.getKey().equalsIgnoreCase("Content-Type"))
+        .map(Map.Entry::getValue)
+        .flatMap(List::stream)
+        .findFirst()
+        .map(ct -> ct.toLowerCase().startsWith("application/json"))
+        .orElse(false);
   }
 }

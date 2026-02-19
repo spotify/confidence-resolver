@@ -474,7 +474,7 @@ class FlagResolverServiceTest {
     void shouldReturn405ForNonPostMethod() {
       ConfidenceHttpRequest request = createRequest("GET", "{}");
 
-      ConfidenceHttpResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(405);
     }
@@ -485,7 +485,7 @@ class FlagResolverServiceTest {
           createRequestWithHeaders(
               "POST", "{}", Map.of("Content-Type", List.of("application/xml")));
 
-      ConfidenceHttpResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(415);
     }
@@ -494,7 +494,7 @@ class FlagResolverServiceTest {
     void shouldReturn400ForInvalidJson() {
       ConfidenceHttpRequest request = createRequest("POST", "invalid json");
 
-      ConfidenceHttpResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(400);
     }
@@ -510,7 +510,7 @@ class FlagResolverServiceTest {
           """;
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
       assertThat(readBody(response)).isEqualTo("{}");
@@ -536,7 +536,7 @@ class FlagResolverServiceTest {
           """;
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
 
@@ -558,7 +558,7 @@ class FlagResolverServiceTest {
       doThrow(new RuntimeException("Apply failed")).when(mockProvider).applyFlags(any());
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(500);
     }
@@ -574,7 +574,7 @@ class FlagResolverServiceTest {
           """;
 
       ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleApply(request);
+      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
 
       assertThat(response.statusCode()).isEqualTo(200);
 
@@ -671,6 +671,46 @@ class FlagResolverServiceTest {
 
       assertThat(capturedContext.get().getValue("country").asString()).isEqualTo("SE");
       assertThat(capturedContext.get().getValue("source").asString()).isEqualTo("backend_proxy");
+    }
+  }
+
+  @Nested
+  class ContentTypeCaseInsensitivity {
+
+    @Test
+    void shouldAcceptLowercaseContentType() {
+      String requestBody =
+          """
+          {"flags": [], "evaluationContext": {}, "apply": false}
+          """;
+
+      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
+          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
+
+      ConfidenceHttpRequest request =
+          createRequestWithHeaders(
+              "POST", requestBody, Map.of("content-type", List.of("application/json")));
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
+
+      assertThat(response.statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void shouldAcceptMixedCaseContentType() {
+      String requestBody =
+          """
+          {"flags": [], "evaluationContext": {}, "apply": false}
+          """;
+
+      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
+          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
+
+      ConfidenceHttpRequest request =
+          createRequestWithHeaders(
+              "POST", requestBody, Map.of("Content-type", List.of("application/json")));
+      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
+
+      assertThat(response.statusCode()).isEqualTo(200);
     }
   }
 

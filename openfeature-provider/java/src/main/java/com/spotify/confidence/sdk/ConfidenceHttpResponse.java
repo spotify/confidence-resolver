@@ -50,6 +50,6 @@ public record ConfidenceHttpResponse(int statusCode, byte[] body, Map<String, St
    * @return an error response with the given status code and no body
    */
   public static ConfidenceHttpResponse error(int statusCode) {
-    return new ConfidenceHttpResponse(statusCode, null, Map.of());
+    return new ConfidenceHttpResponse(statusCode, new byte[0], Map.of());
   }
 }
