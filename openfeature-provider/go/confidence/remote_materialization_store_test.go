@@ -238,44 +238,36 @@ func TestRemoteMaterializationStore_ErrorPropagation_InProvider(t *testing.T) {
 	// Create remote store
 	remoteStore := newRemoteMaterializationStore(mockClient, "test-secret")
 
-	// Create mocked resolver that requests missing materializations
+	// Create mocked resolver that returns Suspended needing materializations
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &wasm.ResolveWithStickyResponse{
-			ResolveResult: &wasm.ResolveWithStickyResponse_ReadOpsRequest{
-				ReadOpsRequest: &pb.ReadOperationsRequest{
-					Ops: []*pb.ReadOp{
+		Response: &wasm.ResolveProcessResponse{
+			Result: &wasm.ResolveProcessResponse_Suspended_{
+				Suspended: &wasm.ResolveProcessResponse_Suspended{
+					MaterializationsToRead: []*wasm.MaterializationRecord{
 						{
-							Op: &pb.ReadOp_VariantReadOp{
-								VariantReadOp: &pb.VariantReadOp{
-									Unit:            "test-user-123",
-									Materialization: "experiment_v1",
-									Rule:            "flags/sticky-test-flag/rules/sticky-rule",
-								},
-							},
+							Unit:            "test-user-123",
+							Materialization: "experiment_v1",
+							Rule:            "flags/sticky-test-flag/rules/sticky-rule",
 						},
 					},
+					State: []byte{1, 2, 3},
 				},
 			},
 		},
 	}
 
-	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
-		Materializations: []*pb.ReadResult{},
-		FailFastOnSticky: false,
-		NotProcessSticky: false,
-	}
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
 	materializationResolver := newMaterializationSupportedResolver(remoteStore, mockedResolver)
 
 	// The error from the remote store should be propagated
-	_, err := materializationResolver.ResolveWithSticky(request)
+	_, err := materializationResolver.ResolveProcess(request)
 	if err == nil {
 		t.Fatal("expected error to be propagated, got nil")
 	}
 
 	// Verify the error message contains information about the remote failure
-	expectedErrMsg := "failed to handle missing materializations: failed to read materialized operations: rpc error: code = Unavailable desc = service unavailable"
+	expectedErrMsg := "failed to read materializations: failed to read materialized operations: rpc error: code = Unavailable desc = service unavailable"
 	if err.Error() != expectedErrMsg {
 		t.Errorf("expected error message %q, got %q", expectedErrMsg, err.Error())
 	}
@@ -296,11 +288,11 @@ func TestRemoteMaterializationStore_WriteErrorDoesNotBlock(t *testing.T) {
 	remoteStore := newRemoteMaterializationStore(mockClient, "test-secret")
 
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &wasm.ResolveWithStickyResponse{
-			ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
-				Success: &wasm.ResolveWithStickyResponse_Success{
+		Response: &wasm.ResolveProcessResponse{
+			Result: &wasm.ResolveProcessResponse_Resolved_{
+				Resolved: &wasm.ResolveProcessResponse_Resolved{
 					Response: tu.CreateTutorialFeatureResponse(),
-					MaterializationUpdates: []*pb.VariantData{
+					MaterializationsToWrite: []*wasm.MaterializationRecord{
 						{
 							Materialization: "experiment_v1",
 							Unit:            "test-user-123",
@@ -313,17 +305,12 @@ func TestRemoteMaterializationStore_WriteErrorDoesNotBlock(t *testing.T) {
 		},
 	}
 
-	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
-		Materializations: []*pb.ReadResult{},
-		FailFastOnSticky: false,
-		NotProcessSticky: false,
-	}
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
 	materializationResolver := newMaterializationSupportedResolver(remoteStore, mockedResolver)
 
 	// Resolution should succeed even though write will fail
-	response, err := materializationResolver.ResolveWithSticky(request)
+	response, err := materializationResolver.ResolveProcess(request)
 	if err != nil {
 		t.Fatalf("expected no error (write is async), got %v", err)
 	}

@@ -17,6 +17,7 @@ ifneq ($(IN_DOCKER_BUILD),1)
 .PHONY: build-wasm
 build-wasm:
 	@$(MAKE) -C $(ROOT) wasm/confidence_resolver.wasm
+	@cp $(WASM_ARTIFACT) confidence/internal/local_resolver/assets/
 $(BUILD_STAMP): | build-wasm
 endif
 

@@ -43,9 +43,9 @@ func (r *WasmResolver) SetResolverState(request *wasm.SetResolverStateRequest) e
 	return r.call("wasm_msg_guest_set_resolver_state", request, nil)
 }
 
-func (r *WasmResolver) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
-	resp := &wasm.ResolveWithStickyResponse{}
-	err := r.call("wasm_msg_guest_resolve_with_sticky", request, resp)
+func (r *WasmResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
+	resp := &wasm.ResolveProcessResponse{}
+	err := r.call("wasm_msg_guest_resolve_flags", request, resp)
 	return resp, err
 }
 

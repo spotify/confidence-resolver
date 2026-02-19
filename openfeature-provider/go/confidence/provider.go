@@ -14,7 +14,6 @@ import (
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -221,16 +220,17 @@ func evaluate[T any](
 		},
 	}
 
-	// Create ResolveWithSticky request
-	stickyRequest := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   request,
-		Materializations: make([]*resolverinternal.ReadResult, 0),
-		FailFastOnSticky: false,
-		NotProcessSticky: false,
+	// Create ResolveProcess request without materialization support.
+	// Flags that require materializations will error gracefully.
+	// When materialization support is enabled, the materializationSupportedResolver
+	// wrapper overrides this with DeferredMaterializations and handles suspend/resume.
+	processRequest := &wasm.ResolveProcessRequest{
+		Resolve: &wasm.ResolveProcessRequest_WithoutMaterializations{
+			WithoutMaterializations: request,
+		},
 	}
 
-	// Resolve flags with sticky support
-	stickyResponse, err := p.resolver.ResolveWithSticky(stickyRequest)
+	processResponse, err := p.resolver.ResolveProcess(processRequest)
 	if err != nil {
 		p.logger.Error("Failed to resolve flag", "flag", flagName, "error", err)
 		return openfeature.GenericResolutionDetail[T]{
@@ -242,18 +242,18 @@ func evaluate[T any](
 		}
 	}
 
-	// Extract the actual resolve response from the sticky response
+	// Extract the actual resolve response
 	var response *resolver.ResolveFlagsResponse
-	switch result := stickyResponse.ResolveResult.(type) {
-	case *wasm.ResolveWithStickyResponse_Success_:
-		response = result.Success.Response
-	case *wasm.ResolveWithStickyResponse_ReadOpsRequest:
-		p.logger.Error("Missing materializations for flag", "flag", flagName)
+	switch result := processResponse.Result.(type) {
+	case *wasm.ResolveProcessResponse_Resolved_:
+		response = result.Resolved.Response
+	case *wasm.ResolveProcessResponse_Suspended_:
+		p.logger.Error("Unexpected suspended response for flag", "flag", flagName)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewGeneralResolutionError("missing materializations"),
+				ResolutionError: openfeature.NewGeneralResolutionError("unexpected suspended response"),
 			},
 		}
 	default:
