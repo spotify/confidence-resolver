@@ -2,19 +2,19 @@ package com.spotify.confidence.sdk;
 
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import java.util.concurrent.CompletionStage;
 
 /** Common interface for WASM-based flag resolver implementations. */
 interface ResolverApi {
 
   /**
-   * Resolves flags with sticky assignment support.
+   * Resolves flags with materialization support (suspend/resume).
    *
-   * @param request The resolve request with sticky context
+   * @param request The resolve process request
    * @return A future containing the resolve response
    */
-  CompletionStage<ResolveFlagsResponse> resolveWithSticky(ResolveWithStickyRequest request);
+  CompletionStage<ResolveFlagsResponse> resolveProcess(ResolveProcessRequest request);
 
   void init(byte[] state, String accountId);
 

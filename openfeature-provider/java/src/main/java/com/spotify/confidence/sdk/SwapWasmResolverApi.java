@@ -10,7 +10,6 @@ import java.util.stream.Collectors;
 
 class SwapWasmResolverApi implements ResolverApi {
   private static final int MAX_CLOSED_RETRIES = 10;
-  private static final int MAX_MATERIALIZATION_RETRIES = 3;
 
   private final AtomicReference<WasmResolveApi> wasmResolverApiRef = new AtomicReference<>();
   private final MaterializationStore materializationStore;
@@ -53,10 +52,6 @@ class SwapWasmResolverApi implements ResolverApi {
     }
   }
 
-  /**
-   * Closes the current WasmResolveApi instance, flushing any pending logs. This ensures all
-   * buffered log data is sent before shutdown completes.
-   */
   @Override
   public void close() {
     final WasmResolveApi currentInstance = wasmResolverApiRef.getAndSet(null);
@@ -66,82 +61,103 @@ class SwapWasmResolverApi implements ResolverApi {
   }
 
   @Override
-  public CompletionStage<ResolveFlagsResponse> resolveWithSticky(ResolveWithStickyRequest request) {
-    return resolveWithStickyInternal(request, 0, 0);
+  public CompletionStage<ResolveFlagsResponse> resolveProcess(ResolveProcessRequest request) {
+    // Convert WithoutMaterializations to DeferredMaterializations so the WASM resolver
+    // can suspend when materializations are needed — this middleware handles suspend/resume.
+    ResolveProcessRequest innerRequest = request;
+    if (request.hasWithoutMaterializations()) {
+      innerRequest =
+          ResolveProcessRequest.newBuilder()
+              .setDeferredMaterializations(request.getWithoutMaterializations())
+              .build();
+    }
+    return callWasm(innerRequest).thenCompose(this::handleResponse);
   }
 
-  private CompletionStage<ResolveFlagsResponse> resolveWithStickyInternal(
-      ResolveWithStickyRequest request, int closedRetries, int materializationRetries) {
+  private CompletionStage<ResolveFlagsResponse> handleResponse(ResolveProcessResponse response) {
+    switch (response.getResultCase()) {
+      case RESOLVED -> {
+        final var resolved = response.getResolved();
+        if (!resolved.getMaterializationsToWriteList().isEmpty()) {
+          storeWrites(resolved.getMaterializationsToWriteList());
+        }
+        return CompletableFuture.completedFuture(resolved.getResponse());
+      }
+      case SUSPENDED -> {
+        final var suspended = response.getSuspended();
+        return handleSuspended(suspended)
+            .thenCompose(this::callWasm)
+            .thenCompose(this::handleResumeResponse);
+      }
+      case RESULT_NOT_SET -> throw new RuntimeException("Invalid response: resolve result not set");
+      default -> throw new RuntimeException("Unhandled response case: " + response.getResultCase());
+    }
+  }
+
+  private CompletionStage<ResolveFlagsResponse> handleResumeResponse(
+      ResolveProcessResponse response) {
+    switch (response.getResultCase()) {
+      case RESOLVED -> {
+        final var resolved = response.getResolved();
+        if (!resolved.getMaterializationsToWriteList().isEmpty()) {
+          storeWrites(resolved.getMaterializationsToWriteList());
+        }
+        return CompletableFuture.completedFuture(resolved.getResponse());
+      }
+      case SUSPENDED -> throw new RuntimeException("Unexpected second suspend after resume");
+      case RESULT_NOT_SET ->
+          throw new RuntimeException("Invalid response after resume: result not set");
+      default ->
+          throw new RuntimeException(
+              "Unhandled response case after resume: " + response.getResultCase());
+    }
+  }
+
+  private CompletionStage<ResolveProcessResponse> callWasm(ResolveProcessRequest request) {
+    return callWasmWithRetry(request, 0);
+  }
+
+  private CompletionStage<ResolveProcessResponse> callWasmWithRetry(
+      ResolveProcessRequest request, int closedRetries) {
     final var instance = wasmResolverApiRef.get();
-    final ResolveWithStickyResponse response;
     try {
-      response = instance.resolveWithSticky(request);
+      return CompletableFuture.completedFuture(instance.resolveProcess(request));
     } catch (IsClosedException e) {
       if (closedRetries >= MAX_CLOSED_RETRIES) {
         throw new RuntimeException(
             "Max retries exceeded for IsClosedException: " + MAX_CLOSED_RETRIES, e);
       }
-      return resolveWithStickyInternal(request, closedRetries + 1, materializationRetries);
-    }
-
-    switch (response.getResolveResultCase()) {
-      case SUCCESS -> {
-        final var success = response.getSuccess();
-        if (!success.getMaterializationUpdatesList().isEmpty()) {
-          storeUpdates(success.getMaterializationUpdatesList());
-        }
-        return CompletableFuture.completedFuture(success.getResponse());
-      }
-      case READ_OPS_REQUEST -> {
-        if (materializationRetries >= MAX_MATERIALIZATION_RETRIES) {
-          throw new RuntimeException(
-              "Max retries exceeded for missing materializations: " + MAX_MATERIALIZATION_RETRIES);
-        }
-        return handleMissingMaterializations(request, response.getReadOpsRequest().getOpsList())
-            .thenCompose(
-                req -> resolveWithStickyInternal(req, closedRetries, materializationRetries + 1));
-      }
-      case RESOLVERESULT_NOT_SET ->
-          throw new RuntimeException("Invalid response: resolve result not set");
-      default ->
-          throw new RuntimeException("Unhandled response case: " + response.getResolveResultCase());
+      return callWasmWithRetry(request, closedRetries + 1);
     }
   }
 
-  private CompletionStage<Void> storeUpdates(List<VariantData> updates) {
+  private CompletionStage<Void> storeWrites(List<MaterializationRecord> records) {
     final Set<MaterializationStore.WriteOp> writeOps =
-        updates.stream()
+        records.stream()
             .map(
-                u ->
+                r ->
                     new MaterializationStore.WriteOp.Variant(
-                        u.getMaterialization(), u.getUnit(), u.getRule(), u.getVariant()))
+                        r.getMaterialization(), r.getUnit(), r.getRule(), r.getVariant()))
             .collect(Collectors.toSet());
 
     return materializationStore.write(writeOps);
   }
 
-  private CompletionStage<ResolveWithStickyRequest> handleMissingMaterializations(
-      ResolveWithStickyRequest request, List<ReadOp> readOpList) {
+  private CompletionStage<ResolveProcessRequest> handleSuspended(
+      ResolveProcessResponse.Suspended suspended) {
+    final List<MaterializationRecord> toRead = suspended.getMaterializationsToReadList();
 
+    // Convert MaterializationRecords to ReadOps
     final List<? extends MaterializationStore.ReadOp> readOps =
-        readOpList.stream()
+        toRead.stream()
             .map(
-                ro -> {
-                  switch (ro.getOpCase()) {
-                    case VARIANT_READ_OP -> {
-                      final var variantReadOp = ro.getVariantReadOp();
-                      return new MaterializationStore.ReadOp.Variant(
-                          variantReadOp.getMaterialization(),
-                          variantReadOp.getUnit(),
-                          variantReadOp.getRule());
-                    }
-                    case INCLUSION_READ_OP -> {
-                      final var inclusionReadOp = ro.getInclusionReadOp();
-                      return new MaterializationStore.ReadOp.Inclusion(
-                          inclusionReadOp.getMaterialization(), inclusionReadOp.getUnit());
-                    }
-                    default ->
-                        throw new RuntimeException("Unhandled read op case: " + ro.getOpCase());
+                record -> {
+                  if (!record.getRule().isEmpty()) {
+                    return new MaterializationStore.ReadOp.Variant(
+                        record.getMaterialization(), record.getUnit(), record.getRule());
+                  } else {
+                    return new MaterializationStore.ReadOp.Inclusion(
+                        record.getMaterialization(), record.getUnit());
                   }
                 })
             .toList();
@@ -150,28 +166,44 @@ class SwapWasmResolverApi implements ResolverApi {
         .read(readOps)
         .thenApply(
             results -> {
-              final ResolveWithStickyRequest.Builder requestBuilder = request.toBuilder();
-              results.forEach(
-                  rr -> {
-                    final var builder = ReadResult.newBuilder();
-                    if (rr instanceof MaterializationStore.ReadResult.Variant variant) {
-                      builder.setVariantResult(
-                          VariantData.newBuilder()
-                              .setMaterialization(variant.materialization())
-                              .setUnit(variant.unit())
-                              .setRule(variant.rule())
-                              .setVariant(variant.variant().orElse("")));
-                    }
-                    if (rr instanceof MaterializationStore.ReadResult.Inclusion inclusion) {
-                      builder.setInclusionResult(
-                          InclusionData.newBuilder()
-                              .setMaterialization(inclusion.materialization())
-                              .setUnit(inclusion.unit())
-                              .setIsIncluded(inclusion.included()));
-                    }
-                    requestBuilder.addMaterializations(builder.build());
-                  });
-              return requestBuilder.build();
+              // Convert read results to MaterializationRecords for the resume request.
+              // "Not included" inclusion results are omitted (absence = not included).
+              final var materializations =
+                  results.stream()
+                      .flatMap(
+                          rr -> {
+                            if (rr instanceof MaterializationStore.ReadResult.Variant variant) {
+                              if (variant.variant().isPresent()) {
+                                return java.util.stream.Stream.of(
+                                    MaterializationRecord.newBuilder()
+                                        .setUnit(variant.unit())
+                                        .setMaterialization(variant.materialization())
+                                        .setRule(variant.rule())
+                                        .setVariant(variant.variant().get())
+                                        .build());
+                              }
+                              // No prior assignment → omit (absence = no sticky assignment)
+                            }
+                            if (rr instanceof MaterializationStore.ReadResult.Inclusion inclusion) {
+                              if (inclusion.included()) {
+                                return java.util.stream.Stream.of(
+                                    MaterializationRecord.newBuilder()
+                                        .setUnit(inclusion.unit())
+                                        .setMaterialization(inclusion.materialization())
+                                        .build());
+                              }
+                              // Not included → omit (absence = not included)
+                            }
+                            return java.util.stream.Stream.empty();
+                          })
+                      .toList();
+
+              return ResolveProcessRequest.newBuilder()
+                  .setResume(
+                      ResolveProcessRequest.Resume.newBuilder()
+                          .addAllMaterializations(materializations)
+                          .setState(suspended.getState()))
+                  .build();
             });
   }
 

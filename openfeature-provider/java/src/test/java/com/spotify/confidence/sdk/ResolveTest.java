@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -280,15 +281,14 @@ class ResolveTest {
     wasmResolverApi.updateStateAndFlushLogs(exampleStateWithMaterializationBytes, ACCOUNT);
 
     // Attempting to resolve a flag that requires materializations should throw
-    // MaterializationNotSupportedException
-    assertThatExceptionOfType(MaterializationNotSupportedException.class)
+    // MaterializationNotSupportedException (wrapped in CompletionException by join())
+    assertThatExceptionOfType(CompletionException.class)
         .isThrownBy(
             () ->
                 wasmResolverApi
-                    .resolveWithSticky(
-                        ResolveWithStickyRequest.newBuilder()
-                            .setFailFastOnSticky(false)
-                            .setResolveRequest(
+                    .resolveProcess(
+                        ResolveProcessRequest.newBuilder()
+                            .setDeferredMaterializations(
                                 ResolveFlagsRequest.newBuilder()
                                     .addAllFlags(List.of(flag1))
                                     .setClientSecret(secret.getSecret())
@@ -298,10 +298,13 @@ class ResolveTest {
                                             Values.of("foo"),
                                             "bar",
                                             Values.of(Struct.newBuilder().build())))
-                                    .setApply(true))
+                                    .setApply(true)
+                                    .build())
                             .build())
                     .toCompletableFuture()
-                    .join());
+                    .join())
+        .havingCause()
+        .isInstanceOf(MaterializationNotSupportedException.class);
   }
 
   @Test
@@ -384,12 +387,11 @@ class ResolveTest {
 
   @Test
   public void testTooLongKey() {
-    assertThatExceptionOfType(RuntimeException.class)
-        .isThrownBy(
-            () ->
-                resolveWithContext(
-                    List.of(flag1), "a".repeat(101), Struct.newBuilder().build(), false))
-        .withMessageContaining("Targeting key is too larger, max 100 characters.");
+    // Targeting key > 100 chars results in a TargetingKeyError reason, not an exception
+    ResolveFlagsResponse response =
+        resolveWithContext(List.of(flag1), "a".repeat(101), Struct.newBuilder().build(), false);
+    assertEquals(
+        ResolveReason.RESOLVE_REASON_TARGETING_KEY_ERROR, response.getResolvedFlags(0).getReason());
   }
 
   @Test
@@ -435,17 +437,17 @@ class ResolveTest {
   private ResolveFlagsResponse resolveWithContext(
       List<String> flags, String username, Struct struct, boolean apply, String secret) {
     return resolverApi
-        .resolveWithSticky(
-            ResolveWithStickyRequest.newBuilder()
-                .setFailFastOnSticky(false)
-                .setResolveRequest(
+        .resolveProcess(
+            ResolveProcessRequest.newBuilder()
+                .setDeferredMaterializations(
                     ResolveFlagsRequest.newBuilder()
                         .addAllFlags(flags)
                         .setClientSecret(secret)
                         .setEvaluationContext(
                             Structs.of(
                                 "targeting_key", Values.of(username), "bar", Values.of(struct)))
-                        .setApply(apply))
+                        .setApply(apply)
+                        .build())
                 .build())
         .toCompletableFuture()
         .join();
@@ -471,11 +473,8 @@ class ResolveTest {
     }
 
     final var request =
-        ResolveWithStickyRequest.newBuilder()
-            .setResolveRequest(builder)
-            .setFailFastOnSticky(false)
-            .build();
-    return resolverApi.resolveWithSticky(request).toCompletableFuture().join();
+        ResolveProcessRequest.newBuilder().setDeferredMaterializations(builder.build()).build();
+    return resolverApi.resolveProcess(request).toCompletableFuture().join();
   }
 
   private ResolveFlagsResponse resolveWithContext(

@@ -2,7 +2,7 @@ package com.spotify.confidence.sdk;
 
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.futures.CompletableFutures;
 import java.util.ArrayList;
 import java.util.Map;
@@ -106,11 +106,10 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
     return resolverInstances.get(instanceIndex);
   }
 
-  /** Delegates resolveWithSticky to the assigned SwapWasmResolverApi instance. */
+  /** Delegates resolveProcess to the assigned SwapWasmResolverApi instance. */
   @Override
-  public CompletableFuture<ResolveFlagsResponse> resolveWithSticky(
-      ResolveWithStickyRequest request) {
-    return getResolverForCurrentThread().resolveWithSticky(request).toCompletableFuture();
+  public CompletableFuture<ResolveFlagsResponse> resolveProcess(ResolveProcessRequest request) {
+    return getResolverForCurrentThread().resolveProcess(request).toCompletableFuture();
   }
 
   /** Closes all pre-initialized resolver instances and clears the map. */
