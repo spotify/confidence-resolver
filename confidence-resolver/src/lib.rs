@@ -914,8 +914,9 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                         Ok(matched) => matched,
                                         Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
                                             return Ok(FlagResolveResult {
-                                                resolved_value: resolved_value
-                                                    .error(ResolveReason::UnrecognizedTargetingRule),
+                                                resolved_value: resolved_value.error(
+                                                    ResolveReason::UnrecognizedTargetingRule,
+                                                ),
                                                 updates: vec![],
                                             });
                                         }
@@ -989,8 +990,9 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                         Ok(matched) => matched,
                                         Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
                                             return Ok(FlagResolveResult {
-                                                resolved_value: resolved_value
-                                                    .error(ResolveReason::UnrecognizedTargetingRule),
+                                                resolved_value: resolved_value.error(
+                                                    ResolveReason::UnrecognizedTargetingRule,
+                                                ),
                                                 updates: vec![],
                                             });
                                         }
@@ -1024,7 +1026,8 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     }
                     Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
                         return Ok(FlagResolveResult {
-                            resolved_value: resolved_value.error(ResolveReason::UnrecognizedTargetingRule),
+                            resolved_value: resolved_value
+                                .error(ResolveReason::UnrecognizedTargetingRule),
                             updates: vec![],
                         });
                     }
