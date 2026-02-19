@@ -1,7 +1,7 @@
 import { BinaryWriter } from '@bufbuild/protobuf/wire';
 import { Request, Response, Void, SetResolverStateRequest } from './proto/confidence/wasm/messages';
 import { Timestamp } from './proto/google/protobuf/timestamp';
-import { ResolveWithStickyRequest, ResolveWithStickyResponse } from './proto/confidence/wasm/wasm_api';
+import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
 import { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
 import { LocalResolver } from './LocalResolver';
 import { getLogger } from './logger';
@@ -16,7 +16,7 @@ export type Codec<T> = {
 const EXPORT_FN_NAMES = [
   'wasm_msg_alloc',
   'wasm_msg_free',
-  'wasm_msg_guest_resolve_with_sticky',
+  'wasm_msg_guest_resolve_flags',
   'wasm_msg_guest_set_resolver_state',
   'wasm_msg_guest_bounded_flush_logs',
   'wasm_msg_guest_bounded_flush_assign',
@@ -60,10 +60,10 @@ export class UnsafeWasmResolver implements LocalResolver {
     this.exports = exports;
   }
 
-  resolveWithSticky(request: ResolveWithStickyRequest): ResolveWithStickyResponse {
-    const reqPtr = this.transferRequest(request, ResolveWithStickyRequest);
-    const resPtr = this.exports.wasm_msg_guest_resolve_with_sticky(reqPtr);
-    return this.consumeResponse(resPtr, ResolveWithStickyResponse);
+  resolveProcess(request: ResolveProcessRequest): ResolveProcessResponse {
+    const reqPtr = this.transferRequest(request, ResolveProcessRequest);
+    const resPtr = this.exports.wasm_msg_guest_resolve_flags(reqPtr);
+    return this.consumeResponse(resPtr, ResolveProcessResponse);
   }
 
   setResolverState(request: SetResolverStateRequest): void {
@@ -161,9 +161,9 @@ export class WasmResolver implements LocalResolver {
     }
   }
 
-  resolveWithSticky(request: ResolveWithStickyRequest): ResolveWithStickyResponse {
+  resolveProcess(request: ResolveProcessRequest): ResolveProcessResponse {
     try {
-      return this.delegate.resolveWithSticky(request);
+      return this.delegate.resolveProcess(request);
     } catch (error: unknown) {
       if (error instanceof WebAssembly.RuntimeError) {
         this.reloadInstance(error);
