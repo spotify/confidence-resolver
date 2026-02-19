@@ -5,7 +5,6 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.Struct;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveReason;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
@@ -439,7 +438,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         // regular resolve was successful
         return ProviderEvaluation.<Value>builder()
             .value(value)
-            .reason(mapResolveReason(resolvedFlag.getReason()))
+            .reason(resolvedFlag.getReason().toString())
             .variant(resolvedFlag.getVariant())
             .build();
       }
@@ -448,23 +447,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       throw new GeneralError("Unknown error occurred when calling the provider backend");
     } catch (ExecutionException | InterruptedException e) {
       throw new RuntimeException(e);
-    }
-  }
-
-  private static String mapResolveReason(ResolveReason reason) {
-    switch (reason) {
-      case RESOLVE_REASON_MATCH:
-        return Reason.TARGETING_MATCH.toString();
-      case RESOLVE_REASON_NO_SEGMENT_MATCH:
-        return Reason.DEFAULT.toString();
-      case RESOLVE_REASON_FLAG_ARCHIVED:
-        return Reason.DISABLED.toString();
-      case RESOLVE_REASON_TARGETING_KEY_ERROR:
-      case RESOLVE_REASON_ERROR:
-      case RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE:
-        return Reason.ERROR.toString();
-      default:
-        return Reason.UNKNOWN.toString();
     }
   }
 

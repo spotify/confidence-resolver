@@ -96,7 +96,7 @@ class OpenFeatureLocalResolveProviderIT {
 
     assertEquals(3.6, details.getValue(), 0.001);
     assertEquals("flags/web-sdk-e2e-flag/variants/control", details.getVariant());
-    assertEquals("TARGETING_MATCH", details.getReason());
+    assertEquals("RESOLVE_REASON_MATCH", details.getReason());
   }
 
   @Test
@@ -112,7 +112,7 @@ class OpenFeatureLocalResolveProviderIT {
     // materialization was cleaned out.
     assertEquals(99.99, details.getValue(), 0.001);
     assertEquals("flags/web-sdk-e2e-flag/variants/sticky", details.getVariant());
-    assertEquals("TARGETING_MATCH", details.getReason());
+    assertEquals("RESOLVE_REASON_MATCH", details.getReason());
   }
 
   @Test
@@ -130,7 +130,7 @@ class OpenFeatureLocalResolveProviderIT {
     assertEquals("Did someone say CAKE?!", detailsIncluded.getValue());
     assertEquals(
         "flags/custom-targeted-flag/variants/cake-exclamation", detailsIncluded.getVariant());
-    assertEquals("TARGETING_MATCH", detailsIncluded.getReason());
+    assertEquals("RESOLVE_REASON_MATCH", detailsIncluded.getReason());
 
     final FlagEvaluationDetails<String> detailsExcluded =
         client.getStringDetails(
@@ -141,6 +141,6 @@ class OpenFeatureLocalResolveProviderIT {
     // `user-x` falls through to be assigned to the default variant
     assertEquals("nothing fun", detailsExcluded.getValue());
     assertEquals("flags/custom-targeted-flag/variants/default", detailsExcluded.getVariant());
-    assertEquals("TARGETING_MATCH", detailsExcluded.getReason());
+    assertEquals("RESOLVE_REASON_MATCH", detailsExcluded.getReason());
   }
 }
