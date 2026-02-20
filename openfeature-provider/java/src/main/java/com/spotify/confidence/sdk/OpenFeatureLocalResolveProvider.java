@@ -53,10 +53,13 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final MaterializationStore materializationStore;
   private final ResolverApi wasmResolveApi;
   private static final Duration POLL_LOG_INTERVAL = Duration.ofSeconds(10);
+  private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(30);
   private final ScheduledExecutorService flagsFetcherExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
   private final ScheduledExecutorService logPollExecutor =
+      Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
+  private final ScheduledExecutorService assignLogExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
   private final AccountStateProvider stateProvider;
   private final AtomicReference<ProviderState> state =
@@ -226,6 +229,16 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         POLL_LOG_INTERVAL.getSeconds(),
         POLL_LOG_INTERVAL.getSeconds(),
         TimeUnit.SECONDS);
+
+    assignLogExecutor.scheduleAtFixedRate(
+        () -> {
+          if (wasmResolveApi.isInitialized()) {
+            wasmResolveApi.flushAssignLogs();
+          }
+        },
+        ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
+        ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
+        TimeUnit.MILLISECONDS);
   }
 
   private void scheduleStateRefresh(
@@ -332,6 +345,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     log.debug("Shutting down scheduled executors");
     flagsFetcherExecutor.shutdown();
     logPollExecutor.shutdown();
+    assignLogExecutor.shutdown();
 
     try {
       if (!flagsFetcherExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
@@ -342,10 +356,15 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         log.warn("Log poll executor did not terminate gracefully");
         logPollExecutor.shutdownNow();
       }
+      if (!assignLogExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+        log.warn("Assign log executor did not terminate gracefully");
+        assignLogExecutor.shutdownNow();
+      }
     } catch (InterruptedException e) {
       log.warn("Interrupted while waiting for scheduled executors to shut down", e);
       flagsFetcherExecutor.shutdownNow();
       logPollExecutor.shutdownNow();
+      assignLogExecutor.shutdownNow();
       Thread.currentThread().interrupt();
     }
 
