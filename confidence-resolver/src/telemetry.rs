@@ -2,7 +2,6 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use crate::ResolveReason;
 
-
 mod pb {
     pub use crate::proto::confidence::flags::resolver::v1::telemetry_data::{
         BucketSpan, ResolveLatency, ResolveRate, StateAge,
@@ -157,7 +156,7 @@ impl Telemetry {
     }
 
     /// Increment the resolve rate counter for the given reason.
-    pub fn mark_resolve(&self, reason: ResolveReason ) {
+    pub fn mark_resolve(&self, reason: ResolveReason) {
         if let Some(counter) = self.resolve_rates.get(reason as usize) {
             counter.fetch_add(1, Ordering::Relaxed);
         }
@@ -347,12 +346,16 @@ mod tests {
 
         assert_eq!(data.resolve_rate.len(), 2);
 
-        let match_rate = data.resolve_rate.iter()
+        let match_rate = data
+            .resolve_rate
+            .iter()
             .find(|r| r.reason == ResolveReason::Match as i32)
             .expect("should have Match reason");
         assert_eq!(match_rate.count, 2);
 
-        let no_treatment_rate = data.resolve_rate.iter()
+        let no_treatment_rate = data
+            .resolve_rate
+            .iter()
             .find(|r| r.reason == ResolveReason::NoTreatmentMatch as i32)
             .expect("should have NoTreatmentMatch reason");
         assert_eq!(no_treatment_rate.count, 1);
@@ -437,7 +440,9 @@ mod tests {
         // 10 threads * 100 observations each
         assert_eq!(latency.count, 1000);
 
-        let match_rate = data.resolve_rate.iter()
+        let match_rate = data
+            .resolve_rate
+            .iter()
             .find(|r| r.reason == ResolveReason::Match as i32)
             .expect("should have Match reason");
         assert_eq!(match_rate.count, 1000);
