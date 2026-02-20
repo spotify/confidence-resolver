@@ -13,7 +13,6 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::{
 };
 use confidence_resolver::resolve_logger::ResolveLogger;
 use confidence_resolver::ResolveProcessState;
-use wasm_msg::message::proto::response;
 use wasm_msg::wasm_msg_guest;
 use wasm_msg::wasm_msg_host;
 use wasm_msg::WasmResult;
@@ -133,6 +132,7 @@ wasm_msg_guest! {
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
         let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str())?;
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
+        // TODO: track state age once we decide on the right timestamp source
         // let now = WasmHost::current_time();
         // let epoch_ms = now.seconds as u64 * 1000 + now.nanos as u64 / 1_000_000;
         // TELEMETRY.set_last_state_update(epoch_ms);
@@ -165,7 +165,7 @@ wasm_msg_guest! {
             let end_time = WasmHost::current_time();
             let micro_duration = 1_000_000 * (end_time.seconds - start_time.seconds) + (end_time.nanos - start_time.nanos) as i64 / 1000;
             TELEMETRY.record_latency_us(micro_duration.clamp(0, u32::MAX as i64) as u32);
-            
+
             for flag in &response.resolved_flags {
                 TELEMETRY.mark_resolve(flag.reason());
             }
