@@ -539,6 +539,12 @@ message ClientCredential {
     (google.api.field_behavior) = REQUIRED
   ];
 
+  // List of environments this credential is enabled for. If empty, enabled for all environments.
+  repeated string environments = 16 [
+    (google.api.resource_reference).type = "flags.confidence.dev/Environment",
+    (google.api.field_behavior) = OPTIONAL
+  ];
+
   // A simple plaintext secret.
   message ClientSecret {
     // The secret used to authenticate a client.

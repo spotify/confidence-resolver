@@ -122,6 +122,7 @@ pub struct Client {
     pub account: Account,
     pub client_name: String,
     pub client_credential_name: String,
+    pub environments: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -175,6 +176,7 @@ impl ResolverState {
                         account: Account::new(&format!("accounts/{}", account_id)),
                         client_name: client.name.clone(),
                         client_credential_name: credential.name.clone(),
+                        environments: credential.environments.clone(),
                     },
                 );
             }
@@ -827,6 +829,14 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         Ok(missing_materializations)
     }
 
+    fn enabled_for_environment(&self, rule: &flags_admin::flag::Rule) -> bool {
+        rule.environments.is_empty()
+            || rule
+                .environments
+                .iter()
+                .any(|env| self.client.environments.contains(env))
+    }
+
     pub fn resolve_flag(
         &'a self,
         flag: &'a Flag,
@@ -844,6 +854,10 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
         for rule in &flag.rules {
             if !rule.enabled {
+                continue;
+            }
+
+            if !self.enabled_for_environment(rule) {
                 continue;
             }
 
@@ -3577,6 +3591,7 @@ mod tests {
                 account: Account::new("accounts/test"),
                 client_name: "clients/test".to_string(),
                 client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
+                environments: vec![],
             },
         );
 
@@ -3630,6 +3645,7 @@ mod tests {
             account: Account::new("accounts/test"),
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
+            environments: vec![],
         };
 
         let resolver: AccountResolver<'_, L> = AccountResolver::new(
@@ -3713,6 +3729,7 @@ mod tests {
             account: Account::new("accounts/test"),
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
+            environments: vec![],
         };
 
         let resolver: AccountResolver<'_, L> = AccountResolver::new(
@@ -3775,6 +3792,7 @@ mod tests {
             account: Account::new("accounts/test"),
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
+            environments: vec![],
         };
 
         let resolver: AccountResolver<'_, L> = AccountResolver::new(
@@ -3850,6 +3868,7 @@ mod tests {
             account: Account::new("accounts/test"),
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
+            environments: vec![],
         };
 
         let resolver: AccountResolver<'_, L> = AccountResolver::new(
@@ -3925,6 +3944,7 @@ mod tests {
             account: Account::new("accounts/test"),
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
+            environments: vec![],
         };
 
         let resolver: AccountResolver<'_, L> = AccountResolver::new(
@@ -4273,5 +4293,175 @@ mod tests {
             }
             other => panic!("Expected ReadOpsRequest, got: {:?}", other),
         }
+    }
+
+    /// Helper to create a resolver with a custom Client (to set environments).
+    fn make_resolver_with_environments<'a>(
+        state: &'a ResolverState,
+        client: &'a Client,
+        context_json: &str,
+    ) -> AccountResolver<'a, L> {
+        #[allow(clippy::unwrap_used)]
+        let context: Struct = serde_json::from_str(context_json).unwrap();
+        AccountResolver::new(
+            client,
+            state,
+            EvaluationContext { context },
+            &ENCRYPTION_KEY,
+        )
+    }
+
+    #[test]
+    fn test_environment_filtering_no_environments_on_rule_or_credential() {
+        // Rule with no environments + credential with no environments → rule evaluated
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+        )
+        .unwrap();
+
+        let client = Client {
+            account: Account::new("accounts/confidence-demo-june"),
+            client_name: "clients/test".into(),
+            client_credential_name: "clients/test/clientCredentials/test".into(),
+            environments: vec![],
+        };
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver = make_resolver_with_environments(&state, &client, context_json);
+
+        let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
+        let resolve_result = resolver.resolve_flag(flag, vec![]).unwrap();
+        let resolved_value = &resolve_result.resolved_value;
+
+        // Rules have no environments set so they should all be evaluated
+        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
+    }
+
+    #[test]
+    fn test_environment_filtering_matching_environment() {
+        // Rule with environments ["production"] + credential with ["production"] → rule evaluated
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+        )
+        .unwrap();
+
+        let client = Client {
+            account: Account::new("accounts/confidence-demo-june"),
+            client_name: "clients/test".into(),
+            client_credential_name: "clients/test/clientCredentials/test".into(),
+            environments: vec!["environments/production".into()],
+        };
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver = make_resolver_with_environments(&state, &client, context_json);
+
+        let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
+        let mut modified_flag = flag.clone();
+        for rule in &mut modified_flag.rules {
+            rule.environments = vec!["environments/production".into()];
+        }
+
+        let resolve_result = resolver.resolve_flag(&modified_flag, vec![]).unwrap();
+        let resolved_value = &resolve_result.resolved_value;
+
+        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
+    }
+
+    #[test]
+    fn test_environment_filtering_mismatched_environment() {
+        // Rule with environments ["production"] + credential with ["staging"] → rule skipped
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+        )
+        .unwrap();
+
+        let client = Client {
+            account: Account::new("accounts/confidence-demo-june"),
+            client_name: "clients/test".into(),
+            client_credential_name: "clients/test/clientCredentials/test".into(),
+            environments: vec!["environments/staging".into()],
+        };
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver = make_resolver_with_environments(&state, &client, context_json);
+
+        let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
+        let mut modified_flag = flag.clone();
+        for rule in &mut modified_flag.rules {
+            rule.environments = vec!["environments/production".into()];
+        }
+
+        let resolve_result = resolver.resolve_flag(&modified_flag, vec![]).unwrap();
+        let resolved_value = &resolve_result.resolved_value;
+
+        // All rules should be skipped due to environment mismatch
+        assert_eq!(
+            resolved_value.reason as i32,
+            ResolveReason::NoSegmentMatch as i32
+        );
+    }
+
+    #[test]
+    fn test_environment_filtering_rule_no_env_credential_has_env() {
+        // Rule with no environments + credential with ["production"] → rule evaluated
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+        )
+        .unwrap();
+
+        let client = Client {
+            account: Account::new("accounts/confidence-demo-june"),
+            client_name: "clients/test".into(),
+            client_credential_name: "clients/test/clientCredentials/test".into(),
+            environments: vec!["environments/production".into()],
+        };
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver = make_resolver_with_environments(&state, &client, context_json);
+
+        let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
+        // Don't set environments on rules — they should be evaluated for any credential
+        let resolve_result = resolver.resolve_flag(flag, vec![]).unwrap();
+        let resolved_value = &resolve_result.resolved_value;
+
+        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
+    }
+
+    #[test]
+    fn test_environment_filtering_intersection_match() {
+        // Rule with environments ["production", "staging"] + credential with ["staging"] → rule evaluated
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+        )
+        .unwrap();
+
+        let client = Client {
+            account: Account::new("accounts/confidence-demo-june"),
+            client_name: "clients/test".into(),
+            client_credential_name: "clients/test/clientCredentials/test".into(),
+            environments: vec!["environments/staging".into()],
+        };
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver = make_resolver_with_environments(&state, &client, context_json);
+
+        let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
+        let mut modified_flag = flag.clone();
+        for rule in &mut modified_flag.rules {
+            rule.environments = vec![
+                "environments/production".into(),
+                "environments/staging".into(),
+            ];
+        }
+
+        let resolve_result = resolver.resolve_flag(&modified_flag, vec![]).unwrap();
+        let resolved_value = &resolve_result.resolved_value;
+
+        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
     }
 }

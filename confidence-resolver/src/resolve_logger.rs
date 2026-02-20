@@ -404,6 +404,7 @@ mod tests {
             },
             client_name: "test-client".to_string(),
             client_credential_name: "clients/test/clientCredentials/test".to_string(),
+            environments: vec![],
         }
     }
 
