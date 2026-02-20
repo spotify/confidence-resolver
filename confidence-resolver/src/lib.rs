@@ -927,12 +927,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                         ) {
                                         Ok(matched) => matched,
                                         Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
-                                            return Ok(FlagResolveResult {
-                                                resolved_value: resolved_value.error(
-                                                    ResolveReason::UnrecognizedTargetingRule,
-                                                ),
-                                                updates: vec![],
-                                            });
+                                            continue;
                                         }
                                         Err(_) => {
                                             return Err(
@@ -1003,12 +998,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                         ) {
                                         Ok(matched) => matched,
                                         Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
-                                            return Ok(FlagResolveResult {
-                                                resolved_value: resolved_value.error(
-                                                    ResolveReason::UnrecognizedTargetingRule,
-                                                ),
-                                                updates: vec![],
-                                            });
+                                            continue;
                                         }
                                         Err(_) => {
                                             return Err(
@@ -1039,11 +1029,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         continue;
                     }
                     Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
-                        return Ok(FlagResolveResult {
-                            resolved_value: resolved_value
-                                .error(ResolveReason::UnrecognizedTargetingRule),
-                            updates: vec![],
-                        });
+                        continue;
                     }
                     Err(_) => {
                         return Err(ResolveFlagError::missing_materializations());
@@ -4463,5 +4449,104 @@ mod tests {
         let resolved_value = &resolve_result.resolved_value;
 
         assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
+    }
+
+    #[test]
+    fn test_resolve_flag_skips_unrecognized_targeting_rule() {
+        let segment_json = r#"{
+            "name": "segments/unrecognized-rule",
+            "targeting": {
+                "criteria": {
+                    "c": {
+                        "attribute": {
+                            "attributeName": "user.email"
+                        }
+                    }
+                },
+                "expression": {
+                    "ref": "c"
+                }
+            },
+            "allocation": {
+                "proportion": { "value": "1.0" },
+                "exclusivityTags": [],
+                "exclusiveTo": []
+            }
+        }"#;
+        let segment: Segment = serde_json::from_str(segment_json).unwrap();
+
+        let flag_json = r#"{
+            "name": "flags/unrecognized-rule-flag",
+            "state": "ACTIVE",
+            "variants": [
+                {
+                    "name": "flags/unrecognized-rule-flag/variants/on",
+                    "value": { "data": "on" }
+                }
+            ],
+            "clients": ["clients/test"],
+            "rules": [
+                {
+                    "name": "flags/unrecognized-rule-flag/rules/rule1",
+                    "segment": "segments/unrecognized-rule",
+                    "enabled": true,
+                    "assignmentSpec": {
+                        "bucketCount": 1,
+                        "assignments": [
+                            {
+                                "assignmentId": "flags/unrecognized-rule-flag/variants/on",
+                                "variant": {
+                                    "variant": "flags/unrecognized-rule-flag/variants/on"
+                                },
+                                "bucketRanges": [{ "lower": 0, "upper": 1 }]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#;
+        let flag: Flag = serde_json::from_str(flag_json).unwrap();
+
+        let mut segments = HashMap::new();
+        segments.insert(segment.name.clone(), segment);
+        let mut flags = HashMap::new();
+        flags.insert(flag.name.clone(), flag);
+
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            SECRET.to_string(),
+            Client {
+                account: Account::new("accounts/test"),
+                client_name: "clients/test".to_string(),
+                client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
+                environments: vec![],
+            },
+        );
+
+        let state = ResolverState {
+            secrets,
+            flags,
+            segments,
+            bitsets: HashMap::new(),
+        };
+
+        let context_json = r#"{"targeting_key": "roug", "user": {"email": "test@example.com"}}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+        let flag = resolver
+            .state
+            .flags
+            .get("flags/unrecognized-rule-flag")
+            .unwrap();
+        let resolve_result = resolver.resolve_flag(flag, vec![]).unwrap();
+        let resolved_value = &resolve_result.resolved_value;
+
+        assert_eq!(
+            resolved_value.reason as i32,
+            ResolveReason::NoSegmentMatch as i32,
+            "Unrecognized targeting rule should cause the rule to be skipped, not fail the flag"
+        );
+        assert!(resolved_value.assignment_match.is_none());
     }
 }
