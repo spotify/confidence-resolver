@@ -7,7 +7,6 @@ import (
 	"time"
 
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 )
@@ -26,15 +25,10 @@ func TestMaterializationLocalResolverProvider_EmitsErrorFromInnerResolver(t *tes
 		Err: errors.New(expectedErr),
 	}
 
-	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
-		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
-		NotProcessSticky: false,
-	}
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
 	resolver := newMaterializationSupportedResolver(mockedStore, mockedResolver)
-	_, err := resolver.ResolveWithSticky(request)
+	_, err := resolver.ResolveProcess(request)
 	if err == nil || err.Error() != expectedErr {
 		t.Fatalf("expected error %q, got %v", expectedErr, err)
 	}
@@ -43,41 +37,35 @@ func TestMaterializationLocalResolverProvider_EmitsErrorFromInnerResolver(t *tes
 func TestMaterializationLocalResolverProvider_WorksWithoutMaterializations(t *testing.T) {
 	mockedStore := newUnsupportedMaterializationStore()
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &wasm.ResolveWithStickyResponse{
-			ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
-				Success: &wasm.ResolveWithStickyResponse_Success{
+		Response: &wasm.ResolveProcessResponse{
+			Result: &wasm.ResolveProcessResponse_Resolved_{
+				Resolved: &wasm.ResolveProcessResponse_Resolved{
 					Response: tu.CreateTutorialFeatureResponse(),
 				},
 			},
 		},
 	}
 
-	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
-		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
-		NotProcessSticky: false,
-	}
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
 	resolver := newMaterializationSupportedResolver(mockedStore, mockedResolver)
 
-	response, err := resolver.ResolveWithSticky(request)
+	response, err := resolver.ResolveProcess(request)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if response == nil {
 		t.Fatal("expected non-nil response")
 	}
-	// Assert resolved variant and value match expectations
-	success := response.GetSuccess()
-	if success == nil || success.Response == nil {
-		t.Fatalf("expected success response, got: %#v", response)
+	resolved := response.GetResolved()
+	if resolved == nil || resolved.Response == nil {
+		t.Fatalf("expected resolved response, got: %#v", response)
 	}
-	resolved := success.Response.GetResolvedFlags()
-	if len(resolved) != 1 {
-		t.Fatalf("expected 1 resolved flag, got %d", len(resolved))
+	flags := resolved.Response.GetResolvedFlags()
+	if len(flags) != 1 {
+		t.Fatalf("expected 1 resolved flag, got %d", len(flags))
 	}
-	flag := resolved[0]
+	flag := flags[0]
 	if got, want := flag.GetFlag(), "flags/tutorial-feature"; got != want {
 		t.Fatalf("unexpected flag id: got %q want %q", got, want)
 	}
@@ -98,33 +86,30 @@ func TestMaterializationLocalResolverProvider_WorksWithoutMaterializations(t *te
 }
 
 func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrectly(t *testing.T) {
-
-	// Use empty materialization store that returns no variants
 	inMemoryStore := newInMemoryMaterializationStore(nil)
-	// Pre-populate store with variant assignment for the test user
 	inMemoryStore.Write(context.Background(), []WriteOp{newWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
+
 	mockedResolver := &tu.MockedLocalResolver{
-		Responses: []*wasm.ResolveWithStickyResponse{
+		Responses: []*wasm.ResolveProcessResponse{
+			// First call: Suspended, needs materializations
 			{
-				ResolveResult: &wasm.ResolveWithStickyResponse_ReadOpsRequest{
-					ReadOpsRequest: &resolverv1.ReadOperationsRequest{
-						Ops: []*resolverv1.ReadOp{
+				Result: &wasm.ResolveProcessResponse_Suspended_{
+					Suspended: &wasm.ResolveProcessResponse_Suspended{
+						MaterializationsToRead: []*wasm.MaterializationRecord{
 							{
-								Op: &resolverv1.ReadOp_VariantReadOp{
-									VariantReadOp: &resolverv1.VariantReadOp{
-										Unit:            "test-user-123",
-										Materialization: "experiment_v1",
-										Rule:            "flags/sticky-test-flag/rules/sticky-rule",
-									},
-								},
+								Unit:            "test-user-123",
+								Materialization: "experiment_v1",
+								Rule:            "flags/sticky-test-flag/rules/sticky-rule",
 							},
 						},
+						State: []byte{1, 2, 3}, // opaque continuation
 					},
 				},
 			},
+			// Second call (resume): Resolved
 			{
-				ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
-					Success: &wasm.ResolveWithStickyResponse_Success{
+				Result: &wasm.ResolveProcessResponse_Resolved_{
+					Resolved: &wasm.ResolveProcessResponse_Resolved{
 						Response: tu.CreateTutorialFeatureResponse(),
 					},
 				},
@@ -132,15 +117,10 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 		},
 	}
 
-	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
-		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
-		NotProcessSticky: false,
-	}
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)
 
-	response, err := resolver.ResolveWithSticky(request)
+	response, err := resolver.ResolveProcess(request)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -171,14 +151,13 @@ func TestMaterializationLocalResolverProvider_ReadsStoredMaterializationsCorrect
 }
 
 func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t *testing.T) {
-	// Use empty materialization store that returns no variants
 	inMemoryStore := newInMemoryMaterializationStore(nil)
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &wasm.ResolveWithStickyResponse{
-			ResolveResult: &wasm.ResolveWithStickyResponse_Success_{
-				Success: &wasm.ResolveWithStickyResponse_Success{
+		Response: &wasm.ResolveProcessResponse{
+			Result: &wasm.ResolveProcessResponse_Resolved_{
+				Resolved: &wasm.ResolveProcessResponse_Resolved{
 					Response: tu.CreateTutorialFeatureResponse(),
-					MaterializationUpdates: []*resolverv1.VariantData{
+					MaterializationsToWrite: []*wasm.MaterializationRecord{
 						{
 							Materialization: "experiment_v1",
 							Unit:            "test-user-123",
@@ -191,15 +170,10 @@ func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t 
 		},
 	}
 
-	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
-		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
-		NotProcessSticky: false,
-	}
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)
 
-	response, err := resolver.ResolveWithSticky(request)
+	response, err := resolver.ResolveProcess(request)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -234,46 +208,37 @@ func TestMaterializationLocalResolverProvider_WritesMaterializationsCorrectly(t 
 	}
 }
 
-func TestMaterializationLocalResolverProvider_DoesNotRetryBeyondMaxDepth(t *testing.T) {
-
-	// Use empty materialization store that returns no variants
+func TestMaterializationLocalResolverProvider_RejectsSecondSuspend(t *testing.T) {
 	inMemoryStore := newInMemoryMaterializationStore(nil)
 	defer inMemoryStore.Close()
-	// Pre-populate store with variant assignment for the test user
 	inMemoryStore.Write(context.Background(), []WriteOp{newWriteOpVariant("experiment_v1", "test-user-123", "flags/sticky-test-flag/rules/sticky-rule", "flags/sticky-test-flag/variants/on")})
+
+	// Always return Suspended — should fail on second suspend after resume
 	mockedResolver := &tu.MockedLocalResolver{
-		Response: &wasm.ResolveWithStickyResponse{
-			ResolveResult: &wasm.ResolveWithStickyResponse_ReadOpsRequest{
-				ReadOpsRequest: &resolverv1.ReadOperationsRequest{
-					Ops: []*resolverv1.ReadOp{
+		Response: &wasm.ResolveProcessResponse{
+			Result: &wasm.ResolveProcessResponse_Suspended_{
+				Suspended: &wasm.ResolveProcessResponse_Suspended{
+					MaterializationsToRead: []*wasm.MaterializationRecord{
 						{
-							Op: &resolverv1.ReadOp_VariantReadOp{
-								VariantReadOp: &resolverv1.VariantReadOp{
-									Unit:            "test-user-123",
-									Materialization: "experiment_v1",
-									Rule:            "flags/sticky-test-flag/rules/sticky-rule",
-								},
-							},
+							Unit:            "test-user-123",
+							Materialization: "experiment_v1",
+							Rule:            "flags/sticky-test-flag/rules/sticky-rule",
 						},
 					},
+					State: []byte{1, 2, 3},
 				},
 			},
 		},
 	}
 
-	request := &wasm.ResolveWithStickyRequest{
-		ResolveRequest:   tu.CreateTutorialFeatureRequest(),
-		Materializations: []*resolverv1.ReadResult{},
-		FailFastOnSticky: false,
-		NotProcessSticky: false,
-	}
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 	resolver := newMaterializationSupportedResolver(inMemoryStore, mockedResolver)
 
-	response, err := resolver.ResolveWithSticky(request)
+	response, err := resolver.ResolveProcess(request)
 	if response != nil {
 		t.Fatal("expected nil response")
 	}
-	expectedErr := "exceeded maximum retries (5) for handling missing materializations"
+	expectedErr := "unexpected second suspend after resume"
 	if err == nil || err.Error() != expectedErr {
 		t.Fatalf("expected error %q, got %v", expectedErr, err)
 	}

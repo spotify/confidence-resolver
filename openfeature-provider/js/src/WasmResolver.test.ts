@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnsafeWasmResolver, WasmResolver } from './WasmResolver';
 import { readFileSync } from 'node:fs';
-import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
+import { ResolveProcessRequest } from './proto/confidence/wasm/wasm_api';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
 
@@ -11,8 +11,8 @@ const stateBytes = readFileSync(__dirname + '/../../../wasm/resolver_state.pb');
 const module = new WebAssembly.Module(moduleBytes);
 const CLIENT_SECRET = 'mkjJruAATQWjeY7foFIWfVAcBWnci2YF';
 
-const RESOLVE_REQUEST: ResolveWithStickyRequest = {
-  resolveRequest: {
+const RESOLVE_REQUEST: ResolveProcessRequest = {
+  deferredMaterializations: {
     flags: ['flags/tutorial-feature'],
     clientSecret: CLIENT_SECRET,
     apply: true,
@@ -21,9 +21,6 @@ const RESOLVE_REQUEST: ResolveWithStickyRequest = {
       visitor_id: 'tutorial_visitor',
     },
   },
-  materializations: [],
-  failFastOnSticky: false,
-  notProcessSticky: false,
 };
 
 const SET_STATE_REQUEST = { state: stateBytes, accountId: 'confidence-test' };
@@ -37,7 +34,7 @@ describe('basic operation', () => {
 
   it('should fail to resolve without state', () => {
     expect(() => {
-      wasmResolver.resolveWithSticky(RESOLVE_REQUEST);
+      wasmResolver.resolveProcess(RESOLVE_REQUEST);
     }).toThrowError('Resolver state not set');
   });
 
@@ -47,10 +44,10 @@ describe('basic operation', () => {
     });
 
     it('should resolve flags', () => {
-      const resp = wasmResolver.resolveWithSticky(RESOLVE_REQUEST);
+      const resp = wasmResolver.resolveProcess(RESOLVE_REQUEST);
 
       expect(resp).toMatchObject({
-        success: {
+        resolved: {
           response: {
             resolvedFlags: [
               {
@@ -69,7 +66,7 @@ describe('basic operation', () => {
       });
 
       it('should contain logs after a resolve', () => {
-        wasmResolver.resolveWithSticky(RESOLVE_REQUEST);
+        wasmResolver.resolveProcess(RESOLVE_REQUEST);
 
         const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
 
@@ -82,7 +79,7 @@ describe('basic operation', () => {
 });
 
 describe('panic handling', () => {
-  const resolveWithStickySpy = vi.spyOn(UnsafeWasmResolver.prototype, 'resolveWithSticky');
+  const resolveProcessSpy = vi.spyOn(UnsafeWasmResolver.prototype, 'resolveProcess');
   const setResolverStateSpy = vi.spyOn(UnsafeWasmResolver.prototype, 'setResolverState');
 
   const throwUnreachable = () => {
@@ -96,15 +93,15 @@ describe('panic handling', () => {
 
   it('throws and reloads the instance on panic', () => {
     wasmResolver.setResolverState(SET_STATE_REQUEST);
-    resolveWithStickySpy.mockImplementationOnce(throwUnreachable);
+    resolveProcessSpy.mockImplementationOnce(throwUnreachable);
 
     expect(() => {
-      wasmResolver.resolveWithSticky(RESOLVE_REQUEST);
+      wasmResolver.resolveProcess(RESOLVE_REQUEST);
     }).to.throw('unreachable');
 
     // now it should succeed since the instance is reloaded
     expect(() => {
-      wasmResolver.resolveWithSticky(RESOLVE_REQUEST);
+      wasmResolver.resolveProcess(RESOLVE_REQUEST);
     }).to.not.throw();
   });
 
@@ -116,7 +113,7 @@ describe('panic handling', () => {
     }).to.throw('unreachable');
 
     expect(() => {
-      wasmResolver.resolveWithSticky(RESOLVE_REQUEST);
+      wasmResolver.resolveProcess(RESOLVE_REQUEST);
     }).to.throw('state not set');
   });
 
@@ -124,12 +121,12 @@ describe('panic handling', () => {
     wasmResolver.setResolverState(SET_STATE_REQUEST);
 
     // create some logs
-    wasmResolver.resolveWithSticky(RESOLVE_REQUEST);
+    wasmResolver.resolveProcess(RESOLVE_REQUEST);
 
-    resolveWithStickySpy.mockImplementationOnce(throwUnreachable);
+    resolveProcessSpy.mockImplementationOnce(throwUnreachable);
 
     expect(() => {
-      wasmResolver.resolveWithSticky(RESOLVE_REQUEST);
+      wasmResolver.resolveProcess(RESOLVE_REQUEST);
     }).to.throw('unreachable');
 
     const logs = wasmResolver.flushLogs();

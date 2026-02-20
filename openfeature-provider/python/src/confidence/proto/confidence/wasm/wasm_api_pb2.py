@@ -23,10 +23,9 @@ _sym_db = _symbol_database.Default()
 
 
 from ..flags.resolver.v1 import api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_api__pb2
-from ..flags.resolver.v1 import internal_api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_internal__api__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x63onfidence/wasm/wasm_api.proto\x12\x1c\x63onfidence.flags.resolver.v1\x1a&confidence/flags/resolver/v1/api.proto\x1a/confidence/flags/resolver/v1/internal_api.proto\"\xe3\x01\n\x18ResolveWithStickyRequest\x12J\n\x0fresolve_request\x18\x01 \x01(\x0b\x32\x31.confidence.flags.resolver.v1.ResolveFlagsRequest\x12\x1b\n\x13\x66\x61il_fast_on_sticky\x18\x03 \x01(\x08\x12\x1a\n\x12not_process_sticky\x18\x04 \x01(\x08\x12\x42\n\x10materializations\x18\x05 \x03(\x0b\x32(.confidence.flags.resolver.v1.ReadResult\"\xf0\x02\n\x19ResolveWithStickyResponse\x12R\n\x07success\x18\x01 \x01(\x0b\x32?.confidence.flags.resolver.v1.ResolveWithStickyResponse.SuccessH\x00\x12O\n\x10read_ops_request\x18\x03 \x01(\x0b\x32\x33.confidence.flags.resolver.v1.ReadOperationsRequestH\x00\x1a\x9b\x01\n\x07Success\x12\x44\n\x08response\x18\x01 \x01(\x0b\x32\x32.confidence.flags.resolver.v1.ResolveFlagsResponse\x12J\n\x17materialization_updates\x18\x03 \x03(\x0b\x32).confidence.flags.resolver.v1.VariantDataB\x10\n\x0eresolve_result\"\x1d\n\nLogMessage\x12\x0f\n\x07message\x18\x01 \x01(\tB\x9d\x01\n,com.spotify.confidence.sdk.flags.resolver.v1B\x0cWasmApiProtoP\x01Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x63onfidence/wasm/wasm_api.proto\x12\x1c\x63onfidence.flags.resolver.v1\x1a&confidence/flags/resolver/v1/api.proto\"\xac\x05\n\x15ResolveProcessRequest\x12V\n\x19\x64\x65\x66\x65rred_materializations\x18\x01 \x01(\x0b\x32\x31.confidence.flags.resolver.v1.ResolveFlagsRequestH\x00\x12m\n\x17static_materializations\x18\x02 \x01(\x0b\x32J.confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializationsH\x00\x12U\n\x18without_materializations\x18\x03 \x01(\x0b\x32\x31.confidence.flags.resolver.v1.ResolveFlagsRequestH\x00\x12L\n\x06resume\x18\x04 \x01(\x0b\x32:.confidence.flags.resolver.v1.ResolveProcessRequest.ResumeH\x00\x1a\xb3\x01\n\x16StaticMaterializations\x12J\n\x0fresolve_request\x18\x01 \x01(\x0b\x32\x31.confidence.flags.resolver.v1.ResolveFlagsRequest\x12M\n\x10materializations\x18\x02 \x03(\x0b\x32\x33.confidence.flags.resolver.v1.MaterializationRecord\x1a\x66\n\x06Resume\x12M\n\x10materializations\x18\x01 \x03(\x0b\x32\x33.confidence.flags.resolver.v1.MaterializationRecord\x12\r\n\x05state\x18\x02 \x01(\x0c\x42\t\n\x07resolve\"\xe8\x03\n\x16ResolveProcessResponse\x12Q\n\x08resolved\x18\x01 \x01(\x0b\x32=.confidence.flags.resolver.v1.ResolveProcessResponse.ResolvedH\x00\x12S\n\tsuspended\x18\x02 \x01(\x0b\x32>.confidence.flags.resolver.v1.ResolveProcessResponse.SuspendedH\x00\x1a\xa8\x01\n\x08Resolved\x12\x44\n\x08response\x18\x01 \x01(\x0b\x32\x32.confidence.flags.resolver.v1.ResolveFlagsResponse\x12V\n\x19materializations_to_write\x18\x02 \x03(\x0b\x32\x33.confidence.flags.resolver.v1.MaterializationRecord\x1aq\n\tSuspended\x12U\n\x18materializations_to_read\x18\x01 \x03(\x0b\x32\x33.confidence.flags.resolver.v1.MaterializationRecord\x12\r\n\x05state\x18\x02 \x01(\x0c\x42\x08\n\x06result\"]\n\x15MaterializationRecord\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\x12\x0c\n\x04rule\x18\x03 \x01(\t\x12\x0f\n\x07variant\x18\x04 \x01(\t\"\x1d\n\nLogMessage\x12\x0f\n\x07message\x18\x01 \x01(\tB\x9d\x01\n,com.spotify.confidence.sdk.flags.resolver.v1B\x0cWasmApiProtoP\x01Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,12 +33,20 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'confidence.wasm.wasm_api_pb
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n,com.spotify.confidence.sdk.flags.resolver.v1B\014WasmApiProtoP\001Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm'
-  _globals['_RESOLVEWITHSTICKYREQUEST']._serialized_start=154
-  _globals['_RESOLVEWITHSTICKYREQUEST']._serialized_end=381
-  _globals['_RESOLVEWITHSTICKYRESPONSE']._serialized_start=384
-  _globals['_RESOLVEWITHSTICKYRESPONSE']._serialized_end=752
-  _globals['_RESOLVEWITHSTICKYRESPONSE_SUCCESS']._serialized_start=579
-  _globals['_RESOLVEWITHSTICKYRESPONSE_SUCCESS']._serialized_end=734
-  _globals['_LOGMESSAGE']._serialized_start=754
-  _globals['_LOGMESSAGE']._serialized_end=783
+  _globals['_RESOLVEPROCESSREQUEST']._serialized_start=105
+  _globals['_RESOLVEPROCESSREQUEST']._serialized_end=789
+  _globals['_RESOLVEPROCESSREQUEST_STATICMATERIALIZATIONS']._serialized_start=495
+  _globals['_RESOLVEPROCESSREQUEST_STATICMATERIALIZATIONS']._serialized_end=674
+  _globals['_RESOLVEPROCESSREQUEST_RESUME']._serialized_start=676
+  _globals['_RESOLVEPROCESSREQUEST_RESUME']._serialized_end=778
+  _globals['_RESOLVEPROCESSRESPONSE']._serialized_start=792
+  _globals['_RESOLVEPROCESSRESPONSE']._serialized_end=1280
+  _globals['_RESOLVEPROCESSRESPONSE_RESOLVED']._serialized_start=987
+  _globals['_RESOLVEPROCESSRESPONSE_RESOLVED']._serialized_end=1155
+  _globals['_RESOLVEPROCESSRESPONSE_SUSPENDED']._serialized_start=1157
+  _globals['_RESOLVEPROCESSRESPONSE_SUSPENDED']._serialized_end=1270
+  _globals['_MATERIALIZATIONRECORD']._serialized_start=1282
+  _globals['_MATERIALIZATIONRECORD']._serialized_end=1375
+  _globals['_LOGMESSAGE']._serialized_start=1377
+  _globals['_LOGMESSAGE']._serialized_end=1406
 # @@protoc_insertion_point(module_scope)

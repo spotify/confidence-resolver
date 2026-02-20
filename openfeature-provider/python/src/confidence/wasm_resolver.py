@@ -50,9 +50,7 @@ class WasmResolver:
         self._wasm_msg_guest_set_resolver_state = exports[
             "wasm_msg_guest_set_resolver_state"
         ]
-        self._wasm_msg_guest_resolve_with_sticky = exports[
-            "wasm_msg_guest_resolve_with_sticky"
-        ]
+        self._wasm_msg_guest_resolve_flags = exports["wasm_msg_guest_resolve_flags"]
         self._wasm_msg_guest_bounded_flush_logs = exports[
             "wasm_msg_guest_bounded_flush_logs"
         ]
@@ -115,21 +113,21 @@ class WasmResolver:
         if resp_ptr != 0:
             self._consume_response(resp_ptr, None)
 
-    def resolve_with_sticky(
-        self, request: wasm_api_pb2.ResolveWithStickyRequest
-    ) -> wasm_api_pb2.ResolveWithStickyResponse:
+    def resolve_process(
+        self, request: wasm_api_pb2.ResolveProcessRequest
+    ) -> wasm_api_pb2.ResolveProcessResponse:
         """Resolve flags using the WASM module.
 
         Args:
-            request: The resolve request with flags and evaluation context.
+            request: The resolve process request.
 
         Returns:
-            The resolve response with resolved flag values.
+            The resolve process response.
         """
         req_ptr = self._transfer_request(request)
-        resp_ptr = self._wasm_msg_guest_resolve_with_sticky(self._store, req_ptr)
+        resp_ptr = self._wasm_msg_guest_resolve_flags(self._store, req_ptr)
 
-        response = wasm_api_pb2.ResolveWithStickyResponse()
+        response = wasm_api_pb2.ResolveProcessResponse()
         self._consume_response(resp_ptr, response)
         return response
 

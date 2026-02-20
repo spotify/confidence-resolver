@@ -9,8 +9,7 @@ use crate::err::ErrorCode;
 use crate::err::Fallible;
 use crate::err::OrFailExt;
 use crate::proto::google::{value::Kind, Timestamp, Value};
-
-pub const UNRECOGNIZED_RULE_ERROR: ErrorCode = ErrorCode::from_tag("eval.unrecognized_rule");
+use crate::ResolveError;
 
 use crate::proto::confidence::flags::types::v1::targeting;
 use crate::proto::confidence::flags::types::v1::targeting::criterion;
@@ -80,9 +79,9 @@ pub fn convert_to_targeting_value(
 pub fn evaluate_criterion(
     attribute_criterion: &criterion::AttributeCriterion,
     wrapped: &targeting::ListValue,
-) -> Fallible<bool> {
+) -> Result<bool, ResolveError> {
     let Some(rule) = &attribute_criterion.rule else {
-        return Err(UNRECOGNIZED_RULE_ERROR);
+        return Err(ResolveError::UnrecognizedRule);
     };
     let context_values = &wrapped.values;
     match rule {
@@ -121,16 +120,16 @@ pub fn evaluate_criterion(
         criterion::attribute_criterion::Rule::EndsWithRule(targeting::EndsWithRule { value }) => {
             Ok(context_values.iter().any(|v| ends_with(v, value)))
         }
-        _ => Err(UNRECOGNIZED_RULE_ERROR),
+        _ => Err(ResolveError::UnrecognizedRule),
     }
 }
 
 fn evaluate_inner_rule(
     inner_rule: &targeting::InnerRule,
     context_value: &targeting::Value,
-) -> Fallible<bool> {
+) -> Result<bool, ResolveError> {
     let Some(rule) = &inner_rule.rule else {
-        return Err(UNRECOGNIZED_RULE_ERROR);
+        return Err(ResolveError::UnrecognizedRule);
     };
     match rule {
         targeting::inner_rule::Rule::EqRule(targeting::EqRule { value: Some(value) }) => {
@@ -148,7 +147,7 @@ fn evaluate_inner_rule(
         targeting::inner_rule::Rule::EndsWithRule(targeting::EndsWithRule { value }) => {
             Ok(ends_with(context_value, value))
         }
-        _ => Err(UNRECOGNIZED_RULE_ERROR),
+        _ => Err(ResolveError::UnrecognizedRule),
     }
 }
 
@@ -739,7 +738,7 @@ mod tests {
         let list = make_list_value(vec![make_string_value("hello")]);
         let result = evaluate_criterion(&criterion, &list);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), UNRECOGNIZED_RULE_ERROR);
+        assert_eq!(result.unwrap_err(), ResolveError::UnrecognizedRule);
     }
 
     fn assert_bool(value: &targeting::value::Value, expected: bool) {

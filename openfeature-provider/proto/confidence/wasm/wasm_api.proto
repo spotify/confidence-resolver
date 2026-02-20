@@ -3,43 +3,60 @@ syntax = "proto3";
 package confidence.flags.resolver.v1;
 
 import "confidence/flags/resolver/v1/api.proto";
-import "confidence/flags/resolver/v1/internal_api.proto";
 
 option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm";
 option java_package = "com.spotify.confidence.sdk.flags.resolver.v1";
 option java_multiple_files = true;
 option java_outer_classname = "WasmApiProto";
 
-// Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/wasm_api.proto
-// Annotations removed for minimal dependencies
+message ResolveProcessRequest {
+  oneof resolve {
+    // Materialization reads will "suspend" the resolve
+    ResolveFlagsRequest deferred_materializations = 1;
+    // Materializations will be read from a statically provided set
+    StaticMaterializations static_materializations = 2;
+    // No materialization support, reads will error the flag.
+    ResolveFlagsRequest without_materializations = 3;
 
-// Request for resolving flags with sticky (materialized) assignments
-message ResolveWithStickyRequest {
-  // The standard resolve request
-  ResolveFlagsRequest resolve_request = 1;
+    // Resume a previously suspended resolve with requested materializations
+    Resume resume = 4;
+  }
 
-  // if a materialization info is missing, we want tor return to the caller immediately
-  bool fail_fast_on_sticky = 3;
-  // if we should support sticky or completely skip the flag if they had sticky rules
-  bool not_process_sticky = 4;
+  message StaticMaterializations {
+    ResolveFlagsRequest resolve_request = 1;
+    repeated MaterializationRecord materializations = 2;
+  }
 
-  // Context about the materialization required for the resolve
-  repeated ReadResult materializations = 5;
+  message Resume {
+    repeated MaterializationRecord materializations = 1;
+    bytes state = 2;
+  }
 }
 
-// Response from resolving with sticky assignments
-message ResolveWithStickyResponse {
-  oneof resolve_result {
-    Success success = 1;
-    ReadOperationsRequest read_ops_request = 3;
+
+message ResolveProcessResponse {
+  oneof result {
+    Resolved resolved = 1;
+    Suspended suspended = 2;
   }
-  
-  // Successful resolution with materialization updates
-  message Success {
+
+  message Resolved {
     ResolveFlagsResponse response = 1;
-    // New assignments that should be stored
-    repeated VariantData materialization_updates = 3;
+    repeated MaterializationRecord materializations_to_write = 2;
   }
+
+  message Suspended {
+    repeated MaterializationRecord materializations_to_read = 1;
+    bytes state = 2;
+  }
+}
+
+// This message is used both as a query and a result when reading materializations.
+message MaterializationRecord {
+  string unit = 1;
+  string materialization = 2;
+  string rule = 3;
+  string variant = 4;
 }
 
 message LogMessage {

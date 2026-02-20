@@ -60,6 +60,8 @@ COPY wasm/proto ./wasm/proto/
 COPY confidence-resolver/build.rs ./confidence-resolver/
 COPY wasm-msg/build.rs ./wasm-msg/
 COPY wasm/rust-guest/build.rs ./wasm/rust-guest/
+COPY openfeature-provider/rust/build.rs ./openfeature-provider/rust/
+COPY openfeature-provider/proto/ ./openfeature-provider/proto/
 
 # Create dummy source files to build dependencies
 RUN mkdir -p confidence-resolver/src && \
@@ -104,6 +106,7 @@ COPY wasm/proto/ ./wasm/proto/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
+COPY openfeature-provider/proto/ ./openfeature-provider/proto/
 COPY openfeature-provider/rust/ ./openfeature-provider/rust/
 COPY openfeature-provider/python/Cargo.toml ./openfeature-provider/python/
 
@@ -160,6 +163,7 @@ COPY wasm/proto/ ./wasm/proto/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
+COPY openfeature-provider/proto/ ./openfeature-provider/proto/
 COPY openfeature-provider/rust/ ./openfeature-provider/rust/
 COPY openfeature-provider/python/Cargo.toml ./openfeature-provider/python/
 

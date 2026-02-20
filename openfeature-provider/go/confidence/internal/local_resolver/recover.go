@@ -96,9 +96,9 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 	return
 }
 
-func (r *RecoveringResolver) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (resp *wasm.ResolveWithStickyResponse, err error) {
-	r.withRecover("ResolveWithSticky", &err, func(lr LocalResolver) {
-		resp, err = lr.ResolveWithSticky(request)
+func (r *RecoveringResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (resp *wasm.ResolveProcessResponse, err error) {
+	r.withRecover("ResolveProcess", &err, func(lr LocalResolver) {
+		resp, err = lr.ResolveProcess(request)
 	})
 	return
 }

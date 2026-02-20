@@ -13,6 +13,7 @@ use bitvec::prelude as bv;
 use core::marker::PhantomData;
 use fastmurmur3::murmur3_x64_128;
 use std::collections::{HashMap, HashSet};
+use std::mem::take;
 
 use bytes::Bytes;
 
@@ -71,12 +72,15 @@ use flags_types::Expression;
 use gzip::decompress_gz;
 
 use crate::err::{ErrorCode, OrFailExt};
-use crate::proto::confidence::flags::resolver::v1::resolve_with_sticky_response::ResolveResult;
-use crate::proto::confidence::flags::resolver::v1::{
-    read_op, read_result, resolve_with_sticky_response, ReadOp, ReadOperationsRequest, ReadResult,
-    ResolveFlagsRequest, ResolveFlagsResponse, ResolveWithStickyRequest, ResolveWithStickyResponse,
-    VariantData, VariantReadOp,
+use crate::proto::confidence::flags::admin::v1::flag::rule::assignment::{
+    Assignment, VariantAssignment,
 };
+use crate::proto::confidence::flags::admin::v1::flag::rule::materialization_spec::MaterializationReadMode;
+use crate::proto::confidence::flags::resolver::v1::{
+    resolve_process_request, resolve_process_response, MaterializationRecord, ResolveFlagsRequest,
+    ResolveFlagsResponse, ResolveProcessRequest, ResolveProcessResponse, ResolveReason,
+};
+use crate::proto::confidence::flags::types::v1::targeting::criterion::MaterializedSegmentCriterion;
 
 impl TryFrom<Vec<u8>> for ResolverStatePb {
     type Error = ErrorCode;
@@ -412,69 +416,297 @@ pub struct AccountResolver<'a, H: Host> {
     host: PhantomData<H>,
 }
 
-#[derive(Debug)]
-pub enum ResolveFlagError {
-    Message(String),
-    MissingMaterializations(),
+pub use crate::err::ResolveError;
+
+/// Continuation state — serialized as opaque bytes for round-tripping between
+/// Suspended/Resume cycles. Public so the wasm guest can decode it to extract
+/// the resolve_request for resolver setup.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ResolveProcessState {
+    #[prost(message, optional, tag = "1")]
+    pub resolve_request: Option<flags_resolver::ResolveFlagsRequest>,
+    // what we'd like to round trip is ResolvedValue, but that can't be easily serialized so we use AssignedFlag that can be converted to ResolvedValue
+    #[prost(message, repeated, tag = "2")]
+    pub resolved_flags: Vec<AssignedFlag>,
+    #[prost(message, repeated, tag = "3")]
+    pub materializations_to_write: Vec<MaterializationRecord>,
+    #[prost(message, optional, tag = "4")]
+    pub start_time: Option<Timestamp>,
 }
 
-impl ResolveFlagError {
-    fn message(&self) -> String {
-        match self {
-            ResolveFlagError::Message(msg) => msg.clone(),
-            ResolveFlagError::MissingMaterializations() => "Missing materializations".to_string(),
+impl ResolveProcessRequest {
+    pub fn deferred_materializations(request: ResolveFlagsRequest) -> Self {
+        ResolveProcessRequest {
+            resolve: Some(resolve_process_request::Resolve::DeferredMaterializations(
+                request,
+            )),
         }
     }
 
-    pub fn err(message: &str) -> ResolveFlagError {
-        ResolveFlagError::Message(message.to_string())
-    }
-
-    pub fn missing_materializations() -> ResolveFlagError {
-        ResolveFlagError::MissingMaterializations()
-    }
-}
-
-impl From<ResolveFlagError> for String {
-    fn from(value: ResolveFlagError) -> Self {
-        value.message().to_string()
-    }
-}
-
-impl From<ErrorCode> for ResolveFlagError {
-    fn from(value: ErrorCode) -> Self {
-        ResolveFlagError::err(format!("error code {}", &value.to_string()).as_str())
-    }
-}
-
-impl ResolveWithStickyResponse {
-    fn with_success(response: ResolveFlagsResponse, updates: Vec<VariantData>) -> Self {
-        ResolveWithStickyResponse {
-            resolve_result: Some(ResolveResult::Success(
-                resolve_with_sticky_response::Success {
-                    response: Some(response),
-                    materialization_updates: updates,
+    pub fn static_materializations(
+        request: ResolveFlagsRequest,
+        materializations: Vec<MaterializationRecord>,
+    ) -> Self {
+        ResolveProcessRequest {
+            resolve: Some(resolve_process_request::Resolve::StaticMaterializations(
+                resolve_process_request::StaticMaterializations {
+                    resolve_request: Some(request),
+                    materializations,
                 },
             )),
         }
     }
 
-    fn with_read_materialization_ops(items: Vec<ReadOp>) -> Self {
-        ResolveWithStickyResponse {
-            resolve_result: Some(ResolveResult::ReadOpsRequest(ReadOperationsRequest {
-                ops: items,
-            })),
+    pub fn without_materializations(request: ResolveFlagsRequest) -> Self {
+        ResolveProcessRequest {
+            resolve: Some(resolve_process_request::Resolve::WithoutMaterializations(
+                request,
+            )),
+        }
+    }
+
+    pub fn resume(materializations: Vec<MaterializationRecord>, state: Vec<u8>) -> Self {
+        ResolveProcessRequest {
+            resolve: Some(resolve_process_request::Resolve::Resume(
+                resolve_process_request::Resume {
+                    materializations,
+                    state,
+                },
+            )),
+        }
+    }
+}
+impl ResolveProcessResponse {
+    fn resolved(response: ResolveFlagsResponse, to_write: Vec<MaterializationRecord>) -> Self {
+        ResolveProcessResponse {
+            result: Some(resolve_process_response::Result::Resolved(
+                resolve_process_response::Resolved {
+                    response: Some(response),
+                    materializations_to_write: to_write,
+                },
+            )),
+        }
+    }
+
+    pub fn into_resolved(self) -> Option<(ResolveFlagsResponse, Vec<MaterializationRecord>)> {
+        match self.result {
+            Some(resolve_process_response::Result::Resolved(resolved)) => {
+                Some((resolved.response?, resolved.materializations_to_write))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn into_suspended(self) -> Option<(Vec<MaterializationRecord>, Vec<u8>)> {
+        match self.result {
+            Some(resolve_process_response::Result::Suspended(suspended)) => {
+                Some((suspended.materializations_to_read, suspended.state))
+            }
+            _ => None,
+        }
+    }
+
+    fn suspended(to_read: Vec<MaterializationRecord>, continuation: ResolveProcessState) -> Self {
+        let state = continuation.encode_to_vec();
+        ResolveProcessResponse {
+            result: Some(resolve_process_response::Result::Suspended(
+                resolve_process_response::Suspended {
+                    materializations_to_read: to_read,
+                    state,
+                },
+            )),
         }
     }
 }
 
-impl ResolveWithStickyRequest {
-    fn without_sticky(resolve_request: ResolveFlagsRequest) -> ResolveWithStickyRequest {
-        ResolveWithStickyRequest {
-            resolve_request: Some(resolve_request),
-            fail_fast_on_sticky: false,
-            not_process_sticky: true,
-            materializations: vec![],
+/// Three-valued logic for expression evaluation during materialization discovery.
+/// Known criteria return True/False; materialized segments with unknown status return Unknown.
+/// Kleene logic rules:
+/// - AND: False short-circuits; Unknown does not (need to keep evaluating to discover all reads)
+/// - OR: True short-circuits; Unknown does not
+/// - NOT: Unknown stays Unknown
+type Tribool = Option<bool>;
+
+enum MaterializationRecords {
+    /// No materializations available — collect required reads for discovery.
+    Discovery,
+    /// Materializations not supported — accessing them is an error.
+    Unsupported,
+    /// A complete set of materializations (e.g. from cookie, resume, or remote fetch).
+    Complete(Vec<MaterializationRecord>),
+}
+pub struct MaterializationContext {
+    pub to_read: Vec<MaterializationRecord>,
+    pub to_write: Vec<MaterializationRecord>,
+    records: MaterializationRecords,
+}
+
+impl MaterializationContext {
+    pub fn discovery() -> Self {
+        MaterializationContext {
+            to_read: Vec::new(),
+            to_write: Vec::new(),
+            records: MaterializationRecords::Discovery,
+        }
+    }
+    /// Create a context with a complete set of materializations (e.g. from a cookie or resume).
+    /// Missing lookups are treated as genuinely absent.
+    pub fn complete(materializations: Vec<MaterializationRecord>) -> Self {
+        MaterializationContext {
+            to_read: Vec::new(),
+            to_write: Vec::new(),
+            records: MaterializationRecords::Complete(materializations),
+        }
+    }
+
+    /// Create a context where materializations are not supported.
+    /// Any flag that requires materializations will error.
+    pub fn unsupported() -> Self {
+        MaterializationContext {
+            to_read: Vec::new(),
+            to_write: Vec::new(),
+            records: MaterializationRecords::Unsupported,
+        }
+    }
+
+    /// True if we're collecting materialization requirements rather than resolving.
+    pub fn has_missing_reads(&self) -> bool {
+        !self.to_read.is_empty()
+    }
+
+    /// Check if a unit is included in a materialization.
+    ///
+    /// - Found in `records` → True (included)
+    /// - Not found, but was in `requested` or `complete` → False (definitively absent)
+    /// - Not found, not in `requested`, not `complete` → Unknown + record for discovery
+    pub fn is_unit_in_materialization(
+        &mut self,
+        materialization: &str,
+        unit: &str,
+    ) -> Result<Tribool, ResolveError> {
+        match &self.records {
+            MaterializationRecords::Complete(records) => {
+                let found = records
+                    .iter()
+                    .any(|r| r.unit == unit && r.materialization == materialization);
+                Ok(Some(found))
+            }
+            MaterializationRecords::Discovery => {
+                self.record_missing(
+                    unit.to_string(),
+                    materialization.to_string(),
+                    "".to_string(),
+                );
+                Ok(None)
+            }
+            MaterializationRecords::Unsupported => Err(ResolveError::MaterializationsUnsupported),
+        }
+    }
+
+    /// Check if a unit has a materialization record for the given rule.
+    ///
+    /// - Found in `records` → Some(true)
+    /// - `records` is Some but not found → Some(false) (definitively absent)
+    /// - `records` is None → None (Unknown) + record for discovery
+    pub fn has_rule_materialization(
+        &mut self,
+        materialization: &str,
+        unit: &str,
+        rule: &str,
+    ) -> Result<Tribool, ResolveError> {
+        match &self.records {
+            MaterializationRecords::Complete(records) => {
+                let found = records.iter().any(|r| {
+                    r.unit == unit && r.materialization == materialization && r.rule == rule
+                });
+                Ok(Some(found))
+            }
+            MaterializationRecords::Discovery => {
+                self.record_missing(
+                    unit.to_string(),
+                    materialization.to_string(),
+                    rule.to_string(),
+                );
+                Ok(None)
+            }
+            MaterializationRecords::Unsupported => Err(ResolveError::MaterializationsUnsupported),
+        }
+    }
+
+    /// Find the assignment that matches the materialized variant for the given
+    /// unit/materialization/rule.
+    ///
+    /// Returns None if no matching record exists or the stored variant is empty.
+    /// Call `has_rule_materialization` first to handle the discovery case.
+    pub fn select_assignment<'b>(
+        &self,
+        materialization: &str,
+        unit: &str,
+        rule: &str,
+        assignments: &'b [rule::Assignment],
+    ) -> Option<&'b rule::Assignment> {
+        let records = match &self.records {
+            MaterializationRecords::Complete(records) => records,
+            _ => return None,
+        };
+        let record = records
+            .iter()
+            .find(|r| r.unit == unit && r.materialization == materialization && r.rule == rule)?;
+
+        if record.variant.is_empty() {
+            return None;
+        }
+
+        let variant = &record.variant;
+        assignments.iter().find(|assignment| {
+            matches!(
+                &assignment.assignment,
+                Some(Assignment::Variant(VariantAssignment { variant: v }))
+                    if variant == v
+            )
+        })
+    }
+
+    pub fn add_to_write(
+        &mut self,
+        unit: String,
+        materialization: String,
+        rule: String,
+        variant: String,
+    ) -> Result<(), ResolveError> {
+        if matches!(self.records, MaterializationRecords::Unsupported) {
+            return Err(ResolveError::MaterializationsUnsupported);
+        }
+        if self
+            .to_write
+            .iter()
+            .any(|r| r.unit == unit && r.materialization == materialization && r.rule == rule)
+        {
+            // cannot write multiple variants to the same rule
+            fail!();
+        }
+        self.to_write.push(MaterializationRecord {
+            unit,
+            materialization,
+            rule,
+            variant,
+        });
+        Ok(())
+    }
+
+    /// Deduplicated insert into to_read.
+    fn record_missing(&mut self, unit: String, materialization: String, rule: String) {
+        if !self
+            .to_read
+            .iter()
+            .any(|r| r.unit == unit && r.materialization == materialization && r.rule == rule)
+        {
+            self.to_read.push(MaterializationRecord {
+                unit,
+                materialization,
+                rule,
+                variant: "".to_string(),
+            });
         }
     }
 }
@@ -495,13 +727,61 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         }
     }
 
-    pub fn resolve_flags_sticky(
+    pub fn resolve_flags(
         &self,
-        request: &flags_resolver::ResolveWithStickyRequest,
-    ) -> Result<ResolveWithStickyResponse, String> {
+        mut request: ResolveProcessRequest,
+    ) -> Result<ResolveProcessResponse, String> {
         let timestamp = H::current_time();
 
-        let resolve_request = &request.resolve_request.clone().or_fail()?;
+        // Extract resolve request, materialization context, and continuation from the oneof
+        let (mut state, mut materialization_context) = match request.resolve.take() {
+            Some(resolve_process_request::Resolve::DeferredMaterializations(req)) => {
+                let state = ResolveProcessState {
+                    resolve_request: Some(req),
+                    resolved_flags: Vec::new(),
+                    materializations_to_write: Vec::new(),
+                    start_time: Some(H::current_time()),
+                };
+                (state, MaterializationContext::discovery())
+            }
+            Some(resolve_process_request::Resolve::StaticMaterializations(
+                with_materializations,
+            )) => {
+                let req = with_materializations.resolve_request.or_fail()?;
+                let state = ResolveProcessState {
+                    resolve_request: Some(req),
+                    resolved_flags: Vec::new(),
+                    materializations_to_write: Vec::new(),
+                    start_time: Some(H::current_time()),
+                };
+                (
+                    state,
+                    MaterializationContext::complete(with_materializations.materializations),
+                )
+            }
+            Some(resolve_process_request::Resolve::WithoutMaterializations(req)) => {
+                let state = ResolveProcessState {
+                    resolve_request: Some(req),
+                    resolved_flags: Vec::new(),
+                    materializations_to_write: Vec::new(),
+                    start_time: Some(H::current_time()),
+                };
+                (state, MaterializationContext::unsupported())
+            }
+            Some(resolve_process_request::Resolve::Resume(req)) => {
+                let mut state = ResolveProcessState::decode(req.state.as_slice())
+                    .map_err(|e| format!("Failed to decode continuation state: {}", e))?;
+                let mut materialization_context =
+                    MaterializationContext::complete(req.materializations);
+                materialization_context
+                    .to_write
+                    .extend(take(&mut state.materializations_to_write));
+                (state, materialization_context)
+            }
+            None => fail!(),
+        };
+
+        let resolve_request = state.resolve_request.as_ref().or_fail()?;
         let flag_names = resolve_request.flags.clone();
         let flags_to_resolve = self
             .state
@@ -510,6 +790,8 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             .filter(|flag| flag.state() == flags_admin::flag::State::Active)
             .filter(|flag| flag.clients.contains(&self.client.client_name))
             .filter(|flag| flag_names.is_empty() || flag_names.contains(&flag.name))
+            // Skip flags that were already resolved in a prior attempt
+            .filter(|flag| !state.resolved_flags.iter().any(|rf| rf.flag == flag.name))
             .collect::<Vec<&Flag>>();
 
         if flags_to_resolve.len() > MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE {
@@ -519,81 +801,54 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 flags_to_resolve.len()));
         }
 
-        if let Ok(Some(unit)) = self.get_targeting_key(TARGETING_KEY) {
-            if unit.len() > 100 {
-                return Err("Targeting key is too larger, max 100 characters.".to_string());
-            }
-        }
-
-        let mut resolve_results = Vec::with_capacity(flags_to_resolve.len());
-        let mut has_missing_materializations = false;
-
-        for flag in flags_to_resolve.clone() {
-            let resolve_result = self.resolve_flag(flag, request.materializations.clone());
-            match resolve_result {
-                Ok(resolve_result) => resolve_results.push(resolve_result),
-                Err(err) => {
-                    return match err {
-                        ResolveFlagError::Message(msg) => Err(msg.to_string()),
-                        ResolveFlagError::MissingMaterializations() => {
-                            if request.not_process_sticky {
-                                continue;
-                            }
-                            // We hit a rule that needs materializations - collect what's missing
-                            if request.fail_fast_on_sticky {
-                                // Collect missing materializations for this flag
-                                let missing =
-                                    self.collect_missing_materializations_for_flag(flag)?;
-                                Ok(ResolveWithStickyResponse::with_read_materialization_ops(
-                                    missing,
-                                ))
-                            } else {
-                                has_missing_materializations = true;
-                                break;
-                            }
-                        }
-                    };
+        for flag in flags_to_resolve {
+            match self.resolve_flag(flag, &mut materialization_context) {
+                Ok(resolved_value) => {
+                    state.resolved_flags.push((&resolved_value).into());
                 }
+                Err(err) => match err {
+                    ResolveError::MissingMaterializations => continue,
+                    other => return Err(other.into()),
+                },
             }
         }
 
-        if has_missing_materializations {
-            let result = self.collect_missing_materializations(flags_to_resolve);
-            if let Ok(missing) = result {
-                return Ok(ResolveWithStickyResponse::with_read_materialization_ops(
-                    missing,
-                ));
-            } else {
-                return Err("Could not collect missing materializations".to_string());
-            }
+        if !materialization_context.to_read.is_empty() {
+            state.materializations_to_write = materialization_context.to_write;
+            return Ok(ResolveProcessResponse::suspended(
+                materialization_context.to_read,
+                state,
+            ));
         }
-
-        let resolved_values: Vec<ResolvedValue> = resolve_results
-            .iter()
-            .map(|r| r.resolved_value.clone())
-            .collect();
 
         let resolve_id = random_alphanumeric(32);
+
+        let resolved_values: Vec<ResolvedValue<'_>> = state
+            .resolved_flags
+            .into_iter()
+            .map(|a| ResolvedValue::from_assigned(a, self.state))
+            .collect::<Fallible<Vec<_>>>()?;
+
         let mut response = flags_resolver::ResolveFlagsResponse {
             resolve_id: resolve_id.clone(),
+            resolved_flags: resolved_values
+                .iter()
+                .map(|rv| rv.try_into())
+                .collect::<Fallible<Vec<_>>>()?,
             ..Default::default()
         };
-        let mut updates: Vec<VariantData> = vec![];
-        for resolved_value in &resolved_values {
-            response.resolved_flags.push(resolved_value.into());
-        }
 
-        // Collect all materialization updates from all resolve results
-        for resolve_result in &resolve_results {
-            updates.extend(resolve_result.updates.clone());
-        }
+        let flags_to_assign: Vec<AssignedFlag> = resolved_values
+            .iter()
+            .filter(|rv| rv.should_apply())
+            .map(|rv| rv.into())
+            .collect();
 
         if resolve_request.apply {
-            let flags_to_apply: Vec<FlagToApply> = resolved_values
+            let flags_to_apply: Vec<FlagToApply> = flags_to_assign
                 .iter()
-                .filter(|v| v.should_apply)
-                .map(|v| FlagToApply {
-                    assigned_flag: v.into(),
+                .map(|af| FlagToApply {
+                    assigned_flag: af.clone(),
                     skew_adjusted_applied_time: timestamp.clone(),
                 })
                 .collect();
@@ -606,17 +861,15 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 &resolve_request.sdk.clone(),
             );
         } else {
-            // create resolve token
             let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
                 resolve_id: resolve_id.clone(),
                 evaluation_context: Some(self.evaluation_context.context.clone()),
                 ..Default::default()
             };
-            for resolved_value in &resolved_values {
-                let assigned_flag: AssignedFlag = resolved_value.into();
+            for assigned_flag in &flags_to_assign {
                 resolve_token_v1
                     .assignments
-                    .insert(assigned_flag.flag.clone(), assigned_flag);
+                    .insert(assigned_flag.flag.clone(), assigned_flag.clone());
             }
 
             let resolve_token = flags_resolver::ResolveToken {
@@ -627,8 +880,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
             let encrypted_token = self
                 .encrypt_resolve_token(&resolve_token)
-                .map_err(|_| "Failed to encrypt resolve token".to_string())
-                .or_fail()?;
+                .map_err(|_| "Failed to encrypt resolve token".to_string())?;
 
             response.resolve_token = encrypted_token;
         }
@@ -641,36 +893,29 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             &resolve_request.sdk.clone(),
         );
 
-        Ok(ResolveWithStickyResponse::with_success(response, updates))
+        Ok(ResolveProcessResponse::resolved(
+            response,
+            materialization_context.to_write,
+        ))
     }
 
-    pub fn resolve_flags(
+    #[cfg(test)]
+    pub(crate) fn resolve_flags_no_materialization(
         &self,
         request: &flags_resolver::ResolveFlagsRequest,
     ) -> Result<flags_resolver::ResolveFlagsResponse, String> {
-        let response = self.resolve_flags_sticky(&ResolveWithStickyRequest::without_sticky(
-            flags_resolver::ResolveFlagsRequest {
-                flags: request.flags.clone(),
-                sdk: request.sdk.clone(),
-                evaluation_context: request.evaluation_context.clone(),
-                client_secret: request.client_secret.clone(),
-                apply: request.apply,
-            },
-        ));
-
+        let response = self.resolve_flags(ResolveProcessRequest {
+            resolve: Some(resolve_process_request::Resolve::WithoutMaterializations(
+                request.clone(),
+            )),
+        });
         match response {
-            Ok(v) => match v.resolve_result {
-                None => Err("failed to resolve flags".to_string()),
-                Some(r) => match r {
-                    ResolveResult::Success(flags_response) => match flags_response.response {
-                        Some(flags_response) => Ok(flags_response),
-                        None => Err("failed to resolve flags".to_string()),
-                    },
-                    ResolveResult::ReadOpsRequest(_) => {
-                        Err("sticky assignments is not supported".to_string())
-                    }
-                },
-            },
+            Ok(ResolveProcessResponse {
+                result: Some(resolve_process_response::Result::Resolved(resolved)),
+            }) => resolved
+                .response
+                .ok_or_else(|| "empty resolve response".to_string()),
+            Ok(_) => Err("unexpected suspended response".to_string()),
             Err(e) => Err(e),
         }
     }
@@ -725,108 +970,23 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
     fn get_targeting_key(&self, targeting_key: &str) -> Result<Option<String>, String> {
         let unit_value = self.get_attribute_value(targeting_key);
-        match &unit_value.kind {
-            None => Ok(None),
-            Some(Kind::NullValue(_)) => Ok(None),
-            Some(Kind::StringValue(string_unit)) => Ok(Some(string_unit.clone())),
+        let unit = match &unit_value.kind {
+            None => return Ok(None),
+            Some(Kind::NullValue(_)) => return Ok(None),
+            Some(Kind::StringValue(string_unit)) => string_unit.clone(),
             Some(Kind::NumberValue(num_value)) => {
                 if num_value.is_finite() && num_value.fract() == 0.0 {
-                    Ok(Some(format!("{:.0}", num_value)))
+                    format!("{:.0}", num_value)
                 } else {
-                    Err("TargetingKeyError".to_string())
+                    return Err("TargetingKeyError".to_string());
                 }
             }
-            _ => Err("TargetingKeyError".to_string()),
+            _ => return Err("TargetingKeyError".to_string()),
+        };
+        if unit.len() > 100 {
+            return Err("Targeting key is too long, max 100 characters.".to_string());
         }
-    }
-    pub fn resolve_flag_name(
-        &'a self,
-        flag_name: &str,
-    ) -> Result<FlagResolveResult<'a>, ResolveFlagError> {
-        self.state
-            .flags
-            .get(flag_name)
-            .ok_or(ResolveFlagError::err("flag not found"))
-            .and_then(|flag| self.resolve_flag(flag, vec![]))
-    }
-
-    pub fn collect_missing_materializations(
-        &'a self,
-        flags: Vec<&'a Flag>,
-    ) -> Result<Vec<ReadOp>, String> {
-        let mut missing_materializations: Vec<ReadOp> = Vec::new();
-        for flag in flags {
-            let result = self.collect_missing_materializations_for_flag(flag);
-            if let Ok(items) = result {
-                missing_materializations.extend(items);
-            } else {
-                return Err(format!(
-                    "Could not collect missing materializations for flag {}",
-                    flag.name
-                ));
-            }
-        }
-        Ok(missing_materializations)
-    }
-
-    fn collect_missing_materializations_for_flag(
-        &'a self,
-        flag: &'a Flag,
-    ) -> Result<Vec<ReadOp>, String> {
-        let mut missing_materializations: Vec<ReadOp> = Vec::new();
-
-        if flag.state == flags_admin::flag::State::Archived as i32 {
-            return Ok(vec![]);
-        }
-
-        for rule in &flag.rules {
-            if !rule.enabled {
-                continue;
-            }
-
-            let targeting_key = if !rule.targeting_key_selector.is_empty() {
-                rule.targeting_key_selector.as_str()
-            } else {
-                TARGETING_KEY
-            };
-
-            let unit: String = match self.get_targeting_key(targeting_key) {
-                Ok(Some(u)) => u,
-                Ok(None) => continue,
-                Err(_) => return Err("Targeting key error".to_string()),
-            };
-
-            // Check rule-level materialization_spec
-            if let Some(materialization_spec) = &rule.materialization_spec {
-                let rule_name = &rule.name.as_str();
-                let read_materialization = materialization_spec.read_materialization.as_str();
-                if !read_materialization.is_empty() {
-                    missing_materializations.push(ReadOp {
-                        op: Some(read_op::Op::VariantReadOp(VariantReadOp {
-                            unit: unit.to_string(),
-                            rule: rule_name.to_string(),
-                            materialization: read_materialization.to_string(),
-                        })),
-                    });
-                }
-            }
-
-            // Check segment for MaterializedSegmentCriterion
-            let materialized_segments =
-                self.find_materialized_segments_in_segment(&rule.segment, &mut HashSet::new());
-
-            for materialized_segment_name in materialized_segments {
-                missing_materializations.push(ReadOp {
-                    op: Some(read_op::Op::InclusionReadOp(
-                        proto::confidence::flags::resolver::v1::InclusionReadOp {
-                            unit: unit.clone(),
-                            materialization: materialized_segment_name,
-                        },
-                    )),
-                });
-            }
-        }
-        Ok(missing_materializations)
+        Ok(Some(unit))
     }
 
     fn enabled_for_environment(&self, rule: &flags_admin::flag::Rule) -> bool {
@@ -840,17 +1000,31 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     pub fn resolve_flag(
         &'a self,
         flag: &'a Flag,
-        materializations: Vec<ReadResult>,
-    ) -> Result<FlagResolveResult<'a>, ResolveFlagError> {
-        let mut updates: Vec<VariantData> = Vec::new();
+        materialization_context: &mut MaterializationContext,
+    ) -> Result<ResolvedValue<'a>, ResolveError> {
+        match self.resolve_flag_internal(flag, materialization_context) {
+            Err(ResolveError::MaterializationsUnsupported) => {
+                Ok(ResolvedValue::new(flag).error(ResolveReason::MaterializationNotSupported))
+            }
+            Err(ResolveError::UnrecognizedRule) => {
+                Ok(ResolvedValue::new(flag).error(ResolveReason::UnrecognizedTargetingRule))
+            }
+            other => other,
+        }
+    }
+
+    pub fn resolve_flag_internal(
+        &'a self,
+        flag: &'a Flag,
+        materialization_context: &mut MaterializationContext,
+    ) -> Result<ResolvedValue<'a>, ResolveError> {
         let mut resolved_value = ResolvedValue::new(flag);
 
         if flag.state == flags_admin::flag::State::Archived as i32 {
-            return Ok(FlagResolveResult {
-                resolved_value: resolved_value.error(ResolveReason::FlagArchived),
-                updates: vec![],
-            });
+            return Ok(resolved_value.error(ResolveReason::FlagArchived));
         }
+
+        let mut has_missing_materializations = false;
 
         for rule in &flag.rules {
             if !rule.enabled {
@@ -876,180 +1050,90 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             let unit: String = match self.get_targeting_key(targeting_key) {
                 Ok(Some(u)) => u,
                 Ok(None) => continue,
-                Err(_) => {
-                    return Ok(FlagResolveResult {
-                        resolved_value: resolved_value.error(ResolveReason::TargetingKeyError),
-                        updates: vec![],
-                    })
-                }
+                Err(_) => return Ok(resolved_value.error(ResolveReason::TargetingKeyError)),
             };
 
             let Some(spec) = &rule.assignment_spec else {
                 continue;
             };
 
-            let mut materialization_matched = false;
+            let mut materialization_matched = Some(false);
             if let Some(materialization_spec) = &rule.materialization_spec {
                 let read_materialization = &materialization_spec.read_materialization;
                 if !read_materialization.is_empty() {
-                    // Find matching ReadResult for this unit, materialization, and rule
-                    let matching_result =
-                        materializations.iter().find(|result| match &result.result {
-                            Some(read_result::Result::VariantResult(variant_data)) => {
-                                variant_data.unit == unit
-                                    && variant_data.materialization == *read_materialization
-                                    && variant_data.rule == rule.name
-                            }
-                            Some(read_result::Result::InclusionResult(inclusion_data)) => {
-                                inclusion_data.unit == unit
-                                    && inclusion_data.materialization == *read_materialization
-                            }
-                            None => false,
-                        });
-
-                    if let Some(result) = matching_result {
-                        match &result.result {
-                            Some(read_result::Result::VariantResult(variant_data)) => {
-                                // We have variant data - use it directly
-                                if materialization_spec
-                                    .mode
-                                    .as_ref()
-                                    .map(|mode| mode.segment_targeting_can_be_ignored)
-                                    .unwrap_or(false)
-                                {
-                                    materialization_matched = true;
-                                } else {
-                                    materialization_matched = match self
-                                        .segment_match_with_materializations(
-                                            segment,
-                                            &unit,
-                                            &materializations,
-                                        ) {
-                                        Ok(matched) => matched,
-                                        Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
-                                            return Ok(FlagResolveResult {
-                                                resolved_value: resolved_value.error(
-                                                    ResolveReason::UnrecognizedTargetingRule,
-                                                ),
-                                                updates: vec![],
-                                            });
-                                        }
-                                        Err(_) => {
-                                            return Err(
-                                                ResolveFlagError::missing_materializations(),
-                                            );
-                                        }
-                                    };
-                                }
-
-                                if materialization_matched {
-                                    let variant_name = &variant_data.variant;
-                                    if let Some(assignment) =
-                                        spec.assignments.iter().find(|assignment| {
-                                            if let Some(rule::assignment::Assignment::Variant(
-                                                ref variant_assignment,
-                                            )) = &assignment.assignment
-                                            {
-                                                variant_assignment.variant == *variant_name
-                                            } else {
-                                                false
-                                            }
-                                        })
-                                    {
-                                        let variant = flag
-                                            .variants
-                                            .iter()
-                                            .find(|v| v.name == *variant_name)
-                                            .or_fail()?;
-                                        return Ok(FlagResolveResult {
-                                            resolved_value: resolved_value.with_variant_match(
-                                                rule,
-                                                segment,
-                                                variant,
-                                                &assignment.assignment_id,
-                                                &unit,
-                                            ),
-                                            updates: vec![],
-                                        });
-                                    }
-                                }
-                            }
-                            Some(read_result::Result::InclusionResult(inclusion_data)) => {
-                                // Check if unit is included in the materialization
-                                if !inclusion_data.is_included {
-                                    if materialization_spec
-                                        .mode
-                                        .as_ref()
-                                        .map(|mode| mode.materialization_must_match)
-                                        .unwrap_or(false)
-                                    {
-                                        // Materialization must match but unit is not included
-                                        continue;
-                                    }
-                                    materialization_matched = false;
-                                } else if materialization_spec
-                                    .mode
-                                    .as_ref()
-                                    .map(|mode| mode.segment_targeting_can_be_ignored)
-                                    .unwrap_or(false)
-                                {
-                                    materialization_matched = true;
-                                } else {
-                                    materialization_matched = match self
-                                        .segment_match_with_materializations(
-                                            segment,
-                                            &unit,
-                                            &materializations,
-                                        ) {
-                                        Ok(matched) => matched,
-                                        Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
-                                            return Ok(FlagResolveResult {
-                                                resolved_value: resolved_value.error(
-                                                    ResolveReason::UnrecognizedTargetingRule,
-                                                ),
-                                                updates: vec![],
-                                            });
-                                        }
-                                        Err(_) => {
-                                            return Err(
-                                                ResolveFlagError::missing_materializations(),
-                                            );
-                                        }
-                                    };
-                                }
-                            }
-                            None => {
-                                return Err(ResolveFlagError::missing_materializations());
+                    let read_mode =
+                        materialization_spec
+                            .mode
+                            .as_ref()
+                            .unwrap_or(&MaterializationReadMode {
+                                segment_targeting_can_be_ignored: false,
+                                materialization_must_match: false,
+                            });
+                    match materialization_context.has_rule_materialization(
+                        read_materialization,
+                        &unit,
+                        &rule.name,
+                    )? {
+                        Some(false) => {
+                            materialization_matched = Some(false);
+                            if read_mode.materialization_must_match {
+                                continue;
                             }
                         }
-                    } else {
-                        // No matching result found
-                        return Err(ResolveFlagError::missing_materializations());
+                        Some(true) => {
+                            if read_mode.segment_targeting_can_be_ignored {
+                                materialization_matched = Some(true);
+                            } else {
+                                materialization_matched = self.targeting_match(
+                                    segment,
+                                    &unit,
+                                    &mut HashSet::new(),
+                                    materialization_context,
+                                )?;
+                            }
+                            if materialization_matched == Some(true) {
+                                if let Some(assignment) = materialization_context.select_assignment(
+                                    read_materialization,
+                                    &unit,
+                                    &rule.name,
+                                    &spec.assignments,
+                                ) {
+                                    return resolved_value
+                                        .try_with_variant_match(rule, segment, assignment, &unit);
+                                }
+                            }
+                        }
+                        None => {
+                            has_missing_materializations = true;
+                        }
                     }
                 }
             }
 
-            if !materialization_matched {
-                match self.segment_match_with_materializations(segment, &unit, &materializations) {
-                    Ok(true) => {
-                        // Segment matches, continue with assignment
-                    }
-                    Ok(false) => {
-                        // Segment doesn't match, try next rule
+            if materialization_matched != Some(true) {
+                materialization_matched =
+                    self.segment_match(segment, &unit, materialization_context)?;
+            }
+            match materialization_matched {
+                Some(true) => {
+                    // Segment matches, continue with assignment
+                    if has_missing_materializations {
                         continue;
                     }
-                    Err(e) if e == value::UNRECOGNIZED_RULE_ERROR => {
-                        return Ok(FlagResolveResult {
-                            resolved_value: resolved_value
-                                .error(ResolveReason::UnrecognizedTargetingRule),
-                            updates: vec![],
-                        });
-                    }
-                    Err(_) => {
-                        return Err(ResolveFlagError::missing_materializations());
-                    }
+                }
+                Some(false) => {
+                    // Segment doesn't match  — try next rule
+                    // (Unknown means discoveries were recorded as side effects)
+                    continue;
+                }
+                None => {
+                    // Segment match is unknown  — try next rule
+                    // (Unknown means discoveries were recorded as side effects)
+                    has_missing_materializations = true;
+                    continue;
                 }
             }
+
             let bucket_count = spec.bucket_count;
             let variant_salt = segment_name.split("/").nth(1).or_fail()?;
             let key = format!("{}|{}", variant_salt, unit);
@@ -1062,90 +1146,71 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     .any(|range| range.lower <= bucket && bucket < range.upper)
             });
 
-            let has_write_spec = rule
-                .materialization_spec
-                .as_ref()
-                .map(|materialization_spec| &materialization_spec.write_materialization);
-
-            if let Some(assignment) = matched_assignment {
-                let Some(a) = &assignment.assignment else {
-                    continue;
-                };
-
+            if let Some(rule::Assignment {
+                assignment_id,
+                assignment: Some(assignment),
+                ..
+            }) = matched_assignment
+            {
                 // Extract variant name from assignment if it's a variant assignment
-                let variant_name = match a {
-                    rule::assignment::Assignment::Variant(ref variant_assignment) => {
+                let variant_name = match assignment {
+                    Assignment::Variant(ref variant_assignment) => {
                         variant_assignment.variant.clone()
                     }
                     _ => "".to_string(),
                 };
 
+                let write_spec = rule
+                    .materialization_spec
+                    .as_ref()
+                    .map(|materialization_spec| &materialization_spec.write_materialization);
+
                 // write the materialization info if write spec exists
-                if let Some(write_spec) = has_write_spec {
-                    updates.push(VariantData {
-                        unit: unit.to_string(),
-                        materialization: write_spec.to_string(),
-                        rule: rule.clone().name,
-                        variant: variant_name,
-                    })
+                if let Some(materialization) = write_spec {
+                    materialization_context.add_to_write(
+                        unit.clone(),
+                        materialization.clone(),
+                        rule.name.clone(),
+                        variant_name.clone(),
+                    )?
                 }
 
-                match a {
+                match assignment {
                     rule::assignment::Assignment::Fallthrough(_) => {
-                        resolved_value.attribute_fallthrough_rule(
-                            rule,
-                            &assignment.assignment_id,
-                            &unit,
-                        );
+                        resolved_value.attribute_fallthrough_rule(rule, assignment_id, &unit);
                         continue;
                     }
                     rule::assignment::Assignment::ClientDefault(_) => {
-                        return Ok(FlagResolveResult {
-                            resolved_value: resolved_value.with_client_default_match(
-                                rule,
-                                segment,
-                                &assignment.assignment_id,
-                                &unit,
-                            ),
-                            updates,
-                        })
+                        return Ok(resolved_value.with_client_default_match(
+                            rule,
+                            segment,
+                            assignment_id,
+                            &unit,
+                        ));
                     }
-                    rule::assignment::Assignment::Variant(
-                        rule::assignment::VariantAssignment {
-                            variant: variant_name,
-                        },
-                    ) => {
+                    rule::assignment::Assignment::Variant(_) => {
                         let variant = flag
                             .variants
                             .iter()
-                            .find(|variant| variant.name == *variant_name)
+                            .find(|v| v.name == variant_name)
                             .or_fail()?;
-
-                        return Ok(FlagResolveResult {
-                            resolved_value: resolved_value.with_variant_match(
-                                rule,
-                                segment,
-                                variant,
-                                &assignment.assignment_id,
-                                &unit,
-                            ),
-                            updates,
-                        });
+                        return Ok(resolved_value.with_variant_match(
+                            rule,
+                            segment,
+                            variant,
+                            assignment_id,
+                            &unit,
+                        ));
                     }
                 };
             }
         }
 
-        if resolved_value.reason == ResolveReason::Match {
-            resolved_value.should_apply = true;
-        } else {
-            resolved_value.should_apply = !resolved_value.fallthrough_rules.is_empty();
+        if has_missing_materializations {
+            return Err(ResolveError::MissingMaterializations);
         }
 
-        Ok(FlagResolveResult {
-            resolved_value,
-            updates,
-        })
+        Ok(resolved_value)
     }
 
     /// Get an attribute value from the [EvaluationContext] struct, addressed by a path specification.
@@ -1179,17 +1244,28 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         &NULL
     }
 
-    pub fn segment_match(&self, segment: &Segment, unit: &str) -> Fallible<bool> {
-        self.segment_match_internal(segment, unit, &mut HashSet::new(), &vec![])
-    }
-
-    pub fn segment_match_with_materializations(
+    #[cfg(test)]
+    pub(crate) fn segment_match_no_materialization(
         &self,
         segment: &Segment,
         unit: &str,
-        materializations: &Vec<ReadResult>,
-    ) -> Fallible<bool> {
-        self.segment_match_internal(segment, unit, &mut HashSet::new(), materializations)
+    ) -> Result<bool, ResolveError> {
+        let result = self.segment_match_internal(
+            segment,
+            unit,
+            &mut HashSet::new(),
+            &mut MaterializationContext::unsupported(),
+        )?;
+        Ok(result == Some(true))
+    }
+
+    pub fn segment_match(
+        &self,
+        segment: &Segment,
+        unit: &str,
+        materialization_context: &mut MaterializationContext,
+    ) -> Result<Tribool, ResolveError> {
+        self.segment_match_internal(segment, unit, &mut HashSet::new(), materialization_context)
     }
 
     fn segment_match_internal(
@@ -1197,27 +1273,32 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         segment: &Segment,
         unit: &str,
         visited: &mut HashSet<String>,
-        materializations: &Vec<ReadResult>,
-    ) -> Fallible<bool> {
+        materializations: &mut MaterializationContext,
+    ) -> Result<Tribool, ResolveError> {
         if visited.contains(&segment.name) {
             fail!("circular segment dependency found");
         }
         visited.insert(segment.name.clone());
 
-        if !self.targeting_match(segment, unit, visited, materializations)? {
-            return Ok(false);
+        let targeting_result = self.targeting_match(segment, unit, visited, materializations)?;
+        if targeting_result == Some(false) {
+            return Ok(Some(false));
         }
 
         // check bitset
         let Some(bitset) = self.state.bitsets.get(&segment.name) else {
-            return Ok(true);
-        }; // todo: would this match or not?
+            return Ok(targeting_result); // preserve Unknown if targeting was Unknown
+        };
         let salted_unit = self.client.account.salt_unit(unit)?;
         let unit_hash = bucket(hash(&salted_unit), BUCKETS)?;
         if unit_hash >= bitset.len() {
-            return Ok(false);
+            return Ok(Some(false));
         }
-        Ok(bitset[unit_hash])
+        if bitset[unit_hash] {
+            Ok(targeting_result) // preserve Unknown if targeting was Unknown
+        } else {
+            Ok(Some(false))
+        }
     }
 
     fn targeting_match(
@@ -1225,17 +1306,17 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         segment: &Segment,
         unit: &str,
         visited: &mut HashSet<String>,
-        materializations: &Vec<ReadResult>,
-    ) -> Fallible<bool> {
+        materialization_context: &mut MaterializationContext,
+    ) -> Result<Tribool, ResolveError> {
         let Some(targeting) = &segment.targeting else {
-            return Ok(true);
+            return Ok(Some(true));
         };
-        let mut criterion_evaluator = |id: &String| {
+        let mut criterion_evaluator = |id: &String| -> Result<Tribool, ResolveError> {
             let Some(Criterion {
                 criterion: Some(criterion),
             }) = targeting.criteria.get(id)
             else {
-                return Ok(false);
+                return Ok(Some(false));
             };
             match &criterion {
                 criterion::Criterion::Attribute(attribute_criterion) => {
@@ -1246,94 +1327,31 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         value::convert_to_targeting_value(attribute_value, expected_value_type)?;
                     let wrapped = list_wrapper(&converted);
 
-                    value::evaluate_criterion(attribute_criterion, &wrapped)
+                    Ok(Some(value::evaluate_criterion(
+                        attribute_criterion,
+                        &wrapped,
+                    )?))
                 }
                 criterion::Criterion::Segment(segment_criterion) => {
                     let Some(ref_segment) = self.state.segments.get(&segment_criterion.segment)
                     else {
-                        return Ok(false);
+                        return Ok(Some(false));
                     };
 
-                    self.segment_match_internal(ref_segment, unit, visited, materializations)
+                    self.segment_match_internal(ref_segment, unit, visited, materialization_context)
                 }
-                criterion::Criterion::MaterializedSegment(materialized_segment_criterion) => {
-                    let materialized_segment_name =
-                        &materialized_segment_criterion.materialized_segment;
-
-                    // Get materialization info for this unit and materialized segment
-                    let inclusion_result = materializations.iter().find_map(|result| {
-                        if let Some(read_result::Result::InclusionResult(inclusion_data)) =
-                            &result.result
-                        {
-                            if inclusion_data.unit == unit
-                                && inclusion_data.materialization == *materialized_segment_name
-                            {
-                                return Some(inclusion_data);
-                            }
-                        }
-                        None
-                    });
-
-                    if let Some(inclusion) = inclusion_result {
-                        Ok(inclusion.is_included)
-                    } else {
-                        // No materialization info available
-                        // If we have an empty materializations list, we're in a mode where we should request them
-                        // Return an error to trigger materialization collection
-                        fail!("Missing materialization data")
-                    }
+                criterion::Criterion::MaterializedSegment(MaterializedSegmentCriterion {
+                    materialized_segment,
+                }) => {
+                    materialization_context.is_unit_in_materialization(materialized_segment, unit)
                 }
             }
         };
 
         let Some(expression) = &targeting.expression else {
-            return Ok(true);
+            return Ok(Some(true));
         };
         evaluate_expression(expression, &mut criterion_evaluator)
-    }
-
-    /// Recursively finds all materialized segments referenced in a segment's targeting criteria
-    fn find_materialized_segments_in_segment(
-        &self,
-        segment_name: &str,
-        visited: &mut HashSet<String>,
-    ) -> Vec<String> {
-        if visited.contains(segment_name) {
-            return vec![];
-        }
-        visited.insert(segment_name.to_string());
-
-        let Some(segment) = self.state.segments.get(segment_name) else {
-            return vec![];
-        };
-
-        let Some(targeting) = &segment.targeting else {
-            return vec![];
-        };
-
-        let mut results = Vec::new();
-        for criterion in targeting.criteria.values() {
-            let Some(criterion_type) = &criterion.criterion else {
-                continue;
-            };
-
-            match criterion_type {
-                criterion::Criterion::Attribute(_) => {
-                    // No materialization needed
-                }
-                criterion::Criterion::Segment(segment_criterion) => {
-                    // Recursively check nested segment
-                    let nested = self
-                        .find_materialized_segments_in_segment(&segment_criterion.segment, visited);
-                    results.extend(nested);
-                }
-                criterion::Criterion::MaterializedSegment(mat_seg_criterion) => {
-                    // Found a materialized segment!
-                    results.push(mat_seg_criterion.materialized_segment.clone());
-                }
-            }
-        }
-        results
     }
 
     fn encrypt_resolve_token(
@@ -1363,29 +1381,37 @@ fn to_date_time_utc(timestamp: &Timestamp) -> Option<chrono::DateTime<chrono::Ut
 
 fn evaluate_expression(
     expression: &Expression,
-    criterion_evaluator: &mut dyn FnMut(&String) -> Fallible<bool>,
-) -> Fallible<bool> {
+    criterion_evaluator: &mut dyn FnMut(&String) -> Result<Tribool, ResolveError>,
+) -> Result<Tribool, ResolveError> {
     let Some(expression) = &expression.expression else {
-        return Ok(false);
+        return Ok(Some(false));
     };
     match expression {
         expression::Expression::Ref(ref_) => criterion_evaluator(ref_),
-        expression::Expression::Not(not) => Ok(!evaluate_expression(not, criterion_evaluator)?),
+        expression::Expression::Not(not) => {
+            Ok(evaluate_expression(not, criterion_evaluator)?.map(|b| !b))
+        }
         expression::Expression::And(and) => {
+            let mut has_unknown = false;
             for op in &and.operands {
-                if !evaluate_expression(op, criterion_evaluator)? {
-                    return Ok(false);
+                match evaluate_expression(op, criterion_evaluator)? {
+                    Some(false) => return Ok(Some(false)), // definitive short-circuit
+                    Some(true) => {}                       // keep evaluating
+                    None => has_unknown = true,            // keep evaluating
                 }
             }
-            Ok(true)
+            Ok(if has_unknown { None } else { Some(true) })
         }
         expression::Expression::Or(or) => {
+            let mut has_unknown = false;
             for op in &or.operands {
-                if evaluate_expression(op, criterion_evaluator)? {
-                    return Ok(true);
+                match evaluate_expression(op, criterion_evaluator)? {
+                    Some(true) => return Ok(Some(true)), // definitive short-circuit
+                    Some(false) => {}                    // keep evaluating
+                    None => has_unknown = true,          // keep evaluating
                 }
             }
-            Ok(false)
+            Ok(if has_unknown { None } else { Some(false) })
         }
     }
 }
@@ -1401,193 +1427,180 @@ fn list_wrapper(value: &targeting::value::Value) -> targeting::ListValue {
     }
 }
 
+/// Resolved flag value — wraps an `AssignedFlag` (serializable) with a reference
+/// to the `Flag` (for variant value / schema lookups when converting to `ResolvedFlag`).
+///
+/// The `AssignedFlag` captures all string-based resolution data. The `&'a Flag`
+/// provides access to variant values and flag schema needed for the response.
 #[derive(Debug, Clone)]
 pub struct ResolvedValue<'a> {
     pub flag: &'a Flag,
-    pub reason: ResolveReason,
-    pub assignment_match: Option<AssignmentMatch<'a>>,
-    pub fallthrough_rules: Vec<FallthroughRule<'a>>,
-    pub should_apply: bool,
-}
-
-#[derive(Debug)]
-pub struct FlagResolveResult<'a> {
-    pub resolved_value: ResolvedValue<'a>,
-    pub updates: Vec<VariantData>,
+    pub(crate) inner: AssignedFlag,
 }
 
 impl<'a> ResolvedValue<'a> {
-    fn new(flag: &'a Flag) -> Self {
+    pub(crate) fn from_assigned(
+        assigned: AssignedFlag,
+        state: &'a ResolverState,
+    ) -> Fallible<Self> {
+        let flag = state.flags.get(&assigned.flag).or_fail()?;
+        Ok(ResolvedValue {
+            flag,
+            inner: assigned,
+        })
+    }
+
+    pub(crate) fn new(flag: &'a Flag) -> Self {
         ResolvedValue {
             flag,
-            reason: ResolveReason::NoSegmentMatch,
-            assignment_match: Option::None,
-            fallthrough_rules: vec![],
-            should_apply: false,
+            inner: AssignedFlag {
+                flag: flag.name.clone(),
+                reason: ResolveReason::NoSegmentMatch as i32,
+                ..Default::default()
+            },
         }
     }
 
     fn error(&self, reason: ResolveReason) -> Self {
+        let mut inner = self.inner.clone();
+        inner.reason = reason as i32;
+        inner.variant = String::new();
+        inner.rule = String::new();
+        inner.segment = String::new();
+        inner.assignment_id = String::new();
+        inner.targeting_key = String::new();
         ResolvedValue {
             flag: self.flag,
-            reason,
-            assignment_match: Option::None,
-            fallthrough_rules: self.fallthrough_rules.clone(),
-            should_apply: false,
+            inner,
         }
     }
 
-    fn attribute_fallthrough_rule(&mut self, rule: &'a Rule, assignment_id: &str, unit: &str) {
-        self.fallthrough_rules.push(FallthroughRule {
-            rule,
-            assignment_id: assignment_id.to_string(),
-            targeting_key: unit.to_string(),
-        });
+    pub(crate) fn attribute_fallthrough_rule(
+        &mut self,
+        rule: &Rule,
+        assignment_id: &str,
+        unit: &str,
+    ) {
+        self.inner
+            .fallthrough_assignments
+            .push(flags_resolver::events::FallthroughAssignment {
+                rule: rule.name.clone(),
+                assignment_id: assignment_id.to_string(),
+                targeting_key: unit.to_string(),
+                targeting_key_selector: rule.targeting_key_selector.clone(),
+            });
     }
 
-    fn with_client_default_match(
+    pub(crate) fn with_client_default_match(
         &self,
-        rule: &'a Rule,
-        segment: &'a Segment,
+        rule: &Rule,
+        segment: &Segment,
         assignment_id: &str,
         unit: &str,
     ) -> Self {
+        let mut inner = self.inner.clone();
+        inner.reason = ResolveReason::Match as i32;
+        inner.rule = rule.name.clone();
+        inner.segment = segment.name.clone();
+        inner.assignment_id = assignment_id.to_string();
+        inner.targeting_key = unit.to_string();
+        inner.targeting_key_selector = rule.targeting_key_selector.clone();
         ResolvedValue {
             flag: self.flag,
-            reason: ResolveReason::Match,
-            assignment_match: Option::Some(AssignmentMatch {
-                rule,
-                segment,
-                assignment_id: assignment_id.to_string(),
-                targeting_key: unit.to_string(),
-                variant: Option::None,
-            }),
-            fallthrough_rules: self.fallthrough_rules.clone(),
-            should_apply: true,
+            inner,
         }
     }
 
-    fn with_variant_match(
+    pub(crate) fn with_variant_match(
         &self,
-        rule: &'a Rule,
-        segment: &'a Segment,
-        variant: &'a Variant,
+        rule: &Rule,
+        segment: &Segment,
+        variant: &Variant,
         assignment_id: &str,
         unit: &str,
     ) -> Self {
+        let mut inner = self.inner.clone();
+        inner.reason = ResolveReason::Match as i32;
+        inner.rule = rule.name.clone();
+        inner.segment = segment.name.clone();
+        inner.variant = variant.name.clone();
+        inner.assignment_id = assignment_id.to_string();
+        inner.targeting_key = unit.to_string();
+        inner.targeting_key_selector = rule.targeting_key_selector.clone();
         ResolvedValue {
             flag: self.flag,
-            reason: ResolveReason::Match,
-            assignment_match: Option::Some(AssignmentMatch {
-                rule,
-                segment,
-                assignment_id: assignment_id.to_string(),
-                targeting_key: unit.to_string(),
-                variant: Option::Some(variant),
-            }),
-            fallthrough_rules: self.fallthrough_rules.clone(),
-            should_apply: true,
+            inner,
         }
+    }
+
+    fn try_with_variant_match(
+        &self,
+        rule: &Rule,
+        segment: &Segment,
+        assignment: &rule::Assignment,
+        unit: &str,
+    ) -> Result<Self, ResolveError> {
+        let Some(Assignment::Variant(VariantAssignment {
+            variant: variant_name,
+        })) = &assignment.assignment
+        else {
+            fail!();
+        };
+        let Some(variant) = self.flag.variants.iter().find(|v| &v.name == variant_name) else {
+            fail!();
+        };
+        Ok(self.with_variant_match(rule, segment, variant, &assignment.assignment_id, unit))
+    }
+
+    // Accessors for resolve_logger compatibility
+    pub fn reason(&self) -> ResolveReason {
+        self.inner.reason()
+    }
+
+    pub fn should_apply(&self) -> bool {
+        self.reason() == ResolveReason::Match || !self.inner.fallthrough_assignments.is_empty()
     }
 }
 
-impl<'a> From<&ResolvedValue<'a>> for flags_resolver::ResolvedFlag {
-    fn from(value: &ResolvedValue<'a>) -> Self {
+impl<'a> TryFrom<&ResolvedValue<'a>> for flags_resolver::ResolvedFlag {
+    type Error = ErrorCode;
+
+    fn try_from(value: &ResolvedValue<'a>) -> Fallible<Self> {
+        let variant_name = &value.inner.variant;
         let mut resolved_flag = flags_resolver::ResolvedFlag {
             flag: value.flag.name.clone(),
-            reason: value.reason as i32,
-            should_apply: value.should_apply,
+            reason: value.inner.reason,
+            should_apply: value.should_apply(),
             ..Default::default()
         };
 
-        if let Some(assignment_match) = &value.assignment_match {
-            match assignment_match.variant {
-                Some(variant) => {
-                    resolved_flag.variant = variant.name.clone();
-                    resolved_flag.value = variant.value.clone(); // todo: expand to schema
-                    resolved_flag.flag_schema = value.flag.schema.clone();
-                }
-                None => {
-                    resolved_flag.variant = "".to_string();
-                    resolved_flag.value = Some(Struct::default());
-                    resolved_flag.flag_schema =
-                        Some(flags_types::flag_schema::StructFlagSchema::default())
-                }
+        if !value.inner.rule.is_empty() || !value.inner.segment.is_empty() {
+            if !variant_name.is_empty() {
+                let variant = value
+                    .flag
+                    .variants
+                    .iter()
+                    .find(|v| &v.name == variant_name)
+                    .or_fail()?;
+                resolved_flag.variant = variant.name.clone();
+                resolved_flag.value = variant.value.clone();
+                resolved_flag.flag_schema = value.flag.schema.clone();
+            } else {
+                resolved_flag.variant = "".to_string();
+                resolved_flag.value = Some(Struct::default());
+                resolved_flag.flag_schema =
+                    Some(flags_types::flag_schema::StructFlagSchema::default());
             }
         }
 
-        resolved_flag
+        Ok(resolved_flag)
     }
 }
 
-impl<'a> From<&ResolvedValue<'a>> for flags_resolver::resolve_token_v1::AssignedFlag {
+impl<'a> From<&ResolvedValue<'a>> for AssignedFlag {
     fn from(value: &ResolvedValue<'a>) -> Self {
-        let mut assigned_flag = flags_resolver::resolve_token_v1::AssignedFlag {
-            flag: value.flag.name.clone(),
-            reason: value.reason as i32,
-            fallthrough_assignments: value
-                .fallthrough_rules
-                .iter()
-                .map(
-                    |fallthrough_rule| flags_resolver::events::FallthroughAssignment {
-                        assignment_id: fallthrough_rule.assignment_id.clone(),
-                        rule: fallthrough_rule.rule.name.clone(),
-                        targeting_key: fallthrough_rule.targeting_key.clone(),
-                        targeting_key_selector: fallthrough_rule
-                            .rule
-                            .targeting_key_selector
-                            .clone(),
-                    },
-                )
-                .collect(),
-            ..Default::default()
-        };
-
-        if let Some(assignment_match) = &value.assignment_match {
-            assigned_flag.assignment_id = assignment_match.assignment_id.clone();
-            assigned_flag.rule = assignment_match.rule.name.clone();
-            assigned_flag.segment = assignment_match.segment.name.clone();
-            assigned_flag.targeting_key = assignment_match.targeting_key.clone();
-            assigned_flag.targeting_key_selector =
-                assignment_match.rule.targeting_key_selector.clone();
-            if let Some(variant) = assignment_match.variant {
-                assigned_flag.variant = variant.name.clone();
-            }
-        }
-
-        assigned_flag
+        value.inner.clone()
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct AssignmentMatch<'a> {
-    pub rule: &'a Rule,
-    pub segment: &'a Segment,
-    pub assignment_id: String,
-    pub targeting_key: String,
-    pub variant: Option<&'a Variant>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FallthroughRule<'a> {
-    pub rule: &'a Rule,
-    pub assignment_id: String,
-    pub targeting_key: String,
-}
-
-// note that the ordinal values are set to match the corresponding protobuf enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResolveReason {
-    // The flag was successfully resolved because one rule matched.
-    Match = 1,
-    // The flag could not be resolved because no rule matched.
-    NoSegmentMatch = 2,
-    // The flag could not be resolved because it was archived.
-    FlagArchived = 4,
-    // The flag could not be resolved because the targeting key field was invalid
-    TargetingKeyError = 5,
-    // The flag could not be resolved because a targeting rule was not recognized
-    UnrecognizedTargetingRule = 7,
 }
 
 pub fn hash(key: &str) -> u128 {
@@ -1605,6 +1618,9 @@ pub fn bucket(hash: u128, buckets: u64) -> Fallible<usize> {
     // don't ask me why
     Ok(((hash_long >> 4) % buckets) as usize)
 }
+
+#[cfg(test)]
+mod materialization_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1734,19 +1750,19 @@ mod tests {
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
             let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
-            let resolve_result = resolver.resolve_flag(flag, vec![]).unwrap();
-            let resolved_value = &resolve_result.resolved_value;
-            let assignment_match = resolved_value.assignment_match.as_ref().unwrap();
+            let resolved_value = resolver
+                .resolve_flag(flag, &mut MaterializationContext::discovery())
+                .unwrap();
 
             assert_eq!(
-                assignment_match.rule.name,
+                resolved_value.inner.rule,
                 "flags/tutorial-feature/rules/tutorial-visitor-override"
             );
             assert_eq!(
-                assignment_match.variant.unwrap().name,
+                resolved_value.inner.variant,
                 "flags/tutorial-feature/variants/exciting-welcome"
             );
-            assert_eq!(resolved_value.should_apply, true);
+            assert!(resolved_value.should_apply());
         }
 
         {
@@ -1755,19 +1771,16 @@ mod tests {
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
             let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
-            let assignment_match = resolver
-                .resolve_flag(flag, vec![])
-                .unwrap()
-                .resolved_value
-                .assignment_match
+            let resolved = resolver
+                .resolve_flag(flag, &mut MaterializationContext::discovery())
                 .unwrap();
 
             assert_eq!(
-                assignment_match.rule.name,
+                resolved.inner.rule,
                 "flags/tutorial-feature/rules/tutorial-visitor-override"
             );
             assert_eq!(
-                assignment_match.variant.unwrap().name,
+                resolved.inner.variant,
                 "flags/tutorial-feature/variants/exciting-welcome"
             );
         }
@@ -1797,7 +1810,9 @@ mod tests {
                 }),
             };
 
-            let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+            let response: ResolveFlagsResponse = resolver
+                .resolve_flags_no_materialization(&resolve_flag_req)
+                .unwrap();
             assert_eq!(response.resolved_flags.len(), 1);
             let flag = response.resolved_flags.get(0).unwrap();
 
@@ -1862,7 +1877,9 @@ mod tests {
                 }),
             };
 
-            let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+            let response: ResolveFlagsResponse = resolver
+                .resolve_flags_no_materialization(&resolve_flag_req)
+                .unwrap();
             assert_eq!(response.resolved_flags.len(), 1);
             let flag = response.resolved_flags.get(0).unwrap();
 
@@ -1918,7 +1935,9 @@ mod tests {
                 }),
             };
 
-            let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+            let response: ResolveFlagsResponse = resolver
+                .resolve_flags_no_materialization(&resolve_flag_req)
+                .unwrap();
             assert_eq!(response.resolved_flags.len(), 1);
             let flag = response.resolved_flags.get(0).unwrap();
 
@@ -1988,7 +2007,9 @@ mod tests {
                 }),
             };
 
-            let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+            let response: ResolveFlagsResponse = resolver
+                .resolve_flags_no_materialization(&resolve_flag_req)
+                .unwrap();
             assert_eq!(response.resolved_flags.len(), 1);
             assert!(resolver.state.flags.contains_key("flags/tutorial-feature"));
 
@@ -2082,7 +2103,9 @@ mod tests {
                 }),
             };
 
-            let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+            let response: ResolveFlagsResponse = resolver
+                .resolve_flags_no_materialization(&resolve_flag_req)
+                .unwrap();
             let flag = response.resolved_flags.get(0).unwrap();
             assert_eq!(false, flag.should_apply);
             assert_eq!(ResolveReason::NoSegmentMatch as i32, flag.reason);
@@ -2115,7 +2138,9 @@ mod tests {
                 }),
             };
 
-            let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+            let response: ResolveFlagsResponse = resolver
+                .resolve_flags_no_materialization(&resolve_flag_req)
+                .unwrap();
             let flag = response.resolved_flags.get(0).unwrap();
             assert_eq!(true, flag.should_apply);
             assert_eq!(ResolveReason::Match as i32, flag.reason);
@@ -2227,7 +2252,9 @@ mod tests {
             }),
         };
 
-        let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+        let response: ResolveFlagsResponse = resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
         let flag = response.resolved_flags.get(0).unwrap();
         assert_eq!(true, flag.should_apply);
         assert_eq!(ResolveReason::Match as i32, flag.reason);
@@ -2330,7 +2357,9 @@ mod tests {
             }),
         };
 
-        let response: ResolveFlagsResponse = resolver.resolve_flags(&resolve_flag_req).unwrap();
+        let response: ResolveFlagsResponse = resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
 
         // Try to apply a different flag than what was resolved
         let now = Timestamp {
@@ -2381,12 +2410,12 @@ mod tests {
             .flags
             .get("flags/fallthrough-test-2")
             .unwrap();
-        let resolve_result = resolver.resolve_flag(flag, vec![]).unwrap();
-        let resolved_value = &resolve_result.resolved_value;
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::discovery())
+            .unwrap();
 
-        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
-        let assignment_match = resolved_value.assignment_match.as_ref().unwrap();
-        assert_eq!(assignment_match.targeting_key, "26");
+        assert_eq!(resolved_value.inner.reason, ResolveReason::Match as i32);
+        assert_eq!(resolved_value.inner.targeting_key, "26");
     }
 
     #[test]
@@ -2408,14 +2437,15 @@ mod tests {
             .flags
             .get("flags/fallthrough-test-2")
             .unwrap();
-        let resolve_result = resolver.resolve_flag(flag, vec![]).unwrap();
-        let resolved_value = &resolve_result.resolved_value;
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::discovery())
+            .unwrap();
 
         assert_eq!(
-            resolved_value.reason as i32,
+            resolved_value.inner.reason,
             ResolveReason::TargetingKeyError as i32
         );
-        assert!(resolved_value.assignment_match.is_none());
+        assert!(resolved_value.inner.rule.is_empty());
     }
 
     // eq rules
@@ -2439,7 +2469,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2461,7 +2493,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2483,7 +2517,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2505,7 +2541,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2527,7 +2565,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2549,7 +2589,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2571,7 +2613,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2593,7 +2637,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2615,7 +2661,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2637,7 +2685,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2659,7 +2709,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2681,7 +2733,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2703,7 +2757,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2725,7 +2781,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2747,7 +2805,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2769,7 +2829,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     // set rules
@@ -2793,7 +2855,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2815,7 +2879,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2837,7 +2903,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2859,7 +2927,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2881,7 +2951,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2903,7 +2975,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2925,7 +2999,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2947,7 +3023,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2969,7 +3047,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -2994,7 +3074,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -3019,7 +3101,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -3044,7 +3128,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -3069,7 +3155,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -3094,7 +3182,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(!resolver.segment_match(&segment, "test").unwrap());
+        assert!(!resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -3119,7 +3209,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     // range rules
@@ -3139,7 +3231,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(r#"{"client": { "score": 42.0 }, "user_id": "test"}"#, false);
@@ -3163,7 +3258,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(r#"{"client": { "score": 42.0 }, "user_id": "test"}"#, false);
@@ -3187,7 +3285,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(r#"{"client": { "score": 42.0 }, "user_id": "test"}"#, false);
@@ -3211,7 +3312,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(r#"{"client": { "score": 42.0 }, "user_id": "test"}"#, false);
@@ -3241,7 +3345,9 @@ mod tests {
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        assert!(resolver.segment_match(&segment, "test").unwrap());
+        assert!(resolver
+            .segment_match_no_materialization(&segment, "test")
+            .unwrap());
     }
 
     #[test]
@@ -3258,7 +3364,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(
@@ -3297,7 +3406,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(
@@ -3336,7 +3448,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(
@@ -3375,7 +3490,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(
@@ -3414,7 +3532,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(
@@ -3453,7 +3574,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(
@@ -3492,7 +3616,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(
@@ -3531,7 +3658,10 @@ mod tests {
             let resolver: AccountResolver<'_, L> = state
                 .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
                 .unwrap();
-            assert_eq!(resolver.segment_match(&segment, "test"), Ok(expected));
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected)
+            );
         };
 
         assert_case(
@@ -3606,149 +3736,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_materialized_segments_in_segment() {
-        let segment_json = r#"{
-            "name": "segments/test-segment",
-            "targeting": {
-                "criteria": {
-                    "mat-crit": {
-                        "materializedSegment": {
-                            "materializedSegment": "materializedSegments/test-mat"
-                        }
-                    }
-                },
-                "expression": {
-                    "ref": "mat-crit"
-                }
-            },
-            "allocation": {
-                "proportion": {
-                    "value": "1.0"
-                },
-                "exclusivityTags": [],
-                "exclusiveTo": []
-            }
-        }"#;
-        let segment: Segment = serde_json::from_str(segment_json).unwrap();
-
-        let mut segments = HashMap::new();
-        segments.insert(segment.name.clone(), segment.clone());
-
-        let state = ResolverState {
-            secrets: HashMap::new(),
-            flags: HashMap::new(),
-            segments,
-            bitsets: HashMap::new(),
-        };
-
-        let client = Client {
-            account: Account::new("accounts/test"),
-            client_name: "clients/test".to_string(),
-            client_credential_name: "clients/test/credentials/test".to_string(),
-            environments: vec![],
-        };
-
-        let resolver: AccountResolver<'_, L> = AccountResolver::new(
-            &client,
-            &state,
-            EvaluationContext {
-                context: Struct::default(),
-            },
-            &ENCRYPTION_KEY,
-        );
-
-        let result =
-            resolver.find_materialized_segments_in_segment(&segment.name, &mut HashSet::new());
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "materializedSegments/test-mat");
-    }
-
-    #[test]
-    fn test_find_materialized_segments_nested() {
-        let child_segment_json = r#"{
-            "name": "segments/child",
-            "targeting": {
-                "criteria": {
-                    "mat-crit": {
-                        "materializedSegment": {
-                            "materializedSegment": "materializedSegments/nested-mat"
-                        }
-                    }
-                },
-                "expression": {
-                    "ref": "mat-crit"
-                }
-            },
-            "allocation": {
-                "proportion": {
-                    "value": "1.0"
-                },
-                "exclusivityTags": [],
-                "exclusiveTo": []
-            }
-        }"#;
-        let child_segment: Segment = serde_json::from_str(child_segment_json).unwrap();
-
-        let parent_segment_json = r#"{
-            "name": "segments/parent",
-            "targeting": {
-                "criteria": {
-                    "seg-crit": {
-                        "segment": {
-                            "segment": "segments/child"
-                        }
-                    }
-                },
-                "expression": {
-                    "ref": "seg-crit"
-                }
-            },
-            "allocation": {
-                "proportion": {
-                    "value": "1.0"
-                },
-                "exclusivityTags": [],
-                "exclusiveTo": []
-            }
-        }"#;
-        let parent_segment: Segment = serde_json::from_str(parent_segment_json).unwrap();
-
-        let mut segments = HashMap::new();
-        segments.insert(child_segment.name.clone(), child_segment);
-        segments.insert(parent_segment.name.clone(), parent_segment.clone());
-
-        let state = ResolverState {
-            secrets: HashMap::new(),
-            flags: HashMap::new(),
-            segments,
-            bitsets: HashMap::new(),
-        };
-
-        let client = Client {
-            account: Account::new("accounts/test"),
-            client_name: "clients/test".to_string(),
-            client_credential_name: "clients/test/credentials/test".to_string(),
-            environments: vec![],
-        };
-
-        let resolver: AccountResolver<'_, L> = AccountResolver::new(
-            &client,
-            &state,
-            EvaluationContext {
-                context: Struct::default(),
-            },
-            &ENCRYPTION_KEY,
-        );
-
-        let result = resolver
-            .find_materialized_segments_in_segment(&parent_segment.name, &mut HashSet::new());
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "materializedSegments/nested-mat");
-    }
-
-    #[test]
     fn test_segment_match_with_materialization_included() {
         let segment_json = r#"{
             "name": "segments/mat-segment",
@@ -3805,22 +3792,20 @@ mod tests {
         );
 
         // Create materialization data showing the unit is included
-        let materializations = vec![ReadResult {
-            result: Some(read_result::Result::InclusionResult(
-                proto::confidence::flags::resolver::v1::InclusionData {
-                    unit: "test-user".to_string(),
-                    materialization: "materializedSegments/test-mat".to_string(),
-                    is_included: true,
-                },
-            )),
-        }];
+        let mut mat_ctx = MaterializationContext::complete(vec![MaterializationRecord {
+            unit: "test-user".to_string(),
+            materialization: "materializedSegments/test-mat".to_string(),
+            rule: "".to_string(),
+            variant: "".to_string(),
+        }]);
 
         let matches = resolver
-            .segment_match_with_materializations(&segment, "test-user", &materializations)
+            .segment_match(&segment, "test-user", &mut mat_ctx)
             .unwrap();
 
-        assert!(
+        assert_eq!(
             matches,
+            Some(true),
             "Segment should match when unit is included in materialization"
         );
     }
@@ -3880,23 +3865,16 @@ mod tests {
             &ENCRYPTION_KEY,
         );
 
-        // Create materialization data showing the unit is NOT included
-        let materializations = vec![ReadResult {
-            result: Some(read_result::Result::InclusionResult(
-                proto::confidence::flags::resolver::v1::InclusionData {
-                    unit: "test-user".to_string(),
-                    materialization: "materializedSegments/test-mat".to_string(),
-                    is_included: false,
-                },
-            )),
-        }];
+        // Materializations provided but unit is NOT in them (empty records)
+        let mut mat_ctx = MaterializationContext::complete(vec![]);
 
         let matches = resolver
-            .segment_match_with_materializations(&segment, "test-user", &materializations)
+            .segment_match(&segment, "test-user", &mut mat_ctx)
             .unwrap();
 
-        assert!(
-            !matches,
+        assert_eq!(
+            matches,
+            Some(false),
             "Segment should not match when unit is not included in materialization"
         );
     }
@@ -3956,16 +3934,25 @@ mod tests {
             &ENCRYPTION_KEY,
         );
 
-        // No materialization data provided
-        let materializations = vec![];
+        // No materialization data provided (records is None)
+        let mut mat_ctx = MaterializationContext::discovery();
 
-        // When materialization data is needed but not provided, we should get an error
-        let result =
-            resolver.segment_match_with_materializations(&segment, "test-user", &materializations);
+        // When no materializations are available, returns Unknown and records the missing inclusion
+        let result = resolver.segment_match(&segment, "test-user", &mut mat_ctx);
 
+        assert_eq!(
+            result.unwrap(),
+            None,
+            "Should return Unknown when no materialization data is available"
+        );
         assert!(
-            result.is_err(),
-            "Should return error when materialization data is required but not provided"
+            mat_ctx.has_missing_reads(),
+            "Should have recorded missing materialization"
+        );
+        assert_eq!(mat_ctx.to_read.len(), 1);
+        assert_eq!(
+            mat_ctx.to_read[0].materialization,
+            "materializedSegments/test-mat"
         );
     }
 
@@ -3979,7 +3966,8 @@ mod tests {
 
         let secret = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx";
 
-        // Test 1: Without materialization data - should return ReadOpsRequest
+        // Test 1: Without materialization data (simple Resolve) - should suspend
+        // requesting the missing materialized segment inclusion
         {
             let context_json = r#"{"user_id": "tutorial_visitor"}"#;
             let resolver: AccountResolver<'_, L> = state
@@ -3994,33 +3982,36 @@ mod tests {
                 sdk: None,
             };
 
-            let sticky_req = ResolveWithStickyRequest {
-                resolve_request: Some(resolve_flags_req),
-                materializations: vec![],
-                fail_fast_on_sticky: true,
-                not_process_sticky: false,
+            let process_req = ResolveProcessRequest {
+                resolve: Some(resolve_process_request::Resolve::DeferredMaterializations(
+                    resolve_flags_req,
+                )),
             };
 
-            let sticky_result = resolver
-                .resolve_flags_sticky(&sticky_req)
-                .expect("sticky resolution failed");
+            let result = resolver
+                .resolve_flags(process_req)
+                .expect("resolve process failed");
 
-            // Should return ReadOpsRequest for MaterializedSegmentCriterion
-            match sticky_result.resolve_result {
-                Some(ResolveResult::ReadOpsRequest(read_ops)) => {
-                    assert_eq!(read_ops.ops.len(), 1);
-                    match &read_ops.ops[0].op {
-                        Some(read_op::Op::InclusionReadOp(inclusion_op)) => {
-                            assert_eq!(inclusion_op.unit, "tutorial_visitor");
-                            assert_eq!(
-                                inclusion_op.materialization,
-                                "materializedSegments/nicklas-custom-targeting"
-                            );
-                        }
-                        other => panic!("Expected InclusionReadOp, got: {:?}", other),
-                    }
+            // Should suspend requesting the materialized segment inclusion
+            match result.result {
+                Some(resolve_process_response::Result::Suspended(suspended)) => {
+                    assert_eq!(suspended.materializations_to_read.len(), 1);
+                    let record = &suspended.materializations_to_read[0];
+                    assert_eq!(record.unit, "tutorial_visitor");
+                    assert_eq!(
+                        record.materialization,
+                        "materializedSegments/nicklas-custom-targeting"
+                    );
+                    assert!(
+                        record.rule.is_empty(),
+                        "Inclusion requests should have empty rule"
+                    );
+                    assert!(
+                        !suspended.state.is_empty(),
+                        "Expected non-empty continuation state"
+                    );
                 }
-                other => panic!("Expected ReadOpsRequest, got: {:?}", other),
+                other => panic!("Expected Suspended, got: {:?}", other),
             }
         }
 
@@ -4040,32 +4031,30 @@ mod tests {
             };
 
             // Provide materialization data indicating user IS in the materialized segment
-            let materializations = vec![ReadResult {
-                result: Some(read_result::Result::InclusionResult(
-                    proto::confidence::flags::resolver::v1::InclusionData {
-                        unit: "tutorial_visitor".to_string(),
-                        materialization: "materializedSegments/nicklas-custom-targeting"
-                            .to_string(),
-                        is_included: true,
-                    },
-                )),
+            let materializations = vec![MaterializationRecord {
+                unit: "tutorial_visitor".to_string(),
+                materialization: "materializedSegments/nicklas-custom-targeting".to_string(),
+                rule: "".to_string(),
+                variant: "".to_string(),
             }];
 
-            let sticky_req = ResolveWithStickyRequest {
-                resolve_request: Some(resolve_flags_req),
-                materializations,
-                fail_fast_on_sticky: false,
-                not_process_sticky: false,
+            let process_req = ResolveProcessRequest {
+                resolve: Some(resolve_process_request::Resolve::StaticMaterializations(
+                    resolve_process_request::StaticMaterializations {
+                        resolve_request: Some(resolve_flags_req),
+                        materializations,
+                    },
+                )),
             };
 
-            let sticky_result = resolver
-                .resolve_flags_sticky(&sticky_req)
-                .expect("sticky resolution failed");
+            let result = resolver
+                .resolve_flags(process_req)
+                .expect("resolve process failed");
 
             // Should succeed with the cake variant
-            match sticky_result.resolve_result {
-                Some(ResolveResult::Success(success)) => {
-                    let response = success.response.expect("Expected response");
+            match result.result {
+                Some(resolve_process_response::Result::Resolved(resolved)) => {
+                    let response = resolved.response.expect("Expected response");
                     assert_eq!(response.resolved_flags.len(), 1);
                     let flag = &response.resolved_flags[0];
                     assert_eq!(flag.flag, "flags/custom-targeted-flag");
@@ -4074,11 +4063,11 @@ mod tests {
                         "flags/custom-targeted-flag/variants/cake-exclamation"
                     );
                 }
-                other => panic!("Expected Success, got: {:?}", other),
+                other => panic!("Expected Resolved, got: {:?}", other),
             }
         }
 
-        // Test 3: With materialization data where unit is NOT included - should fall through to default
+        // Test 3: With empty materialization data (unit NOT included) - should fall through to default
         {
             let context_json = r#"{"user_id": "tutorial_visitor"}"#;
             let resolver: AccountResolver<'_, L> = state
@@ -4093,39 +4082,30 @@ mod tests {
                 sdk: None,
             };
 
-            // Provide materialization data indicating user is NOT in the materialized segment
-            let materializations = vec![ReadResult {
-                result: Some(read_result::Result::InclusionResult(
-                    proto::confidence::flags::resolver::v1::InclusionData {
-                        unit: "tutorial_visitor".to_string(),
-                        materialization: "materializedSegments/nicklas-custom-targeting"
-                            .to_string(),
-                        is_included: false,
+            // Provide empty materializations — unit is not in the materialized segment
+            let process_req = ResolveProcessRequest {
+                resolve: Some(resolve_process_request::Resolve::StaticMaterializations(
+                    resolve_process_request::StaticMaterializations {
+                        resolve_request: Some(resolve_flags_req),
+                        materializations: vec![],
                     },
                 )),
-            }];
-
-            let sticky_req = ResolveWithStickyRequest {
-                resolve_request: Some(resolve_flags_req),
-                materializations,
-                fail_fast_on_sticky: false,
-                not_process_sticky: false,
             };
 
-            let sticky_result = resolver
-                .resolve_flags_sticky(&sticky_req)
-                .expect("sticky resolution failed");
+            let result = resolver
+                .resolve_flags(process_req)
+                .expect("resolve process failed");
 
             // Should succeed but fall through to the default variant
-            match sticky_result.resolve_result {
-                Some(ResolveResult::Success(success)) => {
-                    let response = success.response.expect("Expected response");
+            match result.result {
+                Some(resolve_process_response::Result::Resolved(resolved)) => {
+                    let response = resolved.response.expect("Expected response");
                     assert_eq!(response.resolved_flags.len(), 1);
                     let flag = &response.resolved_flags[0];
                     assert_eq!(flag.flag, "flags/custom-targeted-flag");
                     assert_eq!(flag.variant, "flags/custom-targeted-flag/variants/default");
                 }
-                other => panic!("Expected Success, got: {:?}", other),
+                other => panic!("Expected Resolved, got: {:?}", other),
             }
         }
     }
@@ -4134,11 +4114,6 @@ mod tests {
     fn test_resolve_flag_early_rule_match_skips_materialization() {
         // This test verifies that if an earlier rule matches without needing materializations,
         // we don't request materializations for later rules.
-        // The test payload has:
-        // - Rule 1: Requires materialized segment → cake variant
-        // - Rule 2: No targeting (matches everyone) → default variant
-        // If Rule 2 is evaluated first (by reordering), it should match without needing materializations
-
         let state = ResolverState::from_proto(
             EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
             "confidence-test",
@@ -4146,58 +4121,37 @@ mod tests {
         .unwrap();
 
         let secret = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx";
-
-        // Get the flag and manually reverse the rules to test early match
         let flag = state.flags.get("flags/custom-targeted-flag").unwrap();
 
-        // Create a modified flag with reversed rule order
         let mut modified_flag = flag.clone();
-        modified_flag.rules.reverse(); // Now default rule is first, materialized segment rule is second
+        modified_flag.rules.reverse();
 
-        // Create a resolver with this modified flag
         let context_json = r#"{"user_id": "tutorial_visitor"}"#;
         let resolver: AccountResolver<'_, L> = state
             .get_resolver_with_json_context(secret, context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        // Resolve the modified flag without any materialization data
-        let resolve_result = resolver.resolve_flag(&modified_flag, vec![]);
+        let resolve_result =
+            resolver.resolve_flag(&modified_flag, &mut MaterializationContext::discovery());
 
-        // Should succeed with the default variant (from rule 1, which is now first)
-        // and NOT request materializations for rule 2
         match resolve_result {
-            Ok(result) => {
+            Ok(resolved_value) => {
+                assert_eq!(resolved_value.inner.flag, "flags/custom-targeted-flag");
                 assert_eq!(
-                    result.resolved_value.flag.name,
-                    "flags/custom-targeted-flag"
-                );
-                assert_eq!(
-                    result
-                        .resolved_value
-                        .assignment_match
-                        .as_ref()
-                        .unwrap()
-                        .variant
-                        .unwrap()
-                        .name,
+                    resolved_value.inner.variant,
                     "flags/custom-targeted-flag/variants/default"
                 );
-                assert_eq!(result.resolved_value.reason, ResolveReason::Match);
+                assert_eq!(resolved_value.reason(), ResolveReason::Match);
             }
             Err(err) => panic!("Expected success, got error: {:?}", err),
         }
     }
 
     #[test]
-    fn test_resolve_with_sticky_multiple_flags_returns_multiple_read_ops() {
+    fn test_resolve_process_multiple_flags_returns_suspended() {
         // This test verifies that when resolving multiple flags that each have rules
-        // requiring materializations (via materialization_spec), the resolver returns
-        // read operations for each flag's materialization requirements.
-        //
-        // The test state (MULTIPLE_STICKY_FLAGS_STATE) contains:
-        // - Three flags: sticky-flag-1, sticky-flag-2, sticky-flag-3
-        // - Each flag has a rule with a different materialization: experiment_1, experiment_2, experiment_3
-        // - Client secret: "test-secret"
+        // requiring materializations, the resolver returns Suspended with
+        // materializations_to_read for each flag's materialization requirements.
 
         let state = ResolverState::from_proto(
             MULTIPLE_STICKY_FLAGS_STATE.to_owned().try_into().unwrap(),
@@ -4210,7 +4164,6 @@ mod tests {
             .get_resolver_with_json_context("test-secret", context_json, &ENCRYPTION_KEY)
             .unwrap();
 
-        // Request all three flags with fail_fast_on_sticky = false
         let resolve_flags_req = flags_resolver::ResolveFlagsRequest {
             evaluation_context: Some(Struct::default()),
             client_secret: "test-secret".to_string(),
@@ -4223,28 +4176,26 @@ mod tests {
             sdk: None,
         };
 
-        let sticky_req = ResolveWithStickyRequest {
-            resolve_request: Some(resolve_flags_req),
-            materializations: vec![],   // No materializations provided
-            fail_fast_on_sticky: false, // Collect all missing materializations
-            not_process_sticky: false,
+        let process_req = ResolveProcessRequest {
+            resolve: Some(resolve_process_request::Resolve::DeferredMaterializations(
+                resolve_flags_req,
+            )),
         };
 
-        let sticky_result = resolver
-            .resolve_flags_sticky(&sticky_req)
-            .expect("sticky resolution failed");
+        let result = resolver
+            .resolve_flags(process_req)
+            .expect("resolve process failed");
 
-        // Should return ReadOpsRequest with read operations for all three flags
-        match sticky_result.resolve_result {
-            Some(ResolveResult::ReadOpsRequest(read_ops)) => {
+        // Should return Suspended with materializations_to_read for all three flags
+        match result.result {
+            Some(resolve_process_response::Result::Suspended(suspended)) => {
                 assert_eq!(
-                    read_ops.ops.len(),
+                    suspended.materializations_to_read.len(),
                     3,
-                    "Expected 3 read operations (one per flag), got {}",
-                    read_ops.ops.len()
+                    "Expected 3 materializations to read (one per flag), got {}",
+                    suspended.materializations_to_read.len()
                 );
 
-                // Collect all materializations from the read ops
                 let mut materializations_seen: HashSet<String> = HashSet::new();
                 let expected_materializations: HashSet<String> = [
                     "experiment_1".to_string(),
@@ -4254,44 +4205,36 @@ mod tests {
                 .into_iter()
                 .collect();
 
-                for (i, op) in read_ops.ops.iter().enumerate() {
-                    match &op.op {
-                        Some(read_op::Op::VariantReadOp(variant_op)) => {
-                            assert!(
-                                expected_materializations.contains(&variant_op.materialization),
-                                "Op {}: unexpected materialization '{}'",
-                                i,
-                                variant_op.materialization
-                            );
-                            assert!(
-                                !materializations_seen.contains(&variant_op.materialization),
-                                "Op {}: duplicate materialization '{}'",
-                                i,
-                                variant_op.materialization
-                            );
-                            materializations_seen.insert(variant_op.materialization.clone());
-
-                            // Verify unit matches our request context
-                            assert_eq!(
-                                variant_op.unit, "test-user-456",
-                                "Op {}: expected unit 'test-user-456', got '{}'",
-                                i, variant_op.unit
-                            );
-                        }
-                        other => panic!("Op {}: expected VariantReadOp, got {:?}", i, other),
-                    }
+                for record in &suspended.materializations_to_read {
+                    assert!(
+                        expected_materializations.contains(&record.materialization),
+                        "Unexpected materialization '{}'",
+                        record.materialization
+                    );
+                    assert!(
+                        !materializations_seen.contains(&record.materialization),
+                        "Duplicate materialization '{}'",
+                        record.materialization
+                    );
+                    materializations_seen.insert(record.materialization.clone());
+                    assert_eq!(record.unit, "test-user-456");
                 }
 
-                // Verify we saw all expected materializations
                 for mat in &expected_materializations {
                     assert!(
                         materializations_seen.contains(mat),
-                        "Missing expected materialization '{}' in read ops",
+                        "Missing expected materialization '{}'",
                         mat
                     );
                 }
+
+                // Verify continuation state is present
+                assert!(
+                    !suspended.state.is_empty(),
+                    "Expected non-empty continuation state"
+                );
             }
-            other => panic!("Expected ReadOpsRequest, got: {:?}", other),
+            other => panic!("Expected Suspended, got: {:?}", other),
         }
     }
 
@@ -4331,11 +4274,12 @@ mod tests {
         let resolver = make_resolver_with_environments(&state, &client, context_json);
 
         let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
-        let resolve_result = resolver.resolve_flag(flag, vec![]).unwrap();
-        let resolved_value = &resolve_result.resolved_value;
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::unsupported())
+            .unwrap();
 
         // Rules have no environments set so they should all be evaluated
-        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
+        assert_eq!(resolved_value.reason(), ResolveReason::Match);
     }
 
     #[test]
@@ -4363,10 +4307,11 @@ mod tests {
             rule.environments = vec!["environments/production".into()];
         }
 
-        let resolve_result = resolver.resolve_flag(&modified_flag, vec![]).unwrap();
-        let resolved_value = &resolve_result.resolved_value;
+        let resolved_value = resolver
+            .resolve_flag(&modified_flag, &mut MaterializationContext::unsupported())
+            .unwrap();
 
-        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
+        assert_eq!(resolved_value.reason(), ResolveReason::Match);
     }
 
     #[test]
@@ -4394,14 +4339,12 @@ mod tests {
             rule.environments = vec!["environments/production".into()];
         }
 
-        let resolve_result = resolver.resolve_flag(&modified_flag, vec![]).unwrap();
-        let resolved_value = &resolve_result.resolved_value;
+        let resolved_value = resolver
+            .resolve_flag(&modified_flag, &mut MaterializationContext::unsupported())
+            .unwrap();
 
         // All rules should be skipped due to environment mismatch
-        assert_eq!(
-            resolved_value.reason as i32,
-            ResolveReason::NoSegmentMatch as i32
-        );
+        assert_eq!(resolved_value.reason(), ResolveReason::NoSegmentMatch);
     }
 
     #[test]
@@ -4425,10 +4368,11 @@ mod tests {
 
         let flag = resolver.state.flags.get("flags/tutorial-feature").unwrap();
         // Don't set environments on rules — they should be evaluated for any credential
-        let resolve_result = resolver.resolve_flag(flag, vec![]).unwrap();
-        let resolved_value = &resolve_result.resolved_value;
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::unsupported())
+            .unwrap();
 
-        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
+        assert_eq!(resolved_value.reason(), ResolveReason::Match);
     }
 
     #[test]
@@ -4459,9 +4403,10 @@ mod tests {
             ];
         }
 
-        let resolve_result = resolver.resolve_flag(&modified_flag, vec![]).unwrap();
-        let resolved_value = &resolve_result.resolved_value;
+        let resolved_value = resolver
+            .resolve_flag(&modified_flag, &mut MaterializationContext::unsupported())
+            .unwrap();
 
-        assert_eq!(resolved_value.reason as i32, ResolveReason::Match as i32);
+        assert_eq!(resolved_value.reason(), ResolveReason::Match);
     }
 }

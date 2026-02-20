@@ -18,7 +18,7 @@ vi.mock(import('./hash'), async () => {
 });
 
 const mockedWasmResolver: MockedObject<LocalResolver> = {
-  resolveWithSticky: vi.fn(),
+  resolveProcess: vi.fn(),
   setResolverState: vi.fn(),
   flushLogs: vi.fn().mockReturnValue(new Uint8Array(100)),
   flushAssigned: vi.fn().mockReturnValue(new Uint8Array(50)),
@@ -264,8 +264,8 @@ describe('remote materialization for sticky assignments', () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
     // WASM resolver succeeds with local data
-    mockedWasmResolver.resolveWithSticky.mockReturnValue({
-      success: {
+    mockedWasmResolver.resolveProcess.mockReturnValue({
+      resolved: {
         response: {
           resolvedFlags: [
             {
@@ -279,7 +279,7 @@ describe('remote materialization for sticky assignments', () => {
           resolveToken: new Uint8Array(),
           resolveId: 'resolve-123',
         },
-        materializationUpdates: [],
+        materializationsToWrite: [],
       },
     });
 
@@ -290,14 +290,11 @@ describe('remote materialization for sticky assignments', () => {
     expect(result.value).toBe(true);
     expect(result.variant).toBe('variant-a');
 
-    expect(mockedWasmResolver.resolveWithSticky).toHaveBeenCalledWith({
-      resolveRequest: expect.objectContaining({
+    expect(mockedWasmResolver.resolveProcess).toHaveBeenCalledWith({
+      deferredMaterializations: expect.objectContaining({
         flags: ['flags/test-flag'],
         clientSecret: 'flagClientSecret',
       }),
-      materializations: [],
-      failFastOnSticky: false,
-      notProcessSticky: false,
     });
 
     // No remote call needed
@@ -307,13 +304,16 @@ describe('remote materialization for sticky assignments', () => {
   it('reads materializations from remote when WASM reports missing materializations', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
-    // WASM resolver reports missing materialization
-    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
-      readOpsRequest: { ops: [{ variantReadOp: { unit: 'user-456', rule: 'rule-1', materialization: 'mat-v1' } }] },
+    // WASM resolver reports missing materialization (suspended)
+    mockedWasmResolver.resolveProcess.mockReturnValueOnce({
+      suspended: {
+        materializationsToRead: [{ unit: 'user-456', rule: 'rule-1', materialization: 'mat-v1', variant: '' }],
+        state: new Uint8Array([1, 2, 3]),
+      },
     });
-    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
-      success: {
-        materializationUpdates: [],
+    mockedWasmResolver.resolveProcess.mockReturnValueOnce({
+      resolved: {
+        materializationsToWrite: [],
         response: {
           resolvedFlags: [
             {
@@ -348,14 +348,15 @@ describe('remote materialization for sticky assignments', () => {
   it('retries remote read materialization on transient errors', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
-    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
-      readOpsRequest: {
-        ops: [{ variantReadOp: { unit: 'user-1', rule: 'rule-1', materialization: 'mat-1' } }],
+    mockedWasmResolver.resolveProcess.mockReturnValueOnce({
+      suspended: {
+        materializationsToRead: [{ unit: 'user-1', rule: 'rule-1', materialization: 'mat-1', variant: '' }],
+        state: new Uint8Array([1, 2, 3]),
       },
     });
-    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
-      success: {
-        materializationUpdates: [],
+    mockedWasmResolver.resolveProcess.mockReturnValueOnce({
+      resolved: {
+        materializationsToWrite: [],
         response: {
           resolvedFlags: [
             {
@@ -391,9 +392,9 @@ describe('remote materialization for sticky assignments', () => {
   it('writes materializations to remote when WASM reports materialization updates', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
-    mockedWasmResolver.resolveWithSticky.mockReturnValueOnce({
-      success: {
-        materializationUpdates: [{ unit: 'u1', materialization: 'm1', rule: 'r1', variant: 'v1' }],
+    mockedWasmResolver.resolveProcess.mockReturnValueOnce({
+      resolved: {
+        materializationsToWrite: [{ unit: 'u1', materialization: 'm1', rule: 'r1', variant: 'v1' }],
         response: {
           resolvedFlags: [
             {
@@ -428,8 +429,8 @@ describe('SDK telemetry', () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
     // WASM resolver succeeds with local data
-    mockedWasmResolver.resolveWithSticky.mockReturnValue({
-      success: {
+    mockedWasmResolver.resolveProcess.mockReturnValue({
+      resolved: {
         response: {
           resolvedFlags: [
             {
@@ -443,7 +444,7 @@ describe('SDK telemetry', () => {
           resolveToken: new Uint8Array(),
           resolveId: 'resolve-123',
         },
-        materializationUpdates: [],
+        materializationsToWrite: [],
       },
     });
 
@@ -452,9 +453,9 @@ describe('SDK telemetry', () => {
     });
 
     // Verify SDK information is included in the resolve request
-    expect(mockedWasmResolver.resolveWithSticky).toHaveBeenCalledWith(
+    expect(mockedWasmResolver.resolveProcess).toHaveBeenCalledWith(
       expect.objectContaining({
-        resolveRequest: expect.objectContaining({
+        deferredMaterializations: expect.objectContaining({
           sdk: expect.objectContaining({
             id: 22, // SDK_ID_JS_LOCAL_SERVER_PROVIDER
             version: expect.stringMatching(/^\d+\.\d+\.\d+$/), // Semantic version format

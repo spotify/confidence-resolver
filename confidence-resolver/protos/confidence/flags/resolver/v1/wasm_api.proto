@@ -2,15 +2,6 @@ syntax = "proto3";
 
 package confidence.flags.resolver.v1;
 
-import "google/api/resource.proto";
-import "google/api/annotations.proto";
-import "google/api/field_behavior.proto";
-import "google/protobuf/struct.proto";
-import "google/protobuf/timestamp.proto";
-
-import "confidence/api/annotations.proto";
-import "confidence/flags/types/v1/types.proto";
-import "confidence/flags/resolver/v1/types.proto";
 import "confidence/flags/resolver/v1/api.proto";
 
 option java_package = "com.spotify.confidence.flags.resolver.v1";
@@ -18,78 +9,58 @@ option java_multiple_files = true;
 option java_outer_classname = "WasmApiProto";
 
 
-message ResolveWithStickyRequest {
-  ResolveFlagsRequest resolve_request = 1;
+message ResolveProcessRequest {
+  oneof resolve {
+    // Materialization reads will "suspend" the resolve
+    ResolveFlagsRequest deferred_materializations = 1;
+    // Materializations will be read from a statically provided set
+    StaticMaterializations static_materializations = 2;
+    // No materialization support, reads will error the flag.
+    ResolveFlagsRequest without_materializations = 3;
 
-  // if a materialization info is missing, we want tor return to the caller immediately
-  bool fail_fast_on_sticky = 3;
-  // if we should support sticky or completely skip the flag if they had sticky rules
-  bool not_process_sticky = 4;
+    // Resume a previously suspended resolve with requested materializations
+    Resume resume = 4;
+  }
 
-  // Context about the materialization required for the resolve
-  repeated ReadResult materializations = 5;
+  message StaticMaterializations {
+    ResolveFlagsRequest resolve_request = 1;
+    repeated MaterializationRecord materializations = 2;
+  }
+
+  message Resume {
+    repeated MaterializationRecord materializations = 1;
+    bytes state = 2;
+  }
 }
 
 
-message ResolveWithStickyResponse {
-  oneof resolve_result {
-    Success success = 1;
-    ReadOperationsRequest read_ops_request = 3;
+message ResolveProcessResponse {
+  oneof result {
+    Resolved resolved = 1;
+    Suspended suspended = 2;
   }
-  
-  message Success {
+
+  message Resolved {
     ResolveFlagsResponse response = 1;
-    repeated VariantData materialization_updates = 3;
+    repeated MaterializationRecord materializations_to_write = 2;
+  }
+
+  message Suspended {
+    repeated MaterializationRecord materializations_to_read = 1;
+    bytes state = 2;
   }
 }
 
-
-message VariantReadOp {
-  string unit = 1;
-  string materialization = 2;
-  string rule = 3;
-}
-
-message InclusionReadOp {
-  string unit = 1;
-  string materialization = 2;
-}
-
-message ReadOp {
-  oneof op {
-    VariantReadOp variant_read_op = 1;
-    InclusionReadOp inclusion_read_op = 2;
-  }
-}
-
-message ReadOperationsRequest {
-  repeated ReadOp ops = 3;
-}
-
-message VariantData {
+// This message is used both as a query and a result when reading materializations.
+// Records with a non-empty rule should be treated as variant reads; others as inclusion reads
+message MaterializationRecord {
   string unit = 1;
   string materialization = 2;
   string rule = 3;
   string variant = 4;
 }
 
-message InclusionData {
-  string unit = 1;
-  string materialization = 2;
-  bool is_included = 3;
-}
-
-message ReadResult {
-  oneof result {
-    VariantData variant_result = 1;
-    InclusionData inclusion_result = 2;
-  }
-}
-
-message ReadOperationsResult {
-  repeated ReadResult results = 1;
-}
 
 message LogMessage {
- string message = 1;
+  string message = 1;
 }

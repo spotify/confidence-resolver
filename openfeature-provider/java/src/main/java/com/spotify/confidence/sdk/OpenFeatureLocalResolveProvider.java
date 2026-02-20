@@ -6,7 +6,7 @@ import com.google.protobuf.Struct;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveWithStickyRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
@@ -395,11 +395,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
       resolveFlagResponse =
           wasmResolveApi
-              .resolveWithSticky(
-                  ResolveWithStickyRequest.newBuilder()
-                      .setResolveRequest(req)
-                      .setFailFastOnSticky(false)
-                      .build())
+              .resolveProcess(
+                  ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build())
               .toCompletableFuture()
               .get();
 
@@ -487,10 +484,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     }
 
     return wasmResolveApi
-        .resolveWithSticky(
-            ResolveWithStickyRequest.newBuilder()
-                .setResolveRequest(reqBuilder.build())
-                .setFailFastOnSticky(false)
+        .resolveProcess(
+            ResolveProcessRequest.newBuilder()
+                .setWithoutMaterializations(reqBuilder.build())
                 .build())
         .toCompletableFuture();
   }

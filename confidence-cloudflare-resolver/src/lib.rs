@@ -14,6 +14,7 @@ use serde_json::from_slice;
 use serde_json::json;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
+use confidence_resolver::proto::confidence::flags::resolver::v1::ResolveProcessRequest;
 
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<H>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
@@ -141,66 +142,31 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     let state = &RESOLVER_STATE;
     let router = Router::new();
 
-    let response =
-        router
-            // GET endpoint to expose the current deployment state etag and resolver version
-            .get_async("/v1/state:etag", |_req, _ctx| {
-                let allowed_origin = allowed_origin_env.clone();
-                let etag_value = state_etag_env.clone();
-                let version_value = resolver_version_env.clone();
-                async move {
-                    let body = json!({
-                        "etag": etag_value,
-                        "version": version_value,
-                    });
-                    Response::from_json(&body)?.with_cors_headers(&allowed_origin)
-                }
-            })
-            // Router treats ":name" as parameters, which is incompatible without URLs
-            // so we use "*path" to match the whole path and do the matching in the handler
-            .post_async("/v1/*path", |mut req, ctx| {
-                let allowed_origin = allowed_origin_env.clone();
-                async move {
-                    let path = ctx.param("path").unwrap();
-                    match path.as_str() {
-                        "flags:resolve" => {
-                            let body_bytes: Vec<u8> = req.bytes().await?;
-                            let mut resolver_request: ResolveFlagsRequest =
-                                match from_slice(&body_bytes) {
-                                    Ok(req) => req,
-                                    Err(e) => {
-                                        return Response::error(
-                                            format!("Invalid request payload: {}", e),
-                                            400,
-                                        )?
-                                        .with_cors_headers(&allowed_origin);
-                                    }
-                                };
-                            // Default apply to true for Cloudflare resolver
-                            resolver_request.apply = true;
-                            let evaluation_context = resolver_request
-                                .evaluation_context
-                                .clone()
-                                .unwrap_or_default();
-                            match state.get_resolver::<H>(
-                                &resolver_request.client_secret,
-                                evaluation_context,
-                                &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
-                            ) {
-                                Ok(resolver) => match resolver.resolve_flags(&resolver_request) {
-                                    Ok(response) => Response::from_json(&response)?
-                                        .with_cors_headers(&allowed_origin),
-                                    Err(msg) => Response::error(msg, 500)?
-                                        .with_cors_headers(&allowed_origin),
-                                },
-                                Err(msg) => {
-                                    Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
-                                }
-                            }
-                        }
-                        "flags:apply" => {
-                            let body_bytes: Vec<u8> = req.bytes().await?;
-                            let apply_flag_req: ApplyFlagsRequest = match from_slice(&body_bytes) {
+    let response = router
+        // GET endpoint to expose the current deployment state etag and resolver version
+        .get_async("/v1/state:etag", |_req, _ctx| {
+            let allowed_origin = allowed_origin_env.clone();
+            let etag_value = state_etag_env.clone();
+            let version_value = resolver_version_env.clone();
+            async move {
+                let body = json!({
+                    "etag": etag_value,
+                    "version": version_value,
+                });
+                Response::from_json(&body)?.with_cors_headers(&allowed_origin)
+            }
+        })
+        // Router treats ":name" as parameters, which is incompatible without URLs
+        // so we use "*path" to match the whole path and do the matching in the handler
+        .post_async("/v1/*path", |mut req, ctx| {
+            let allowed_origin = allowed_origin_env.clone();
+            async move {
+                let path = ctx.param("path").unwrap();
+                match path.as_str() {
+                    "flags:resolve" => {
+                        let body_bytes: Vec<u8> = req.bytes().await?;
+                        let mut resolver_request: ResolveFlagsRequest =
+                            match from_slice(&body_bytes) {
                                 Ok(req) => req,
                                 Err(e) => {
                                     return Response::error(
@@ -210,28 +176,80 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     .with_cors_headers(&allowed_origin);
                                 }
                             };
-
-                            match state.get_resolver::<H>(
-                                &apply_flag_req.client_secret,
-                                Struct::default(),
-                                &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
-                            ) {
-                                Ok(resolver) => match resolver.apply_flags(&apply_flag_req) {
-                                    Ok(()) => Response::from_json(&ApplyFlagsResponse::default()),
+                        // Default apply to true for Cloudflare resolver
+                        resolver_request.apply = true;
+                        let evaluation_context = resolver_request
+                            .evaluation_context
+                            .clone()
+                            .unwrap_or_default();
+                        match state.get_resolver::<H>(
+                            &resolver_request.client_secret,
+                            evaluation_context,
+                            &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
+                        ) {
+                            Ok(resolver) => {
+                                let process_request =
+                                    ResolveProcessRequest::without_materializations(
+                                        resolver_request,
+                                    );
+                                match resolver.resolve_flags(process_request) {
+                                    Ok(process_response) => {
+                                        match process_response.into_resolved() {
+                                            Some((response, _writes)) => {
+                                                Response::from_json(&response)?
+                                                    .with_cors_headers(&allowed_origin)
+                                            }
+                                            None => Response::error(
+                                                "Unexpected suspended response",
+                                                500,
+                                            )?
+                                            .with_cors_headers(&allowed_origin),
+                                        }
+                                    }
                                     Err(msg) => Response::error(msg, 500)?
                                         .with_cors_headers(&allowed_origin),
-                                },
+                                }
+                            }
+                            Err(msg) => {
+                                Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
+                            }
+                        }
+                    }
+                    "flags:apply" => {
+                        let body_bytes: Vec<u8> = req.bytes().await?;
+                        let apply_flag_req: ApplyFlagsRequest = match from_slice(&body_bytes) {
+                            Ok(req) => req,
+                            Err(e) => {
+                                return Response::error(
+                                    format!("Invalid request payload: {}", e),
+                                    400,
+                                )?
+                                .with_cors_headers(&allowed_origin);
+                            }
+                        };
+
+                        match state.get_resolver::<H>(
+                            &apply_flag_req.client_secret,
+                            Struct::default(),
+                            &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
+                        ) {
+                            Ok(resolver) => match resolver.apply_flags(&apply_flag_req) {
+                                Ok(()) => Response::from_json(&ApplyFlagsResponse::default()),
                                 Err(msg) => {
                                     Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                                 }
+                            },
+                            Err(msg) => {
+                                Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                             }
                         }
-                        _ => Response::error("Not found", 404)?.with_cors_headers(&allowed_origin),
                     }
+                    _ => Response::error("Not found", 404)?.with_cors_headers(&allowed_origin),
                 }
-            })
-            .run(req, env)
-            .await;
+            }
+        })
+        .run(req, env)
+        .await;
 
     // Use ctx.waitUntil to run logging after response is returned
     ctx.wait_until(async move {

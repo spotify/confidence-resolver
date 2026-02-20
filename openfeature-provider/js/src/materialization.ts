@@ -7,6 +7,7 @@ import {
   VariantData,
   WriteOperationsRequest,
 } from './proto/confidence/flags/resolver/v1/internal_api';
+import { MaterializationRecord } from './proto/confidence/wasm/wasm_api';
 
 export namespace MaterializationStore {
   export namespace ReadOp {
@@ -125,6 +126,70 @@ export class ConfidenceRemoteMaterializationStore implements MaterializationStor
     }
   }
 }
+
+// --- Conversions between MaterializationRecord (wasm API) and MaterializationStore types ---
+
+/** Convert MaterializationRecord[] from a Suspended response to MaterializationStore.ReadOp[] */
+export function materializationRecordsToReadOps(records: MaterializationRecord[]): MaterializationStore.ReadOp[] {
+  return records.map((record): MaterializationStore.ReadOp => {
+    if (record.rule) {
+      return { op: 'variant', unit: record.unit, materialization: record.materialization, rule: record.rule };
+    }
+    return { op: 'inclusion', unit: record.unit, materialization: record.materialization };
+  });
+}
+
+/** Convert MaterializationStore.ReadResult[] back to MaterializationRecord[] for a Resume request */
+export function readResultsToMaterializationRecords(
+  results: MaterializationStore.ReadResult[],
+): MaterializationRecord[] {
+  return results.flatMap((result): MaterializationRecord[] => {
+    switch (result.op) {
+      case 'variant':
+        if (result.variant) {
+          return [
+            {
+              unit: result.unit,
+              materialization: result.materialization,
+              rule: result.rule,
+              variant: result.variant,
+            },
+          ];
+        }
+        // No prior assignment — omit the record (absence = no sticky assignment)
+        return [];
+      case 'inclusion':
+        if (result.included) {
+          return [
+            {
+              unit: result.unit,
+              materialization: result.materialization,
+              rule: '',
+              variant: '',
+            },
+          ];
+        }
+        // Not included — omit the record (absence = not included)
+        return [];
+    }
+    return [];
+  });
+}
+
+/** Convert MaterializationRecord[] from a Resolved response to MaterializationStore.WriteOp[] */
+export function materializationRecordsToWriteOps(records: MaterializationRecord[]): MaterializationStore.WriteOp[] {
+  return records.map(
+    (record): MaterializationStore.WriteOp => ({
+      op: 'variant',
+      unit: record.unit,
+      materialization: record.materialization,
+      rule: record.rule,
+      variant: record.variant,
+    }),
+  );
+}
+
+// --- Conversions between MaterializationStore types and backend proto (internal_api) ---
 
 export function readOpsToProto(readOps: MaterializationStore.ReadOp[]): ReadOperationsRequest {
   return {

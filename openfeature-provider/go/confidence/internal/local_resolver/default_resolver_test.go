@@ -61,23 +61,18 @@ func TestSwapWasmResolverApi_WithRealState(t *testing.T) {
 		t.Fatalf("Failed to initialize defaultResolver with state: %v", err)
 	}
 
-	request := tu.CreateResolveWithStickyRequest(
-		tu.CreateTutorialFeatureRequest(),
-		nil,   // empty materializations
-		true,  // failFast
-		false, // notProcessSticky
-	)
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
-	stickyResponse, err := defaultResolver.ResolveWithSticky(request)
+	processResponse, err := defaultResolver.ResolveProcess(request)
 	if err != nil {
 		t.Fatalf("Unexpected error resolving tutorial-feature flag: %v", err)
 	}
 
-	if stickyResponse == nil {
+	if processResponse == nil {
 		t.Fatal("Expected non-nil response")
 	}
 
-	response := stickyResponse.GetSuccess().GetResponse()
+	response := processResponse.GetResolved().GetResponse()
 	if response == nil {
 		t.Fatal("Expected successful resolve response")
 	}
@@ -165,19 +160,14 @@ func TestSwapWasmResolverApi_UpdateStateAndFlushLogs(t *testing.T) {
 	}
 
 	// Verify that we can successfully resolve after the state update
-	request := tu.CreateResolveWithStickyRequest(
-		tu.CreateTutorialFeatureRequest(),
-		nil,   // empty materializations
-		true,  // failFast
-		false, // notProcessSticky
-	)
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
-	stickyResponse, err := defaultResolver.ResolveWithSticky(request)
+	processResponse, err := defaultResolver.ResolveProcess(request)
 	if err != nil {
 		t.Fatalf("Resolve failed after update: %v", err)
 	}
 
-	response := stickyResponse.GetSuccess().GetResponse()
+	response := processResponse.GetResolved().GetResponse()
 	if response == nil {
 		t.Fatal("Expected successful resolve response")
 	}
@@ -224,19 +214,14 @@ func TestSwapWasmResolverApi_MultipleUpdates(t *testing.T) {
 		}
 
 		// Verify that Resolve successfully works after each update
-		request := tu.CreateResolveWithStickyRequest(
-			tu.CreateTutorialFeatureRequest(),
-			nil,   // empty materializations
-			true,  // failFast
-			false, // notProcessSticky
-		)
+		request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
-		stickyResponse, resolveErr := defaultResolver.ResolveWithSticky(request)
+		processResponse, resolveErr := defaultResolver.ResolveProcess(request)
 		if resolveErr != nil {
 			t.Fatalf("Update %d: Resolve failed: %v", i, resolveErr)
 		}
 
-		response := stickyResponse.GetSuccess().GetResponse()
+		response := processResponse.GetResolved().GetResponse()
 		if response == nil {
 			t.Fatalf("Update %d: Expected successful resolve response", i)
 		}
@@ -304,28 +289,23 @@ func TestSwapWasmResolverApi_ResolveFlagWithNoStickyRules(t *testing.T) {
 		t.Fatalf("Failed to initialize defaultResolver with state: %v", err)
 	}
 
-	stickyRequest := tu.CreateResolveWithStickyRequest(
-		tu.CreateTutorialFeatureRequest(),
-		nil,   // empty materializations
-		true,  // failFast
-		false, // notProcessSticky
-	)
+	processRequest := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
-	response, err := defaultResolver.ResolveWithSticky(stickyRequest)
+	response, err := defaultResolver.ResolveProcess(processRequest)
 	if err != nil {
-		t.Fatalf("Unexpected error resolving tutorial-feature flag with sticky: %v", err)
+		t.Fatalf("Unexpected error resolving tutorial-feature flag: %v", err)
 	}
 
 	if response == nil {
 		t.Fatal("Expected non-nil response")
 	}
 
-	successResult, ok := response.ResolveResult.(*wasm.ResolveWithStickyResponse_Success_)
+	resolvedResult, ok := response.Result.(*wasm.ResolveProcessResponse_Resolved_)
 	if !ok {
-		t.Fatal("Expected success result from ResolveWithSticky")
+		t.Fatal("Expected Resolved result from ResolveProcess")
 	}
 
-	resolveResponse := successResult.Success.Response
+	resolveResponse := resolvedResult.Resolved.Response
 	if len(resolveResponse.ResolvedFlags) != 1 {
 		t.Fatalf("Expected 1 resolved flag, got %d", len(resolveResponse.ResolvedFlags))
 	}
@@ -388,7 +368,8 @@ func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(
 		t.Fatalf("Failed to initialize defaultResolver with state: %v", err)
 	}
 
-	stickyRequest := tu.CreateResolveWithStickyRequest(
+	// Simple Resolve (no materializations) — should suspend
+	processRequest := tu.CreateResolveProcessRequest(
 		&resolver.ResolveFlagsRequest{
 			Flags:        []string{"flags/sticky-test-flag"},
 			Apply:        true,
@@ -399,27 +380,27 @@ func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(
 				},
 			},
 		},
-		nil,   // empty materializations - missing the required "experiment_v1" materialization
-		true,  // failFast
-		false, // notProcessSticky
 	)
 
-	response, err := defaultResolver.ResolveWithSticky(stickyRequest)
+	response, err := defaultResolver.ResolveProcess(processRequest)
 	if err != nil {
-		t.Fatalf("Unexpected error from ResolveWithSticky: %v", err)
+		t.Fatalf("Unexpected error from ResolveProcess: %v", err)
 	}
 
 	if response == nil {
 		t.Fatal("Expected non-nil response")
 	}
 
-	// The response should be a ReadOpsRequest result, not Success
-	readOpsResult, ok := response.ResolveResult.(*wasm.ResolveWithStickyResponse_ReadOpsRequest)
+	// The response should be Suspended, not Resolved
+	suspendedResult, ok := response.Result.(*wasm.ResolveProcessResponse_Suspended_)
 	if !ok {
-		t.Fatal("Expected ReadOpsRequest result, got Success or other type")
+		t.Fatal("Expected Suspended result, got Resolved or other type")
 	}
 
-	if readOpsResult.ReadOpsRequest == nil {
-		t.Fatal("Expected non-nil ReadOpsRequest")
+	if suspendedResult.Suspended == nil {
+		t.Fatal("Expected non-nil Suspended")
+	}
+	if len(suspendedResult.Suspended.MaterializationsToRead) == 0 {
+		t.Fatal("Expected non-empty materializations_to_read")
 	}
 }

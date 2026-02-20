@@ -460,9 +460,9 @@ func TestLocalResolverProvider_ShutdownWithCancelFunc(t *testing.T) {
 // Mock implementations for Init() testing
 
 type mockResolverAPIForInit struct {
-	updateStateFunc   func(state []byte, accountID string) error
-	closeFunc         func(ctx context.Context)
-	resolveWithSticky func(request *wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error)
+	updateStateFunc func(state []byte, accountID string) error
+	closeFunc       func(ctx context.Context)
+	resolveProcess  func(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error)
 }
 
 func mockResolverSupplier(_ context.Context, _ lr.LogSink) lr.LocalResolver {
@@ -483,9 +483,9 @@ func (m *mockResolverAPIForInit) Close(ctx context.Context) error {
 	return nil
 }
 
-func (m *mockResolverAPIForInit) ResolveWithSticky(request *wasm.ResolveWithStickyRequest) (*wasm.ResolveWithStickyResponse, error) {
-	if m.resolveWithSticky != nil {
-		return m.resolveWithSticky(request)
+func (m *mockResolverAPIForInit) ResolveProcess(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
+	if m.resolveProcess != nil {
+		return m.resolveProcess(request)
 	}
 	return nil, nil
 }

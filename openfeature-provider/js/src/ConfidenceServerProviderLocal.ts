@@ -1,6 +1,6 @@
 import type { EvaluationContext, JsonValue, Provider, ProviderMetadata, ProviderStatus } from '@openfeature/server-sdk';
-import { ApplyFlagsRequest, ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
-import { ResolveWithStickyRequest } from './proto/confidence/wasm/wasm_api';
+import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
+import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
 import { SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
@@ -11,15 +11,10 @@ import { getLogger } from './logger';
 import {
   ConfidenceRemoteMaterializationStore,
   type MaterializationStore,
-  readOpsFromProto,
-  readResultToProto,
-  writeOpsFromProto,
+  materializationRecordsToReadOps,
+  materializationRecordsToWriteOps,
+  readResultsToMaterializationRecords,
 } from './materialization';
-import {
-  ReadOperationsRequest,
-  ReadOperationsResult,
-  WriteOperationsRequest,
-} from './proto/confidence/flags/resolver/v1/internal_api';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
 import FlagBundleType, * as FlagBundle from './flag-bundle';
 import { ErrorCode, ResolutionDetails } from './types';
@@ -167,23 +162,23 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
-    const stickyRequest = {
-      resolveRequest: {
-        flags: flagNames.map(name => `flags/${name}`),
-        evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
-        apply,
-        clientSecret: this.options.flagClientSecret,
-        sdk: {
-          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-          version: VERSION,
-        },
+    const resolveRequest = {
+      flags: flagNames.map(name => `flags/${name}`),
+      evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
+      apply,
+      clientSecret: this.options.flagClientSecret,
+      sdk: {
+        id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+        version: VERSION,
       },
-      materializations: [],
-      failFastOnSticky: false,
-      notProcessSticky: false,
     };
+
     try {
-      return FlagBundle.create(await this.resolveWithSticky(stickyRequest));
+      const processRequest: ResolveProcessRequest = this.materializationStore
+        ? { deferredMaterializations: resolveRequest }
+        : { withoutMaterializations: resolveRequest };
+
+      return FlagBundle.create(await this.resolveProcess(processRequest));
     } catch (err) {
       return FlagBundle.error(ErrorCode.GENERAL, String(err));
     }
@@ -204,25 +199,43 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
   }
 
-  private async resolveWithSticky(stickyRequest: ResolveWithStickyRequest): Promise<ResolveFlagsResponse> {
-    let stickyResponse = this.resolver.resolveWithSticky(stickyRequest);
+  private async resolveProcess(request: ResolveProcessRequest): Promise<ResolveFlagsResponse> {
+    const response = this.resolver.resolveProcess(request);
 
-    if (stickyResponse.readOpsRequest) {
-      const { results: materializations } = await this.readMaterializations(stickyResponse.readOpsRequest);
-      stickyResponse = this.resolver.resolveWithSticky({ ...stickyRequest, materializations });
+    if (response.suspended) {
+      const { materializationsToRead, state } = response.suspended;
+      const readOps = materializationRecordsToReadOps(materializationsToRead);
+      const readResults = await this.readMaterializations(readOps);
+      const materializations = readResultsToMaterializationRecords(readResults);
+
+      // Resume with the fetched materializations
+      const resumeResponse = this.resolver.resolveProcess({
+        resume: { materializations, state },
+      });
+
+      if (!resumeResponse.resolved) {
+        throw new Error('Resolve still suspended after providing materializations');
+      }
+
+      this.handleMaterializationWrites(resumeResponse.resolved.materializationsToWrite);
+      return ResolveFlagsResponse.create(resumeResponse.resolved.response);
     }
 
-    if (!stickyResponse.success) {
-      // this shouldn't happen with failFast = false. Although it _could_ happen if the state changed and added a new read
-      throw new Error('Missing materializations');
+    if (!response.resolved) {
+      throw new Error('Unexpected empty resolve response');
     }
 
-    const { materializationUpdates: storeVariantOp, response: resolveResponse } = stickyResponse.success;
-    if (storeVariantOp.length) {
-      // TODO should this be awaited?
-      this.writeMaterializations({ storeVariantOp });
+    this.handleMaterializationWrites(response.resolved.materializationsToWrite);
+    return ResolveFlagsResponse.create(response.resolved.response);
+  }
+
+  private handleMaterializationWrites(
+    records: { unit: string; materialization: string; rule: string; variant: string }[],
+  ): void {
+    if (records.length > 0) {
+      const writeOps = materializationRecordsToWriteOps(records);
+      this.writeMaterializations(writeOps);
     }
-    return ResolveFlagsResponse.create(resolveResponse);
   }
 
   async updateState(signal?: AbortSignal): Promise<void> {
@@ -286,19 +299,20 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
   }
 
-  private async readMaterializations(readOpsReq: ReadOperationsRequest): Promise<ReadOperationsResult> {
+  private async readMaterializations(
+    readOps: MaterializationStore.ReadOp[],
+  ): Promise<MaterializationStore.ReadResult[]> {
     const materializationStore = this.materializationStore;
     if (materializationStore && typeof materializationStore.readMaterializations === 'function') {
-      const result = await materializationStore.readMaterializations(readOpsFromProto(readOpsReq));
-      return readResultToProto(result);
+      return materializationStore.readMaterializations(readOps);
     }
     throw new Error('Read materialization not supported');
   }
 
-  private writeMaterializations(writeOpsRequest: WriteOperationsRequest): void {
+  private writeMaterializations(writeOps: MaterializationStore.WriteOp[]): void {
     const materializationStore = this.materializationStore;
     if (materializationStore && typeof materializationStore.writeMaterializations === 'function') {
-      materializationStore.writeMaterializations(writeOpsFromProto(writeOpsRequest)).catch(e => {
+      materializationStore.writeMaterializations(writeOps).catch(e => {
         logger.warn('Failed to write materialization', e);
       });
       return;
@@ -355,7 +369,7 @@ export class ConfidenceServerProviderLocal implements Provider {
    * @param flagName - Name of the flag to apply
    */
   applyFlag(resolveToken: string, flagName: string): void {
-    const request: ApplyFlagsRequest = {
+    const request = {
       flags: [
         {
           flag: `flags/${flagName}`,

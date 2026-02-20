@@ -35,6 +35,7 @@ hex = "0.4"
 
 # Protobuf and bytes
 prost = "0.12"
+prost-types = "0.12"
 bytes = "1.4"
 
 # Concurrent state management
@@ -54,6 +55,9 @@ rand = "0.9"
 
 # Time (for Host trait - use chrono from confidence_resolver)
 chrono = { version = "0.4", features = ["clock"] }
+
+[build-dependencies]
+prost-build = "0.12"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
