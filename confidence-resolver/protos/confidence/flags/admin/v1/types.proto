@@ -429,6 +429,11 @@ message Flag {
     // General set of labels for this resource.
     map<string, string> labels = 10;
 
+    // List of environments this rule is enabled for. If empty, enabled for all environments.
+    repeated string environments = 16 [
+      (google.api.resource_reference).type = "flags.confidence.dev/Environment"
+    ];
+
     // Specifies if materializations are written to/read from
     MaterializationSpec materialization_spec = 13;
 
