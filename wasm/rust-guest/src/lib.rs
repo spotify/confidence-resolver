@@ -13,6 +13,7 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::{
 };
 use confidence_resolver::resolve_logger::ResolveLogger;
 use confidence_resolver::ResolveProcessState;
+use wasm_msg::message::proto::response;
 use wasm_msg::wasm_msg_guest;
 use wasm_msg::wasm_msg_host;
 use wasm_msg::WasmResult;
@@ -160,10 +161,14 @@ wasm_msg_guest! {
         let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
         let result = resolver.resolve_flags(request);
 
-        if let Ok(ResolveProcessResponse { result: Some(resolve_process_response::Result::Resolved(resolve_process_response::Resolved { start_time: Some(start_time), ..}))}) = &result {
+        if let Ok(ResolveProcessResponse { result: Some(resolve_process_response::Result::Resolved(resolve_process_response::Resolved { response: Some(response), start_time: Some(start_time), ..}))}) = &result {
             let end_time = WasmHost::current_time();
             let micro_duration = 1_000_000 * (end_time.seconds - start_time.seconds) + (end_time.nanos - start_time.nanos) as i64 / 1000;
             TELEMETRY.record_latency_us(micro_duration.clamp(0, u32::MAX as i64) as u32);
+            
+            for flag in &response.resolved_flags {
+                TELEMETRY.mark_resolve(flag.reason());
+            }
         };
         result
     }
