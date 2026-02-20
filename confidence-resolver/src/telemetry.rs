@@ -10,6 +10,16 @@ mod pb {
     pub use crate::proto::confidence::flags::resolver::v1::TelemetryData;
 }
 
+/// Trait for types that have histogram configuration metadata
+pub trait HistogramConfig {
+    const MIN_VALUE: u32;
+    const MAX_VALUE: u32;
+    const BUCKET_COUNT: usize;
+    const UNIT: &'static str;
+}
+
+include!(concat!(env!("OUT_DIR"), "/telemetry_config.rs"));
+
 /// Number of reason variants (matches the Reason enum in the proto).
 /// This is derived from the highest discriminant + 1.
 const REASON_COUNT: usize = ResolveReason::Error as usize + 1;
@@ -31,6 +41,11 @@ pub struct Histogram {
 }
 
 impl Histogram {
+    /// Create a histogram for a type that implements HistogramConfig.
+    pub fn for_type<T: HistogramConfig>() -> Self {
+        Self::new(T::MIN_VALUE, T::MAX_VALUE, T::BUCKET_COUNT)
+    }
+
     /// Create a new histogram covering [min_value, max_value] with at most
     /// `max_buckets` buckets total, including one underflow and one overflow bucket.
     ///
@@ -130,8 +145,7 @@ impl Telemetry {
     pub fn new() -> Self {
         let resolve_rates: Vec<AtomicU32> = (0..REASON_COUNT).map(|_| AtomicU32::new(0)).collect();
         Telemetry {
-            // 162 exponential buckets from 1 µs to 10s (10_000_000 µs), ratio ≈ 1.1
-            resolve_latency: Histogram::new(1, 10_000_000, 162),
+            resolve_latency: Histogram::for_type::<pb::ResolveLatency>(),
             resolve_rates: resolve_rates.into_boxed_slice(),
             last_state_update: AtomicU64::new(0),
         }
