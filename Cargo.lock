@@ -283,6 +283,7 @@ dependencies = [
  "pbjson-types",
  "prost 0.12.6",
  "prost-build 0.12.6",
+ "prost-reflect",
  "prost-types 0.12.6",
  "regex",
  "rust-crypto-wasm",
@@ -1534,6 +1535,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "prost-reflect"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f5eec97d5d34bdd17ad2db2219aabf46b054c6c41bd5529767c9ce55be5898f"
+dependencies = [
+ "once_cell",
+ "prost 0.12.6",
+ "prost-types 0.12.6",
 ]
 
 [[package]]
