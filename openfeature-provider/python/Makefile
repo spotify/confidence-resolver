@@ -43,7 +43,8 @@ $(VENV)/bin/activate:
 venv: $(VENV)/bin/activate
 
 # Install dependencies only when pyproject.toml changes
-$(INSTALL_STAMP): $(VENV)/bin/activate pyproject.toml
+# WASM must exist before editable install (hatchling force-include needs it)
+$(INSTALL_STAMP): $(VENV)/bin/activate pyproject.toml $(RESOURCES_WASM)
 	$(PIP) install -e ".[dev]"
 	@touch $@
 
