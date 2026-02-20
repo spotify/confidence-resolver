@@ -74,7 +74,6 @@ class WasmResolveApi {
     wasmMsgGuestResolve = instance.export("wasm_msg_guest_resolve");
     wasmMsgGuestResolveWithSticky = instance.export("wasm_msg_guest_resolve_with_sticky");
     wasmMsgGuestApplyFlags = instance.export("wasm_msg_guest_apply_flags");
-
   }
 
   private Message log(LogMessage message) {
