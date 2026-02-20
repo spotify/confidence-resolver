@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "confidence-openfeature-provider"
-version = "0.4.0" # x-release-please-version
+version = "0.4.1" # x-release-please-version
 description = "Confidence OpenFeature provider for local flag resolution using WebAssembly"
 readme = "README.md"
 license = "Apache-2.0"

@@ -2,4 +2,4 @@
 
 /// The version of the Confidence OpenFeature provider.
 /// This is automatically updated by release-please.
-pub const VERSION: &str = "0.3.0"; // x-release-please-version
+pub const VERSION: &str = "0.3.1"; // x-release-please-version

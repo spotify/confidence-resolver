@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.10.0...openfeature-provider/go/v0.10.1) (2026-02-20)
+
+
+### Bug Fixes
+
+* **resolver:** add environment-based rule filtering ([#287](https://github.com/spotify/confidence-resolver/issues/287)) ([694b057](https://github.com/spotify/confidence-resolver/commit/694b05771c5f6465ed906af1d0f2389503a6b97b))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.16 to 0.1.17
+
 ## [0.10.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.9.0...openfeature-provider/go/v0.10.0) (2026-02-19)
 
 
