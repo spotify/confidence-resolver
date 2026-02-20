@@ -17,7 +17,6 @@ message TelemetryData {
   repeated ResolveRate resolve_rate = 5;
   StateAge state_age = 6;
 
-
   message ResolveLatency {
     uint32 sum = 1;
     uint32 count = 2;
@@ -28,7 +27,6 @@ message TelemetryData {
   message ResolveRate {
     uint32 count = 1;
     uint32 reason = 2;
-
   }
 
   message StateAge {
@@ -41,5 +39,4 @@ message TelemetryData {
     int32 offset = 1;
     repeated uint32 counts = 2;
   }
-  
 }

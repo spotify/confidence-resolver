@@ -34,8 +34,8 @@ pub struct Histogram {
     min_exponent: i32,
     sum: AtomicU32,
     count: AtomicU32,
-    /// Layout: [underflow] [bucket 0 .. bucket n-1] [overflow]
-    /// Total length: max_buckets + 2
+    /// Layout: [underflow] [bucket 0 .. bucket max_buckets-3] [overflow]
+    /// Total length: max_buckets
     buckets: Box<[AtomicU32]>,
 }
 
@@ -51,6 +51,7 @@ impl Histogram {
     /// The ratio is derived as `(max_value / min_value)^(1 / (max_buckets - 3))`.
     pub fn new(min_value: u32, max_value: u32, max_buckets: usize) -> Self {
         assert!(max_buckets >= 3, "max_buckets must be at least 3");
+        assert!(min_value > 0, "min_value must be > 0");
         let closed_buckets = max_buckets.saturating_sub(2); // exclude underflow + overflow
         let ln_min = (min_value as f64).ln();
         let ln_max = (max_value as f64).ln();
@@ -128,7 +129,7 @@ impl Histogram {
 /// Concurrent telemetry collector.
 ///
 /// All methods are safe to call from multiple threads without locking.
-/// Call [`Telemetry::snapshot`] to drain the current state
+/// Call [`Telemetry::snapshot`] to read the current state
 /// into a [`TelemetryData`] proto message.
 pub struct Telemetry {
     resolve_latency: Histogram,
