@@ -829,6 +829,14 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         Ok(missing_materializations)
     }
 
+    fn enabled_for_environment(&self, rule: &flags_admin::flag::Rule) -> bool {
+        rule.environments.is_empty()
+            || rule
+                .environments
+                .iter()
+                .any(|env| self.client.environments.contains(env))
+    }
+
     pub fn resolve_flag(
         &'a self,
         flag: &'a Flag,
@@ -849,12 +857,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 continue;
             }
 
-            if !rule.environments.is_empty()
-                && !rule
-                    .environments
-                    .iter()
-                    .any(|env| self.client.environments.contains(env))
-            {
+            if !self.enabled_for_environment(rule) {
                 continue;
             }
 
