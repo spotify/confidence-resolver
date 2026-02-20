@@ -111,16 +111,18 @@ message TelemetryData {
     (google.api.field_behavior) = OPTIONAL
   ];
 
-  // Timestamp client_time = 3;
-
   ResolveLatency resolve_latency = 4;
   repeated ResolveRate resolve_rate = 5;
   StateAge state_age = 6;
 
 
   message ResolveLatency {
-    option (confidence.api.metric_unit) = "microseconds";
-    option (confidence.api.histogram_ratio) = 1.1;
+    option (confidence.api.histogram) = {
+      min_value: 1
+      max_value: 10000000
+      bucket_count: 162
+      unit: "microseconds"
+    };
 
     uint32 sum = 1;
     uint32 count = 2;
@@ -130,20 +132,8 @@ message TelemetryData {
   // resolve rate tagged by reason/error
   message ResolveRate {
     uint32 count = 1;
-    Reason reason = 2;
+    ResolveReason reason = 2;
 
-    enum Reason {
-      UNKNOWN = 0;
-      MATCH = 1;
-      NO_SEGMENT_MATCH = 2;
-      NO_TREATMENT_MATCH = 3;
-      FLAG_ARCHIVED = 4;
-      TARGETING_KEY_ERROR = 5;
-      ERROR = 6; // generic error
-      
-      reserved 7 to 19; // other reasons
-      ERROR_TYPE_MISMATCH = 20;
-    }
   }
 
   message StateAge {
