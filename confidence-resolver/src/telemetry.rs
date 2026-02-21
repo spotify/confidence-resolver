@@ -140,15 +140,23 @@ pub struct Telemetry {
 
     /// Millisecond epoch of the last state update.
     last_state_update: AtomicU64,
+
+    /// Provider called at snapshot time to read current memory usage in bytes.
+    memory_provider: Box<dyn Fn() -> u64 + Send + Sync>,
 }
 
 impl Telemetry {
     pub fn new() -> Self {
+        Self::with_memory_provider(|| 0)
+    }
+
+    pub fn with_memory_provider(memory_provider: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
         let resolve_rates: Vec<AtomicU32> = (0..REASON_COUNT).map(|_| AtomicU32::new(0)).collect();
         Telemetry {
             resolve_latency: Histogram::for_type::<pb::ResolveLatency>(),
             resolve_rates: resolve_rates.into_boxed_slice(),
             last_state_update: AtomicU64::new(0),
+            memory_provider: Box::new(memory_provider),
         }
     }
 
@@ -207,6 +215,7 @@ impl Telemetry {
             resolve_latency,
             resolve_rate,
             state_age,
+            memory_bytes: (self.memory_provider)(),
         }
     }
 }
