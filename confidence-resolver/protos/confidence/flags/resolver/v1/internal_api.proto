@@ -126,6 +126,8 @@ message TelemetryData {
     uint32 sum = 1;
     uint32 count = 2;
     repeated BucketSpan buckets = 3;
+    // Natural log of the bucket ratio. Bucket boundary = exp(exponent * ln_ratio).
+    double ln_ratio = 4;
   }
 
   // resolve rate tagged by reason/error
