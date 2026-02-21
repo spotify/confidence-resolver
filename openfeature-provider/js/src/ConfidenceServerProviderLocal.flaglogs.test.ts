@@ -158,12 +158,14 @@ describe('WriteFlagLogs tests', () => {
     await client.getBooleanValue('web-sdk-e2e-flag.bool', true);
 
     // First flush should have logs
-    const firstFlush = resolver.flushLogs();
-    expect(firstFlush.length).toBeGreaterThan(0);
+    const firstDecoded = WriteFlagLogsRequest.decode(resolver.flushLogs());
+    expect(firstDecoded.flagAssigned.length).toBeGreaterThan(0);
 
-    // Second flush should be empty (logs were cleared)
-    const secondFlush = resolver.flushLogs();
-    expect(secondFlush.length).toBe(0);
+    // Second flush should have no logs (telemetry data may still be present)
+    const secondDecoded = WriteFlagLogsRequest.decode(resolver.flushLogs());
+    expect(secondDecoded.flagAssigned.length).toBe(0);
+    expect(secondDecoded.clientResolveInfo.length).toBe(0);
+    expect(secondDecoded.flagResolveInfo.length).toBe(0);
   });
 
   it('should capture telemetry data', async () => {
@@ -176,7 +178,8 @@ describe('WriteFlagLogs tests', () => {
     const logsBytes = resolver.flushLogs();
     const decoded = WriteFlagLogsRequest.decode(logsBytes);
 
-    // Telemetry data should be present (contains SDK info)
-    expect(decoded.telemetryData.length).toBeGreaterThan(0);
+    // Telemetry data should be present
+    expect(decoded.telemetryData).toBeDefined();
+    expect(decoded.telemetryData!.resolveRate.length).toBeGreaterThan(0);
   });
 });

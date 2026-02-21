@@ -61,8 +61,10 @@ describe('basic operation', () => {
 
     describe('flushLogs', () => {
       it('should be empty before any resolve', () => {
-        const logs = wasmResolver.flushLogs();
-        expect(logs.length).toBe(0);
+        const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
+        expect(decoded.flagAssigned.length).toBe(0);
+        expect(decoded.clientResolveInfo.length).toBe(0);
+        expect(decoded.flagResolveInfo.length).toBe(0);
       });
 
       it('should contain logs after a resolve', () => {
@@ -73,6 +75,75 @@ describe('basic operation', () => {
         expect(decoded.flagAssigned.length).toBe(1);
         expect(decoded.clientResolveInfo.length).toBe(1);
         expect(decoded.flagResolveInfo.length).toBe(1);
+      });
+
+    });
+
+    describe('telemetry', () => {
+      it('should report resolve rate matching the number of resolves', () => {
+        wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.resolveProcess(RESOLVE_REQUEST);
+
+        const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
+        const telemetry = decoded.telemetryData;
+
+        expect(telemetry).toBeDefined();
+
+        const matchRate = telemetry!.resolveRate.find(
+          (r) => r.reason === ResolveReason.RESOLVE_REASON_MATCH,
+        );
+        expect(matchRate).toBeDefined();
+        expect(matchRate!.count).toBe(3);
+      });
+
+      it('should report resolve latency matching the number of resolves', () => {
+        for(let i = 0; i < 1000; i++) {
+          wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        }
+
+        const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
+        const latency = decoded.telemetryData?.resolveLatency;
+
+        expect(latency).toBeDefined();
+        expect(latency!.count).toBe(1000);
+        const sumOfCounts = latency!.buckets
+          .flatMap(({counts}) => counts)
+          .reduce((sum, count) => sum + count);
+        expect(sumOfCounts).toBe(1000);
+      });
+
+      it('should accumulate telemetry across flushes', () => {
+        wasmResolver.resolveProcess(RESOLVE_REQUEST);
+
+        const first = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
+        expect(first.telemetryData?.resolveLatency?.count).toBe(1);
+
+        wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.resolveProcess(RESOLVE_REQUEST);
+
+        const second = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
+        // telemetry accumulates (snapshot doesn't reset)
+        expect(second.telemetryData?.resolveLatency?.count).toBe(3);
+
+        const matchRate = second.telemetryData!.resolveRate.find(
+          (r) => r.reason === ResolveReason.RESOLVE_REASON_MATCH,
+        );
+        expect(matchRate!.count).toBe(3);
+      });
+
+      it('should have bucket spans with valid offsets and counts', () => {
+        wasmResolver.resolveProcess(RESOLVE_REQUEST);
+
+        const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
+        const buckets = decoded.telemetryData?.resolveLatency?.buckets ?? [];
+
+        expect(buckets.length).toBeGreaterThan(0);
+        for (const span of buckets) {
+          expect(span.counts.length).toBeGreaterThan(0);
+          const total = span.counts.reduce((a, b) => a + b, 0);
+          expect(total).toBeGreaterThan(0);
+        }
       });
     });
   });
