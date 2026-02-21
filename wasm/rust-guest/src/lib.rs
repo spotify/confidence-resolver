@@ -56,7 +56,9 @@ const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
-static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(Telemetry::new);
+static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
+    Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
+});
 
 struct WasmHost;
 

@@ -17,6 +17,9 @@ message TelemetryData {
   repeated ResolveRate resolve_rate = 5;
   StateAge state_age = 6;
 
+  // Current linear memory size in bytes
+  uint64 memory_bytes = 7;
+
   message ResolveLatency {
     uint32 sum = 1;
     uint32 count = 2;
