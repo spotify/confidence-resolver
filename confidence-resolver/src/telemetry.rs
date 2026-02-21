@@ -122,6 +122,7 @@ impl Histogram {
             sum,
             count,
             buckets: spans,
+            ln_ratio: self.ln_ratio,
         })
     }
 }
