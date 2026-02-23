@@ -1,0 +1,2547 @@
+[
+  {
+    "name": "no_flags_for_client",
+    "resolveRequest": {
+      "flags": [
+        "flags/other-client-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "inactive_flag_filtered",
+    "resolveRequest": {
+      "flags": [
+        "flags/inactive-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "flag_name_filter",
+    "resolveRequest": {
+      "flags": [
+        "flags/simple-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "rule_not_enabled",
+    "resolveRequest": {
+      "flags": [
+        "flags/disabled-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/disabled-rule-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "rule_not_enabled_for_env",
+    "resolveRequest": {
+      "flags": [
+        "flags/env-restricted-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/env-restricted-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "segment_not_found",
+    "resolveRequest": {
+      "flags": [
+        "flags/missing-segment-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/missing-segment-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_key_blank_full_rollout",
+    "resolveRequest": {
+      "flags": [
+        "flags/full-rollout-flag"
+      ],
+      "evaluationContext": {
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/full-rollout-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      },
+      "rust": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/full-rollout-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_key_null_value",
+    "resolveRequest": {
+      "flags": [
+        "flags/targeting-key-flag"
+      ],
+      "evaluationContext": {
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/targeting-key-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_key_string",
+    "resolveRequest": {
+      "flags": [
+        "flags/targeting-key-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/targeting-key-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_key_integer",
+    "resolveRequest": {
+      "flags": [
+        "flags/targeting-key-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": 12345,
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/targeting-key-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_key_fractional",
+    "resolveRequest": {
+      "flags": [
+        "flags/targeting-key-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": 3.14,
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/targeting-key-flag",
+            "reason": "RESOLVE_REASON_TARGETING_KEY_ERROR",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_key_non_string_number",
+    "resolveRequest": {
+      "flags": [
+        "flags/targeting-key-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": true,
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/targeting-key-flag",
+            "reason": "RESOLVE_REASON_TARGETING_KEY_ERROR",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_key_too_long",
+    "resolveRequest": {
+      "flags": [
+        "flags/targeting-key-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeaaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeX",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/targeting-key-flag",
+            "reason": "RESOLVE_REASON_TARGETING_KEY_ERROR",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_eq_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/eq-match-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/eq-match-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_eq_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/eq-match-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "US"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/eq-match-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_set_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/set-match-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "NO"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/set-match-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_range_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/range-match-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "age": 25
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/range-match-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_starts_with",
+    "resolveRequest": {
+      "flags": [
+        "flags/starts-with-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "email": "test@company.com"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/starts-with-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_ends_with",
+    "resolveRequest": {
+      "flags": [
+        "flags/ends-with-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "email": "user@example.com"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/ends-with-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_any_rule",
+    "resolveRequest": {
+      "flags": [
+        "flags/any-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "tags": [
+          "basic",
+          "premium"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/any-rule-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_all_rule",
+    "resolveRequest": {
+      "flags": [
+        "flags/all-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "scores": [
+          10,
+          50,
+          90
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/all-rule-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_missing_attribute",
+    "resolveRequest": {
+      "flags": [
+        "flags/missing-attr-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/missing-attr-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "unrecognized_targeting_rule",
+    "resolveRequest": {
+      "flags": [
+        "flags/unrecognized-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/unrecognized-rule-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "bitset_not_matched",
+    "resolveRequest": {
+      "flags": [
+        "flags/bitset-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user-definitely-not-in-bitset-xyz-abc-123",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/bitset-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "nested_segment_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/nested-segment-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/nested-segment-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "circular_segment_dependency",
+    "resolveRequest": {
+      "flags": [
+        "flags/circular-segment-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/circular-segment-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      },
+      "rust": {
+        "resolvedFlags": [],
+        "expectError": "InternalError"
+      }
+    }
+  },
+  {
+    "name": "variant_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/simple-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "fallthrough_then_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/fallthrough-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/fallthrough-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "treatment",
+            "value": {
+              "color": "red"
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "client_default_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/client-default-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/client-default-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "bucket_gap_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/bucket-gap-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/bucket-gap-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "full_rollout_no_targeting_key",
+    "resolveRequest": {
+      "flags": [
+        "flags/full-rollout-flag"
+      ],
+      "evaluationContext": {
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/full-rollout-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      },
+      "rust": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/full-rollout-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "multi_variant_no_targeting_key",
+    "resolveRequest": {
+      "flags": [
+        "flags/multi-variant-flag"
+      ],
+      "evaluationContext": {
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/multi-variant-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "bitset_no_unit",
+    "resolveRequest": {
+      "flags": [
+        "flags/bitset-no-unit-flag"
+      ],
+      "evaluationContext": {
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/bitset-no-unit-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "any_rule_set_inner",
+    "resolveRequest": {
+      "flags": [
+        "flags/any-set-inner-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "tags": [
+          "basic",
+          "vip"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/any-set-inner-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "any_rule_starts_with_inner",
+    "resolveRequest": {
+      "flags": [
+        "flags/any-starts-with-inner-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "ids": [
+          "admin-1",
+          "user-42"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/any-starts-with-inner-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "any_rule_ends_with_inner",
+    "resolveRequest": {
+      "flags": [
+        "flags/any-ends-with-inner-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "emails": [
+          "user@example.org",
+          "test@example.com"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/any-ends-with-inner-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "range_exclusive_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/range-exclusive-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "score": 50
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/range-exclusive-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "env_matching",
+    "resolveRequest": {
+      "flags": [
+        "flags/env-matching-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/env-matching-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_unit_in_mat_variant_found",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-read-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {
+            "flags/mat-read-flag/rules/rule1": "treatment"
+          }
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-read-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "treatment",
+            "value": {
+              "color": "red"
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_unit_not_in_mat",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-read-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": false,
+          "ruleToVariant": {}
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-read-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "control",
+            "value": {
+              "color": "blue"
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_must_match_skip",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-must-match-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": false,
+          "ruleToVariant": {}
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-must-match-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_ignore_targeting",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-ignore-targeting-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "WRONG"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {
+            "flags/mat-ignore-targeting-flag/rules/rule1": "treatment"
+          }
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-ignore-targeting-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "treatment",
+            "value": {
+              "color": "red"
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_no_unit",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-no-unit-flag"
+      ],
+      "evaluationContext": {
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-no-unit-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_write",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-write-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-write-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "range_end_inclusive_only",
+    "resolveRequest": {
+      "flags": [
+        "flags/range-end-inclusive-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "score": 50
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/range-end-inclusive-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "range_end_exclusive_only",
+    "resolveRequest": {
+      "flags": [
+        "flags/range-end-exclusive-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "score": 50
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/range-end-exclusive-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_unit_in_mat_targeting_fails",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-read-not-matched-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "WRONG"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {}
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-read-not-matched-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_criterion_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-criterion-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat-seg": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {}
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-criterion-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "resolve_all_for_client",
+    "resolveRequest": {
+      "flags": [],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "minimal-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/minimal-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          },
+          {
+            "flag": "flags/minimal-flag-2",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "blue",
+            "value": {
+              "color": "blue"
+            },
+            "shouldApply": true
+          },
+          {
+            "flag": "flags/minimal-flag-us-only",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "multi_bucket_range_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/multi-bucket-range-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/multi-bucket-range-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "nonzero_lower_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/nonzero-lower-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/nonzero-lower-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_matched_no_variant_for_rule",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-no-variant-for-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "WHATEVER"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {}
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-no-variant-for-rule-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "treatment",
+            "value": {
+              "color": "red"
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      },
+      "rust": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-no-variant-for-rule-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "batch_mat_and_non_mat",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-read-flag",
+        "flags/simple-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {
+            "flags/mat-read-flag/rules/rule1": "treatment"
+          }
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-read-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "treatment",
+            "value": {
+              "color": "red"
+            },
+            "shouldApply": true
+          },
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "criterion_not_set",
+    "resolveRequest": {
+      "flags": [
+        "flags/criterion-not-set-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/criterion-not-set-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "empty_set_rule",
+    "resolveRequest": {
+      "flags": [
+        "flags/empty-set-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/empty-set-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "empty_range_rule",
+    "resolveRequest": {
+      "flags": [
+        "flags/empty-range-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "score": 50
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/empty-range-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      },
+      "rust": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/empty-range-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "any_empty_set_inner",
+    "resolveRequest": {
+      "flags": [
+        "flags/any-empty-set-inner-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "tags": [
+          "basic",
+          "premium"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/any-empty-set-inner-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_write_no_unit",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-write-no-unit-flag"
+      ],
+      "evaluationContext": {
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-write-no-unit-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      },
+      "rust": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-write-no-unit-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_variant_mismatch",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-variant-mismatch-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "WHATEVER"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {
+            "flags/mat-variant-mismatch-flag/rules/rule1": "nonexistent-variant"
+          }
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-variant-mismatch-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "treatment",
+            "value": {
+              "color": "red"
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "any_unrecognized_inner_rule",
+    "resolveRequest": {
+      "flags": [
+        "flags/any-unrecognized-inner-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "tags": [
+          "basic",
+          "premium"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/any-unrecognized-inner-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "and_targeting_both_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/and-both-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE",
+        "age": 25
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/and-both-match",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "and_targeting_one_fails",
+    "resolveRequest": {
+      "flags": [
+        "flags/and-both-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE",
+        "age": 10
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/and-both-match",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "or_targeting_one_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/or-one-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "US",
+        "email": "admin@company.com"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/or-one-match",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "or_targeting_none_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/or-one-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "US",
+        "email": "user@company.com"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/or-one-match",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "not_expression_inverts_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/not-match-inverted"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/not-match-inverted",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "not_expression_inverts_non_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/not-match-inverted"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "US"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/not-match-inverted",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "disabled_rule_then_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/disabled-then-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/disabled-then-match",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "env_mismatch_then_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/env-then-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/env-then-match",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "missing_segment_then_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/missing-seg-then-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/missing-seg-then-match",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "null_targeting_key_then_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/null-key-then-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/null-key-then-match",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "no_assignment_then_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/no-assignment-then-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/no-assignment-then-match",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_targeting_check_no_variant",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-targeting-check-no-variant"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {}
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-targeting-check-no-variant",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "treatment",
+            "value": {
+              "color": "red"
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "mat_targeting_check_fails",
+    "resolveRequest": {
+      "flags": [
+        "flags/mat-targeting-fails"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {}
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-targeting-fails",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "all_rule_one_element_fails",
+    "resolveRequest": {
+      "flags": [
+        "flags/all-one-fails"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "scores": [
+          10,
+          50,
+          200
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/all-one-fails",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "any_rule_none_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/any-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "tags": [
+          "basic",
+          "free"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/any-rule-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "fallthrough_with_write_mat",
+    "resolveRequest": {
+      "flags": [
+        "flags/fallthrough-write-mat"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/fallthrough-write-mat",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "treatment",
+            "value": {
+              "color": "red"
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "set_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/set-match-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "US"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/set-match-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "range_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/range-match-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "age": 5
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/range-match-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "starts_with_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/starts-with-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "email": "admin@company.com"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/starts-with-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "ends_with_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/ends-with-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "email": "user@example.org"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/ends-with-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "fallthrough_then_no_match_should_apply",
+    "resolveRequest": {
+      "flags": [
+        "flags/fallthrough-no-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/fallthrough-no-match",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "resolve_with_apply_true",
+    "resolveRequest": {
+      "flags": [
+        "flags/simple-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret",
+      "apply": true
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "resolve_with_apply_true_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/eq-match-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "US"
+      },
+      "clientSecret": "test-secret",
+      "apply": true
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/eq-match-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "resolve_with_apply_true_empty_result",
+    "resolveRequest": {
+      "flags": [
+        "flags/other-client-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret",
+      "apply": true
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [],
+        "expectError": null
+      }
+    }
+  }
+]

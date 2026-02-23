@@ -1635,6 +1635,9 @@ pub fn bucket(hash: u128, buckets: u64) -> Fallible<usize> {
 mod materialization_tests;
 
 #[cfg(test)]
+mod resolver_spec_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::proto::confidence::flags::resolver::v1::{ResolveFlagsResponse, Sdk};
