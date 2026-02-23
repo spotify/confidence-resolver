@@ -89,6 +89,8 @@ struct SpecResolveRequest {
     flags: Vec<String>,
     evaluation_context: Option<serde_json::Value>,
     client_secret: String,
+    #[serde(default)]
+    apply: bool,
 }
 
 #[derive(Deserialize)]
@@ -112,11 +114,13 @@ struct SpecExpected {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SpecResolvedFlag {
     flag: String,
     reason: String,
     variant: String,
     value: Option<serde_json::Value>,
+    should_apply: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -291,7 +295,7 @@ fn run_spec_test(state: &ResolverState, test_case: &SpecTestCase) {
         evaluation_context: Some(serde_json::from_str(&context_json).unwrap()),
         client_secret: test_case.resolve_request.client_secret.clone(),
         flags: test_case.resolve_request.flags.clone(),
-        apply: false,
+        apply: test_case.resolve_request.apply,
         sdk: None,
     };
 
@@ -410,6 +414,16 @@ fn run_spec_test(state: &ResolverState, test_case: &SpecTestCase) {
                 );
             }
         }
+
+        // shouldApply assertion
+        if let Some(expected_should_apply) = expected_flag.should_apply {
+            let actual_should_apply = actual.should_apply;
+            assert_eq!(
+                actual_should_apply, expected_should_apply,
+                "[{}] shouldApply mismatch for flag '{}': expected {}, got {}",
+                test_case.name, expected_flag.flag, expected_should_apply, actual_should_apply,
+            );
+        }
     }
 }
 
@@ -437,8 +451,6 @@ macro_rules! spec_test {
 spec_test!(no_flags_for_client);
 spec_test!(inactive_flag_filtered);
 spec_test!(flag_name_filter);
-
-// strict_no_active_flags — skipped: Rust resolver has no strict mode
 
 // Rule enablement
 spec_test!(rule_not_enabled);
@@ -527,8 +539,6 @@ spec_test!(empty_range_rule);
 spec_test!(any_empty_set_inner);
 spec_test!(any_unrecognized_inner_rule);
 
-// strict_with_matching_flags — skipped: Rust resolver has no strict mode
-
 // And / Or / Not expressions
 spec_test!(and_targeting_both_match);
 spec_test!(and_targeting_one_fails);
@@ -544,6 +554,7 @@ spec_test!(missing_segment_then_match);
 spec_test!(null_targeting_key_then_match);
 spec_test!(no_assignment_then_match);
 spec_test!(fallthrough_with_write_mat);
+spec_test!(fallthrough_then_no_match_should_apply);
 
 // Additional materialization tests
 spec_test!(mat_targeting_check_no_variant);
@@ -556,3 +567,8 @@ spec_test!(set_no_match);
 spec_test!(range_no_match);
 spec_test!(starts_with_no_match);
 spec_test!(ends_with_no_match);
+
+// Apply tests
+spec_test!(resolve_with_apply_true);
+spec_test!(resolve_with_apply_true_empty_result);
+spec_test!(resolve_with_apply_true_no_match);

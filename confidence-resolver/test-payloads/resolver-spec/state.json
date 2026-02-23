@@ -1090,6 +1090,84 @@
         }
       ]
     },
+    "flags/minimal-flag-2": {
+      "name": "flags/minimal-flag-2",
+      "state": "ACTIVE",
+      "clients": ["clients/minimal-client"],
+      "variants": [
+        { "name": "blue", "value": { "color": "blue" } }
+      ],
+      "rules": [
+        {
+          "name": "flags/minimal-flag-2/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "blue" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/minimal-flag-us-only": {
+      "name": "flags/minimal-flag-us-only",
+      "state": "ACTIVE",
+      "clients": ["clients/minimal-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/minimal-flag-us-only/rules/rule1",
+          "segment": "segments/country-us",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/minimal-flag-inactive": {
+      "name": "flags/minimal-flag-inactive",
+      "state": "ARCHIVED",
+      "clients": ["clients/minimal-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/minimal-flag-inactive/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "flags/multi-bucket-range-flag": {
       "name": "flags/multi-bucket-range-flag",
       "state": "ACTIVE",
@@ -1585,6 +1663,28 @@
           "enabled": true,
           "targetingKeySelector": "targeting_key",
           "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a-match", "variant": { "variant": "treatment" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        }
+      ]
+    },
+    "flags/fallthrough-no-match": {
+      "name": "flags/fallthrough-no-match",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [
+        {
+          "name": "flags/fallthrough-no-match/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a-ft", "fallthrough": {}, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        },
+        {
+          "name": "flags/fallthrough-no-match/rules/rule2",
+          "segment": "segments/country-us",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a-match", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
         }
       ]
     }
