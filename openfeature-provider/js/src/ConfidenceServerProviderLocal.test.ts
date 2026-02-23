@@ -4,6 +4,7 @@ import {
   ConfidenceServerProviderLocal,
   DEFAULT_FLUSH_INTERVAL,
   DEFAULT_STATE_INTERVAL,
+  DEFAULT_STATE_STALL_TIMEOUT,
 } from './ConfidenceServerProviderLocal';
 import { abortableSleep, TimeUnit, timeoutSignal } from './util';
 import { advanceTimersUntil, NetworkMock } from './test-helpers';
@@ -129,7 +130,7 @@ describe('state update scheduling', () => {
     expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
   });
   it('retries state download with backoff and stall-timeout', async () => {
-    let chunkDelay = 600;
+    let chunkDelay = DEFAULT_STATE_STALL_TIMEOUT + 100;
     net.cdn.state.handler = req => {
       const body = new ReadableStream<Uint8Array>({
         async start(controller) {
