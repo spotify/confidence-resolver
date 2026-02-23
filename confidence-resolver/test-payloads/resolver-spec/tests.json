@@ -359,8 +359,15 @@
     },
     "expectedResult": {
       "general": {
-        "resolvedFlags": [],
-        "expectError": "BadRequestException"
+        "resolvedFlags": [
+          {
+            "flag": "flags/targeting-key-flag",
+            "reason": "RESOLVE_REASON_TARGETING_KEY_ERROR",
+            "variant": "",
+            "value": null
+          }
+        ],
+        "expectError": null
       },
       "rust": {
         "resolvedFlags": [
