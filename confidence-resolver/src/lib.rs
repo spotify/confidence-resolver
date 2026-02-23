@@ -1042,14 +1042,20 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             }
             let segment = self.state.segments.get(segment_name).or_fail()?;
 
-            let targeting_key = if !rule.targeting_key_selector.is_empty() {
-                rule.targeting_key_selector.as_str()
-            } else {
+            // Resolve the targeting key (unit) based on targetingKeySelector.
+            // When targetingKeySelector is empty, try the default "targeting_key" attribute.
+            // For full rollouts (100% bucket coverage), a missing targeting key is OK -
+            // we can still match without bucketing. This matches Java resolver behavior.
+            let targeting_key_attr = if rule.targeting_key_selector.is_empty() {
                 TARGETING_KEY
+            } else {
+                rule.targeting_key_selector.as_str()
             };
-            let unit: String = match self.get_targeting_key(targeting_key) {
-                Ok(Some(u)) => u,
-                Ok(None) => continue,
+            let targeting_key_selector_is_blank = rule.targeting_key_selector.is_empty();
+
+            let unit: Option<String> = match self.get_targeting_key(targeting_key_attr) {
+                Ok(Some(u)) => Some(u),
+                Ok(None) => None, // Will be handled based on full rollout check
                 Err(_) => return Ok(resolved_value.error(ResolveReason::TargetingKeyError)),
             };
 
@@ -1057,74 +1063,132 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 continue;
             };
 
+            // Check if this is a full rollout (100% bucket coverage with single assignment)
+            let is_full_rollout = has_only_one_full_variant(spec);
+
+            // When selector is NOT blank but the unit is missing, skip the rule
+            // (the rule explicitly requires a targeting key that we don't have)
+            if unit.is_none() && !targeting_key_selector_is_blank {
+                continue;
+            }
+
+            // When there's a readMaterialization but no unit, skip the rule
+            // (materialization lookup requires a unit to identify the entity)
+            if unit.is_none() {
+                if let Some(materialization_spec) = &rule.materialization_spec {
+                    if !materialization_spec.read_materialization.is_empty() {
+                        continue;
+                    }
+                }
+            }
+
             let mut materialization_matched = Some(false);
-            if let Some(materialization_spec) = &rule.materialization_spec {
-                let read_materialization = &materialization_spec.read_materialization;
-                if !read_materialization.is_empty() {
-                    let read_mode =
-                        materialization_spec
-                            .mode
-                            .as_ref()
-                            .unwrap_or(&MaterializationReadMode {
-                                segment_targeting_can_be_ignored: false,
-                                materialization_must_match: false,
-                            });
-                    match materialization_context.has_rule_materialization(
-                        read_materialization,
-                        &unit,
-                        &rule.name,
-                    )? {
-                        Some(false) => {
-                            materialization_matched = Some(false);
-                            if read_mode.materialization_must_match {
-                                continue;
-                            }
-                        }
-                        Some(true) => {
-                            if read_mode.segment_targeting_can_be_ignored {
-                                materialization_matched = Some(true);
-                            } else {
-                                materialization_matched = match self.targeting_match(
-                                    segment,
-                                    &unit,
-                                    &mut HashSet::new(),
-                                    materialization_context,
-                                ) {
-                                    Ok(matched) => matched,
-                                    Err(ResolveError::UnrecognizedRule) => {
-                                        continue;
-                                    }
-                                    Err(e) => return Err(e),
-                                };
-                            }
-                            if materialization_matched == Some(true) {
-                                if let Some(assignment) = materialization_context.select_assignment(
-                                    read_materialization,
-                                    &unit,
-                                    &rule.name,
-                                    &spec.assignments,
-                                ) {
-                                    return resolved_value
-                                        .try_with_variant_match(rule, segment, assignment, &unit);
+            if let Some(ref unit_str) = unit {
+                if let Some(materialization_spec) = &rule.materialization_spec {
+                    let read_materialization = &materialization_spec.read_materialization;
+                    if !read_materialization.is_empty() {
+                        let read_mode =
+                            materialization_spec
+                                .mode
+                                .as_ref()
+                                .unwrap_or(&MaterializationReadMode {
+                                    segment_targeting_can_be_ignored: false,
+                                    materialization_must_match: false,
+                                });
+                        match materialization_context.has_rule_materialization(
+                            read_materialization,
+                            unit_str,
+                            &rule.name,
+                        )? {
+                            Some(false) => {
+                                materialization_matched = Some(false);
+                                if read_mode.materialization_must_match {
+                                    continue;
                                 }
                             }
-                        }
-                        None => {
-                            has_missing_materializations = true;
+                            Some(true) => {
+                                if read_mode.segment_targeting_can_be_ignored {
+                                    materialization_matched = Some(true);
+                                } else {
+                                    materialization_matched = match self.targeting_match(
+                                        segment,
+                                        unit_str,
+                                        &mut HashSet::new(),
+                                        materialization_context,
+                                    ) {
+                                        Ok(matched) => matched,
+                                        Err(ResolveError::UnrecognizedRule) => {
+                                            continue;
+                                        }
+                                        Err(e) => return Err(e),
+                                    };
+                                }
+                                if materialization_matched == Some(true) {
+                                    if let Some(assignment) = materialization_context.select_assignment(
+                                        read_materialization,
+                                        unit_str,
+                                        &rule.name,
+                                        &spec.assignments,
+                                    ) {
+                                        return resolved_value
+                                            .try_with_variant_match(rule, segment, assignment, unit_str);
+                                    }
+                                }
+                            }
+                            None => {
+                                has_missing_materializations = true;
+                            }
                         }
                     }
                 }
             }
 
             if materialization_matched != Some(true) {
-                materialization_matched =
-                    match self.segment_match(segment, &unit, materialization_context) {
-                        Ok(matched) => matched,
-                        Err(ResolveError::UnrecognizedRule) => {
-                            continue;
+                // For segment matching:
+                // - If unit is Some, use full segment_match (includes bitset allocation check)
+                // - If unit is None AND selector is blank AND full rollout: do targeting_match only
+                //   (skip bitset check if bitset is "ALL" or not present)
+                // - Otherwise if unit is None: skip this rule
+                materialization_matched = match &unit {
+                    Some(unit_str) => {
+                        match self.segment_match(segment, unit_str, materialization_context) {
+                            Ok(matched) => matched,
+                            Err(ResolveError::UnrecognizedRule) => {
+                                continue;
+                            }
+                            Err(e) => return Err(e),
                         }
-                        Err(e) => return Err(e),
-                    };
+                    }
+                    None if targeting_key_selector_is_blank && is_full_rollout => {
+                        // No unit, but selector is blank and this is a full rollout
+                        // Check if segment has a selective bitset allocation
+                        if let Some(bitset) = self.state.bitsets.get(segment_name) {
+                            if !bitset.all() {
+                                // Segment has a selective bitset - skip since we can't check it
+                                continue;
+                            }
+                            // Bitset is all 1s - any user would match
+                        }
+                        // Do targeting match only (skip bitset check)
+                        match self.targeting_match(
+                            segment,
+                            "", // empty unit - not used for attribute matching
+                            &mut HashSet::new(),
+                            materialization_context,
+                        ) {
+                            Ok(matched) => matched,
+                            Err(ResolveError::UnrecognizedRule) => {
+                                continue;
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    None => {
+                        // No unit and either selector is not blank or not a full rollout
+                        // Skip this rule - we need a unit
+                        continue;
+                    }
+                };
             }
             match materialization_matched {
                 Some(true) => {
@@ -1146,17 +1210,29 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 }
             }
 
-            let bucket_count = spec.bucket_count;
-            let variant_salt = segment_name.split("/").nth(1).or_fail()?;
-            let key = format!("{}|{}", variant_salt, unit);
-            let bucket = bucket(hash(&key), bucket_count as u64)? as i32;
+            // Determine the matched assignment:
+            // - For full rollouts: use the first (only) assignment directly - no bucketing needed
+            // - For multi-variant rules: require a unit for hash-based bucketing
+            let matched_assignment = if is_full_rollout {
+                // Full rollout - use the single assignment that covers 100% of buckets
+                spec.assignments.first()
+            } else {
+                // Multi-variant rule - need unit for bucketing
+                let Some(ref unit_str) = unit else {
+                    // Can't randomize without targeting key - skip this rule
+                    continue;
+                };
+                let variant_salt = segment_name.split("/").nth(1).or_fail()?;
+                let key = format!("{}|{}", variant_salt, unit_str);
+                let bucket_val = bucket(hash(&key), spec.bucket_count as u64)? as i32;
 
-            let matched_assignment = spec.assignments.iter().find(|assignment| {
-                assignment
-                    .bucket_ranges
-                    .iter()
-                    .any(|range| range.lower <= bucket && bucket < range.upper)
-            });
+                spec.assignments.iter().find(|assignment| {
+                    assignment
+                        .bucket_ranges
+                        .iter()
+                        .any(|range| range.lower <= bucket_val && bucket_val < range.upper)
+                })
+            };
 
             if let Some(rule::Assignment {
                 assignment_id,
@@ -1172,15 +1248,19 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     _ => "".to_string(),
                 };
 
+                // Use empty string for unit when None (for full rollouts without targeting key)
+                let unit_str = unit.as_deref().unwrap_or("");
+
                 let write_spec = rule
                     .materialization_spec
                     .as_ref()
                     .map(|materialization_spec| &materialization_spec.write_materialization);
 
-                // write the materialization info if write spec exists
-                if let Some(materialization) = write_spec {
+                // write the materialization info if write spec exists and we have a unit
+                // (materializations require a unit to identify the entity)
+                if let (Some(materialization), Some(ref unit_val)) = (write_spec, &unit) {
                     materialization_context.add_to_write(
-                        unit.clone(),
+                        unit_val.clone(),
                         materialization.clone(),
                         rule.name.clone(),
                         variant_name.clone(),
@@ -1189,7 +1269,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
                 match assignment {
                     rule::assignment::Assignment::Fallthrough(_) => {
-                        resolved_value.attribute_fallthrough_rule(rule, assignment_id, &unit);
+                        resolved_value.attribute_fallthrough_rule(rule, assignment_id, unit_str);
                         continue;
                     }
                     rule::assignment::Assignment::ClientDefault(_) => {
@@ -1197,7 +1277,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             rule,
                             segment,
                             assignment_id,
-                            &unit,
+                            unit_str,
                         ));
                     }
                     rule::assignment::Assignment::Variant(_) => {
@@ -1211,7 +1291,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             segment,
                             variant,
                             assignment_id,
-                            &unit,
+                            unit_str,
                         ));
                     }
                 };
@@ -1629,6 +1709,26 @@ pub fn bucket(hash: u128, buckets: u64) -> Fallible<usize> {
 
     // don't ask me why
     Ok(((hash_long >> 4) % buckets) as usize)
+}
+
+/// Checks if the assignment spec has exactly one assignment that covers the entire bucket range.
+/// This is used to identify "full rollout" rules where no bucketing is needed - the single
+/// assignment applies to 100% of users, so we don't need a targeting key for randomization.
+/// This matches the Java resolver's `hasOnlyOneFullVariant` function.
+fn has_only_one_full_variant(spec: &rule::AssignmentSpec) -> bool {
+    if spec.assignments.len() != 1 {
+        return false;
+    }
+    let Some(assignment) = spec.assignments.first() else {
+        return false;
+    };
+    if assignment.bucket_ranges.len() != 1 {
+        return false;
+    }
+    let Some(range) = assignment.bucket_ranges.first() else {
+        return false;
+    };
+    range.lower == 0 && range.upper == spec.bucket_count
 }
 
 #[cfg(test)]
