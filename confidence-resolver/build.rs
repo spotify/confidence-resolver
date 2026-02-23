@@ -187,7 +187,7 @@ fn proto_name_to_rust_type(full_name: &str) -> String {
         // In prost, parent message names become snake_case modules,
         // but the final type name stays PascalCase. We also need to handle
         // package segments (all lowercase) vs message names (PascalCase).
-        if i < parts.len() - 1 && part.chars().next().map_or(false, |c| c.is_uppercase()) {
+        if i < parts.len() - 1 && part.chars().next().is_some_and(|c| c.is_uppercase()) {
             // This is a parent message name — prost generates a module for it in snake_case
             result.push_str(&to_snake_case(part));
         } else {

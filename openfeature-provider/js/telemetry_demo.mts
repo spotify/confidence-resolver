@@ -45,7 +45,7 @@ const DISPLAY_BUCKETS = [
   { label: '0.5-2ms', lo: 500, hi: 2_000 },
   { label: '   >2ms', lo: 2_000, hi: Infinity },
 ];
-const LABEL_WIDTH = Math.max(...DISPLAY_BUCKETS.map((b) => b.label.length));
+const LABEL_WIDTH = Math.max(...DISPLAY_BUCKETS.map(b => b.label.length));
 
 /** Convert a bucket exponent to its lower boundary in microseconds. */
 function bucketLowerBound(exponent: number): number {
@@ -78,7 +78,7 @@ function rebinToFixed(fine: Map<number, number>): number[] {
   const counts = new Array(DISPLAY_BUCKETS.length).fill(0);
   for (const [exp, count] of fine) {
     const us = bucketLowerBound(exp);
-    const idx = DISPLAY_BUCKETS.findIndex((b) => us < b.hi);
+    const idx = DISPLAY_BUCKETS.findIndex(b => us < b.hi);
     counts[idx === -1 ? counts.length - 1 : idx] += count;
   }
   return counts;
@@ -132,7 +132,9 @@ function render(curr: Snapshot, prev: Snapshot | null): string {
   const lines: string[] = [];
 
   lines.push('\x1b[1m╔══════════════════════════════════════════════════════════════════════╗\x1b[0m');
-  lines.push('\x1b[1m║              RESOLVE LATENCY HISTOGRAM           \x1b[33m— last ~1s\x1b[0m\x1b[1m       ║\x1b[0m');
+  lines.push(
+    '\x1b[1m║              RESOLVE LATENCY HISTOGRAM           \x1b[33m— last ~1s\x1b[0m\x1b[1m       ║\x1b[0m',
+  );
   lines.push('\x1b[1m╚══════════════════════════════════════════════════════════════════════╝\x1b[0m');
 
   const latency = telemetry.resolveLatency;
@@ -149,7 +151,7 @@ function render(curr: Snapshot, prev: Snapshot | null): string {
       if (delta > 0) deltaFine.set(exp, delta);
     }
     const displayCounts = rebinToFixed(deltaFine);
-    const maxLog = Math.max(...displayCounts.map((c) => (c > 0 ? Math.log10(c) : 0)), 1);
+    const maxLog = Math.max(...displayCounts.map(c => (c > 0 ? Math.log10(c) : 0)), 1);
     const BAR_WIDTH = 44;
 
     for (let i = 0; i < DISPLAY_BUCKETS.length; i++) {
@@ -169,10 +171,14 @@ function render(curr: Snapshot, prev: Snapshot | null): string {
     const rate = dt > 0 ? Math.round(deltaCount / dt) : 0;
     lines.push('');
     lines.push(
-      `  \x1b[2mlast ~1s:\x1b[0m ${deltaCount} resolves   avg: ${formatMicros(avg)}   p95: ${formatMicros(p95)}   ${rate}/s`,
+      `  \x1b[2mlast ~1s:\x1b[0m ${deltaCount} resolves   avg: ${formatMicros(avg)}   p95: ${formatMicros(
+        p95,
+      )}   ${rate}/s`,
     );
     lines.push(
-      `  \x1b[2m   total:\x1b[0m ${latency.count} resolves   avg: ${formatMicros(latency.count > 0 ? latency.sum / latency.count : 0)}`,
+      `  \x1b[2m   total:\x1b[0m ${latency.count} resolves   avg: ${formatMicros(
+        latency.count > 0 ? latency.sum / latency.count : 0,
+      )}`,
     );
   } else {
     lines.push('  (no latency data)');

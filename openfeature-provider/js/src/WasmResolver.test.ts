@@ -76,7 +76,6 @@ describe('basic operation', () => {
         expect(decoded.clientResolveInfo.length).toBe(1);
         expect(decoded.flagResolveInfo.length).toBe(1);
       });
-
     });
 
     describe('telemetry', () => {
@@ -90,15 +89,13 @@ describe('basic operation', () => {
 
         expect(telemetry).toBeDefined();
 
-        const matchRate = telemetry!.resolveRate.find(
-          (r) => r.reason === ResolveReason.RESOLVE_REASON_MATCH,
-        );
+        const matchRate = telemetry!.resolveRate.find(r => r.reason === ResolveReason.RESOLVE_REASON_MATCH);
         expect(matchRate).toBeDefined();
         expect(matchRate!.count).toBe(3);
       });
 
       it('should report resolve latency matching the number of resolves', () => {
-        for(let i = 0; i < 1000; i++) {
+        for (let i = 0; i < 1000; i++) {
           wasmResolver.resolveProcess(RESOLVE_REQUEST);
         }
 
@@ -107,9 +104,7 @@ describe('basic operation', () => {
 
         expect(latency).toBeDefined();
         expect(latency!.count).toBe(1000);
-        const sumOfCounts = latency!.buckets
-          .flatMap(({counts}) => counts)
-          .reduce((sum, count) => sum + count);
+        const sumOfCounts = latency!.buckets.flatMap(({ counts }) => counts).reduce((sum, count) => sum + count);
         expect(sumOfCounts).toBe(1000);
       });
 
@@ -126,9 +121,7 @@ describe('basic operation', () => {
         // telemetry accumulates (snapshot doesn't reset)
         expect(second.telemetryData?.resolveLatency?.count).toBe(3);
 
-        const matchRate = second.telemetryData!.resolveRate.find(
-          (r) => r.reason === ResolveReason.RESOLVE_REASON_MATCH,
-        );
+        const matchRate = second.telemetryData!.resolveRate.find(r => r.reason === ResolveReason.RESOLVE_REASON_MATCH);
         expect(matchRate!.count).toBe(3);
       });
 
