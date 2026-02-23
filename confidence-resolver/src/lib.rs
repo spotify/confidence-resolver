@@ -2448,6 +2448,37 @@ mod tests {
         assert!(resolved_value.inner.rule.is_empty());
     }
 
+    #[test]
+    fn test_targeting_key_exceeding_100_chars_rejected() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+        )
+        .unwrap();
+
+        // Targeting key exceeding 100 characters should be rejected
+        let long_key = "a".repeat(101);
+        let context_json = format!(r#"{{"visitor_id": "{}"}}"#, long_key);
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, &context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let flag = resolver
+            .state
+            .flags
+            .get("flags/fallthrough-test-2")
+            .unwrap();
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::discovery())
+            .unwrap();
+
+        assert_eq!(
+            resolved_value.inner.reason,
+            ResolveReason::TargetingKeyError as i32
+        );
+        assert!(resolved_value.inner.rule.is_empty());
+    }
+
     // eq rules
 
     #[test]
