@@ -1084,12 +1084,18 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             if read_mode.segment_targeting_can_be_ignored {
                                 materialization_matched = Some(true);
                             } else {
-                                materialization_matched = self.targeting_match(
+                                materialization_matched = match self.targeting_match(
                                     segment,
                                     &unit,
                                     &mut HashSet::new(),
                                     materialization_context,
-                                )?;
+                                ) {
+                                    Ok(matched) => matched,
+                                    Err(ResolveError::UnrecognizedRule) => {
+                                        continue;
+                                    }
+                                    Err(e) => return Err(e),
+                                };
                             }
                             if materialization_matched == Some(true) {
                                 if let Some(assignment) = materialization_context.select_assignment(
@@ -1112,7 +1118,13 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
             if materialization_matched != Some(true) {
                 materialization_matched =
-                    self.segment_match(segment, &unit, materialization_context)?;
+                    match self.segment_match(segment, &unit, materialization_context) {
+                        Ok(matched) => matched,
+                        Err(ResolveError::UnrecognizedRule) => {
+                            continue;
+                        }
+                        Err(e) => return Err(e),
+                    };
             }
             match materialization_matched {
                 Some(true) => {
@@ -4439,5 +4451,104 @@ mod tests {
             .unwrap();
 
         assert_eq!(resolved_value.reason(), ResolveReason::Match);
+    }
+
+    #[test]
+    fn test_resolve_flag_skips_unrecognized_targeting_rule() {
+        let segment_json = r#"{
+            "name": "segments/unrecognized-rule",
+            "targeting": {
+                "criteria": {
+                    "c": {
+                        "attribute": {
+                            "attributeName": "user.email"
+                        }
+                    }
+                },
+                "expression": {
+                    "ref": "c"
+                }
+            },
+            "allocation": {
+                "proportion": { "value": "1.0" },
+                "exclusivityTags": [],
+                "exclusiveTo": []
+            }
+        }"#;
+        let segment: Segment = serde_json::from_str(segment_json).unwrap();
+
+        let flag_json = r#"{
+            "name": "flags/unrecognized-rule-flag",
+            "state": "ACTIVE",
+            "variants": [
+                {
+                    "name": "flags/unrecognized-rule-flag/variants/on",
+                    "value": { "data": "on" }
+                }
+            ],
+            "clients": ["clients/test"],
+            "rules": [
+                {
+                    "name": "flags/unrecognized-rule-flag/rules/rule1",
+                    "segment": "segments/unrecognized-rule",
+                    "enabled": true,
+                    "assignmentSpec": {
+                        "bucketCount": 1,
+                        "assignments": [
+                            {
+                                "assignmentId": "flags/unrecognized-rule-flag/variants/on",
+                                "variant": {
+                                    "variant": "flags/unrecognized-rule-flag/variants/on"
+                                },
+                                "bucketRanges": [{ "lower": 0, "upper": 1 }]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#;
+        let flag: Flag = serde_json::from_str(flag_json).unwrap();
+
+        let mut segments = HashMap::new();
+        segments.insert(segment.name.clone(), segment);
+        let mut flags = HashMap::new();
+        flags.insert(flag.name.clone(), flag);
+
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            SECRET.to_string(),
+            Client {
+                account: Account::new("accounts/test"),
+                client_name: "clients/test".to_string(),
+                client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
+                environments: vec![],
+            },
+        );
+
+        let state = ResolverState {
+            secrets,
+            flags,
+            segments,
+            bitsets: HashMap::new(),
+        };
+
+        let context_json = r#"{"targeting_key": "roug", "user": {"email": "test@example.com"}}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+        let flag = resolver
+            .state
+            .flags
+            .get("flags/unrecognized-rule-flag")
+            .unwrap();
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::discovery())
+            .unwrap();
+
+        assert_eq!(
+            resolved_value.reason(),
+            ResolveReason::NoSegmentMatch,
+            "Unrecognized targeting rule should cause the rule to be skipped, not fail the flag"
+        );
     }
 }
