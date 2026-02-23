@@ -129,7 +129,7 @@ describe('state update scheduling', () => {
     expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
   });
   it('retries state download with backoff and stall-timeout', async () => {
-    let chunkDelay = 600;
+    let chunkDelay = 1500;
     net.cdn.state.handler = req => {
       const body = new ReadableStream<Uint8Array>({
         async start(controller) {
@@ -142,10 +142,10 @@ describe('state update scheduling', () => {
       });
       return new Response(body);
     };
-    // Decrease chunkDelay after 2.5s so next retry succeeds
+    // Decrease chunkDelay after a few retries so next retry succeeds
     setTimeout(() => {
       chunkDelay = 100;
-    }, 2500);
+    }, 6000);
 
     await advanceTimersUntil(provider.updateState());
     expect(net.cdn.state.calls).toBeGreaterThan(1);
