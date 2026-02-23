@@ -1,0 +1,2112 @@
+{
+  "account": {
+    "name": "accounts/test-account"
+  },
+  "flags": {
+    "flags/simple-flag": {
+      "name": "flags/simple-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } },
+        { "name": "off", "value": { "enabled": false } }
+      ],
+      "rules": [
+        {
+          "name": "flags/simple-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/other-client-flag": {
+      "name": "flags/other-client-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/other-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/other-client-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/inactive-flag": {
+      "name": "flags/inactive-flag",
+      "state": "ARCHIVED",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": []
+    },
+    "flags/disabled-rule-flag": {
+      "name": "flags/disabled-rule-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/disabled-rule-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": false,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/env-restricted-flag": {
+      "name": "flags/env-restricted-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/env-restricted-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "environments": ["staging"],
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/missing-segment-flag": {
+      "name": "flags/missing-segment-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/missing-segment-flag/rules/rule1",
+          "segment": "segments/nonexistent",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/full-rollout-flag": {
+      "name": "flags/full-rollout-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/full-rollout-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/targeting-key-flag": {
+      "name": "flags/targeting-key-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/targeting-key-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/eq-match-flag": {
+      "name": "flags/eq-match-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } },
+        { "name": "off", "value": { "enabled": false } }
+      ],
+      "rules": [
+        {
+          "name": "flags/eq-match-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/set-match-flag": {
+      "name": "flags/set-match-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/set-match-flag/rules/rule1",
+          "segment": "segments/country-set",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/range-match-flag": {
+      "name": "flags/range-match-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/range-match-flag/rules/rule1",
+          "segment": "segments/age-range",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/starts-with-flag": {
+      "name": "flags/starts-with-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/starts-with-flag/rules/rule1",
+          "segment": "segments/starts-with",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/ends-with-flag": {
+      "name": "flags/ends-with-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/ends-with-flag/rules/rule1",
+          "segment": "segments/ends-with",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/any-rule-flag": {
+      "name": "flags/any-rule-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/any-rule-flag/rules/rule1",
+          "segment": "segments/any-rule",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/all-rule-flag": {
+      "name": "flags/all-rule-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/all-rule-flag/rules/rule1",
+          "segment": "segments/all-rule",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/missing-attr-flag": {
+      "name": "flags/missing-attr-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/missing-attr-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/unrecognized-rule-flag": {
+      "name": "flags/unrecognized-rule-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/unrecognized-rule-flag/rules/rule1",
+          "segment": "segments/unrecognized-rule",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/bitset-flag": {
+      "name": "flags/bitset-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/bitset-flag/rules/rule1",
+          "segment": "segments/bitset-specific",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/nested-segment-flag": {
+      "name": "flags/nested-segment-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/nested-segment-flag/rules/rule1",
+          "segment": "segments/nested-parent",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/circular-segment-flag": {
+      "name": "flags/circular-segment-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/circular-segment-flag/rules/rule1",
+          "segment": "segments/circular-a",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/fallthrough-flag": {
+      "name": "flags/fallthrough-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "treatment", "value": { "color": "red" } },
+        { "name": "control", "value": { "color": "blue" } }
+      ],
+      "rules": [
+        {
+          "name": "flags/fallthrough-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a-ft",
+                "fallthrough": {},
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        },
+        {
+          "name": "flags/fallthrough-flag/rules/rule2",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a-match",
+                "variant": { "variant": "treatment" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/client-default-flag": {
+      "name": "flags/client-default-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/client-default-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a-cd",
+                "clientDefault": {},
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/bucket-gap-flag": {
+      "name": "flags/bucket-gap-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/bucket-gap-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/multi-variant-flag": {
+      "name": "flags/multi-variant-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "treatment", "value": { "color": "red" } },
+        { "name": "control", "value": { "color": "blue" } }
+      ],
+      "rules": [
+        {
+          "name": "flags/multi-variant-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a-treat",
+                "variant": { "variant": "treatment" },
+                "bucketRanges": [{ "lower": 0, "upper": 500 }]
+              },
+              {
+                "assignmentId": "a-ctrl",
+                "variant": { "variant": "control" },
+                "bucketRanges": [{ "lower": 500, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/bitset-no-unit-flag": {
+      "name": "flags/bitset-no-unit-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/bitset-no-unit-flag/rules/rule1",
+          "segment": "segments/bitset-specific",
+          "enabled": true,
+          "targetingKeySelector": "",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/any-set-inner-flag": {
+      "name": "flags/any-set-inner-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/any-set-inner-flag/rules/rule1",
+          "segment": "segments/any-set-inner",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/any-starts-with-inner-flag": {
+      "name": "flags/any-starts-with-inner-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/any-starts-with-inner-flag/rules/rule1",
+          "segment": "segments/any-starts-with-inner",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/any-ends-with-inner-flag": {
+      "name": "flags/any-ends-with-inner-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/any-ends-with-inner-flag/rules/rule1",
+          "segment": "segments/any-ends-with-inner",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/range-exclusive-flag": {
+      "name": "flags/range-exclusive-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/range-exclusive-flag/rules/rule1",
+          "segment": "segments/range-exclusive",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/env-matching-flag": {
+      "name": "flags/env-matching-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/env-matching-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "environments": ["production"],
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-read-flag": {
+      "name": "flags/mat-read-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "treatment", "value": { "color": "red" } },
+        { "name": "control", "value": { "color": "blue" } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-read-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": {
+            "readMaterialization": "materializations/mat1",
+            "writeMaterialization": "materializations/mat1"
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "treatment" },
+                "bucketRanges": [{ "lower": 0, "upper": 500 }]
+              },
+              {
+                "assignmentId": "a2",
+                "variant": { "variant": "control" },
+                "bucketRanges": [{ "lower": 500, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-must-match-flag": {
+      "name": "flags/mat-must-match-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-must-match-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": {
+            "readMaterialization": "materializations/mat1",
+            "mode": {
+              "materializationMustMatch": true
+            }
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-ignore-targeting-flag": {
+      "name": "flags/mat-ignore-targeting-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "treatment", "value": { "color": "red" } },
+        { "name": "control", "value": { "color": "blue" } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-ignore-targeting-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": {
+            "readMaterialization": "materializations/mat1",
+            "mode": {
+              "segmentTargetingCanBeIgnored": true
+            }
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "treatment" },
+                "bucketRanges": [{ "lower": 0, "upper": 500 }]
+              },
+              {
+                "assignmentId": "a2",
+                "variant": { "variant": "control" },
+                "bucketRanges": [{ "lower": 500, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-no-unit-flag": {
+      "name": "flags/mat-no-unit-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-no-unit-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "",
+          "materializationSpec": {
+            "readMaterialization": "materializations/mat1"
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-criterion-flag": {
+      "name": "flags/mat-criterion-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-criterion-flag/rules/rule1",
+          "segment": "segments/mat-criterion",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/range-end-inclusive-flag": {
+      "name": "flags/range-end-inclusive-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/range-end-inclusive-flag/rules/rule1",
+          "segment": "segments/range-end-inclusive-only",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/range-end-exclusive-flag": {
+      "name": "flags/range-end-exclusive-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/range-end-exclusive-flag/rules/rule1",
+          "segment": "segments/range-end-exclusive-only",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-read-not-matched-flag": {
+      "name": "flags/mat-read-not-matched-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-read-not-matched-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": {
+            "readMaterialization": "materializations/mat1"
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-write-flag": {
+      "name": "flags/mat-write-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-write-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": {
+            "writeMaterialization": "materializations/mat-write"
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/minimal-flag": {
+      "name": "flags/minimal-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/minimal-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/minimal-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/multi-bucket-range-flag": {
+      "name": "flags/multi-bucket-range-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/multi-bucket-range-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [
+                  { "lower": 0, "upper": 500 },
+                  { "lower": 500, "upper": 1000 }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/nonzero-lower-flag": {
+      "name": "flags/nonzero-lower-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/nonzero-lower-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 1, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-no-variant-for-rule-flag": {
+      "name": "flags/mat-no-variant-for-rule-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "treatment", "value": { "color": "red" } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-no-variant-for-rule-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": {
+            "readMaterialization": "materializations/mat1",
+            "mode": {
+              "segmentTargetingCanBeIgnored": true
+            }
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "treatment" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/criterion-not-set-flag": {
+      "name": "flags/criterion-not-set-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/criterion-not-set-flag/rules/rule1",
+          "segment": "segments/criterion-not-set",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/empty-set-flag": {
+      "name": "flags/empty-set-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/empty-set-flag/rules/rule1",
+          "segment": "segments/empty-set",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/empty-range-flag": {
+      "name": "flags/empty-range-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/empty-range-flag/rules/rule1",
+          "segment": "segments/empty-range",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/any-empty-set-inner-flag": {
+      "name": "flags/any-empty-set-inner-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/any-empty-set-inner-flag/rules/rule1",
+          "segment": "segments/any-empty-set-inner",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-write-no-unit-flag": {
+      "name": "flags/mat-write-no-unit-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-write-no-unit-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "",
+          "materializationSpec": {
+            "writeMaterialization": "materializations/mat-write"
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-variant-mismatch-flag": {
+      "name": "flags/mat-variant-mismatch-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "treatment", "value": { "color": "red" } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-variant-mismatch-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": {
+            "readMaterialization": "materializations/mat1",
+            "mode": {
+              "segmentTargetingCanBeIgnored": true
+            }
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "treatment" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/any-unrecognized-inner-flag": {
+      "name": "flags/any-unrecognized-inner-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/any-unrecognized-inner-flag/rules/rule1",
+          "segment": "segments/any-unrecognized-inner",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/disabled-then-match": {
+      "name": "flags/disabled-then-match",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [
+        {
+          "name": "flags/disabled-then-match/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": false,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        },
+        {
+          "name": "flags/disabled-then-match/rules/rule2",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a2", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        }
+      ]
+    },
+    "flags/env-then-match": {
+      "name": "flags/env-then-match",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [
+        {
+          "name": "flags/env-then-match/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "environments": ["staging"],
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        },
+        {
+          "name": "flags/env-then-match/rules/rule2",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a2", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        }
+      ]
+    },
+    "flags/missing-seg-then-match": {
+      "name": "flags/missing-seg-then-match",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [
+        {
+          "name": "flags/missing-seg-then-match/rules/rule1",
+          "segment": "segments/does-not-exist",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        },
+        {
+          "name": "flags/missing-seg-then-match/rules/rule2",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a2", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        }
+      ]
+    },
+    "flags/null-key-then-match": {
+      "name": "flags/null-key-then-match",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [
+        {
+          "name": "flags/null-key-then-match/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "nonexistent_field",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        },
+        {
+          "name": "flags/null-key-then-match/rules/rule2",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a2", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        }
+      ]
+    },
+    "flags/no-assignment-then-match": {
+      "name": "flags/no-assignment-then-match",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [
+        {
+          "name": "flags/no-assignment-then-match/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1 }] }] }
+        },
+        {
+          "name": "flags/no-assignment-then-match/rules/rule2",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a2", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        }
+      ]
+    },
+    "flags/and-both-match": {
+      "name": "flags/and-both-match",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [{
+        "name": "flags/and-both-match/rules/rule1",
+        "segment": "segments/and-country-age",
+        "enabled": true,
+        "targetingKeySelector": "targeting_key",
+        "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+      }]
+    },
+    "flags/or-one-match": {
+      "name": "flags/or-one-match",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [{
+        "name": "flags/or-one-match/rules/rule1",
+        "segment": "segments/or-country-email",
+        "enabled": true,
+        "targetingKeySelector": "targeting_key",
+        "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+      }]
+    },
+    "flags/not-match-inverted": {
+      "name": "flags/not-match-inverted",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [{
+        "name": "flags/not-match-inverted/rules/rule1",
+        "segment": "segments/not-country-se",
+        "enabled": true,
+        "targetingKeySelector": "targeting_key",
+        "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+      }]
+    },
+    "flags/mat-targeting-check-no-variant": {
+      "name": "flags/mat-targeting-check-no-variant",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "treatment", "value": { "color": "red" } }],
+      "rules": [{
+        "name": "flags/mat-targeting-check-no-variant/rules/rule1",
+        "segment": "segments/country-se",
+        "enabled": true,
+        "targetingKeySelector": "targeting_key",
+        "materializationSpec": {
+          "readMaterialization": "materializations/mat1",
+          "mode": { "segmentTargetingCanBeIgnored": false }
+        },
+        "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "treatment" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+      }]
+    },
+    "flags/mat-targeting-fails": {
+      "name": "flags/mat-targeting-fails",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [{
+        "name": "flags/mat-targeting-fails/rules/rule1",
+        "segment": "segments/country-us",
+        "enabled": true,
+        "targetingKeySelector": "targeting_key",
+        "materializationSpec": {
+          "readMaterialization": "materializations/mat1",
+          "mode": { "segmentTargetingCanBeIgnored": false }
+        },
+        "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+      }]
+    },
+    "flags/all-one-fails": {
+      "name": "flags/all-one-fails",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "on", "value": { "enabled": true } }],
+      "rules": [{
+        "name": "flags/all-one-fails/rules/rule1",
+        "segment": "segments/all-rule",
+        "enabled": true,
+        "targetingKeySelector": "targeting_key",
+        "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a1", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+      }]
+    },
+    "flags/fallthrough-write-mat": {
+      "name": "flags/fallthrough-write-mat",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "treatment", "value": { "color": "red" } }],
+      "rules": [
+        {
+          "name": "flags/fallthrough-write-mat/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": { "writeMaterialization": "materializations/mat-write" },
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a-ft", "fallthrough": {}, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        },
+        {
+          "name": "flags/fallthrough-write-mat/rules/rule2",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a-match", "variant": { "variant": "treatment" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        }
+      ]
+    }
+  },
+  "segments": {
+    "segments/country-se": {
+      "name": "segments/country-se",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "country",
+              "eqRule": {
+                "value": { "stringValue": "SE" }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/country-set": {
+      "name": "segments/country-set",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "country",
+              "setRule": {
+                "values": [
+                  { "stringValue": "SE" },
+                  { "stringValue": "NO" },
+                  { "stringValue": "DK" }
+                ]
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/age-range": {
+      "name": "segments/age-range",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "age",
+              "rangeRule": {
+                "startInclusive": { "numberValue": 18.0 },
+                "endExclusive": { "numberValue": 65.0 }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/starts-with": {
+      "name": "segments/starts-with",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "email",
+              "startsWithRule": {
+                "value": "test@"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/ends-with": {
+      "name": "segments/ends-with",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "email",
+              "endsWithRule": {
+                "value": "@example.com"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/any-rule": {
+      "name": "segments/any-rule",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "tags",
+              "anyRule": {
+                "rule": {
+                  "eqRule": {
+                    "value": { "stringValue": "premium" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/all-rule": {
+      "name": "segments/all-rule",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "scores",
+              "allRule": {
+                "rule": {
+                  "rangeRule": {
+                    "startInclusive": { "numberValue": 0.0 },
+                    "endInclusive": { "numberValue": 100.0 }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/unrecognized-rule": {
+      "name": "segments/unrecognized-rule",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "country"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/bitset-specific": {
+      "name": "segments/bitset-specific",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "country",
+              "eqRule": {
+                "value": { "stringValue": "SE" }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/nested-parent": {
+      "name": "segments/nested-parent",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "segment": {
+              "segment": "segments/country-se"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/circular-a": {
+      "name": "segments/circular-a",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "segment": {
+              "segment": "segments/circular-b"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/circular-b": {
+      "name": "segments/circular-b",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "segment": {
+              "segment": "segments/circular-a"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/any-set-inner": {
+      "name": "segments/any-set-inner",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "tags",
+              "anyRule": {
+                "rule": {
+                  "setRule": {
+                    "values": [
+                      { "stringValue": "premium" },
+                      { "stringValue": "vip" }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/any-starts-with-inner": {
+      "name": "segments/any-starts-with-inner",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "ids",
+              "anyRule": {
+                "rule": {
+                  "startsWithRule": {
+                    "value": "user-"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/any-ends-with-inner": {
+      "name": "segments/any-ends-with-inner",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "emails",
+              "anyRule": {
+                "rule": {
+                  "endsWithRule": {
+                    "value": ".com"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/range-exclusive": {
+      "name": "segments/range-exclusive",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "score",
+              "rangeRule": {
+                "startExclusive": { "numberValue": 0.0 },
+                "endInclusive": { "numberValue": 100.0 }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/range-end-inclusive-only": {
+      "name": "segments/range-end-inclusive-only",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "score",
+              "rangeRule": {
+                "endInclusive": { "numberValue": 100.0 }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/range-end-exclusive-only": {
+      "name": "segments/range-end-exclusive-only",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "score",
+              "rangeRule": {
+                "endExclusive": { "numberValue": 100.0 }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/mat-criterion": {
+      "name": "segments/mat-criterion",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "materializedSegment": {
+              "materializedSegment": "materializations/mat-seg"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/criterion-not-set": {
+      "name": "segments/criterion-not-set",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {}
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/empty-set": {
+      "name": "segments/empty-set",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "country",
+              "setRule": {
+                "values": []
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/empty-range": {
+      "name": "segments/empty-range",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "score",
+              "rangeRule": {}
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/any-empty-set-inner": {
+      "name": "segments/any-empty-set-inner",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "tags",
+              "anyRule": {
+                "rule": {
+                  "setRule": {
+                    "values": []
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/any-unrecognized-inner": {
+      "name": "segments/any-unrecognized-inner",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "tags",
+              "anyRule": {
+                "rule": {}
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/and-country-age": {
+      "name": "segments/and-country-age",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "SE" } } } },
+          "c2": { "attribute": { "attributeName": "age", "rangeRule": { "startInclusive": { "numberValue": 18.0 }, "endExclusive": { "numberValue": 65.0 } } } }
+        },
+        "expression": { "and": { "operands": [{ "ref": "c1" }, { "ref": "c2" }] } }
+      }
+    },
+    "segments/or-country-email": {
+      "name": "segments/or-country-email",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "SE" } } } },
+          "c2": { "attribute": { "attributeName": "email", "startsWithRule": { "value": "admin@" } } }
+        },
+        "expression": { "or": { "operands": [{ "ref": "c1" }, { "ref": "c2" }] } }
+      }
+    },
+    "segments/not-country-se": {
+      "name": "segments/not-country-se",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "SE" } } } }
+        },
+        "expression": { "not": { "ref": "c1" } }
+      }
+    },
+    "segments/country-us": {
+      "name": "segments/country-us",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "US" } } } }
+        },
+        "expression": { "ref": "c1" }
+      }
+    }
+  },
+  "bitsets": {
+    "segments/country-se": "ALL",
+    "segments/country-set": "ALL",
+    "segments/age-range": "ALL",
+    "segments/starts-with": "ALL",
+    "segments/ends-with": "ALL",
+    "segments/any-rule": "ALL",
+    "segments/all-rule": "ALL",
+    "segments/unrecognized-rule": "ALL",
+    "segments/bitset-specific": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "segments/nested-parent": "ALL",
+    "segments/circular-a": "ALL",
+    "segments/circular-b": "ALL",
+    "segments/any-set-inner": "ALL",
+    "segments/any-starts-with-inner": "ALL",
+    "segments/any-ends-with-inner": "ALL",
+    "segments/range-exclusive": "ALL",
+    "segments/range-end-inclusive-only": "ALL",
+    "segments/range-end-exclusive-only": "ALL",
+    "segments/mat-criterion": "ALL",
+    "segments/criterion-not-set": "ALL",
+    "segments/empty-set": "ALL",
+    "segments/empty-range": "ALL",
+    "segments/any-empty-set-inner": "ALL",
+    "segments/any-unrecognized-inner": "ALL",
+    "segments/and-country-age": "ALL",
+    "segments/or-country-email": "ALL",
+    "segments/not-country-se": "ALL",
+    "segments/country-us": "ALL"
+  },
+  "clients": {
+    "test-secret": {
+      "client": {
+        "name": "clients/test-client",
+        "displayName": "Test Client"
+      },
+      "clientCredential": {
+        "name": "clients/test-client/credentials/cred1",
+        "displayName": "Test Credential",
+        "clientSecret": { "secret": "test-secret" },
+        "environments": ["production"]
+      }
+    },
+    "minimal-secret": {
+      "client": {
+        "name": "clients/minimal-client",
+        "displayName": "Minimal Client"
+      },
+      "clientCredential": {
+        "name": "clients/minimal-client/credentials/cred1",
+        "displayName": "Minimal Credential",
+        "clientSecret": { "secret": "minimal-secret" },
+        "environments": ["production"]
+      }
+    }
+  },
+  "schema": {},
+  "stateFileHash": "spec-test-hash"
+}
