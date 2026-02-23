@@ -179,6 +179,9 @@ impl Telemetry {
 
     /// Snapshot the current telemetry state into a [`TelemetryData`] proto message.
     ///
+    /// All values are cumulative (monotonically increasing). Consumers must compute
+    /// deltas between consecutive snapshots to derive per-interval metrics.
+    ///
     /// Reads all counters without resetting them. This is not perfectly atomic across
     /// all fields, but each individual counter load is atomic — acceptable for metrics.
     pub fn snapshot(&self) -> pb::TelemetryData {

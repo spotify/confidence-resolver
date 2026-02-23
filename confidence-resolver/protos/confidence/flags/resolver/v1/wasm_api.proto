@@ -44,6 +44,8 @@ message ResolveProcessResponse {
   message Resolved {
     ResolveFlagsResponse response = 1;
     repeated MaterializationRecord materializations_to_write = 2;
+    // Internal: used by the WASM host to compute resolve latency.
+    // Not intended for external consumers.
     google.protobuf.Timestamp start_time = 3;
   }
 

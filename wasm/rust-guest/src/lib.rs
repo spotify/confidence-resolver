@@ -165,7 +165,8 @@ wasm_msg_guest! {
 
         if let Ok(ResolveProcessResponse { result: Some(resolve_process_response::Result::Resolved(resolve_process_response::Resolved { response: Some(response), start_time: Some(start_time), ..}))}) = &result {
             let end_time = WasmHost::current_time();
-            let micro_duration = 1_000_000 * (end_time.seconds - start_time.seconds) + (end_time.nanos - start_time.nanos) as i64 / 1000;
+            let total_nanos = 1_000_000_000 * (end_time.seconds - start_time.seconds) + (end_time.nanos - start_time.nanos) as i64;
+            let micro_duration = total_nanos / 1000;
             TELEMETRY.record_latency_us(micro_duration.clamp(0, u32::MAX as i64) as u32);
 
             for flag in &response.resolved_flags {

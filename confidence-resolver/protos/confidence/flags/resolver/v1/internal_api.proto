@@ -100,7 +100,11 @@ message WriteFlagAssignedResponse {
 }
 
 // Collection of telemetry metrics, usually included in request messages to
-// monitor sender-side issues or performance
+// monitor sender-side issues or performance.
+//
+// All counters and histograms are cumulative (monotonically increasing).
+// Consumers must compute deltas between consecutive snapshots to derive
+// per-interval rates and distributions.
 //
 // Histograms use exponential bucketing with boundaries at ratio^k in the
 // chosen unit. BucketSpans encode dense regions of consecutive exponents,
@@ -126,6 +130,8 @@ message TelemetryData {
       unit: "microseconds"
     };
 
+    // Cumulative sum of observed values. Note: u32 will wrap at high throughput
+    // (~85s at 100k resolves/s averaging 50µs). Consumers should handle wrapping.
     uint32 sum = 1;
     uint32 count = 2;
     repeated BucketSpan buckets = 3;
