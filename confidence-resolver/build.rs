@@ -152,6 +152,22 @@ fn generate_telemetry_config(descriptor_path: &std::path::Path) -> Result<()> {
             .and_then(|v| v.as_str().map(|s| s.to_owned()))
             .unwrap_or_default();
 
+        assert!(
+            min_value > 0,
+            "histogram min_value must be positive, got {min_value} on {}",
+            msg.full_name()
+        );
+        assert!(
+            max_value > min_value,
+            "histogram max_value must be greater than min_value, got max={max_value} min={min_value} on {}",
+            msg.full_name()
+        );
+        assert!(
+            bucket_count >= 3,
+            "histogram bucket_count must be >= 3, got {bucket_count} on {}",
+            msg.full_name()
+        );
+
         let rust_type = proto_name_to_rust_type(msg.full_name());
 
         writeln!(

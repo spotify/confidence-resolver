@@ -131,7 +131,7 @@ message TelemetryData {
     };
 
     // Cumulative sum of observed values. Note: u32 will wrap at high throughput
-    // (~85s at 100k resolves/s averaging 50µs). Consumers should handle wrapping.
+    // (~50 days at 1k resolves/s, ~5 days at 10k resolves/s). Consumers should handle wrapping.
     uint32 sum = 1;
     uint32 count = 2;
     repeated BucketSpan buckets = 3;
