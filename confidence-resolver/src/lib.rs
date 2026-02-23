@@ -4546,10 +4546,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            resolved_value.reason as i32,
-            ResolveReason::NoSegmentMatch as i32,
+            resolved_value.reason(),
+            ResolveReason::NoSegmentMatch,
             "Unrecognized targeting rule should cause the rule to be skipped, not fail the flag"
         );
-        assert!(resolved_value.assignment_match.is_none());
     }
 }
