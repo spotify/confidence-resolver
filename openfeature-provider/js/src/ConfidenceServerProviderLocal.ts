@@ -24,12 +24,15 @@ const logger = getLogger('provider');
 
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
+export const DEFAULT_STATE_STALL_TIMEOUT = 1_000;
 export const DEFAULT_FLUSH_INTERVAL = 10_000;
 export interface ProviderOptions {
   flagClientSecret: string;
   initializeTimeout?: number;
   /** Interval in milliseconds between state polling updates. Defaults to 30000ms. */
   stateUpdateInterval?: number;
+  /** Stall timeout in milliseconds for state fetch requests. Must not exceed half of stateUpdateInterval. Defaults to 1000ms. */
+  stateStallTimeout?: number;
   /** Interval in milliseconds between log flushes. Defaults to 10000ms. */
   flushInterval?: number;
   fetch?: typeof fetch;
@@ -51,6 +54,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
   private readonly stateUpdateInterval: number;
+  private readonly stateStallTimeout: number;
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
   private stateEtag: string | null = null;
@@ -68,6 +72,14 @@ export class ConfidenceServerProviderLocal implements Provider {
     if (!Number.isInteger(this.stateUpdateInterval) || this.stateUpdateInterval < 1000) {
       throw new Error(`stateUpdateInterval must be an integer >= 1000 (1s), currently: ${this.stateUpdateInterval}`);
     }
+    this.stateStallTimeout = options.stateStallTimeout ?? DEFAULT_STATE_STALL_TIMEOUT;
+    if (this.stateStallTimeout > this.stateUpdateInterval / 2) {
+      throw new Error(
+        `stateStallTimeout must not exceed half of stateUpdateInterval (${
+          this.stateUpdateInterval / 2
+        }ms), currently: ${this.stateStallTimeout}`,
+      );
+    }
     this.flushInterval = options.flushInterval ?? DEFAULT_FLUSH_INTERVAL;
     if (!Number.isInteger(this.flushInterval) || this.flushInterval < 1000) {
       throw new Error(`flushInterval must be an integer >= 1000 (1s), currently: ${this.flushInterval}`);
@@ -81,7 +93,7 @@ export class ConfidenceServerProviderLocal implements Provider {
               baseInterval: 500,
               maxInterval: this.stateUpdateInterval,
             }),
-            withStallTimeout(1 * TimeUnit.SECOND),
+            withStallTimeout(this.stateStallTimeout),
           ],
           'https://resolver.confidence.dev/*': [
             withRouter({
