@@ -105,6 +105,20 @@ class WasmResolveApi {
     wasmLock.readLock().lock();
     try {
       final var voidRequest = Messages.Void.getDefaultInstance();
+
+      // TODO: re-evaluate this drain loop once moving to a compositional architecture
+      // Drain all pending assign logs (bounded flush may require multiple calls)
+      while (true) {
+        final var assignReqPtr = transferRequest(voidRequest);
+        final var assignRespPtr = (int) wasmMsgBoundedFlushAssign.apply(assignReqPtr)[0];
+        final var assignRequest = consumeResponse(assignRespPtr, WriteFlagLogsRequest::parseFrom);
+        if (assignRequest.getFlagAssignedCount() == 0) {
+          break;
+        }
+        writeFlagLogs.writeSync(assignRequest);
+      }
+
+      // Final flush of resolve logs (also drains any remaining assigns)
       final var reqPtr = transferRequest(voidRequest);
       final var respPtr = (int) wasmMsgBoundedFlushLogs.apply(reqPtr)[0];
       final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
