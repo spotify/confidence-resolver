@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 
@@ -349,6 +350,58 @@ func TestSwapWasmResolverApi_ResolveFlagWithNoStickyRules(t *testing.T) {
 	} else if titleValue.GetStringValue() != expectedTitle {
 		t.Errorf("Expected title '%s', got '%s'", expectedTitle, titleValue.GetStringValue())
 	}
+}
+
+// TestClose_ShouldFlushAssignLogs verifies that Close() drains all pending
+// flag assignment logs without relying on a periodic flush ticker.
+// This is the Go equivalent of the Java test
+// OpenFeatureLocalResolveProviderFlagLogsTest.shouldCaptureClientInfoInFlagAssigned
+// which fails in CI due to Close() only calling bounded_flush_logs once.
+func TestClose_ShouldFlushAssignLogs(t *testing.T) {
+	ctx := context.Background()
+
+	// Capture all log requests via logSink
+	var captured []*resolverv1.WriteFlagLogsRequest
+	capturingLogSink := func(logs *resolverv1.WriteFlagLogsRequest) {
+		captured = append(captured, logs)
+	}
+
+	// Use pooled resolver with larger pool to spread resolves across slots
+	localResolver := NewLocalResolverWithPoolSize(ctx, capturingLogSink, 8)
+
+	testState := tu.LoadTestResolverState(t)
+	testAcctID := tu.LoadTestAccountID(t)
+
+	if err := localResolver.SetResolverState(&wasm.SetResolverStateRequest{
+		State:     testState,
+		AccountId: testAcctID,
+	}); err != nil {
+		t.Fatalf("Failed to set resolver state: %v", err)
+	}
+
+	// Resolve many flags to generate assignments across multiple pool slots
+	for i := 0; i < 50; i++ {
+		request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
+		_, err := localResolver.ResolveProcess(request)
+		if err != nil {
+			t.Fatalf("Failed to resolve flag (iteration %d): %v", i, err)
+		}
+	}
+
+	// Close immediately — no periodic flush, only Close() should drain assigns
+	if err := localResolver.Close(ctx); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Verify that flag assignments were captured
+	totalFlagAssigned := 0
+	for _, req := range captured {
+		totalFlagAssigned += len(req.FlagAssigned)
+	}
+	if totalFlagAssigned == 0 {
+		t.Fatal("Expected flag_assigned entries to be flushed on Close(), got none")
+	}
+	t.Logf("Captured %d flag_assigned entries across %d requests", totalFlagAssigned, len(captured))
 }
 
 func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(t *testing.T) {
