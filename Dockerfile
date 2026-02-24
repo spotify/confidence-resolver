@@ -607,6 +607,26 @@ WORKDIR /workspace/openfeature-provider/rust
 RUN make build
 
 # ==============================================================================
+# Publish confidence-resolver to crates.io
+# ==============================================================================
+FROM openfeature-provider-rust.build AS confidence-resolver.publish
+
+WORKDIR /workspace/confidence-resolver
+RUN --mount=type=secret,id=crates_io_token \
+    cargo login $(cat /run/secrets/crates_io_token) && \
+    cargo publish
+
+# ==============================================================================
+# Publish OpenFeature Provider (Rust) to crates.io
+# ==============================================================================
+FROM openfeature-provider-rust.build AS openfeature-provider-rust.publish
+
+WORKDIR /workspace/openfeature-provider/rust
+RUN --mount=type=secret,id=crates_io_token \
+    cargo login $(cat /run/secrets/crates_io_token) && \
+    cargo publish
+
+# ==============================================================================
 # OpenFeature Provider (Java) - Build and test
 # ==============================================================================
 FROM eclipse-temurin:17-jdk AS openfeature-provider-java-base
