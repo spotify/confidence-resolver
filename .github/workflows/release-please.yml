@@ -210,24 +210,21 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@v4
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Write crates.io token to file
+        run: |
+          echo "${{ secrets.CRATES_IO_TOKEN }}" > /tmp/crates_io_token.txt
+
+      - name: Publish confidence-resolver with Docker
+        uses: docker/build-push-action@v6
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cargo login
-        run: cargo login ${{ secrets.CRATES_IO_TOKEN }}
-
-      - name: Publish to crates.io
-        working-directory: confidence-resolver
-        run: cargo publish
+          context: .
+          target: confidence-resolver.publish
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+          secret-files: |
+            crates_io_token=/tmp/crates_io_token.txt
 
   publish-rust-provider-release:
     needs: [release, publish-confidence-resolver-release]
@@ -241,28 +238,25 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@v4
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cargo login
-        run: cargo login ${{ secrets.CRATES_IO_TOKEN }}
+      - name: Write crates.io token to file
+        run: |
+          echo "${{ secrets.CRATES_IO_TOKEN }}" > /tmp/crates_io_token.txt
 
       - name: Wait for crates.io index update
         if: ${{ needs.publish-confidence-resolver-release.result == 'success' }}
         run: sleep 30
 
-      - name: Publish to crates.io
-        working-directory: openfeature-provider/rust
-        run: cargo publish
+      - name: Publish Rust provider with Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: openfeature-provider-rust.publish
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+          secret-files: |
+            crates_io_token=/tmp/crates_io_token.txt
 
   publish-python-provider-release:
     needs: release
