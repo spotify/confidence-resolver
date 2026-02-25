@@ -14,7 +14,6 @@ import "confidence/flags/resolver/v1/events/events.proto";
 import "confidence/auth/v1/auth.proto";
 import "confidence/api/annotations.proto";
 import "confidence/flags/admin/v1/events/events.proto";
-
 option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;
 option java_outer_classname = "InternalApiProto";
@@ -101,12 +100,61 @@ message WriteFlagAssignedResponse {
 }
 
 // Collection of telemetry metrics, usually included in request messages to
-// monitor sender-side issues or performance
+// monitor sender-side issues or performance.
+//
+// All counters and histograms are cumulative (monotonically increasing).
+// Consumers must compute deltas between consecutive snapshots to derive
+// per-interval rates and distributions.
+//
+// Histograms use exponential bucketing with boundaries at ratio^k in the
+// chosen unit. BucketSpans encode dense regions of consecutive exponents,
+// each with their observation count. Ratio and unit are defined per histogram.
 message TelemetryData {
   // Information about the SDK/provider
   Sdk sdk = 2 [
     (google.api.field_behavior) = OPTIONAL
   ];
+
+  ResolveLatency resolve_latency = 4;
+  repeated ResolveRate resolve_rate = 5;
+  StateAge state_age = 6;
+
+  // Current linear memory size in bytes
+  uint64 memory_bytes = 7;
+
+  message ResolveLatency {
+    option (confidence.api.histogram) = {
+      min_value: 1
+      max_value: 10000000
+      bucket_count: 162
+      unit: "microseconds"
+    };
+
+    // Cumulative sum of observed values. Note: u32 will wrap at high throughput
+    // (~50 days at 1k resolves/s, ~5 days at 10k resolves/s). Consumers should handle wrapping.
+    uint32 sum = 1;
+    uint32 count = 2;
+    repeated BucketSpan buckets = 3;
+    // Natural log of the bucket ratio. Bucket boundary = exp(exponent * ln_ratio).
+    double ln_ratio = 4;
+  }
+
+  // resolve rate tagged by reason/error
+  message ResolveRate {
+    uint32 count = 1;
+    ResolveReason reason = 2;
+  }
+
+  message StateAge {
+    // millisecond epoch
+    uint64 last_state_update = 1;
+  }
+
+  // a dense region of buckets
+  message BucketSpan {
+    int32 offset = 1;
+    repeated uint32 counts = 2;
+  }
 }
 
 message ResolveToken {

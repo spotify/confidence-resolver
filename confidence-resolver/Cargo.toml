@@ -49,6 +49,7 @@ regex = "1.10.2"
 [build-dependencies]
 prost-build = "0.12"
 pbjson-build = { version = "0.6.0" }
+prost-reflect = "0.13"
 
 [package.metadata.cargo-machete]
 ignored = ["pbjson", "pbjson-build", "prost-build"]

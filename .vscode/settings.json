@@ -3,6 +3,10 @@
   "rust-analyzer.cargo.extraEnv": {
     "PROTOC": "/opt/homebrew/bin/protoc"
   },
+  "rust-analyzer.linkedProjects": [
+    "./wasm/rust-guest/Cargo.toml",
+    "./confidence-resolver/Cargo.toml"
+  ],
   "protoc": {
     "options": ["-I/${workspaceRoot}/confidence-resolver/protos"]
   }

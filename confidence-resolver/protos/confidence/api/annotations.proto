@@ -35,3 +35,15 @@ message ValidationSpec {
 extend google.protobuf.FieldOptions {
   ValidationSpec validation = 4324223;
 }
+
+// Histogram configuration for metrics collection
+message HistogramSpec {
+  int32 min_value = 1;
+  int32 max_value = 2;
+  int32 bucket_count = 3;
+  string unit = 4;
+}
+
+extend google.protobuf.MessageOptions {
+  optional HistogramSpec histogram = 4399232;
+}

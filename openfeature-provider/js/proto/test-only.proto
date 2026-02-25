@@ -3,8 +3,44 @@ syntax = "proto3";
 message WriteFlagLogsRequest {
   repeated bytes flag_assigned = 1;
 
-  bytes telemetry_data = 2;
+  TelemetryData telemetry_data = 2;
 
   repeated bytes client_resolve_info = 3;
   repeated bytes flag_resolve_info = 4;
+}
+
+message TelemetryData {
+  // Information about the SDK/provider
+  // Sdk sdk = 2;
+
+  ResolveLatency resolve_latency = 4;
+  repeated ResolveRate resolve_rate = 5;
+  StateAge state_age = 6;
+
+  // Current linear memory size in bytes
+  uint64 memory_bytes = 7;
+
+  message ResolveLatency {
+    uint32 sum = 1;
+    uint32 count = 2;
+    repeated BucketSpan buckets = 3;
+    double ln_ratio = 4;
+  }
+
+  // resolve rate tagged by reason/error
+  message ResolveRate {
+    uint32 count = 1;
+    uint32 reason = 2;
+  }
+
+  message StateAge {
+    // millisecond epoch
+    uint64 last_state_update = 1;
+  }
+
+  // a dense region of buckets
+  message BucketSpan {
+    int32 offset = 1;
+    repeated uint32 counts = 2;
+  }
 }
