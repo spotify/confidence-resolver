@@ -1,13 +1,10 @@
 package com.spotify.confidence.sdk;
 
-import com.dylibso.chicory.compiler.MachineFactoryCompiler;
 import com.dylibso.chicory.runtime.ExportFunction;
 import com.dylibso.chicory.runtime.ImportFunction;
 import com.dylibso.chicory.runtime.ImportValues;
 import com.dylibso.chicory.runtime.Instance;
 import com.dylibso.chicory.runtime.Memory;
-import com.dylibso.chicory.wasm.Parser;
-import com.dylibso.chicory.wasm.WasmModule;
 import com.dylibso.chicory.wasm.types.FunctionType;
 import com.dylibso.chicory.wasm.types.ValType;
 import com.google.protobuf.ByteString;
@@ -21,8 +18,6 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
-import java.io.IOException;
-import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -42,46 +37,39 @@ class WasmResolveApi {
 
   // api
   private final ExportFunction wasmMsgGuestSetResolverState;
-  private final ExportFunction wasmMsgFlushLogs;
+  private final ExportFunction wasmMsgBoundedFlushLogs;
+  private final ExportFunction wasmMsgBoundedFlushAssign;
   private final ExportFunction wasmMsgGuestApplyFlags;
   private final ExportFunction wasmMsgGuestResolveProcess;
   private final ReadWriteLock wasmLock = new ReentrantReadWriteLock();
 
   public WasmResolveApi(WasmFlagLogger flagLogger) {
     this.writeFlagLogs = flagLogger;
-    try (InputStream wasmStream =
-        getClass().getClassLoader().getResourceAsStream("wasm/confidence_resolver.wasm")) {
-      if (wasmStream == null) {
-        throw new RuntimeException("Could not find confidence_resolver.wasm in resources");
-      }
-      final WasmModule module = Parser.parse(wasmStream);
-      instance =
-          Instance.builder(module)
-              .withImportValues(
-                  ImportValues.builder()
-                      .addFunction(
-                          createImportFunction(
-                              "current_time", Messages.Void::parseFrom, this::currentTime))
-                      .addFunction(
-                          createImportFunction("log_message", LogMessage::parseFrom, this::log))
-                      .addFunction(
-                          new ImportFunction(
-                              "wasm_msg",
-                              "wasm_msg_current_thread_id",
-                              FunctionType.of(List.of(), List.of(ValType.I32)),
-                              this::currentThreadId))
-                      .build())
-              .withMachineFactory(MachineFactoryCompiler::compile)
-              .build();
-      wasmMsgAlloc = instance.export("wasm_msg_alloc");
-      wasmMsgFree = instance.export("wasm_msg_free");
-      wasmMsgGuestSetResolverState = instance.export("wasm_msg_guest_set_resolver_state");
-      wasmMsgFlushLogs = instance.export("wasm_msg_guest_flush_logs");
-      wasmMsgGuestApplyFlags = instance.export("wasm_msg_guest_apply_flags");
-      wasmMsgGuestResolveProcess = instance.export("wasm_msg_guest_resolve_flags");
-    } catch (IOException e) {
-      throw new RuntimeException("Failed to load WASM module", e);
-    }
+    instance =
+        Instance.builder(ConfidenceResolverModule.load())
+            .withImportValues(
+                ImportValues.builder()
+                    .addFunction(
+                        createImportFunction(
+                            "current_time", Messages.Void::parseFrom, this::currentTime))
+                    .addFunction(
+                        createImportFunction("log_message", LogMessage::parseFrom, this::log))
+                    .addFunction(
+                        new ImportFunction(
+                            "wasm_msg",
+                            "wasm_msg_current_thread_id",
+                            FunctionType.of(List.of(), List.of(ValType.I32)),
+                            this::currentThreadId))
+                    .build())
+            .withMachineFactory(ConfidenceResolverModule::create)
+            .build();
+    wasmMsgAlloc = instance.export("wasm_msg_alloc");
+    wasmMsgFree = instance.export("wasm_msg_free");
+    wasmMsgGuestSetResolverState = instance.export("wasm_msg_guest_set_resolver_state");
+    wasmMsgBoundedFlushLogs = instance.export("wasm_msg_guest_bounded_flush_logs");
+    wasmMsgBoundedFlushAssign = instance.export("wasm_msg_guest_bounded_flush_assign");
+    wasmMsgGuestApplyFlags = instance.export("wasm_msg_guest_apply_flags");
+    wasmMsgGuestResolveProcess = instance.export("wasm_msg_guest_resolve_flags");
   }
 
   private Message log(LogMessage message) {
@@ -117,11 +105,41 @@ class WasmResolveApi {
     wasmLock.readLock().lock();
     try {
       final var voidRequest = Messages.Void.getDefaultInstance();
+
+      // TODO: re-evaluate this drain loop once moving to a compositional architecture
+      // Drain all pending assign logs (bounded flush may require multiple calls)
+      while (true) {
+        final var assignReqPtr = transferRequest(voidRequest);
+        final var assignRespPtr = (int) wasmMsgBoundedFlushAssign.apply(assignReqPtr)[0];
+        final var assignRequest = consumeResponse(assignRespPtr, WriteFlagLogsRequest::parseFrom);
+        if (assignRequest.getFlagAssignedCount() == 0) {
+          break;
+        }
+        writeFlagLogs.writeSync(assignRequest);
+      }
+
+      // Final flush of resolve logs (also drains any remaining assigns)
       final var reqPtr = transferRequest(voidRequest);
-      final var respPtr = (int) wasmMsgFlushLogs.apply(reqPtr)[0];
+      final var respPtr = (int) wasmMsgBoundedFlushLogs.apply(reqPtr)[0];
       final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
       writeFlagLogs.writeSync(request);
       isConsumed = true;
+    } finally {
+      wasmLock.readLock().unlock();
+    }
+  }
+
+  public void flushAssignLogs() {
+    wasmLock.readLock().lock();
+    try {
+      if (isConsumed) {
+        return;
+      }
+      final var voidRequest = Messages.Void.getDefaultInstance();
+      final var reqPtr = transferRequest(voidRequest);
+      final var respPtr = (int) wasmMsgBoundedFlushAssign.apply(reqPtr)[0];
+      final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
+      writeFlagLogs.write(request);
     } finally {
       wasmLock.readLock().unlock();
     }
