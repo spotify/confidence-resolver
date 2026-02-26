@@ -102,7 +102,7 @@ class WasmResolveApi {
   }
 
   public void close() {
-    wasmLock.readLock().lock();
+    wasmLock.writeLock().lock();
     try {
       final var voidRequest = Messages.Void.getDefaultInstance();
 
@@ -125,12 +125,12 @@ class WasmResolveApi {
       writeFlagLogs.writeSync(request);
       isConsumed = true;
     } finally {
-      wasmLock.readLock().unlock();
+      wasmLock.writeLock().unlock();
     }
   }
 
   public void flushAssignLogs() {
-    wasmLock.readLock().lock();
+    wasmLock.writeLock().lock();
     try {
       if (isConsumed) {
         return;
@@ -141,7 +141,7 @@ class WasmResolveApi {
       final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
       writeFlagLogs.write(request);
     } finally {
-      wasmLock.readLock().unlock();
+      wasmLock.writeLock().unlock();
     }
   }
 
