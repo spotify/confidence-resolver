@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.12.1...confidence_resolver-v0.12.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* Skip rule if unrecognized ([#289](https://github.com/spotify/confidence-resolver/issues/289)) ([ea7a9fc](https://github.com/spotify/confidence-resolver/commit/ea7a9fc0c93235b1d8ee66ce4d52827c3516f87d))
+
 ## [0.12.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.12.0...confidence_resolver-v0.12.1) (2026-02-20)
 
 
