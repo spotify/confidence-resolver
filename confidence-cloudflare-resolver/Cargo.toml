@@ -1,6 +1,6 @@
 [package]
 name = "confidence-cloudflare-resolver"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 authors = []
 # Remove this line if you want to be able to publish this crate as open source on crates.io.
@@ -22,7 +22,7 @@ ignored = ["getrandom"]
 
 [dependencies]
 bytes = "1.10.1"
-confidence_resolver = { path = "../confidence-resolver", version = "0.12.1" }
+confidence_resolver = { path = "../confidence-resolver", version = "0.12.2" }
 getrandom = { version = "0.3.3", features = ["wasm_js"] }
 worker = { version= "0.6.1", features=['queue'] }
 base64 = "0.22.1"

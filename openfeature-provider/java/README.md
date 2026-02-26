@@ -21,7 +21,7 @@ Add this dependency to your `pom.xml`:
 <dependency>
     <groupId>com.spotify.confidence</groupId>
     <artifactId>openfeature-provider-local</artifactId>
-    <version>0.12.1</version>
+    <version>0.12.2</version>
 </dependency>
 ```
 <!-- x-release-please-end -->

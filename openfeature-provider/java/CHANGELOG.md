@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.12.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.12.1...openfeature-provider-java-v0.12.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* **java:** use writeLock for close/flush to prevent concurrent WASM access ([#303](https://github.com/spotify/confidence-resolver/issues/303)) ([6bcc320](https://github.com/spotify/confidence-resolver/commit/6bcc3205d38ac02d6e886862827c8deab6d5f455))
+
+
+### Performance Improvements
+
+* **java:** combine AOT compilation, shared module, and bounded flush ([#284](https://github.com/spotify/confidence-resolver/issues/284)) ([78b7423](https://github.com/spotify/confidence-resolver/commit/78b74236e1d725bd3ae33a6e3bdf83265ea84043))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.17 to 0.1.18
+
 ## [0.12.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.12.0...openfeature-provider-java-v0.12.1) (2026-02-20)
 
 
