@@ -99,8 +99,7 @@ class WasmResolveApiFlushCloseRaceTest {
         .as(
             "Flag assignments were lost in %d out of %d iterations due to concurrent "
                 + "WASM memory access in flushAssignLogs() and close()",
-            lostAssigns,
-            iterations)
+            lostAssigns, iterations)
         .isEqualTo(0);
   }
 
@@ -113,8 +112,7 @@ class WasmResolveApiFlushCloseRaceTest {
             .setEvaluationContext(
                 Struct.newBuilder()
                     .putFields(
-                        "targeting_key",
-                        Value.newBuilder().setStringValue(TARGETING_KEY).build())
+                        "targeting_key", Value.newBuilder().setStringValue(TARGETING_KEY).build())
                     .build())
             .setSdk(
                 Sdk.newBuilder()
