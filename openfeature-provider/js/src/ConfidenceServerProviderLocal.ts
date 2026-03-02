@@ -81,7 +81,7 @@ export class ConfidenceServerProviderLocal implements Provider {
               baseInterval: 500,
               maxInterval: this.stateUpdateInterval,
             }),
-            withStallTimeout(500),
+            withStallTimeout(1 * TimeUnit.SECOND),
           ],
           'https://resolver.confidence.dev/*': [
             withRouter({
