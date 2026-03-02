@@ -11,8 +11,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Recovery layer: wraps a {@link LocalResolver} and recreates it in the background if it throws a
- * {@link RuntimeException} (the Java equivalent of Go panics from WASM). Caches the last
- * successful state so the new instance can be reinitialized.
+ * {@link RuntimeException} (the Java equivalent of Go panics from WASM). Caches the last successful
+ * state so the new instance can be reinitialized.
  */
 class RecoveringResolver implements LocalResolver {
   private static final Logger logger = LoggerFactory.getLogger(RecoveringResolver.class);

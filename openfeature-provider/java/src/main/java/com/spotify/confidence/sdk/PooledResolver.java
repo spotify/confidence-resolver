@@ -13,9 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Pool layer: manages N {@link LocalResolver} slots for concurrent access. Read operations
- * ({@code resolveProcess}, {@code applyFlags}) acquire a read lock on a slot via round-robin with
- * tryLock fallback. Maintenance operations acquire write locks sequentially across all slots.
+ * Pool layer: manages N {@link LocalResolver} slots for concurrent access. Read operations ({@code
+ * resolveProcess}, {@code applyFlags}) acquire a read lock on a slot via round-robin with tryLock
+ * fallback. Maintenance operations acquire write locks sequentially across all slots.
  */
 class PooledResolver implements LocalResolver {
   private static final Logger logger = LoggerFactory.getLogger(PooledResolver.class);

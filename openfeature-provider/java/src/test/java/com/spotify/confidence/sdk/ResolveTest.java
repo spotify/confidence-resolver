@@ -418,8 +418,7 @@ class ResolveTest {
                     .addAllFlags(flags)
                     .setClientSecret(secret)
                     .setEvaluationContext(
-                        Structs.of(
-                            "targeting_key", Values.of(username), "bar", Values.of(struct)))
+                        Structs.of("targeting_key", Values.of(username), "bar", Values.of(struct)))
                     .setApply(apply)
                     .build())
             .build();
@@ -449,8 +448,7 @@ class ResolveTest {
                     .addAllFlags(flags)
                     .setClientSecret(secret)
                     .setEvaluationContext(
-                        Structs.of(
-                            "targeting_key", Values.of(username), "bar", Values.of(struct)))
+                        Structs.of("targeting_key", Values.of(username), "bar", Values.of(struct)))
                     .setApply(apply)
                     .build())
             .build();

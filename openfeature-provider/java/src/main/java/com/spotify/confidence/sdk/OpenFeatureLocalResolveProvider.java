@@ -144,7 +144,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final int numInstances = PooledResolver.getNumInstances();
     this.resolver =
         new PooledResolver(
-            numInstances, () -> new RecoveringResolver(() -> new WasmLocalResolver(flagLogger::write)));
+            numInstances,
+            () -> new RecoveringResolver(() -> new WasmLocalResolver(flagLogger::write)));
   }
 
   /**
@@ -520,10 +521,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         final ResolveProcessResponse resumeResponse = resolver.resolveProcess(resumeRequest);
         return handleResumeResponse(resumeResponse);
       }
-      case RESULT_NOT_SET ->
-          throw new RuntimeException("Invalid response: resolve result not set");
-      default ->
-          throw new RuntimeException("Unhandled response case: " + response.getResultCase());
+      case RESULT_NOT_SET -> throw new RuntimeException("Invalid response: resolve result not set");
+      default -> throw new RuntimeException("Unhandled response case: " + response.getResultCase());
     }
   }
 
@@ -536,8 +535,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         }
         return resolved.getResponse();
       }
-      case SUSPENDED ->
-          throw new RuntimeException("Unexpected second suspend after resume");
+      case SUSPENDED -> throw new RuntimeException("Unexpected second suspend after resume");
       case RESULT_NOT_SET ->
           throw new RuntimeException("Invalid response after resume: result not set");
       default ->
