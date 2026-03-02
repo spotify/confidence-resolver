@@ -4,9 +4,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.Struct;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.MaterializationRecord;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
@@ -19,9 +21,11 @@ import io.grpc.StatusRuntimeException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 
 /**
@@ -51,20 +55,19 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private static final Logger log =
       org.slf4j.LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
   private final MaterializationStore materializationStore;
-  private final ResolverApi wasmResolveApi;
-  private static final Duration POLL_LOG_INTERVAL = Duration.ofSeconds(10);
+  private final LocalResolver resolver;
+  private final WasmFlagLogger flagLogger;
+  private static final int MAX_MATERIALIZATION_RETRIES = 3;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(30);
   private final ScheduledExecutorService flagsFetcherExecutor =
-      Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
-  private final ScheduledExecutorService logPollExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
   private final ScheduledExecutorService assignLogExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
   private final AccountStateProvider stateProvider;
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
-  private final ChannelFactory channelFactory;
+  private volatile boolean initialized = false;
 
   private static long getPollIntervalSeconds() {
     return Optional.ofNullable(System.getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"))
@@ -96,24 +99,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   /**
    * Creates a new OpenFeature provider for local flag resolution with custom channel factory.
    *
-   * <p>This constructor accepts a {@link LocalProviderConfig} which allows you to customize how
-   * gRPC channels are created, particularly useful for testing with mock servers or advanced
-   * production scenarios requiring custom connection logic.
-   *
-   * <p><strong>Example with custom channel factory for testing:</strong>
-   *
-   * <pre>{@code
-   * ChannelFactory mockFactory = (target, interceptors) ->
-   *     InProcessChannelBuilder.forName("test-server")
-   *         .usePlaintext()
-   *         .intercept(interceptors.toArray(new ClientInterceptor[0]))
-   *         .build();
-   *
-   * LocalProviderConfig config = new LocalProviderConfig(mockFactory);
-   * OpenFeatureLocalResolveProvider provider =
-   *     new OpenFeatureLocalResolveProvider(config, "client-secret");
-   * }</pre>
-   *
    * @param config the provider configuration including optional channel factory
    * @param clientSecret the client secret for your application, used for flag resolution
    *     authentication
@@ -130,18 +115,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   /**
    * Creates a new OpenFeature provider for local flag resolution with a custom sticky resolve
    * implementation.
-   *
-   * <p>This constructor uses the default gRPC channel factory but allows you to provide a custom
-   * {@link MaterializationStore} such as a {@link MaterializationStore} for local storage of sticky
-   * assignments.
-   *
-   * <p><strong>Example with custom materialization repository:</strong>
-   *
-   * <pre>{@code
-   * MaterializationStore store = new InMemoryMaterializationStoreExample();
-   * OpenFeatureLocalResolveProvider provider =
-   *     new OpenFeatureLocalResolveProvider("client-secret", store);
-   * }</pre>
    *
    * @param clientSecret the client secret for your application, used for flag resolution
    *     authentication
@@ -167,15 +140,15 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.materializationStore = materializationStore;
     this.stateProvider = new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory());
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
-    this.wasmResolveApi = new ThreadLocalSwapWasmResolverApi(wasmFlagLogger, materializationStore);
-    this.channelFactory = config.getChannelFactory();
+    this.flagLogger = wasmFlagLogger;
+    final int numInstances = PooledResolver.getNumInstances();
+    this.resolver =
+        new PooledResolver(
+            numInstances, () -> new RecoveringResolver(() -> new WasmLocalResolver(flagLogger::write)));
   }
 
   /**
    * Creates a new OpenFeature provider for testing with a custom WasmFlagLogger.
-   *
-   * <p>This constructor allows injecting a custom WasmFlagLogger for testing purposes, enabling
-   * verification of flag log data without making network calls.
    *
    * @param accountStateProvider the state provider for resolver state
    * @param clientSecret the client secret for authentication
@@ -191,8 +164,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.materializationStore = materializationStore;
     this.clientSecret = clientSecret;
     this.stateProvider = accountStateProvider;
-    this.wasmResolveApi = new ThreadLocalSwapWasmResolverApi(wasmFlagLogger, materializationStore);
-    this.channelFactory = new LocalProviderConfig().getChannelFactory();
+    this.flagLogger = wasmFlagLogger;
+    final int numInstances = PooledResolver.getNumInstances();
+    this.resolver =
+        new PooledResolver(
+            numInstances,
+            () -> new RecoveringResolver(() -> new WasmLocalResolver(wasmFlagLogger::write)));
   }
 
   @Override
@@ -209,7 +186,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     // Only initialize WASM and set READY if we got valid state (non-empty accountId)
     if (!accountIdRef.get().isEmpty()) {
-      wasmResolveApi.init(resolverStateProtobuf.get(), accountIdRef.get());
+      resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+      initialized = true;
       this.state.set(ProviderState.READY);
     } else {
       log.warn(
@@ -220,20 +198,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final long pollIntervalSeconds = getPollIntervalSeconds();
     scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
 
-    logPollExecutor.scheduleAtFixedRate(
-        () -> {
-          if (wasmResolveApi.isInitialized()) {
-            wasmResolveApi.updateStateAndFlushLogs(resolverStateProtobuf.get(), accountIdRef.get());
-          }
-        },
-        POLL_LOG_INTERVAL.getSeconds(),
-        POLL_LOG_INTERVAL.getSeconds(),
-        TimeUnit.SECONDS);
-
     assignLogExecutor.scheduleAtFixedRate(
         () -> {
-          if (wasmResolveApi.isInitialized()) {
-            wasmResolveApi.flushAssignLogs();
+          if (initialized) {
+            resolver.flushAssignLogs();
           }
         },
         ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
@@ -250,7 +218,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     }
 
     // Use short retry interval (1s) when not initialized, normal interval otherwise
-    long delaySeconds = wasmResolveApi.isInitialized() ? pollIntervalSeconds : 1;
+    long delaySeconds = initialized ? pollIntervalSeconds : 1;
 
     flagsFetcherExecutor.schedule(
         () -> {
@@ -258,10 +226,17 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
           resolverStateProtobuf.set(stateProvider.provide());
           accountIdRef.set(stateProvider.accountId());
 
-          if (!accountIdRef.get().isEmpty() && !wasmResolveApi.isInitialized()) {
-            wasmResolveApi.init(resolverStateProtobuf.get(), accountIdRef.get());
-            this.state.set(ProviderState.READY);
-            log.info("Provider recovered and is now READY");
+          if (!accountIdRef.get().isEmpty()) {
+            if (!initialized) {
+              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+              initialized = true;
+              this.state.set(ProviderState.READY);
+              log.info("Provider recovered and is now READY");
+            } else {
+              // State refresh + full log flush
+              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+              resolver.flushAllLogs();
+            }
           }
 
           scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
@@ -344,17 +319,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     state.set(ProviderState.NOT_READY);
     log.debug("Shutting down scheduled executors");
     flagsFetcherExecutor.shutdown();
-    logPollExecutor.shutdown();
     assignLogExecutor.shutdown();
 
     try {
       if (!flagsFetcherExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
         log.warn("Flags fetcher executor did not terminate gracefully");
         flagsFetcherExecutor.shutdownNow();
-      }
-      if (!logPollExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
-        log.warn("Log poll executor did not terminate gracefully");
-        logPollExecutor.shutdownNow();
       }
       if (!assignLogExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
         log.warn("Assign log executor did not terminate gracefully");
@@ -363,7 +333,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     } catch (InterruptedException e) {
       log.warn("Interrupted while waiting for scheduled executors to shut down", e);
       flagsFetcherExecutor.shutdownNow();
-      logPollExecutor.shutdownNow();
       assignLogExecutor.shutdownNow();
       Thread.currentThread().interrupt();
     }
@@ -373,9 +342,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       remoteMaterializationStore.shutdown();
     }
 
-    // wasmResolveApi.close() flushes logs and calls flagLogger.shutdown() which waits for pending
-    // writes
-    this.wasmResolveApi.close();
+    // resolver.close() flushes remaining logs via the log sink
+    this.resolver.close();
+
+    // flagLogger.shutdown() waits for pending async writes to complete
+    this.flagLogger.shutdown();
 
     FeatureProvider.super.shutdown();
   }
@@ -393,7 +364,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     }
 
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
-    // resolve the flag by calling the resolver API
+    // resolve the flag by calling the resolver
     ResolveFlagsResponse resolveFlagResponse;
     try {
       final String requestFlagName = "flags/" + flagPath.getFlag();
@@ -413,11 +384,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               .build();
 
       resolveFlagResponse =
-          wasmResolveApi
-              .resolveProcess(
-                  ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build())
-              .toCompletableFuture()
-              .get();
+          resolveWithMaterializations(
+              ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build());
 
       if (resolveFlagResponse.getResolvedFlagsList().isEmpty()) {
         log.warn("No active flag '{}' was found", flagPath.getFlag());
@@ -463,8 +431,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     } catch (StatusRuntimeException e) {
       handleStatusRuntimeException(e);
       throw new GeneralError("Unknown error occurred when calling the provider backend");
-    } catch (ExecutionException | InterruptedException e) {
-      throw new RuntimeException(e);
     }
   }
 
@@ -502,12 +468,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       }
     }
 
-    return wasmResolveApi
-        .resolveProcess(
+    return CompletableFuture.completedFuture(
+        resolveWithMaterializations(
             ResolveProcessRequest.newBuilder()
                 .setWithoutMaterializations(reqBuilder.build())
-                .build())
-        .toCompletableFuture();
+                .build()));
   }
 
   /**
@@ -517,7 +482,140 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * @param request the apply flags request containing resolve token and flags to apply
    */
   void applyFlags(ApplyFlagsRequest request) {
-    wasmResolveApi.applyFlags(request);
+    resolver.applyFlags(request);
+  }
+
+  // --- Materialization suspend/resume logic (moved from SwapWasmResolverApi) ---
+
+  /**
+   * Resolves flags with materialization support. Converts WithoutMaterializations to
+   * DeferredMaterializations, handles suspend/resume loop with the MaterializationStore.
+   */
+  private ResolveFlagsResponse resolveWithMaterializations(ResolveProcessRequest request) {
+    // Convert WithoutMaterializations to DeferredMaterializations so the WASM resolver
+    // can suspend when materializations are needed.
+    ResolveProcessRequest innerRequest = request;
+    if (request.hasWithoutMaterializations()) {
+      innerRequest =
+          ResolveProcessRequest.newBuilder()
+              .setDeferredMaterializations(request.getWithoutMaterializations())
+              .build();
+    }
+    final ResolveProcessResponse response = resolver.resolveProcess(innerRequest);
+    return handleResponse(response);
+  }
+
+  private ResolveFlagsResponse handleResponse(ResolveProcessResponse response) {
+    switch (response.getResultCase()) {
+      case RESOLVED -> {
+        final var resolved = response.getResolved();
+        if (!resolved.getMaterializationsToWriteList().isEmpty()) {
+          storeWrites(resolved.getMaterializationsToWriteList());
+        }
+        return resolved.getResponse();
+      }
+      case SUSPENDED -> {
+        final var suspended = response.getSuspended();
+        final ResolveProcessRequest resumeRequest = handleSuspended(suspended);
+        final ResolveProcessResponse resumeResponse = resolver.resolveProcess(resumeRequest);
+        return handleResumeResponse(resumeResponse);
+      }
+      case RESULT_NOT_SET ->
+          throw new RuntimeException("Invalid response: resolve result not set");
+      default ->
+          throw new RuntimeException("Unhandled response case: " + response.getResultCase());
+    }
+  }
+
+  private ResolveFlagsResponse handleResumeResponse(ResolveProcessResponse response) {
+    switch (response.getResultCase()) {
+      case RESOLVED -> {
+        final var resolved = response.getResolved();
+        if (!resolved.getMaterializationsToWriteList().isEmpty()) {
+          storeWrites(resolved.getMaterializationsToWriteList());
+        }
+        return resolved.getResponse();
+      }
+      case SUSPENDED ->
+          throw new RuntimeException("Unexpected second suspend after resume");
+      case RESULT_NOT_SET ->
+          throw new RuntimeException("Invalid response after resume: result not set");
+      default ->
+          throw new RuntimeException(
+              "Unhandled response case after resume: " + response.getResultCase());
+    }
+  }
+
+  private void storeWrites(List<MaterializationRecord> records) {
+    final Set<MaterializationStore.WriteOp> writeOps =
+        records.stream()
+            .map(
+                r ->
+                    new MaterializationStore.WriteOp.Variant(
+                        r.getMaterialization(), r.getUnit(), r.getRule(), r.getVariant()))
+            .collect(Collectors.toSet());
+
+    materializationStore.write(writeOps).toCompletableFuture().join();
+  }
+
+  private ResolveProcessRequest handleSuspended(ResolveProcessResponse.Suspended suspended) {
+    final List<MaterializationRecord> toRead = suspended.getMaterializationsToReadList();
+
+    // Convert MaterializationRecords to ReadOps
+    final List<? extends MaterializationStore.ReadOp> readOps =
+        toRead.stream()
+            .map(
+                record -> {
+                  if (!record.getRule().isEmpty()) {
+                    return new MaterializationStore.ReadOp.Variant(
+                        record.getMaterialization(), record.getUnit(), record.getRule());
+                  } else {
+                    return new MaterializationStore.ReadOp.Inclusion(
+                        record.getMaterialization(), record.getUnit());
+                  }
+                })
+            .toList();
+
+    final var results = materializationStore.read(readOps).toCompletableFuture().join();
+
+    // Convert read results to MaterializationRecords for the resume request.
+    // "Not included" inclusion results are omitted (absence = not included).
+    final var materializations =
+        results.stream()
+            .flatMap(
+                rr -> {
+                  if (rr instanceof MaterializationStore.ReadResult.Variant variant) {
+                    if (variant.variant().isPresent()) {
+                      return java.util.stream.Stream.of(
+                          MaterializationRecord.newBuilder()
+                              .setUnit(variant.unit())
+                              .setMaterialization(variant.materialization())
+                              .setRule(variant.rule())
+                              .setVariant(variant.variant().get())
+                              .build());
+                    }
+                    // No prior assignment → omit (absence = no sticky assignment)
+                  }
+                  if (rr instanceof MaterializationStore.ReadResult.Inclusion inclusion) {
+                    if (inclusion.included()) {
+                      return java.util.stream.Stream.of(
+                          MaterializationRecord.newBuilder()
+                              .setUnit(inclusion.unit())
+                              .setMaterialization(inclusion.materialization())
+                              .build());
+                    }
+                    // Not included → omit (absence = not included)
+                  }
+                  return java.util.stream.Stream.empty();
+                })
+            .toList();
+
+    return ResolveProcessRequest.newBuilder()
+        .setResume(
+            ResolveProcessRequest.Resume.newBuilder()
+                .addAllMaterializations(materializations)
+                .setState(suspended.getState()))
+        .build();
   }
 
   private static void handleStatusRuntimeException(StatusRuntimeException e) {

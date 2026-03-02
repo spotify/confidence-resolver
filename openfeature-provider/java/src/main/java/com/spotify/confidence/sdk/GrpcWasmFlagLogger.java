@@ -80,23 +80,6 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
     writer.write(request);
   }
 
-  @Override
-  public void writeSync(WriteFlagLogsRequest request) {
-    if (request.getClientResolveInfoList().isEmpty()
-        && request.getFlagAssignedList().isEmpty()
-        && request.getFlagResolveInfoList().isEmpty()) {
-      logger.debug("Skipping empty flag log request");
-      return;
-    }
-
-    try {
-      stub.clientWriteFlagLogs(request);
-      logger.debug("Synchronously sent flag log with {} entries", request.getFlagAssignedCount());
-    } catch (Exception e) {
-      logger.error("Failed to write flag logs synchronously", e);
-    }
-  }
-
   /**
    * Shutdown the executor service and wait for pending async writes to complete. This method will
    * block for up to the configured shutdown timeout (default 10 seconds) waiting for pending log
