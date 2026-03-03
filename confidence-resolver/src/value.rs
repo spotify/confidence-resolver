@@ -259,20 +259,81 @@ impl Ord for Timestamp {
     }
 }
 
-const ZERO_VERSION: semver::Version = semver::Version::new(0, 0, 0);
+/// Parses a version string into (major, minor, patch, tag) matching the behavior
+/// of `SemanticVersion.java` in epx-target-lib.
+///
+/// Supported formats:
+/// - 2 segments: `"1.0"` → `(1, 0, 0, 0)`
+/// - 3 segments: `"1.2.3"` (patch ≤3 digits) → `(1, 2, 3, 0)`
+/// - 3 segments: `"1.0.1000"` (patch >3 digits → treated as tag) → `(1, 0, 0, 1000)`
+/// - 4 segments: `"1.2.3.4"` → `(1, 2, 3, 4)`
+/// - Pre-release suffix (after `-`) is stripped.
+/// - Tag must be ≤10 digits; otherwise returns `None`.
+/// - Returns `None` for invalid inputs (1 segment, >4 segments, non-numeric, empty segments, etc.)
+fn parse_version(version: &str) -> Option<(u64, u64, u64, u64)> {
+    if version.is_empty() {
+        return None;
+    }
+
+    // Strip pre-release suffix (everything after first '-')
+    let version = version.split('-').next().unwrap_or(version);
+
+    let parts: Vec<&str> = version.split('.').collect();
+
+    // All parts must be non-empty and numeric
+    for part in &parts {
+        if part.is_empty() {
+            return None;
+        }
+        if !part.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+    }
+
+    match parts.as_slice() {
+        [major_s, minor_s] => {
+            let major: u64 = major_s.parse().ok()?;
+            let minor: u64 = minor_s.parse().ok()?;
+            Some((major, minor, 0, 0))
+        }
+        [major_s, minor_s, third_s] => {
+            let major: u64 = major_s.parse().ok()?;
+            let minor: u64 = minor_s.parse().ok()?;
+            let val: u64 = third_s.parse().ok()?;
+            if third_s.len() > 3 {
+                // >3 digit "patch" is actually a tag; patch becomes 0
+                if third_s.len() > 10 {
+                    return None;
+                }
+                Some((major, minor, 0, val))
+            } else {
+                Some((major, minor, val, 0))
+            }
+        }
+        [major_s, minor_s, patch_s, tag_s] => {
+            if tag_s.len() > 10 {
+                return None;
+            }
+            let major: u64 = major_s.parse().ok()?;
+            let minor: u64 = minor_s.parse().ok()?;
+            let patch: u64 = patch_s.parse().ok()?;
+            let tag: u64 = tag_s.parse().ok()?;
+            Some((major, minor, patch, tag))
+        }
+        _ => None,
+    }
+}
 
 impl Ord for targeting::SemanticVersion {
     fn lt(&self, other: &Self) -> bool {
-        // this use of ZERO_VERSION is questionable
-        let a = semver::Version::parse(&self.version).unwrap_or(ZERO_VERSION);
-        let b = semver::Version::parse(&other.version).unwrap_or(ZERO_VERSION);
+        let a = parse_version(&self.version).unwrap_or((0, 0, 0, 0));
+        let b = parse_version(&other.version).unwrap_or((0, 0, 0, 0));
         a < b
     }
 
     fn lte(&self, other: &Self) -> bool {
-        // this use of ZERO_VERSION is questionable
-        let a = semver::Version::parse(&self.version).unwrap_or(ZERO_VERSION);
-        let b = semver::Version::parse(&other.version).unwrap_or(ZERO_VERSION);
+        let a = parse_version(&self.version).unwrap_or((0, 0, 0, 0));
+        let b = parse_version(&other.version).unwrap_or((0, 0, 0, 0));
         a <= b
     }
 }
@@ -777,5 +838,106 @@ mod tests {
             targeting::value::Value::VersionValue(v) => assert!(v.version == expected.to_string()),
             _ => assert!(false),
         }
+    }
+
+    // --- parse_version tests ---
+
+    #[test]
+    fn parse_version_two_segments() {
+        assert_eq!(parse_version("1.0"), Some((1, 0, 0, 0)));
+        assert_eq!(parse_version("12.4"), Some((12, 4, 0, 0)));
+    }
+
+    #[test]
+    fn parse_version_three_segments_small_patch() {
+        assert_eq!(parse_version("1.2.3"), Some((1, 2, 3, 0)));
+        assert_eq!(parse_version("1.0.999"), Some((1, 0, 999, 0)));
+    }
+
+    #[test]
+    fn parse_version_three_segments_large_patch_becomes_tag() {
+        assert_eq!(parse_version("1.0.1000"), Some((1, 0, 0, 1000)));
+        assert_eq!(parse_version("2026.04.55666"), Some((2026, 4, 0, 55666)));
+    }
+
+    #[test]
+    fn parse_version_four_segments() {
+        assert_eq!(parse_version("1.2.3.4"), Some((1, 2, 3, 4)));
+        assert_eq!(parse_version("1.2.3.456"), Some((1, 2, 3, 456)));
+    }
+
+    #[test]
+    fn parse_version_pre_release_stripped() {
+        assert_eq!(parse_version("1.2.3-alpha"), Some((1, 2, 3, 0)));
+        assert_eq!(parse_version("1.2.3-"), Some((1, 2, 3, 0)));
+    }
+
+    #[test]
+    fn parse_version_large_major_minor_allowed() {
+        assert_eq!(parse_version("1000.0.0"), Some((1000, 0, 0, 0)));
+        assert_eq!(parse_version("0.99999.0"), Some((0, 99999, 0, 0)));
+    }
+
+    #[test]
+    fn parse_version_invalid_returns_none() {
+        assert_eq!(parse_version(""), None);
+        assert_eq!(parse_version("1"), None);
+        assert_eq!(parse_version("v1.0.0"), None);
+        assert_eq!(parse_version("1.0.0.0.0"), None);
+        assert_eq!(parse_version("a.b.c"), None);
+        assert_eq!(parse_version("1..0"), None);
+        assert_eq!(parse_version(".1.0"), None);
+        assert_eq!(parse_version("1.0."), None);
+    }
+
+    #[test]
+    fn parse_version_tag_over_10_digits_returns_none() {
+        assert_eq!(parse_version("1.0.0.12345678901"), None);
+    }
+
+    // --- SemanticVersion comparison tests ---
+
+    fn make_sem_ver(v: &str) -> targeting::SemanticVersion {
+        targeting::SemanticVersion {
+            version: v.to_string(),
+        }
+    }
+
+    #[test]
+    fn version_lt_major() {
+        assert!(make_sem_ver("1.0.0").lt(&make_sem_ver("2.0.0")));
+        assert!(!make_sem_ver("2.0.0").lt(&make_sem_ver("1.0.0")));
+    }
+
+    #[test]
+    fn version_lt_minor() {
+        assert!(make_sem_ver("1.0.0").lt(&make_sem_ver("1.1.0")));
+    }
+
+    #[test]
+    fn version_lt_patch() {
+        assert!(make_sem_ver("1.0.0").lt(&make_sem_ver("1.0.1")));
+    }
+
+    #[test]
+    fn version_lt_tag() {
+        assert!(make_sem_ver("1.0.0.0").lt(&make_sem_ver("1.0.0.1")));
+    }
+
+    #[test]
+    fn version_pre_release_ignored_in_comparison() {
+        assert!(make_sem_ver("1.2.3-alpha").lte(&make_sem_ver("1.2.3-beta")));
+        assert!(make_sem_ver("1.2.3-beta").lte(&make_sem_ver("1.2.3-alpha")));
+    }
+
+    #[test]
+    fn version_two_segment_comparison() {
+        assert!(make_sem_ver("12.4").lt(&make_sem_ver("12.5")));
+    }
+
+    #[test]
+    fn version_cross_format_equality() {
+        assert!(make_sem_ver("12.4").lte(&make_sem_ver("12.4.0")));
+        assert!(make_sem_ver("12.4.0").lte(&make_sem_ver("12.4")));
     }
 }
