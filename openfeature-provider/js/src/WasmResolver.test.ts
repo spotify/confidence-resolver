@@ -108,7 +108,7 @@ describe('basic operation', () => {
         expect(sumOfCounts).toBe(1000);
       });
 
-      it('should accumulate telemetry across flushes', () => {
+      it('should send telemetry deltas across flushes', () => {
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
 
         const first = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
@@ -118,11 +118,11 @@ describe('basic operation', () => {
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
 
         const second = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
-        // telemetry accumulates (snapshot doesn't reset)
-        expect(second.telemetryData?.resolveLatency?.count).toBe(3);
+        // telemetry sends deltas since last flush, not cumulative
+        expect(second.telemetryData?.resolveLatency?.count).toBe(2);
 
         const matchRate = second.telemetryData!.resolveRate.find(r => r.reason === ResolveReason.RESOLVE_REASON_MATCH);
-        expect(matchRate!.count).toBe(3);
+        expect(matchRate!.count).toBe(2);
       });
 
       it('should have bucket spans with valid offsets and counts', () => {

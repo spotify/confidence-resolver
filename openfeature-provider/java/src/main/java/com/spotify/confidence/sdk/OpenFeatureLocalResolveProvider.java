@@ -52,7 +52,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       org.slf4j.LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
   private final MaterializationStore materializationStore;
   private final ResolverApi wasmResolveApi;
-  private static final Duration POLL_LOG_INTERVAL = Duration.ofSeconds(10);
+  private static final Duration POLL_LOG_INTERVAL = Duration.ofSeconds(15);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(30);
   private final ScheduledExecutorService flagsFetcherExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());

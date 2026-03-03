@@ -102,13 +102,15 @@ message WriteFlagAssignedResponse {
 // Collection of telemetry metrics, usually included in request messages to
 // monitor sender-side issues or performance.
 //
-// All counters and histograms are cumulative (monotonically increasing).
-// Consumers must compute deltas between consecutive snapshots to derive
-// per-interval rates and distributions.
+// Counter and histogram fields contain DELTAS relative to the previous flush.
+// The sender computes current - last_flushed using wrapping subtraction.
+// Gauge fields (memory_bytes, state_age) are latest point-in-time values.
 //
-// Histograms use exponential bucketing with boundaries at ratio^k in the
-// chosen unit. BucketSpans encode dense regions of consecutive exponents,
-// each with their observation count. Ratio and unit are defined per histogram.
+// Histograms use exponential bucketing with boundaries at exp(exponent * ln_ratio).
+// BucketSpans encode dense regions of consecutive exponents,
+// each with their observation count. ln_ratio is always included, giving
+// consumers everything needed to reconstruct bucket boundaries and resample
+// between different histogram configurations if needed.
 message TelemetryData {
   // Information about the SDK/provider
   Sdk sdk = 2 [
@@ -125,13 +127,12 @@ message TelemetryData {
   message ResolveLatency {
     option (confidence.api.histogram) = {
       min_value: 1
-      max_value: 10000000
-      bucket_count: 162
+      max_value: 1000000
+      bucket_count: 100
       unit: "microseconds"
     };
 
-    // Cumulative sum of observed values. Note: u32 will wrap at high throughput
-    // (~50 days at 1k resolves/s, ~5 days at 10k resolves/s). Consumers should handle wrapping.
+    // Delta sum of observed values since the last flush.
     uint32 sum = 1;
     uint32 count = 2;
     repeated BucketSpan buckets = 3;

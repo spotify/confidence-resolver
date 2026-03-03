@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+use arc_swap::ArcSwap;
 
 use crate::ResolveReason;
 
@@ -32,11 +35,11 @@ const REASON_COUNT: usize = ResolveReason::Error as usize + 1;
 pub struct Histogram {
     ln_ratio: f64,
     min_exponent: i32,
-    sum: AtomicU32,
-    count: AtomicU32,
+    sum: AtomicU64,
+    count: AtomicU64,
     /// Layout: [underflow] [bucket 0 .. bucket max_buckets-3] [overflow]
     /// Total length: max_buckets
-    buckets: Box<[AtomicU32]>,
+    buckets: Box<[AtomicU64]>,
 }
 
 impl Histogram {
@@ -58,19 +61,19 @@ impl Histogram {
         let denominator = closed_buckets.saturating_sub(1).max(1) as f64;
         let ln_ratio = (ln_max - ln_min) / denominator;
         let min_exponent = (ln_min / ln_ratio).floor() as i32;
-        let buckets: Vec<AtomicU32> = (0..max_buckets).map(|_| AtomicU32::new(0)).collect();
+        let buckets: Vec<AtomicU64> = (0..max_buckets).map(|_| AtomicU64::new(0)).collect();
         Histogram {
             ln_ratio,
             min_exponent,
-            sum: AtomicU32::new(0),
-            count: AtomicU32::new(0),
+            sum: AtomicU64::new(0),
+            count: AtomicU64::new(0),
             buckets: buckets.into_boxed_slice(),
         }
     }
 
     /// Record an observation.
     pub fn observe(&self, value: u32) {
-        self.sum.fetch_add(value, Ordering::Relaxed);
+        self.sum.fetch_add(value as u64, Ordering::Relaxed);
         self.count.fetch_add(1, Ordering::Relaxed);
 
         let idx = if value == 0 {
@@ -87,24 +90,26 @@ impl Histogram {
         }
     }
 
-    /// Snapshot the histogram into a proto `ResolveLatency` message.
-    ///
-    /// Bucket layout: index 0 = underflow, index 1..=n = regular buckets,
-    /// index n+1 = overflow. Exponents are offset by `min_exponent`.
-    fn snapshot(&self) -> Option<pb::ResolveLatency> {
-        let sum = self.sum.load(Ordering::Relaxed);
-        let count = self.count.load(Ordering::Relaxed);
-
-        if count == 0 {
-            return None;
+    /// Snapshot the histogram counters into plain u64 values.
+    fn snapshot(&self) -> HistogramSnapshot {
+        HistogramSnapshot {
+            sum: self.sum.load(Ordering::Relaxed),
+            count: self.count.load(Ordering::Relaxed),
+            buckets: self
+                .buckets
+                .iter()
+                .map(|b| b.load(Ordering::Relaxed))
+                .collect(),
         }
+    }
 
+    /// Build BucketSpans from a slice of bucket counts (used for proto encoding).
+    fn bucket_spans(buckets: &[u32], min_exponent: i32) -> Vec<pb::BucketSpan> {
         let mut spans: Vec<pb::BucketSpan> = Vec::new();
         let mut current_span: Option<(i32, Vec<u32>)> = None;
 
-        for (i, bucket) in self.buckets.iter().enumerate() {
-            let v = bucket.load(Ordering::Relaxed);
-            let exponent = self.min_exponent.saturating_add(i as i32).saturating_sub(1);
+        for (i, &v) in buckets.iter().enumerate() {
+            let exponent = min_exponent.saturating_add(i as i32).saturating_sub(1);
             if v > 0 {
                 match &mut current_span {
                     Some((_, counts)) => counts.push(v),
@@ -118,25 +123,38 @@ impl Histogram {
             spans.push(pb::BucketSpan { offset, counts });
         }
 
-        Some(pb::ResolveLatency {
-            sum,
-            count,
-            buckets: spans,
-            ln_ratio: self.ln_ratio,
-        })
+        spans
     }
+}
+
+struct HistogramSnapshot {
+    sum: u64,
+    count: u64,
+    buckets: Vec<u64>,
+}
+
+/// Plain snapshot of cumulative telemetry counters.
+///
+/// Used for delta computation between flushes and as the future intermediate
+/// representation for Prometheus text format serialization.
+#[derive(Clone, Default)]
+pub struct TelemetrySnapshot {
+    pub latency_sum: u64,
+    pub latency_count: u64,
+    pub latency_buckets: Vec<u64>,
+    pub resolve_rates: Vec<u64>,
 }
 
 /// Concurrent telemetry collector.
 ///
 /// All methods are safe to call from multiple threads without locking.
-/// Call [`Telemetry::snapshot`] to read the current state
-/// into a [`TelemetryData`] proto message.
+/// Call [`Telemetry::snapshot`] to read the current cumulative state, or
+/// [`Telemetry::delta_snapshot`] to atomically produce a delta since the last flush.
 pub struct Telemetry {
     resolve_latency: Histogram,
 
     /// Resolve rate counters, one per reason variant.
-    resolve_rates: Box<[AtomicU32]>,
+    resolve_rates: Box<[AtomicU64]>,
 
     /// Millisecond epoch of the last state update.
     last_state_update: AtomicU64,
@@ -151,7 +169,7 @@ impl Telemetry {
     }
 
     pub fn with_memory_provider(memory_provider: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
-        let resolve_rates: Vec<AtomicU32> = (0..REASON_COUNT).map(|_| AtomicU32::new(0)).collect();
+        let resolve_rates: Vec<AtomicU64> = (0..REASON_COUNT).map(|_| AtomicU64::new(0)).collect();
         Telemetry {
             resolve_latency: Histogram::for_type::<pb::ResolveLatency>(),
             resolve_rates: resolve_rates.into_boxed_slice(),
@@ -177,25 +195,74 @@ impl Telemetry {
         self.last_state_update.store(epoch_ms, Ordering::Relaxed);
     }
 
-    /// Snapshot the current telemetry state into a [`TelemetryData`] proto message.
+    /// Snapshot the current cumulative telemetry state.
     ///
-    /// All values are cumulative (monotonically increasing). Consumers must compute
-    /// deltas between consecutive snapshots to derive per-interval metrics.
-    ///
-    /// Reads all counters without resetting them. This is not perfectly atomic across
+    /// All values are cumulative (monotonically increasing). Returns a
+    /// [`TelemetrySnapshot`] with raw u64 counters. Not perfectly atomic across
     /// all fields, but each individual counter load is atomic — acceptable for metrics.
-    pub fn snapshot(&self) -> pb::TelemetryData {
-        let resolve_latency = self.resolve_latency.snapshot();
+    pub fn snapshot(&self) -> TelemetrySnapshot {
+        let hist = self.resolve_latency.snapshot();
+        TelemetrySnapshot {
+            latency_sum: hist.sum,
+            latency_count: hist.count,
+            latency_buckets: hist.buckets,
+            resolve_rates: self
+                .resolve_rates
+                .iter()
+                .map(|c| c.load(Ordering::Relaxed))
+                .collect(),
+        }
+    }
 
-        let resolve_rate: Vec<pb::ResolveRate> = self
+    /// Produce a [`TelemetryData`] proto containing deltas since the last flush.
+    ///
+    /// Atomically swaps `last` with the current snapshot and computes deltas
+    /// using wrapping subtraction. Counter fields are cast to u32 for the proto.
+    /// Gauge fields (`memory_bytes`, `state_age`) are passed through as latest values.
+    ///
+    /// Lock-free — safe for both single-threaded WASM and multi-threaded native use.
+    pub fn delta_snapshot(&self, last: &ArcSwap<TelemetrySnapshot>) -> pb::TelemetryData {
+        let current = self.snapshot();
+        let previous = last.swap(Arc::new(current.clone()));
+
+        // Delta histogram
+        let delta_sum = current.latency_sum.wrapping_sub(previous.latency_sum) as u32;
+        let delta_count = current.latency_count.wrapping_sub(previous.latency_count) as u32;
+
+        let resolve_latency = if delta_count > 0 {
+            let delta_buckets: Vec<u32> = current
+                .latency_buckets
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    let p = previous.latency_buckets.get(i).copied().unwrap_or(0);
+                    c.wrapping_sub(p) as u32
+                })
+                .collect();
+
+            let spans = Histogram::bucket_spans(&delta_buckets, self.resolve_latency.min_exponent);
+
+            Some(pb::ResolveLatency {
+                sum: delta_sum,
+                count: delta_count,
+                buckets: spans,
+                ln_ratio: self.resolve_latency.ln_ratio,
+            })
+        } else {
+            None
+        };
+
+        // Delta resolve rates
+        let resolve_rate: Vec<pb::ResolveRate> = current
             .resolve_rates
             .iter()
             .enumerate()
-            .filter_map(|(i, counter)| {
-                let c = counter.load(Ordering::Relaxed);
-                if c > 0 {
+            .filter_map(|(i, c)| {
+                let p = previous.resolve_rates.get(i).copied().unwrap_or(0);
+                let delta = c.wrapping_sub(p) as u32;
+                if delta > 0 {
                     Some(pb::ResolveRate {
-                        count: c,
+                        count: delta,
                         reason: i as i32,
                     })
                 } else {
@@ -204,6 +271,7 @@ impl Telemetry {
             })
             .collect();
 
+        // Gauge fields: latest values as-is
         let last_update = self.last_state_update.load(Ordering::Relaxed);
         let state_age = if last_update > 0 {
             Some(pb::StateAge {
@@ -214,7 +282,7 @@ impl Telemetry {
         };
 
         pb::TelemetryData {
-            sdk: None, // SDK info is set elsewhere
+            sdk: None,
             resolve_latency,
             resolve_rate,
             state_age,
@@ -234,9 +302,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn histogram_empty_returns_none() {
+    fn histogram_empty() {
         let hist = Histogram::new(1, 1000, 10);
-        assert!(hist.snapshot().is_none());
+        let snap = hist.snapshot();
+        assert_eq!(snap.count, 0);
+        assert_eq!(snap.sum, 0);
     }
 
     #[test]
@@ -246,10 +316,9 @@ mod tests {
         hist.observe(200);
         hist.observe(300);
 
-        let snapshot = hist.snapshot().expect("snapshot should be Some");
-        assert_eq!(snapshot.count, 3);
-        assert_eq!(snapshot.sum, 600);
-        assert!(!snapshot.buckets.is_empty());
+        let snap = hist.snapshot();
+        assert_eq!(snap.count, 3);
+        assert_eq!(snap.sum, 600);
     }
 
     #[test]
@@ -258,18 +327,18 @@ mod tests {
         hist.observe(100);
         hist.observe(200);
 
-        let snap1 = hist.snapshot().expect("first snapshot");
+        let snap1 = hist.snapshot();
         assert_eq!(snap1.count, 2);
         assert_eq!(snap1.sum, 300);
 
         // Second snapshot should show same values
-        let snap2 = hist.snapshot().expect("second snapshot");
+        let snap2 = hist.snapshot();
         assert_eq!(snap2.count, 2);
         assert_eq!(snap2.sum, 300);
 
         // Add more observations
         hist.observe(50);
-        let snap3 = hist.snapshot().expect("third snapshot");
+        let snap3 = hist.snapshot();
         assert_eq!(snap3.count, 3);
         assert_eq!(snap3.sum, 350);
     }
@@ -281,12 +350,10 @@ mod tests {
         hist.observe(1); // underflow (< min_value)
         hist.observe(50); // underflow
 
-        let snapshot = hist.snapshot().expect("snapshot");
-        assert_eq!(snapshot.count, 3);
-
-        // All observations should be in buckets (underflow bucket)
-        let total_in_buckets: u32 = snapshot.buckets.iter().flat_map(|s| &s.counts).sum();
-        assert_eq!(total_in_buckets, 3);
+        let snap = hist.snapshot();
+        assert_eq!(snap.count, 3);
+        let total: u64 = snap.buckets.iter().sum();
+        assert_eq!(total, 3);
     }
 
     #[test]
@@ -296,11 +363,10 @@ mod tests {
         hist.observe(500); // overflow
         hist.observe(1000); // overflow
 
-        let snapshot = hist.snapshot().expect("snapshot");
-        assert_eq!(snapshot.count, 3);
-
-        let total_in_buckets: u32 = snapshot.buckets.iter().flat_map(|s| &s.counts).sum();
-        assert_eq!(total_in_buckets, 3);
+        let snap = hist.snapshot();
+        assert_eq!(snap.count, 3);
+        let total: u64 = snap.buckets.iter().sum();
+        assert_eq!(total, 3);
     }
 
     #[test]
@@ -315,24 +381,26 @@ mod tests {
         hist.observe(100);
         hist.observe(101);
 
-        let snapshot = hist.snapshot().expect("snapshot");
-
-        // Should have multiple spans due to gaps
-        assert!(snapshot.buckets.len() > 0);
-
-        // Total count should match
-        let total: u32 = snapshot.buckets.iter().flat_map(|s| &s.counts).sum();
+        let snap = hist.snapshot();
+        let total: u64 = snap.buckets.iter().sum();
         assert_eq!(total, 5);
+
+        // Build spans and verify gaps create multiple spans
+        let delta_buckets: Vec<u32> = snap.buckets.iter().map(|&b| b as u32).collect();
+        let spans = Histogram::bucket_spans(&delta_buckets, hist.min_exponent);
+        assert!(spans.len() > 1, "should have gaps between spans");
+        let span_total: u32 = spans.iter().flat_map(|s| &s.counts).sum();
+        assert_eq!(span_total, 5);
     }
 
     #[test]
     fn telemetry_new_is_empty() {
         let tel = Telemetry::new();
-        let data = tel.snapshot();
+        let snap = tel.snapshot();
 
-        assert!(data.resolve_latency.is_none());
-        assert!(data.resolve_rate.is_empty());
-        assert!(data.state_age.is_none());
+        assert_eq!(snap.latency_count, 0);
+        assert_eq!(snap.latency_sum, 0);
+        assert!(snap.resolve_rates.iter().all(|&r| r == 0));
     }
 
     #[test]
@@ -342,11 +410,9 @@ mod tests {
         tel.record_latency_us(2000);
         tel.record_latency_us(3000);
 
-        let data = tel.snapshot();
-        let latency = data.resolve_latency.expect("latency should be present");
-
-        assert_eq!(latency.count, 3);
-        assert_eq!(latency.sum, 6000);
+        let snap = tel.snapshot();
+        assert_eq!(snap.latency_count, 3);
+        assert_eq!(snap.latency_sum, 6000);
     }
 
     #[test]
@@ -356,39 +422,12 @@ mod tests {
         tel.mark_resolve(ResolveReason::Match);
         tel.mark_resolve(ResolveReason::NoTreatmentMatch);
 
-        let data = tel.snapshot();
-
-        assert_eq!(data.resolve_rate.len(), 2);
-
-        let match_rate = data
-            .resolve_rate
-            .iter()
-            .find(|r| r.reason == ResolveReason::Match as i32)
-            .expect("should have Match reason");
-        assert_eq!(match_rate.count, 2);
-
-        let no_treatment_rate = data
-            .resolve_rate
-            .iter()
-            .find(|r| r.reason == ResolveReason::NoTreatmentMatch as i32)
-            .expect("should have NoTreatmentMatch reason");
-        assert_eq!(no_treatment_rate.count, 1);
-    }
-
-    #[test]
-    fn telemetry_state_age() {
-        let tel = Telemetry::new();
-
-        // Initially no state age
-        let data1 = tel.snapshot();
-        assert!(data1.state_age.is_none());
-
-        // Set state update
-        tel.set_last_state_update(1234567890);
-        let data2 = tel.snapshot();
-
-        assert!(data2.state_age.is_some());
-        assert_eq!(data2.state_age.unwrap().last_state_update, 1234567890);
+        let snap = tel.snapshot();
+        assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 2);
+        assert_eq!(
+            snap.resolve_rates[ResolveReason::NoTreatmentMatch as usize],
+            1
+        );
     }
 
     #[test]
@@ -397,41 +436,36 @@ mod tests {
 
         tel.record_latency_us(100);
         tel.mark_resolve(ResolveReason::Match);
-        tel.set_last_state_update(1000);
 
-        // First snapshot
-        let data1 = tel.snapshot();
-        assert_eq!(data1.resolve_latency.as_ref().unwrap().count, 1);
-        assert_eq!(data1.resolve_rate.len(), 1);
-        assert_eq!(data1.state_age.as_ref().unwrap().last_state_update, 1000);
+        let snap1 = tel.snapshot();
+        assert_eq!(snap1.latency_count, 1);
+        assert_eq!(snap1.resolve_rates[ResolveReason::Match as usize], 1);
 
         // Second snapshot should show same values
-        let data2 = tel.snapshot();
-        assert_eq!(data2.resolve_latency.as_ref().unwrap().count, 1);
-        assert_eq!(data2.resolve_rate.len(), 1);
-        assert_eq!(data2.state_age.as_ref().unwrap().last_state_update, 1000);
+        let snap2 = tel.snapshot();
+        assert_eq!(snap2.latency_count, 1);
+        assert_eq!(snap2.resolve_rates[ResolveReason::Match as usize], 1);
 
         // Add more data
         tel.record_latency_us(200);
         tel.mark_resolve(ResolveReason::NoTreatmentMatch);
-        tel.set_last_state_update(2000);
 
-        // Third snapshot should show accumulated values
-        let data3 = tel.snapshot();
-        assert_eq!(data3.resolve_latency.as_ref().unwrap().count, 2);
-        assert_eq!(data3.resolve_rate.len(), 2);
-        assert_eq!(data3.state_age.as_ref().unwrap().last_state_update, 2000);
+        let snap3 = tel.snapshot();
+        assert_eq!(snap3.latency_count, 2);
+        assert_eq!(snap3.resolve_rates[ResolveReason::Match as usize], 1);
+        assert_eq!(
+            snap3.resolve_rates[ResolveReason::NoTreatmentMatch as usize],
+            1
+        );
     }
 
     #[test]
     fn telemetry_concurrent_updates() {
-        use std::sync::Arc;
         use std::thread;
 
         let tel = Arc::new(Telemetry::new());
         let mut handles = vec![];
 
-        // Spawn multiple threads recording metrics
         for i in 0..10 {
             let tel_clone = Arc::clone(&tel);
             let handle = thread::spawn(move || {
@@ -443,22 +477,81 @@ mod tests {
             handles.push(handle);
         }
 
-        // Wait for all threads
         for handle in handles {
             handle.join().unwrap();
         }
 
-        let data = tel.snapshot();
-        let latency = data.resolve_latency.expect("latency should be present");
+        let snap = tel.snapshot();
+        assert_eq!(snap.latency_count, 1000);
+        assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 1000);
+    }
 
-        // 10 threads * 100 observations each
-        assert_eq!(latency.count, 1000);
+    #[test]
+    fn delta_snapshot_basic() {
+        let tel = Telemetry::new();
+        let last = ArcSwap::from_pointee(TelemetrySnapshot::default());
 
-        let match_rate = data
+        // First flush: delta should equal full snapshot
+        tel.record_latency_us(100);
+        tel.mark_resolve(ResolveReason::Match);
+
+        let delta1 = tel.delta_snapshot(&last);
+        assert_eq!(delta1.resolve_latency.as_ref().unwrap().count, 1);
+        assert_eq!(delta1.resolve_latency.as_ref().unwrap().sum, 100);
+        assert_eq!(delta1.resolve_rate.len(), 1);
+        assert_eq!(delta1.resolve_rate[0].count, 1);
+        assert_eq!(delta1.resolve_rate[0].reason, ResolveReason::Match as i32);
+
+        // Second flush: delta should only show new observations
+        tel.record_latency_us(200);
+        tel.record_latency_us(300);
+        tel.mark_resolve(ResolveReason::Match);
+        tel.mark_resolve(ResolveReason::NoTreatmentMatch);
+
+        let delta2 = tel.delta_snapshot(&last);
+        assert_eq!(delta2.resolve_latency.as_ref().unwrap().count, 2);
+        assert_eq!(delta2.resolve_latency.as_ref().unwrap().sum, 500);
+
+        let match_rate = delta2
             .resolve_rate
             .iter()
             .find(|r| r.reason == ResolveReason::Match as i32)
-            .expect("should have Match reason");
-        assert_eq!(match_rate.count, 1000);
+            .unwrap();
+        assert_eq!(match_rate.count, 1); // delta, not cumulative 2
+
+        let no_match_rate = delta2
+            .resolve_rate
+            .iter()
+            .find(|r| r.reason == ResolveReason::NoTreatmentMatch as i32)
+            .unwrap();
+        assert_eq!(no_match_rate.count, 1);
+    }
+
+    #[test]
+    fn delta_snapshot_no_activity() {
+        let tel = Telemetry::new();
+        let last = ArcSwap::from_pointee(TelemetrySnapshot::default());
+
+        tel.record_latency_us(100);
+        let _ = tel.delta_snapshot(&last);
+
+        // No new activity
+        let delta = tel.delta_snapshot(&last);
+        assert!(delta.resolve_latency.is_none());
+        assert!(delta.resolve_rate.is_empty());
+    }
+
+    #[test]
+    fn delta_snapshot_gauges_always_present() {
+        let tel = Telemetry::new();
+        let last = ArcSwap::from_pointee(TelemetrySnapshot::default());
+
+        tel.set_last_state_update(1000);
+        let _ = tel.delta_snapshot(&last);
+
+        // Gauge values should appear even if no counter changes
+        let delta = tel.delta_snapshot(&last);
+        assert!(delta.resolve_latency.is_none()); // no counter activity
+        assert_eq!(delta.state_age.unwrap().last_state_update, 1000);
     }
 }

@@ -55,8 +55,8 @@ describe('idealized conditions', () => {
 
     // since we fetch state every 30s we should fetch 120 times after init
     expect(net.cdn.state.calls).toBe(stateCallsAfterInit + 120);
-    // flush is called every 10s so 360 times in an hour
-    expect(net.resolver.flagLogs.calls).toBe(flushCallsAfterInit + 360);
+    // flush is called every 15s so 240 times in an hour
+    expect(net.resolver.flagLogs.calls).toBe(flushCallsAfterInit + 240);
 
     const flushCallsBeforeClose = net.resolver.flagLogs.calls;
     await advanceTimersUntil(expect(provider.onClose()).resolves.toBeUndefined());

@@ -24,13 +24,13 @@ const logger = getLogger('provider');
 
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
-export const DEFAULT_FLUSH_INTERVAL = 10_000;
+export const DEFAULT_FLUSH_INTERVAL = 15_000;
 export interface ProviderOptions {
   flagClientSecret: string;
   initializeTimeout?: number;
   /** Interval in milliseconds between state polling updates. Defaults to 30000ms. */
   stateUpdateInterval?: number;
-  /** Interval in milliseconds between log flushes. Defaults to 10000ms. */
+  /** Interval in milliseconds between log flushes. Defaults to 15000ms. */
   flushInterval?: number;
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use arc_swap::ArcSwapOption;
+use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::Bytes;
 use confidence_resolver::assign_logger::AssignLogger;
 use confidence_resolver::proto::confidence::flags::resolver::v1::resolve_process_response;
-use confidence_resolver::telemetry::Telemetry;
+use confidence_resolver::telemetry::{Telemetry, TelemetrySnapshot};
 use prost::Message;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
@@ -59,6 +59,8 @@ static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
 });
+static LAST_FLUSHED: LazyLock<ArcSwap<TelemetrySnapshot>> =
+    LazyLock::new(|| ArcSwap::from_pointee(TelemetrySnapshot::default()));
 
 struct WasmHost;
 
@@ -186,7 +188,7 @@ wasm_msg_guest! {
 
     fn bounded_flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
         let mut req = RESOLVE_LOGGER.checkpoint();
-        req.telemetry_data = Some(TELEMETRY.snapshot());
+        req.telemetry_data = Some(TELEMETRY.delta_snapshot(&LAST_FLUSHED));
         ASSIGN_LOGGER.checkpoint_fill_with_limit(&mut req, LOG_TARGET_BYTES, false);
         Ok(req)
     }
