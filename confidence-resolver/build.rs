@@ -183,6 +183,31 @@ fn generate_telemetry_config(descriptor_path: &std::path::Path) -> Result<()> {
         writeln!(code).unwrap();
     }
 
+    // Generate REASON_COUNT from the ResolveReason enum
+    let reason_enum = pool
+        .get_enum_by_name("confidence.flags.resolver.v1.ResolveReason")
+        .expect("ResolveReason enum not found in descriptor pool");
+
+    let mut discriminants: Vec<i32> = reason_enum.values().map(|v| v.number()).collect();
+    discriminants.sort();
+
+    // Verify the enum is dense (no gaps) — sparse enums would waste memory in the fixed array.
+    for (i, &d) in discriminants.iter().enumerate() {
+        assert!(
+            d == i as i32,
+            "ResolveReason enum is sparse: expected discriminant {i} but found {d}. \
+             Dense layout is required for the telemetry resolve_rates array."
+        );
+    }
+
+    let reason_count = discriminants.len();
+    writeln!(
+        code,
+        "/// Number of ResolveReason variants (auto-generated from proto enum)."
+    )
+    .unwrap();
+    writeln!(code, "pub const REASON_COUNT: usize = {reason_count};").unwrap();
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     std::fs::write(out_dir.join("telemetry_config.rs"), code)?;
 
