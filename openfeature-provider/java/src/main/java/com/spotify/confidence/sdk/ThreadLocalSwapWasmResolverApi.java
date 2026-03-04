@@ -1,5 +1,6 @@
 package com.spotify.confidence.sdk;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
@@ -9,6 +10,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.slf4j.Logger;
@@ -27,6 +31,7 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
   // Pre-initialized resolver instances mapped by core index
   private final Map<Integer, SwapWasmResolverApi> resolverInstances = new ConcurrentHashMap<>();
   private final int numInstances;
+  private final ExecutorService wasmCompilationExecutor;
   private volatile boolean initialized = false;
   private final AtomicInteger nextInstanceIndex = new AtomicInteger(0);
   private final ThreadLocal<Integer> threadInstanceIndex =
@@ -43,6 +48,10 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
     this.materializationStore = materializationStore;
 
     this.numInstances = getNumInstances();
+    this.wasmCompilationExecutor =
+        Executors.newFixedThreadPool(
+            Math.min(numInstances, 2),
+            new ThreadFactoryBuilder().setDaemon(true).setNameFormat("wasm-compiler-%d").build());
   }
 
   private static int getNumInstances() {
@@ -73,7 +82,8 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
                                   this.flagLogger, state, accountId, this.materializationStore);
                           instance.init(state, accountId);
                           resolverInstances.put(i, instance);
-                        })));
+                        },
+                        wasmCompilationExecutor)));
     CompletableFutures.allAsList(futures).join();
     initialized = true;
   }
@@ -91,7 +101,10 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
   public void updateStateAndFlushLogs(byte[] state, String accountId) {
     final var futures =
         resolverInstances.values().stream()
-            .map(v -> CompletableFuture.runAsync(() -> v.updateStateAndFlushLogs(state, accountId)))
+            .map(
+                v ->
+                    CompletableFuture.runAsync(
+                        () -> v.updateStateAndFlushLogs(state, accountId), wasmCompilationExecutor))
             .toList();
     CompletableFutures.allAsList(futures).join();
   }
@@ -120,6 +133,12 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
   /** Closes all pre-initialized resolver instances and clears the map. */
   @Override
   public void close() {
+    wasmCompilationExecutor.shutdown();
+    try {
+      wasmCompilationExecutor.awaitTermination(5, TimeUnit.SECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
     resolverInstances.values().forEach(SwapWasmResolverApi::close);
     flagLogger.shutdown();
     resolverInstances.clear();
