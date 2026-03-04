@@ -292,26 +292,33 @@ fn parse_version(version: &str) -> Option<(u64, u64, u64, u64)> {
 
     match parts.as_slice() {
         [major_s, minor_s] => {
+            if major_s.len() > 10 || minor_s.len() > 10 {
+                return None;
+            }
             let major: u64 = major_s.parse().ok()?;
             let minor: u64 = minor_s.parse().ok()?;
             Some((major, minor, 0, 0))
         }
         [major_s, minor_s, third_s] => {
+            if major_s.len() > 10 || minor_s.len() > 10 || third_s.len() > 10 {
+                return None;
+            }
             let major: u64 = major_s.parse().ok()?;
             let minor: u64 = minor_s.parse().ok()?;
             let val: u64 = third_s.parse().ok()?;
             if third_s.len() > 3 {
                 // >3 digit "patch" is actually a tag; patch becomes 0
-                if third_s.len() > 10 {
-                    return None;
-                }
                 Some((major, minor, 0, val))
             } else {
                 Some((major, minor, val, 0))
             }
         }
         [major_s, minor_s, patch_s, tag_s] => {
-            if tag_s.len() > 10 {
+            if major_s.len() > 10
+                || minor_s.len() > 10
+                || patch_s.len() > 10
+                || tag_s.len() > 10
+            {
                 return None;
             }
             let major: u64 = major_s.parse().ok()?;
@@ -873,9 +880,25 @@ mod tests {
     }
 
     #[test]
-    fn parse_version_large_major_minor_allowed() {
+    fn parse_version_10_digit_segments_allowed() {
+        assert_eq!(parse_version("1234567890.0.0"), Some((1234567890, 0, 0, 0)));
+        assert_eq!(parse_version("1.1234567890.0"), Some((1, 1234567890, 0, 0)));
+        assert_eq!(
+            parse_version("1.0.1234567890"),
+            Some((1, 0, 0, 1234567890))
+        ); // >3 digits → tag
+        assert_eq!(
+            parse_version("1.0.1234567890.0"),
+            Some((1, 0, 1234567890, 0))
+        );
+        assert_eq!(
+            parse_version("1.0.0.1234567890"),
+            Some((1, 0, 0, 1234567890))
+        );
+        // >3 digit major/minor still works
         assert_eq!(parse_version("1000.0.0"), Some((1000, 0, 0, 0)));
-        assert_eq!(parse_version("0.99999.0"), Some((0, 99999, 0, 0)));
+        assert_eq!(parse_version("1.1000.0"), Some((1, 1000, 0, 0)));
+        assert_eq!(parse_version("2026.04.55666"), Some((2026, 4, 0, 55666)));
     }
 
     #[test]
@@ -891,8 +914,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_version_tag_over_10_digits_returns_none() {
-        assert_eq!(parse_version("1.0.0.12345678901"), None);
+    fn parse_version_11_digit_segments_rejected() {
+        assert_eq!(parse_version("12345678901.0.0"), None); // 11 digit major
+        assert_eq!(parse_version("1.12345678901.0"), None); // 11 digit minor
+        assert_eq!(parse_version("1.0.12345678901"), None); // 11 digits in 3-segment
+        assert_eq!(parse_version("1.0.12345678901.0"), None); // 11 digit patch in 4-segment
+        assert_eq!(parse_version("1.0.0.12345678901"), None); // 11 digit tag
     }
 
     // --- SemanticVersion comparison tests ---
