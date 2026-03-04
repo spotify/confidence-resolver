@@ -20,7 +20,7 @@ import (
 
 const (
 	defaultStatePollIntervalSeconds = 10
-	defaultLogPollIntervalSeconds   = 60
+	defaultLogPollIntervalSeconds   = 15
 )
 
 type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver

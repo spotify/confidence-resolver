@@ -38,8 +38,8 @@ use crate::VERSION;
 /// Default interval for polling state updates (30 seconds).
 const DEFAULT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Default interval for flushing all logs (10 seconds).
-const DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_secs(10);
+/// Default interval for flushing all logs (15 seconds).
+const DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Default interval for flushing assign logs (100 ms).
 const DEFAULT_ASSIGN_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
