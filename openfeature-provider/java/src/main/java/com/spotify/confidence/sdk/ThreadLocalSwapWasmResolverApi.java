@@ -1,10 +1,10 @@
 package com.spotify.confidence.sdk;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.futures.CompletableFutures;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
@@ -104,8 +104,7 @@ class ThreadLocalSwapWasmResolverApi implements ResolverApi {
             .map(
                 v ->
                     CompletableFuture.runAsync(
-                        () -> v.updateStateAndFlushLogs(state, accountId),
-                        wasmCompilationExecutor))
+                        () -> v.updateStateAndFlushLogs(state, accountId), wasmCompilationExecutor))
             .toList();
     CompletableFutures.allAsList(futures).join();
   }
