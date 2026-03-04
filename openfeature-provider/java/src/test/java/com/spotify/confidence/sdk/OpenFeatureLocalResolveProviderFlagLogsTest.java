@@ -84,6 +84,17 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
     provider.shutdown();
   }
 
+  /**
+   * Returns the first captured request that contains at least one FlagAssigned entry. Background
+   * flush schedulers may produce empty requests, so tests should not assume get(0) has data.
+   */
+  private WriteFlagLogsRequest findRequestWithFlagAssigned() {
+    return capturingLogger.getCapturedRequests().stream()
+        .filter(r -> r.getFlagAssignedCount() > 0)
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("No captured request contains FlagAssigned entries"));
+  }
+
   @Test
   void shouldCaptureWriteFlagLogsAfterBooleanResolve() {
     // Resolve a boolean flag
@@ -96,10 +107,7 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
     // Verify captured flag logs
     assertThat(capturingLogger.getCapturedRequests()).isNotEmpty();
 
-    final WriteFlagLogsRequest request = capturingLogger.getCapturedRequests().get(0);
-
-    // Verify flag_assigned entries
-    assertThat(request.getFlagAssignedCount()).isGreaterThanOrEqualTo(1);
+    final WriteFlagLogsRequest request = findRequestWithFlagAssigned();
 
     // Find the flag we resolved
     final var flagAssigned =
@@ -124,8 +132,7 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
 
     assertThat(capturingLogger.getCapturedRequests()).isNotEmpty();
 
-    final var request = capturingLogger.getCapturedRequests().get(0);
-    assertThat(request.getFlagAssignedCount()).isGreaterThanOrEqualTo(1);
+    final var request = findRequestWithFlagAssigned();
 
     // Verify variant information is present
     final var flagAssigned = request.getFlagAssignedList().get(0);
@@ -146,11 +153,9 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
 
     assertThat(capturingLogger.getCapturedRequests()).isNotEmpty();
 
-    final var request = capturingLogger.getCapturedRequests().get(0);
-
-    // Verify client_resolve_info is captured
-    assertThat(request.getClientResolveInfoCount()).isGreaterThanOrEqualTo(1);
-    assertThat(request.getFlagResolveInfoCount()).isGreaterThanOrEqualTo(1);
+    // Verify client_resolve_info is captured in at least one request
+    assertThat(capturingLogger.getTotalClientResolveInfoCount()).isGreaterThanOrEqualTo(1);
+    assertThat(capturingLogger.getTotalFlagResolveInfoCount()).isGreaterThanOrEqualTo(1);
   }
 
   @Test
@@ -192,8 +197,7 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
 
     assertThat(capturingLogger.getCapturedRequests()).isNotEmpty();
 
-    final var request = capturingLogger.getCapturedRequests().get(0);
-    assertThat(request.getFlagAssignedCount()).isGreaterThanOrEqualTo(1);
+    final var request = findRequestWithFlagAssigned();
 
     // Verify resolve_id is present
     final FlagAssigned flagAssigned = request.getFlagAssigned(0);
@@ -210,8 +214,7 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
 
     assertThat(capturingLogger.getCapturedRequests()).isNotEmpty();
 
-    final var request = capturingLogger.getCapturedRequests().get(0);
-    assertThat(request.getFlagAssignedCount()).isGreaterThanOrEqualTo(1);
+    final var request = findRequestWithFlagAssigned();
 
     // Verify client_info is present
     final FlagAssigned flagAssigned = request.getFlagAssigned(0);

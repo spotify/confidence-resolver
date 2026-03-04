@@ -83,6 +83,21 @@ func (c *CapturingFlagLogger) WasShutdownCalled() bool {
 	return c.shutdownCalled
 }
 
+// FindRequestWithFlagAssigned returns the first captured request that contains
+// at least one FlagAssigned entry. Background flush schedulers may produce empty
+// requests, so tests should not assume index [0] has data.
+// Returns nil if no request with FlagAssigned entries is found.
+func (c *CapturingFlagLogger) FindRequestWithFlagAssigned() *resolverv1.WriteFlagLogsRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, req := range c.capturedRequests {
+		if len(req.FlagAssigned) > 0 {
+			return req
+		}
+	}
+	return nil
+}
+
 // GetTotalFlagAssignedCount returns the total number of FlagAssigned entries
 // across all captured requests
 func (c *CapturingFlagLogger) GetTotalFlagAssignedCount() int {
