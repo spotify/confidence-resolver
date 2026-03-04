@@ -314,11 +314,7 @@ fn parse_version(version: &str) -> Option<(u64, u64, u64, u64)> {
             }
         }
         [major_s, minor_s, patch_s, tag_s] => {
-            if major_s.len() > 10
-                || minor_s.len() > 10
-                || patch_s.len() > 10
-                || tag_s.len() > 10
-            {
+            if major_s.len() > 10 || minor_s.len() > 10 || patch_s.len() > 10 || tag_s.len() > 10 {
                 return None;
             }
             let major: u64 = major_s.parse().ok()?;
@@ -883,10 +879,7 @@ mod tests {
     fn parse_version_10_digit_segments_allowed() {
         assert_eq!(parse_version("1234567890.0.0"), Some((1234567890, 0, 0, 0)));
         assert_eq!(parse_version("1.1234567890.0"), Some((1, 1234567890, 0, 0)));
-        assert_eq!(
-            parse_version("1.0.1234567890"),
-            Some((1, 0, 0, 1234567890))
-        ); // >3 digits → tag
+        assert_eq!(parse_version("1.0.1234567890"), Some((1, 0, 0, 1234567890))); // >3 digits → tag
         assert_eq!(
             parse_version("1.0.1234567890.0"),
             Some((1, 0, 1234567890, 0))
