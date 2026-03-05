@@ -48,7 +48,7 @@ class WasmResolveApiFlushCloseRaceTest {
       resolver.setResolverState(resolverState, accountId);
 
       // Resolve a flag to create a flag assignment in the WASM buffer
-      resolver.resolveProcess(buildResolveRequest());
+      resolver.resolveProcess(buildResolveRequest()).toCompletableFuture().join();
 
       // Race: flushAssignLogs and close concurrently
       final var startLatch = new CountDownLatch(1);

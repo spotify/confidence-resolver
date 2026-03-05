@@ -382,8 +382,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               .build();
 
       final var processResponse =
-          resolver.resolveProcess(
-              ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build());
+          resolver
+              .resolveProcess(
+                  ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build())
+              .toCompletableFuture()
+              .join();
       resolveFlagResponse = processResponse.getResolved().getResponse();
 
       if (resolveFlagResponse.getResolvedFlagsList().isEmpty()) {
@@ -467,12 +470,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       }
     }
 
-    final var processResponse =
-        resolver.resolveProcess(
+    return resolver
+        .resolveProcess(
             ResolveProcessRequest.newBuilder()
                 .setWithoutMaterializations(reqBuilder.build())
-                .build());
-    return CompletableFuture.completedFuture(processResponse.getResolved().getResponse());
+                .build())
+        .thenApply(processResponse -> processResponse.getResolved().getResponse());
   }
 
   /**

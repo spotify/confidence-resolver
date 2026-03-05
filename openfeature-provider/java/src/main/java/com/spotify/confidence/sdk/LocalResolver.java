@@ -3,6 +3,7 @@ package com.spotify.confidence.sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
+import java.util.concurrent.CompletionStage;
 
 /** Common interface for the compositional local resolver layers. */
 interface LocalResolver {
@@ -16,12 +17,13 @@ interface LocalResolver {
   void setResolverState(byte[] state, String accountId);
 
   /**
-   * Resolves flags synchronously.
+   * Resolves flags. The returned stage completes when all resolution (including any store I/O for
+   * materializations) has finished.
    *
    * @param request the resolve process request
-   * @return the resolve process response
+   * @return a stage that completes with the resolve process response
    */
-  ResolveProcessResponse resolveProcess(ResolveProcessRequest request);
+  CompletionStage<ResolveProcessResponse> resolveProcess(ResolveProcessRequest request);
 
   /**
    * Applies flags that were previously resolved with apply=false.

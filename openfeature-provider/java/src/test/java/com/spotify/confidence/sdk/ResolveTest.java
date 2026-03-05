@@ -422,7 +422,7 @@ class ResolveTest {
                     .setApply(apply)
                     .build())
             .build();
-    final var response = resolver.resolveProcess(request);
+    final var response = resolver.resolveProcess(request).toCompletableFuture().join();
     // For non-materialization tests, just extract resolved response directly
     if (response.hasResolved()) {
       return response.getResolved().getResponse();
@@ -452,7 +452,7 @@ class ResolveTest {
                     .setApply(apply)
                     .build())
             .build();
-    final var response = resolver.resolveProcess(request);
+    final var response = resolver.resolveProcess(request).toCompletableFuture().join();
     return handleResponse(response, store);
   }
 
@@ -476,7 +476,7 @@ class ResolveTest {
       case SUSPENDED -> {
         final var suspended = response.getSuspended();
         final var resumeRequest = handleSuspended(suspended, store);
-        final var resumeResponse = resolver.resolveProcess(resumeRequest);
+        final var resumeResponse = resolver.resolveProcess(resumeRequest).toCompletableFuture().join();
         return handleResumeResponse(resumeResponse, store);
       }
       default -> throw new RuntimeException("Unexpected response: " + response.getResultCase());
@@ -582,7 +582,7 @@ class ResolveTest {
 
     final var request =
         ResolveProcessRequest.newBuilder().setDeferredMaterializations(builder.build()).build();
-    final var response = resolver.resolveProcess(request);
+    final var response = resolver.resolveProcess(request).toCompletableFuture().join();
     if (response.hasResolved()) {
       return response.getResolved().getResponse();
     }

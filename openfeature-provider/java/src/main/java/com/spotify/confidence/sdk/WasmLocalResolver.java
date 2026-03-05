@@ -20,6 +20,8 @@ import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -114,7 +116,7 @@ class WasmLocalResolver implements LocalResolver {
   }
 
   @Override
-  public ResolveProcessResponse resolveProcess(ResolveProcessRequest request) {
+  public CompletionStage<ResolveProcessResponse> resolveProcess(ResolveProcessRequest request) {
     lock.lock();
     try {
       if (closed) {
@@ -122,7 +124,8 @@ class WasmLocalResolver implements LocalResolver {
       }
       final int reqPtr = transferRequest(request);
       final int respPtr = (int) wasmMsgGuestResolveProcess.apply(reqPtr)[0];
-      return consumeResponse(respPtr, ResolveProcessResponse::parseFrom);
+      return CompletableFuture.completedFuture(
+          consumeResponse(respPtr, ResolveProcessResponse::parseFrom));
     } finally {
       lock.unlock();
     }
