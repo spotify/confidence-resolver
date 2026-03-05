@@ -10,6 +10,7 @@ import (
 
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 
 	"github.com/open-feature/go-sdk/openfeature"
 )
@@ -79,6 +80,25 @@ func flushAndWait() {
 	time.Sleep(100 * time.Millisecond)
 }
 
+// findRequestWithFlagAssigned returns the first captured request that contains
+// FlagAssigned entries. With pooled WASM instances, flush may produce multiple
+// requests (one per pool slot) and only the slot that handled the resolve will
+// have FlagAssigned data.
+func findRequestWithFlagAssigned(t *testing.T, logger *fl.CapturingFlagLogger) *resolverv1.WriteFlagLogsRequest {
+	t.Helper()
+	requests := logger.GetCapturedRequests()
+	if len(requests) == 0 {
+		t.Fatal("Expected captured requests, got none")
+	}
+	for _, req := range requests {
+		if len(req.FlagAssigned) > 0 {
+			return req
+		}
+	}
+	t.Fatal("Expected flag_assigned entries in captured requests, got none")
+	return nil
+}
+
 func TestFlagLogs_ShouldCaptureWriteFlagLogsAfterBooleanResolve(t *testing.T) {
 	capturingLogger, client := setupFlagLogsUnitTest(t)
 
@@ -97,15 +117,7 @@ func TestFlagLogs_ShouldCaptureWriteFlagLogsAfterBooleanResolve(t *testing.T) {
 	flushAndWait()
 
 	// Verify captured flag logs
-	requests := capturingLogger.GetCapturedRequests()
-	if len(requests) == 0 {
-		t.Fatal("Expected captured requests, got none")
-	}
-
-	request := requests[0]
-	if len(request.FlagAssigned) == 0 {
-		t.Fatal("Expected flag_assigned entries, got none")
-	}
+	request := findRequestWithFlagAssigned(t, capturingLogger)
 
 	// Find the flag we resolved
 	found := false
@@ -141,15 +153,7 @@ func TestFlagLogs_ShouldCaptureCorrectVariantInFlagLogs(t *testing.T) {
 	// Shutdown to flush logs
 	flushAndWait()
 
-	requests := capturingLogger.GetCapturedRequests()
-	if len(requests) == 0 {
-		t.Fatal("Expected captured requests, got none")
-	}
-
-	request := requests[0]
-	if len(request.FlagAssigned) == 0 {
-		t.Fatal("Expected flag_assigned entries, got none")
-	}
+	request := findRequestWithFlagAssigned(t, capturingLogger)
 
 	// Verify variant information is present
 	flagAssigned := request.FlagAssigned[0]
@@ -174,12 +178,7 @@ func TestFlagLogs_ShouldCaptureClientResolveInfo(t *testing.T) {
 	// Shutdown to flush logs
 	flushAndWait()
 
-	requests := capturingLogger.GetCapturedRequests()
-	if len(requests) == 0 {
-		t.Fatal("Expected captured requests, got none")
-	}
-
-	request := requests[0]
+	request := findRequestWithFlagAssigned(t, capturingLogger)
 	if len(request.ClientResolveInfo) == 0 {
 		t.Error("Expected client_resolve_info to be present")
 	}
@@ -196,12 +195,7 @@ func TestFlagLogs_ShouldCaptureFlagResolveInfo(t *testing.T) {
 	// Shutdown to flush logs
 	flushAndWait()
 
-	requests := capturingLogger.GetCapturedRequests()
-	if len(requests) == 0 {
-		t.Fatal("Expected captured requests, got none")
-	}
-
-	request := requests[0]
+	request := findRequestWithFlagAssigned(t, capturingLogger)
 	if len(request.FlagResolveInfo) == 0 {
 		t.Error("Expected flag_resolve_info to be present")
 	}
@@ -255,15 +249,7 @@ func TestFlagLogs_ShouldCaptureResolveIdInFlagAssigned(t *testing.T) {
 	// Shutdown to flush logs
 	flushAndWait()
 
-	requests := capturingLogger.GetCapturedRequests()
-	if len(requests) == 0 {
-		t.Fatal("Expected captured requests, got none")
-	}
-
-	request := requests[0]
-	if len(request.FlagAssigned) == 0 {
-		t.Fatal("Expected flag_assigned entries, got none")
-	}
+	request := findRequestWithFlagAssigned(t, capturingLogger)
 
 	// Verify resolve_id is present
 	flagAssigned := request.FlagAssigned[0]
@@ -283,15 +269,7 @@ func TestFlagLogs_ShouldCaptureClientInfoInFlagAssigned(t *testing.T) {
 	// Shutdown to flush logs
 	flushAndWait()
 
-	requests := capturingLogger.GetCapturedRequests()
-	if len(requests) == 0 {
-		t.Fatal("Expected captured requests, got none")
-	}
-
-	request := requests[0]
-	if len(request.FlagAssigned) == 0 {
-		t.Fatal("Expected flag_assigned entries, got none")
-	}
+	request := findRequestWithFlagAssigned(t, capturingLogger)
 
 	// Verify client_info is present
 	flagAssigned := request.FlagAssigned[0]

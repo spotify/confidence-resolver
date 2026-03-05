@@ -87,7 +87,8 @@ class WasmLocalResolver implements LocalResolver {
   }
 
   private Timestamp currentTime(Messages.Void unused) {
-    return Timestamp.newBuilder().setSeconds(Instant.now().getEpochSecond()).build();
+    final Instant now = Instant.now();
+    return Timestamp.newBuilder().setSeconds(now.getEpochSecond()).setNanos(now.getNano()).build();
   }
 
   @Override

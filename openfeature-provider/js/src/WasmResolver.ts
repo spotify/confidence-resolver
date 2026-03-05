@@ -47,9 +47,9 @@ export class UnsafeWasmResolver implements LocalResolver {
     const imports = {
       wasm_msg: {
         wasm_msg_host_current_time: () => {
-          const epochMillisecond = Date.now();
-          const seconds = Math.floor(epochMillisecond / 1000);
-          const nanos = (epochMillisecond - 1000 * seconds) * 1_000_000;
+          const epochMs = performance.timeOrigin + performance.now();
+          const seconds = Math.floor(epochMs / 1000);
+          const nanos = Math.round((epochMs - seconds * 1000) * 1_000_000);
           const ptr = this.transferRequest({ seconds, nanos }, Timestamp);
           return ptr;
         },

@@ -39,7 +39,8 @@ message WriteFlagLogsRequest {
 
 message WriteFlagLogsResponse {}
 
-// Collection of telemetry metrics
+// Collection of telemetry metrics. Counter and histogram fields contain deltas
+// since the last flush. Gauge fields are latest point-in-time values.
 message TelemetryData {
   // Information about the SDK/provider
   Sdk sdk = 2;

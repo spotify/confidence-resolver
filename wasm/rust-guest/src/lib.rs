@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use arc_swap::ArcSwapOption;
+use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::Bytes;
 use confidence_resolver::assign_logger::AssignLogger;
+use confidence_resolver::proto::confidence::flags::resolver::v1::resolve_process_response;
+use confidence_resolver::telemetry::{Telemetry, TelemetrySnapshot};
 use prost::Message;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
@@ -54,6 +56,11 @@ const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
+static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
+    Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
+});
+static LAST_FLUSHED: LazyLock<ArcSwap<TelemetrySnapshot>> =
+    LazyLock::new(|| ArcSwap::from_pointee(TelemetrySnapshot::default()));
 
 struct WasmHost;
 
@@ -129,6 +136,10 @@ wasm_msg_guest! {
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
         let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str())?;
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
+        // TODO: track state age once we decide on the right timestamp source
+        // let now = WasmHost::current_time();
+        // let epoch_ms = now.seconds as u64 * 1000 + now.nanos as u64 / 1_000_000;
+        // TELEMETRY.set_last_state_update(epoch_ms);
         Ok(VOID)
     }
 
@@ -152,8 +163,21 @@ wasm_msg_guest! {
 
         let evaluation_context = resolve_request.evaluation_context.clone().unwrap_or_default();
         let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
-        resolver.resolve_flags(request)
+        let result = resolver.resolve_flags(request);
+
+        if let Ok(ResolveProcessResponse { result: Some(resolve_process_response::Result::Resolved(resolve_process_response::Resolved { response: Some(response), start_time: Some(start_time), ..}))}) = &result {
+            let end_time = WasmHost::current_time();
+            let total_nanos = 1_000_000_000 * (end_time.seconds - start_time.seconds) + (end_time.nanos - start_time.nanos) as i64;
+            let micro_duration = total_nanos / 1000;
+            TELEMETRY.record_latency_us(micro_duration.clamp(0, u32::MAX as i64) as u32);
+
+            for flag in &response.resolved_flags {
+                TELEMETRY.mark_resolve(flag.reason());
+            }
+        };
+        result
     }
+
 
     // deprecated
     fn flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
@@ -164,6 +188,7 @@ wasm_msg_guest! {
 
     fn bounded_flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
         let mut req = RESOLVE_LOGGER.checkpoint();
+        req.telemetry_data = Some(TELEMETRY.delta_snapshot(&LAST_FLUSHED));
         ASSIGN_LOGGER.checkpoint_fill_with_limit(&mut req, LOG_TARGET_BYTES, false);
         Ok(req)
     }
