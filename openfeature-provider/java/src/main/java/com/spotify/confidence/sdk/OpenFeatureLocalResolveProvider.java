@@ -54,7 +54,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final WasmFlagLogger flagLogger;
   private final MaterializationStore materializationStore;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
-  private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(30);
+  private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
   private final ScheduledExecutorService flagsFetcherExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
   private final ScheduledExecutorService assignLogExecutor =
