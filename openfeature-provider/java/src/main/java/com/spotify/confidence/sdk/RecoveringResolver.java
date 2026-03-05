@@ -1,8 +1,10 @@
 package com.spotify.confidence.sdk;
 
+import com.dylibso.chicory.wasm.ChicoryException;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -11,17 +13,18 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Recovery layer: wraps a {@link LocalResolver} and recreates it in the background if it throws a
- * {@link RuntimeException} (the Java equivalent of Go panics from WASM). Caches the last successful
- * state so the new instance can be reinitialized.
+ * {@link ChicoryException} (WASM runtime failures like {@code _unreachable_}). Caches the last
+ * successful state so the new instance can be reinitialized.
  */
 class RecoveringResolver implements LocalResolver {
   private static final Logger logger = LoggerFactory.getLogger(RecoveringResolver.class);
 
+  private record StateRecord(byte[] state, String accountId) {}
+
   private final Supplier<LocalResolver> factory;
   private final AtomicReference<LocalResolver> current = new AtomicReference<>();
   private final AtomicBoolean broken = new AtomicBoolean(false);
-  private final AtomicReference<byte[]> lastState = new AtomicReference<>();
-  private final AtomicReference<String> lastAccountId = new AtomicReference<>();
+  private final AtomicReference<StateRecord> lastState = new AtomicReference<>();
 
   RecoveringResolver(Supplier<LocalResolver> factory) {
     this.factory = factory;
@@ -35,10 +38,9 @@ class RecoveringResolver implements LocalResolver {
               try {
                 final LocalResolver old = current.get();
                 final LocalResolver newResolver = factory.get();
-                final byte[] state = lastState.get();
-                final String accountId = lastAccountId.get();
-                if (state != null && accountId != null) {
-                  newResolver.setResolverState(state, accountId);
+                final StateRecord cached = lastState.get();
+                if (cached != null) {
+                  newResolver.setResolverState(cached.state(), cached.accountId());
                 }
                 current.set(newResolver);
                 if (old != null) {
@@ -59,7 +61,7 @@ class RecoveringResolver implements LocalResolver {
     t.start();
   }
 
-  private void handleFailure(String opName, RuntimeException e) {
+  private void handleFailure(String opName, ChicoryException e) {
     if (broken.compareAndSet(false, true)) {
       logger.warn("Resolver panicked during {}, starting background recreation", opName, e);
       startRecreate();
@@ -68,23 +70,22 @@ class RecoveringResolver implements LocalResolver {
 
   @Override
   public void setResolverState(byte[] state, String accountId) {
+    final StateRecord record = new StateRecord(state, accountId);
     try {
       current.get().setResolverState(state, accountId);
-      lastState.set(state);
-      lastAccountId.set(accountId);
-    } catch (RuntimeException e) {
-      lastState.set(state);
-      lastAccountId.set(accountId);
+      lastState.set(record);
+    } catch (ChicoryException e) {
+      lastState.set(record);
       handleFailure("setResolverState", e);
       throw e;
     }
   }
 
   @Override
-  public ResolveProcessResponse resolveProcess(ResolveProcessRequest request) {
+  public CompletionStage<ResolveProcessResponse> resolveProcess(ResolveProcessRequest request) {
     try {
       return current.get().resolveProcess(request);
-    } catch (RuntimeException e) {
+    } catch (ChicoryException e) {
       handleFailure("resolveProcess", e);
       throw e;
     }
@@ -94,7 +95,7 @@ class RecoveringResolver implements LocalResolver {
   public void applyFlags(ApplyFlagsRequest request) {
     try {
       current.get().applyFlags(request);
-    } catch (RuntimeException e) {
+    } catch (ChicoryException e) {
       handleFailure("applyFlags", e);
       throw e;
     }
@@ -104,7 +105,7 @@ class RecoveringResolver implements LocalResolver {
   public void flushAllLogs() {
     try {
       current.get().flushAllLogs();
-    } catch (RuntimeException e) {
+    } catch (ChicoryException e) {
       handleFailure("flushAllLogs", e);
     }
   }
@@ -113,7 +114,7 @@ class RecoveringResolver implements LocalResolver {
   public void flushAssignLogs() {
     try {
       current.get().flushAssignLogs();
-    } catch (RuntimeException e) {
+    } catch (ChicoryException e) {
       handleFailure("flushAssignLogs", e);
     }
   }
