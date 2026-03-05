@@ -960,4 +960,73 @@ mod tests {
         assert!(make_sem_ver("12.4").lte(&make_sem_ver("12.4.0")));
         assert!(make_sem_ver("12.4.0").lte(&make_sem_ver("12.4")));
     }
+
+    #[test]
+    fn version_equal_3seg() {
+        assert!(!make_sem_ver("1.2.3").lt(&make_sem_ver("1.2.3")));
+        assert!(make_sem_ver("1.2.3").lte(&make_sem_ver("1.2.3")));
+    }
+
+    #[test]
+    fn version_equal_4seg() {
+        assert!(!make_sem_ver("1.2.3.4").lt(&make_sem_ver("1.2.3.4")));
+        assert!(make_sem_ver("1.2.3.4").lte(&make_sem_ver("1.2.3.4")));
+    }
+
+    #[test]
+    fn version_gt_minor() {
+        assert!(!make_sem_ver("1.1.0").lt(&make_sem_ver("1.0.0")));
+        assert!(!make_sem_ver("1.1.0").lte(&make_sem_ver("1.0.0")));
+    }
+
+    #[test]
+    fn version_gt_patch() {
+        assert!(!make_sem_ver("1.0.1").lt(&make_sem_ver("1.0.0")));
+        assert!(!make_sem_ver("1.0.1").lte(&make_sem_ver("1.0.0")));
+    }
+
+    #[test]
+    fn version_gt_tag() {
+        assert!(!make_sem_ver("1.0.0.1").lt(&make_sem_ver("1.0.0.0")));
+        assert!(!make_sem_ver("1.0.0.1").lte(&make_sem_ver("1.0.0.0")));
+    }
+
+    #[test]
+    fn version_3seg_eq_4seg_with_zero_tag() {
+        assert!(!make_sem_ver("1.2.3").lt(&make_sem_ver("1.2.3.0")));
+        assert!(make_sem_ver("1.2.3").lte(&make_sem_ver("1.2.3.0")));
+        assert!(!make_sem_ver("1.2.3.0").lt(&make_sem_ver("1.2.3")));
+        assert!(make_sem_ver("1.2.3.0").lte(&make_sem_ver("1.2.3")));
+    }
+
+    #[test]
+    fn version_large_patch_as_tag_comparison() {
+        // "1.0.1000" → (1,0,0,1000), "1.0.0.1001" → (1,0,0,1001)
+        assert!(make_sem_ver("1.0.1000").lt(&make_sem_ver("1.0.0.1001")));
+        assert!(make_sem_ver("1.0.1000").lte(&make_sem_ver("1.0.0.1001")));
+    }
+
+    #[test]
+    fn version_invalid_falls_back_to_zero() {
+        assert!(make_sem_ver("invalid").lt(&make_sem_ver("1.0.0")));
+        assert!(make_sem_ver("invalid").lte(&make_sem_ver("1.0.0")));
+    }
+
+    #[test]
+    fn version_both_invalid_equal() {
+        assert!(!make_sem_ver("bad").lt(&make_sem_ver("also_bad")));
+        assert!(make_sem_ver("bad").lte(&make_sem_ver("also_bad")));
+    }
+
+    #[test]
+    fn version_major_takes_precedence() {
+        assert!(!make_sem_ver("2.0.0").lt(&make_sem_ver("1.9.9")));
+        assert!(!make_sem_ver("2.0.0").lte(&make_sem_ver("1.9.9")));
+    }
+
+    #[test]
+    fn version_10_digit_segments_comparison() {
+        assert!(make_sem_ver("1234567890.0.0").lt(&make_sem_ver("1234567891.0.0")));
+        assert!(make_sem_ver("1234567890.0.0").lte(&make_sem_ver("1234567891.0.0")));
+    }
 }
