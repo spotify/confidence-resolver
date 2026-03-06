@@ -19,16 +19,6 @@ The Rust provider (`openfeature-provider/rust`) depends on `confidence-resolver`
 2. `publish-rust-provider-release` waits for it, then **sleeps 30 seconds** for crates.io index propagation
 3. If only the Rust provider is released (resolver not changed), it skips the wait
 
-### Auth strategies by provider
-
-| Provider | Auth Method | Secrets/Permissions |
-|----------|------------|---------------------|
-| JS (npm) | OIDC — no long-lived tokens | `id-token: write` permission |
-| Python (PyPI) | OIDC — `pypa/gh-action-pypi-publish` | `id-token: write` permission |
-| Java (Maven Central) | Docker secrets | `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `GPG_PRIVATE_KEY`, `SIGN_KEY_PASS` |
-| Ruby (RubyGems) | Docker secret | `RUBYGEM_API_KEY` |
-| Rust (crates.io) | Docker secret | `CRATES_IO_TOKEN` |
-| Cloudflare deployer | GHCR push (no external registry) | `GITHUB_TOKEN` |
 
 All publish jobs require the **`deployment` GitHub environment** (environment protection rules apply).
 
