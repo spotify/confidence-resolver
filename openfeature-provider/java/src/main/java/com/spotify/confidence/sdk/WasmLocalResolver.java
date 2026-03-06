@@ -20,20 +20,27 @@ import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
-class WasmResolveApi {
+/**
+ * Lowest layer of the compositional resolver: direct WASM interaction. Each instance wraps a single
+ * Chicory WASM instance and is NOT thread-safe without external synchronization — the internal
+ * {@link ReentrantLock} provides mutual exclusion for all operations.
+ */
+class WasmLocalResolver implements LocalResolver {
   private final FunctionType HOST_FN_TYPE =
       FunctionType.of(List.of(ValType.I32), List.of(ValType.I32));
   private final Instance instance;
-  private boolean isConsumed = false;
+  private boolean closed = false;
 
   // interop
   private final ExportFunction wasmMsgAlloc;
   private final ExportFunction wasmMsgFree;
-  private final WasmFlagLogger writeFlagLogs;
+  private final Consumer<WriteFlagLogsRequest> logSink;
 
   // api
   private final ExportFunction wasmMsgGuestSetResolverState;
@@ -41,10 +48,10 @@ class WasmResolveApi {
   private final ExportFunction wasmMsgBoundedFlushAssign;
   private final ExportFunction wasmMsgGuestApplyFlags;
   private final ExportFunction wasmMsgGuestResolveProcess;
-  private final ReadWriteLock wasmLock = new ReentrantReadWriteLock();
+  private final ReentrantLock lock = new ReentrantLock();
 
-  public WasmResolveApi(WasmFlagLogger flagLogger) {
-    this.writeFlagLogs = flagLogger;
+  public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
+    this.logSink = logSink;
     instance =
         Instance.builder(ConfidenceResolverModule.load())
             .withImportValues(
@@ -86,28 +93,103 @@ class WasmResolveApi {
     return Timestamp.newBuilder().setSeconds(now.getEpochSecond()).setNanos(now.getNano()).build();
   }
 
+  @Override
   public void setResolverState(byte[] state, String accountId) {
-    final var resolverStateRequest =
-        Messages.SetResolverStateRequest.newBuilder()
-            .setState(ByteString.copyFrom(state))
-            .setAccountId(accountId)
-            .build();
-    final byte[] request =
-        Messages.Request.newBuilder()
-            .setData(ByteString.copyFrom(resolverStateRequest.toByteArray()))
-            .build()
-            .toByteArray();
-    final int addr = transfer(request);
-    final int respPtr = (int) wasmMsgGuestSetResolverState.apply(addr)[0];
-    consumeResponse(respPtr, Messages.Void::parseFrom);
+    lock.lock();
+    try {
+      final var resolverStateRequest =
+          Messages.SetResolverStateRequest.newBuilder()
+              .setState(ByteString.copyFrom(state))
+              .setAccountId(accountId)
+              .build();
+      final byte[] request =
+          Messages.Request.newBuilder()
+              .setData(ByteString.copyFrom(resolverStateRequest.toByteArray()))
+              .build()
+              .toByteArray();
+      final int addr = transfer(request);
+      final int respPtr = (int) wasmMsgGuestSetResolverState.apply(addr)[0];
+      consumeResponse(respPtr, Messages.Void::parseFrom);
+    } finally {
+      lock.unlock();
+    }
   }
 
+  @Override
+  public CompletionStage<ResolveProcessResponse> resolveProcess(ResolveProcessRequest request) {
+    lock.lock();
+    try {
+      if (closed) {
+        throw new RuntimeException("Resolver is closed");
+      }
+      final int reqPtr = transferRequest(request);
+      final int respPtr = (int) wasmMsgGuestResolveProcess.apply(reqPtr)[0];
+      return CompletableFuture.completedFuture(
+          consumeResponse(respPtr, ResolveProcessResponse::parseFrom));
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public void applyFlags(ApplyFlagsRequest request) {
+    lock.lock();
+    try {
+      if (closed) {
+        throw new RuntimeException("Resolver is closed");
+      }
+      final int reqPtr = transferRequest(request);
+      final int respPtr = (int) wasmMsgGuestApplyFlags.apply(reqPtr)[0];
+      consumeResponse(respPtr, ApplyFlagsResponse::parseFrom);
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public void flushAllLogs() {
+    lock.lock();
+    try {
+      if (closed) {
+        return;
+      }
+      final var voidRequest = Messages.Void.getDefaultInstance();
+      final var reqPtr = transferRequest(voidRequest);
+      final var respPtr = (int) wasmMsgBoundedFlushLogs.apply(reqPtr)[0];
+      final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
+      if (!isEmptyLogRequest(request)) {
+        logSink.accept(request);
+      }
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public void flushAssignLogs() {
+    lock.lock();
+    try {
+      if (closed) {
+        return;
+      }
+      final var voidRequest = Messages.Void.getDefaultInstance();
+      final var reqPtr = transferRequest(voidRequest);
+      final var respPtr = (int) wasmMsgBoundedFlushAssign.apply(reqPtr)[0];
+      final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
+      if (!isEmptyLogRequest(request)) {
+        logSink.accept(request);
+      }
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
   public void close() {
-    wasmLock.writeLock().lock();
+    lock.lock();
     try {
       final var voidRequest = Messages.Void.getDefaultInstance();
 
-      // TODO: re-evaluate this drain loop once moving to a compositional architecture
       // Drain all pending assign logs (bounded flush may require multiple calls)
       while (true) {
         final var assignReqPtr = transferRequest(voidRequest);
@@ -116,67 +198,26 @@ class WasmResolveApi {
         if (assignRequest.getFlagAssignedCount() == 0) {
           break;
         }
-        writeFlagLogs.writeSync(assignRequest);
+        logSink.accept(assignRequest);
       }
 
       // Final flush of resolve logs (also drains any remaining assigns)
       final var reqPtr = transferRequest(voidRequest);
       final var respPtr = (int) wasmMsgBoundedFlushLogs.apply(reqPtr)[0];
       final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
-      writeFlagLogs.writeSync(request);
-      isConsumed = true;
+      if (!isEmptyLogRequest(request)) {
+        logSink.accept(request);
+      }
+      closed = true;
     } finally {
-      wasmLock.writeLock().unlock();
+      lock.unlock();
     }
   }
 
-  public void flushAssignLogs() {
-    wasmLock.writeLock().lock();
-    try {
-      if (isConsumed) {
-        return;
-      }
-      final var voidRequest = Messages.Void.getDefaultInstance();
-      final var reqPtr = transferRequest(voidRequest);
-      final var respPtr = (int) wasmMsgBoundedFlushAssign.apply(reqPtr)[0];
-      final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
-      writeFlagLogs.write(request);
-    } finally {
-      wasmLock.writeLock().unlock();
-    }
-  }
-
-  public ResolveProcessResponse resolveProcess(ResolveProcessRequest request)
-      throws IsClosedException {
-    if (!wasmLock.writeLock().tryLock()) {
-      throw new IsClosedException();
-    }
-    try {
-      if (isConsumed) {
-        throw new IsClosedException();
-      }
-      final int reqPtr = transferRequest(request);
-      final int respPtr = (int) wasmMsgGuestResolveProcess.apply(reqPtr)[0];
-      return consumeResponse(respPtr, ResolveProcessResponse::parseFrom);
-    } finally {
-      wasmLock.writeLock().unlock();
-    }
-  }
-
-  public void applyFlags(ApplyFlagsRequest request) throws IsClosedException {
-    if (!wasmLock.writeLock().tryLock()) {
-      throw new IsClosedException();
-    }
-    try {
-      if (isConsumed) {
-        throw new IsClosedException();
-      }
-      final int reqPtr = transferRequest(request);
-      final int respPtr = (int) wasmMsgGuestApplyFlags.apply(reqPtr)[0];
-      consumeResponse(respPtr, ApplyFlagsResponse::parseFrom);
-    } finally {
-      wasmLock.writeLock().unlock();
-    }
+  private static boolean isEmptyLogRequest(WriteFlagLogsRequest request) {
+    return request.getFlagAssignedCount() == 0
+        && request.getClientResolveInfoCount() == 0
+        && request.getFlagResolveInfoCount() == 0;
   }
 
   private <T extends Message> T consumeResponse(int addr, ParserFn<T> codec) {

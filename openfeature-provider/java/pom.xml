@@ -208,11 +208,6 @@
       <artifactId>sdk</artifactId>
       <version>1.18.2</version>
     </dependency>
-    <dependency>
-      <groupId>com.spotify</groupId>
-      <artifactId>completable-futures</artifactId>
-      <version>0.3.6</version>
-    </dependency>
   </dependencies>
 
   <build>

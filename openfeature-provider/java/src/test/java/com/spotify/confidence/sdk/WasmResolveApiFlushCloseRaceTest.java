@@ -14,11 +14,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /**
- * Regression test for the race condition between {@link WasmResolveApi#flushAssignLogs()} and
- * {@link WasmResolveApi#close()}. Previously both methods acquired a readLock, allowing concurrent
- * execution on the same WASM instance. When they raced, flag assignments were lost — close() found
- * 0 entries because flushAssignLogs() already drained them (or vice versa, with corrupted WASM
- * memory access). The fix changes both methods to use writeLock for exclusive access.
+ * Regression test for the race condition between {@link WasmLocalResolver#flushAssignLogs()} and
+ * {@link WasmLocalResolver#close()}. Previously both methods acquired a readLock, allowing
+ * concurrent execution on the same WASM instance. When they raced, flag assignments were lost —
+ * close() found 0 entries because flushAssignLogs() already drained them (or vice versa, with
+ * corrupted WASM memory access). The fix uses a ReentrantLock for exclusive access on all
+ * operations.
  */
 class WasmResolveApiFlushCloseRaceTest {
   private static final String FLAG_CLIENT_SECRET = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
@@ -43,11 +44,11 @@ class WasmResolveApiFlushCloseRaceTest {
 
     for (int i = 0; i < iterations; i++) {
       final var logger = new CapturingWasmFlagLogger();
-      final var api = new WasmResolveApi(logger);
-      api.setResolverState(resolverState, accountId);
+      final var resolver = new WasmLocalResolver(logger::write);
+      resolver.setResolverState(resolverState, accountId);
 
       // Resolve a flag to create a flag assignment in the WASM buffer
-      api.resolveProcess(buildResolveRequest());
+      resolver.resolveProcess(buildResolveRequest()).toCompletableFuture().join();
 
       // Race: flushAssignLogs and close concurrently
       final var startLatch = new CountDownLatch(1);
@@ -58,7 +59,7 @@ class WasmResolveApiFlushCloseRaceTest {
               () -> {
                 try {
                   startLatch.await();
-                  api.flushAssignLogs();
+                  resolver.flushAssignLogs();
                 } catch (InterruptedException e) {
                   Thread.currentThread().interrupt();
                 } finally {
@@ -71,7 +72,7 @@ class WasmResolveApiFlushCloseRaceTest {
               () -> {
                 try {
                   startLatch.await();
-                  api.close();
+                  resolver.close();
                 } catch (Exception e) {
                   // close() may fail due to corrupted WASM state from concurrent access
                 } finally {

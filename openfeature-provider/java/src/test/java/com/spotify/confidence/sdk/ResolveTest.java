@@ -18,8 +18,9 @@ import com.spotify.confidence.sdk.flags.types.v1.FlagSchema;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,25 +31,10 @@ class ResolveTest {
       ClientCredential.ClientSecret.newBuilder().setSecret("very-secret").build();
   static final String clientName = "clients/client";
   static final String credentialName = clientName + "/credentials/creddy";
-  private final ResolverApi resolverApi;
+  private final LocalResolver resolver;
 
   public ResolveTest() {
-    final var wasmResolverApi =
-        new SwapWasmResolverApi(
-            new WasmFlagLogger() {
-              @Override
-              public void write(WriteFlagLogsRequest request) {}
-
-              @Override
-              public void writeSync(WriteFlagLogsRequest request) {}
-
-              @Override
-              public void shutdown() {}
-            },
-            new byte[0],
-            "",
-            mockMaterializationStore);
-    this.resolverApi = wasmResolverApi;
+    resolver = new WasmLocalResolver(request -> {});
   }
 
   @BeforeEach
@@ -205,11 +191,11 @@ class ResolveTest {
   }
 
   protected void useStateWithFlagsWithMaterialization() {
-    resolverApi.updateStateAndFlushLogs(exampleStateWithMaterializationBytes, ACCOUNT);
+    resolver.setResolverState(exampleStateWithMaterializationBytes, ACCOUNT);
   }
 
   protected void useStateWithoutFlagsWithMaterialization() {
-    resolverApi.updateStateAndFlushLogs(exampleStateBytes, ACCOUNT);
+    resolver.setResolverState(exampleStateBytes, ACCOUNT);
   }
 
   @Test
@@ -261,50 +247,20 @@ class ResolveTest {
 
   @Test
   public void testResolveFlagWithMaterializationsWithUnsupportedStore() {
-    // Use the UnsupportedMaterializationStore to test default behavior
-    final var wasmResolverApi =
-        new SwapWasmResolverApi(
-            new WasmFlagLogger() {
-              @Override
-              public void write(WriteFlagLogsRequest request) {}
+    useStateWithFlagsWithMaterialization();
 
-              @Override
-              public void writeSync(WriteFlagLogsRequest request) {}
-
-              @Override
-              public void shutdown() {}
-            },
-            new byte[0],
-            "",
-            new UnsupportedMaterializationStore());
-
-    wasmResolverApi.updateStateAndFlushLogs(exampleStateWithMaterializationBytes, ACCOUNT);
-
-    // Attempting to resolve a flag that requires materializations should throw
-    // MaterializationNotSupportedException (wrapped in CompletionException by join())
-    assertThatExceptionOfType(CompletionException.class)
+    // Attempting to resolve a flag that requires materializations with UnsupportedStore
+    // should throw MaterializationNotSupportedException
+    assertThatExceptionOfType(MaterializationNotSupportedException.class)
         .isThrownBy(
             () ->
-                wasmResolverApi
-                    .resolveProcess(
-                        ResolveProcessRequest.newBuilder()
-                            .setDeferredMaterializations(
-                                ResolveFlagsRequest.newBuilder()
-                                    .addAllFlags(List.of(flag1))
-                                    .setClientSecret(secret.getSecret())
-                                    .setEvaluationContext(
-                                        Structs.of(
-                                            "targeting_key",
-                                            Values.of("foo"),
-                                            "bar",
-                                            Values.of(Struct.newBuilder().build())))
-                                    .setApply(true)
-                                    .build())
-                            .build())
-                    .toCompletableFuture()
-                    .join())
-        .havingCause()
-        .isInstanceOf(MaterializationNotSupportedException.class);
+                resolveWithMaterializations(
+                    List.of(flag1),
+                    "foo",
+                    Struct.newBuilder().build(),
+                    true,
+                    secret.getSecret(),
+                    new UnsupportedMaterializationStore()));
   }
 
   @Test
@@ -322,7 +278,13 @@ class ResolveTest {
                     new MaterializationStore.ReadResult.Variant(
                         "read-mat", "foo", "MyRule", Optional.of(flagOn)))));
     ResolveFlagsResponse response =
-        resolveWithContext(List.of(flag1), "foo", Struct.newBuilder().build(), true);
+        resolveWithMaterializations(
+            List.of(flag1),
+            "foo",
+            Struct.newBuilder().build(),
+            true,
+            secret.getSecret(),
+            mockMaterializationStore);
 
     final Struct expectedValue = variantOn.getValue();
     assertEquals(variantOn.getName(), response.getResolvedFlags(0).getVariant());
@@ -345,7 +307,13 @@ class ResolveTest {
                     new MaterializationStore.ReadResult.Variant(
                         "read-mat", "foo", "MyRule", Optional.empty()))));
     ResolveFlagsResponse response =
-        resolveWithContext(List.of(flag1), "foo", Struct.newBuilder().build(), true);
+        resolveWithMaterializations(
+            List.of(flag1),
+            "foo",
+            Struct.newBuilder().build(),
+            true,
+            secret.getSecret(),
+            mockMaterializationStore);
     verify(mockMaterializationStore)
         .write(
             argThat(
@@ -378,10 +346,16 @@ class ResolveTest {
             CompletableFuture.completedFuture(
                 List.of())); // this will cause recursion in the resolve.
     try {
-      resolveWithContext(List.of(flag1), "foo", Struct.newBuilder().build(), true);
+      resolveWithMaterializations(
+          List.of(flag1),
+          "foo",
+          Struct.newBuilder().build(),
+          true,
+          secret.getSecret(),
+          mockMaterializationStore);
     } catch (Exception e) {
       assertThat(e).isInstanceOf(RuntimeException.class);
-      assertThat(e.getMessage()).contains("Max retries exceeded for missing materializations: 3");
+      assertThat(e.getMessage()).contains("Unexpected second suspend after resume");
     }
   }
 
@@ -434,23 +408,158 @@ class ResolveTest {
     return builder.build().toByteArray();
   }
 
+  /** Resolve without materialization support (simple DeferredMaterializations path). */
   private ResolveFlagsResponse resolveWithContext(
       List<String> flags, String username, Struct struct, boolean apply, String secret) {
-    return resolverApi
-        .resolveProcess(
-            ResolveProcessRequest.newBuilder()
-                .setDeferredMaterializations(
-                    ResolveFlagsRequest.newBuilder()
-                        .addAllFlags(flags)
-                        .setClientSecret(secret)
-                        .setEvaluationContext(
-                            Structs.of(
-                                "targeting_key", Values.of(username), "bar", Values.of(struct)))
-                        .setApply(apply)
-                        .build())
-                .build())
-        .toCompletableFuture()
-        .join();
+    final var request =
+        ResolveProcessRequest.newBuilder()
+            .setDeferredMaterializations(
+                ResolveFlagsRequest.newBuilder()
+                    .addAllFlags(flags)
+                    .setClientSecret(secret)
+                    .setEvaluationContext(
+                        Structs.of("targeting_key", Values.of(username), "bar", Values.of(struct)))
+                    .setApply(apply)
+                    .build())
+            .build();
+    final var response = resolver.resolveProcess(request).toCompletableFuture().join();
+    // For non-materialization tests, just extract resolved response directly
+    if (response.hasResolved()) {
+      return response.getResolved().getResponse();
+    }
+    throw new RuntimeException("Unexpected response: " + response.getResultCase());
+  }
+
+  /**
+   * Resolve with materialization suspend/resume support, mirroring the provider's
+   * resolveWithMaterializations logic.
+   */
+  private ResolveFlagsResponse resolveWithMaterializations(
+      List<String> flags,
+      String username,
+      Struct struct,
+      boolean apply,
+      String secret,
+      MaterializationStore store) {
+    final var request =
+        ResolveProcessRequest.newBuilder()
+            .setDeferredMaterializations(
+                ResolveFlagsRequest.newBuilder()
+                    .addAllFlags(flags)
+                    .setClientSecret(secret)
+                    .setEvaluationContext(
+                        Structs.of("targeting_key", Values.of(username), "bar", Values.of(struct)))
+                    .setApply(apply)
+                    .build())
+            .build();
+    final var response = resolver.resolveProcess(request).toCompletableFuture().join();
+    return handleResponse(response, store);
+  }
+
+  private ResolveFlagsResponse handleResponse(
+      ResolveProcessResponse response, MaterializationStore store) {
+    switch (response.getResultCase()) {
+      case RESOLVED -> {
+        final var resolved = response.getResolved();
+        if (!resolved.getMaterializationsToWriteList().isEmpty()) {
+          final Set<MaterializationStore.WriteOp> writeOps =
+              resolved.getMaterializationsToWriteList().stream()
+                  .map(
+                      r ->
+                          new MaterializationStore.WriteOp.Variant(
+                              r.getMaterialization(), r.getUnit(), r.getRule(), r.getVariant()))
+                  .collect(Collectors.toSet());
+          store.write(writeOps).toCompletableFuture().join();
+        }
+        return resolved.getResponse();
+      }
+      case SUSPENDED -> {
+        final var suspended = response.getSuspended();
+        final var resumeRequest = handleSuspended(suspended, store);
+        final var resumeResponse =
+            resolver.resolveProcess(resumeRequest).toCompletableFuture().join();
+        return handleResumeResponse(resumeResponse, store);
+      }
+      default -> throw new RuntimeException("Unexpected response: " + response.getResultCase());
+    }
+  }
+
+  private ResolveFlagsResponse handleResumeResponse(
+      ResolveProcessResponse response, MaterializationStore store) {
+    switch (response.getResultCase()) {
+      case RESOLVED -> {
+        final var resolved = response.getResolved();
+        if (!resolved.getMaterializationsToWriteList().isEmpty()) {
+          final Set<MaterializationStore.WriteOp> writeOps =
+              resolved.getMaterializationsToWriteList().stream()
+                  .map(
+                      r ->
+                          new MaterializationStore.WriteOp.Variant(
+                              r.getMaterialization(), r.getUnit(), r.getRule(), r.getVariant()))
+                  .collect(Collectors.toSet());
+          store.write(writeOps).toCompletableFuture().join();
+        }
+        return resolved.getResponse();
+      }
+      case SUSPENDED -> throw new RuntimeException("Unexpected second suspend after resume");
+      default ->
+          throw new RuntimeException(
+              "Unhandled response case after resume: " + response.getResultCase());
+    }
+  }
+
+  private ResolveProcessRequest handleSuspended(
+      ResolveProcessResponse.Suspended suspended, MaterializationStore store) {
+    final var toRead = suspended.getMaterializationsToReadList();
+    final List<? extends MaterializationStore.ReadOp> readOps =
+        toRead.stream()
+            .map(
+                record -> {
+                  if (!record.getRule().isEmpty()) {
+                    return new MaterializationStore.ReadOp.Variant(
+                        record.getMaterialization(), record.getUnit(), record.getRule());
+                  } else {
+                    return new MaterializationStore.ReadOp.Inclusion(
+                        record.getMaterialization(), record.getUnit());
+                  }
+                })
+            .toList();
+
+    final var results = store.read(readOps).toCompletableFuture().join();
+    final var materializations =
+        results.stream()
+            .flatMap(
+                rr -> {
+                  if (rr instanceof MaterializationStore.ReadResult.Variant variant) {
+                    if (variant.variant().isPresent()) {
+                      return java.util.stream.Stream.of(
+                          MaterializationRecord.newBuilder()
+                              .setUnit(variant.unit())
+                              .setMaterialization(variant.materialization())
+                              .setRule(variant.rule())
+                              .setVariant(variant.variant().get())
+                              .build());
+                    }
+                  }
+                  if (rr instanceof MaterializationStore.ReadResult.Inclusion inclusion) {
+                    if (inclusion.included()) {
+                      return java.util.stream.Stream.of(
+                          MaterializationRecord.newBuilder()
+                              .setUnit(inclusion.unit())
+                              .setMaterialization(inclusion.materialization())
+                              .build());
+                    }
+                  }
+                  return java.util.stream.Stream.empty();
+                })
+            .toList();
+
+    return ResolveProcessRequest.newBuilder()
+        .setResume(
+            ResolveProcessRequest.Resume.newBuilder()
+                .addAllMaterializations(materializations)
+                .setState(suspended.getState()))
+        .build();
   }
 
   private ResolveFlagsResponse resolveWithNumericTargetingKey(
@@ -474,7 +583,11 @@ class ResolveTest {
 
     final var request =
         ResolveProcessRequest.newBuilder().setDeferredMaterializations(builder.build()).build();
-    return resolverApi.resolveProcess(request).toCompletableFuture().join();
+    final var response = resolver.resolveProcess(request).toCompletableFuture().join();
+    if (response.hasResolved()) {
+      return response.getResolved().getResponse();
+    }
+    throw new RuntimeException("Unexpected response: " + response.getResultCase());
   }
 
   private ResolveFlagsResponse resolveWithContext(
