@@ -48,7 +48,8 @@ class MaterializingResolver implements LocalResolver {
   private CompletionStage<ResolveProcessResponse> handleResponse(ResolveProcessResponse response) {
     switch (response.getResultCase()) {
       case RESOLVED -> {
-        return storeWritesIfPresent(response.getResolved()).thenApply(v -> response);
+        storeWritesIfPresent(response.getResolved());
+        return CompletableFuture.completedFuture(response);
       }
       case SUSPENDED -> {
         final var suspended = response.getSuspended();
@@ -69,7 +70,8 @@ class MaterializingResolver implements LocalResolver {
       ResolveProcessResponse response) {
     switch (response.getResultCase()) {
       case RESOLVED -> {
-        return storeWritesIfPresent(response.getResolved()).thenApply(v -> response);
+        storeWritesIfPresent(response.getResolved());
+        return CompletableFuture.completedFuture(response);
       }
       case SUSPENDED -> throw new RuntimeException("Unexpected second suspend after resume");
       default ->
@@ -78,10 +80,10 @@ class MaterializingResolver implements LocalResolver {
     }
   }
 
-  private CompletionStage<Void> storeWritesIfPresent(ResolveProcessResponse.Resolved resolved) {
+  private void storeWritesIfPresent(ResolveProcessResponse.Resolved resolved) {
     final var records = resolved.getMaterializationsToWriteList();
     if (records.isEmpty()) {
-      return CompletableFuture.completedFuture(null);
+      return;
     }
     final Set<MaterializationStore.WriteOp> writeOps =
         records.stream()
@@ -90,7 +92,7 @@ class MaterializingResolver implements LocalResolver {
                     new MaterializationStore.WriteOp.Variant(
                         r.getMaterialization(), r.getUnit(), r.getRule(), r.getVariant()))
             .collect(Collectors.toSet());
-    return store.write(writeOps);
+    store.write(writeOps);
   }
 
   /**
