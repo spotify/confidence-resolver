@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.10.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.9.1...openfeature-provider-js-v0.10.0) (2026-03-06)
+
+
+### Features
+
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+
+
+### Bug Fixes
+
+* **js:** increase state fetch stall timeout to 1s ([#293](https://github.com/spotify/confidence-resolver/issues/293)) ([f95da45](https://github.com/spotify/confidence-resolver/commit/f95da455ef338b3e43604f4a2d76d008c9e63496))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.17 to 0.1.18
+
 ## [0.9.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.9.0...openfeature-provider-js-v0.9.1) (2026-02-20)
 
 
