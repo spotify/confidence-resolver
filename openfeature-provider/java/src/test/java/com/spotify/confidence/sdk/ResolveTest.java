@@ -476,7 +476,8 @@ class ResolveTest {
       case SUSPENDED -> {
         final var suspended = response.getSuspended();
         final var resumeRequest = handleSuspended(suspended, store);
-        final var resumeResponse = resolver.resolveProcess(resumeRequest).toCompletableFuture().join();
+        final var resumeResponse =
+            resolver.resolveProcess(resumeRequest).toCompletableFuture().join();
         return handleResumeResponse(resumeResponse, store);
       }
       default -> throw new RuntimeException("Unexpected response: " + response.getResultCase());

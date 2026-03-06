@@ -45,8 +45,7 @@ class MaterializingResolver implements LocalResolver {
     return delegate.resolveProcess(innerRequest).thenCompose(this::handleResponse);
   }
 
-  private CompletionStage<ResolveProcessResponse> handleResponse(
-      ResolveProcessResponse response) {
+  private CompletionStage<ResolveProcessResponse> handleResponse(ResolveProcessResponse response) {
     switch (response.getResultCase()) {
       case RESOLVED -> {
         return storeWritesIfPresent(response.getResolved()).thenApply(v -> response);
