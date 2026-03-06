@@ -39,6 +39,37 @@ Host
 - Guest exports are prefixed: `wasm_msg_guest_resolve_flags`, `wasm_msg_guest_set_resolver_state`, etc.
 - Host imports are prefixed: `wasm_msg_host_log_message`, `wasm_msg_host_current_time`
 
+### Building and inspecting the WASM
+
+```bash
+# Build locally (requires Rust + wasm32-unknown-unknown target)
+make wasm/confidence_resolver.wasm
+
+# Or extract from Docker (no local Rust needed)
+docker build --target wasm-rust-guest.artifact -o wasm .
+# produces: wasm/confidence_resolver.wasm
+
+# Install wabt (WebAssembly Binary Toolkit) for inspection tools
+brew install wabt            # macOS
+apt-get install wabt         # Debian/Ubuntu
+
+# Inspect exports
+wasm-objdump -j Export -x wasm/confidence_resolver.wasm
+
+# Inspect host imports
+wasm-objdump -j Import -x wasm/confidence_resolver.wasm
+```
+
+## WASM Rebuild: Go Provider
+
+The Go provider embeds the WASM binary via `//go:embed`, so the committed `.wasm` file must be kept in sync. **After any changes to `confidence-resolver/`, `wasm-msg/`, or `wasm/rust-guest/`**, run:
+
+```bash
+make sync-wasm-go
+```
+
+This builds the WASM in Docker and copies it to `openfeature-provider/go/confidence/internal/local_resolver/assets/`. The updated `.wasm` file must be committed.
+
 ## Protobuf Schema Locations
 
 There are 4 separate proto directories — this is the most common source of confusion:

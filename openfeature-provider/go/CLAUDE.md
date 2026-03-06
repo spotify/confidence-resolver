@@ -24,10 +24,10 @@ Go OpenFeature provider using the Confidence resolver compiled to WASM, loaded v
 ## Build & Test
 
 ```bash
-make build  # build WASM (if not in Docker) + go build ./...
-make test   # build + go test -v ./...
-make lint   # gofmt check (excluding proto/) + go vet
-make proto  # run scripts/generate_proto.sh
+make build
+make test
+make lint
+make proto
 ```
 
 ## Background Goroutines

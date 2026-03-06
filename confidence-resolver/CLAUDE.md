@@ -55,8 +55,8 @@ Outside of tests, the crate denies: `clippy::panic`, `clippy::unwrap_used`, `cli
 ## Build & Test
 
 ```bash
-make test   # cargo test --release --lib (default target)
-make lint   # cargo fmt --check + cargo clippy --lib --release -- -D warnings
+make test
+make lint
 ```
 
 There is no `make build` target — this crate is a library, not a standalone binary.
