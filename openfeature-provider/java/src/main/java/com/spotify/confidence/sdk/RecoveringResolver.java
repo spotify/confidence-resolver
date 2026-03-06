@@ -63,19 +63,21 @@ class RecoveringResolver implements LocalResolver {
 
   private void handleFailure(String opName, ChicoryException e) {
     if (broken.compareAndSet(false, true)) {
-      logger.warn("Resolver panicked during {}, starting background recreation", opName, e);
+      logger.warn(
+          "Resolver failed during {} ({}), starting background recreation",
+          opName,
+          e.getMessage(),
+          e);
       startRecreate();
     }
   }
 
   @Override
   public void setResolverState(byte[] state, String accountId) {
-    final StateRecord record = new StateRecord(state, accountId);
     try {
       current.get().setResolverState(state, accountId);
-      lastState.set(record);
+      lastState.set(new StateRecord(state, accountId));
     } catch (ChicoryException e) {
-      lastState.set(record);
       handleFailure("setResolverState", e);
       throw e;
     }
