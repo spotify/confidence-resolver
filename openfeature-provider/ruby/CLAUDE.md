@@ -4,7 +4,7 @@
 
 Gem: `confidence-openfeature-provider`
 
-Ruby OpenFeature provider for Confidence. **Unlike all other providers, this is an online/remote resolver** — it makes HTTP API calls to the Confidence backend for each flag evaluation rather than using WASM for local resolution.
+Ruby OpenFeature provider for Confidence. **Unlike other providers, this is an online/remote resolver** — it makes HTTP API calls to the Confidence backend for each flag evaluation rather than using WASM for local resolution.
 
 ## Architecture
 
@@ -20,7 +20,3 @@ make test     # bundle exec rake spec
 make lint     # bundle exec rake standard
 make install  # bundle install
 ```
-
-## Gotchas
-
-- The gemspec filename has a typo: `confidence-openfeaure-provider.gemspec` (missing 't' in "feature").
