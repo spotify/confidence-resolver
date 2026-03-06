@@ -448,7 +448,7 @@ WORKDIR /app
 
 # Copy Gemfile for dependency caching
 COPY openfeature-provider/ruby/Gemfile ./
-COPY openfeature-provider/ruby/confidence-openfeaure-provider.gemspec ./
+COPY openfeature-provider/ruby/confidence-openfeature-provider.gemspec ./
 COPY openfeature-provider/ruby/Makefile ./
 
 # Copy lib directory (needed by gemspec to read version)
