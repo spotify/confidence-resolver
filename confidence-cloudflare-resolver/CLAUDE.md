@@ -4,12 +4,12 @@
 
 Crate: `confidence-cloudflare-resolver` (internal, `publish = false`)
 
-A Cloudflare Worker that serves the Confidence flag resolver at the edge. Compiles `confidence_resolver` directly into a Cloudflare Worker WASM module (`wasm32-unknown-unknown` + `worker` crate).
+A Cloudflare Worker that serves the Confidence flag resolver at the edge. Compiles `confidence_resolver` and a pre compiled confidence "state" directly into a Cloudflare Worker WASM module (`wasm32-unknown-unknown` + `worker` crate).
 
 ## Architecture
 
 - **Compile-time state** — Resolver state is embedded at build time via `include_bytes!("../../data/resolver_state_current.pb")`. No runtime state fetching. Redeployment required to update.
-- **No sticky assignments** — Uses `ResolveProcessRequest::without_materializations()`.
+- **No sticky assignments support** — Uses `ResolveProcessRequest::without_materializations()`.
 - **Queue-based log shipping** — Flag logs are serialized to JSON and sent to a Cloudflare Queue (`flag_logs_queue`), then consumed by a queue handler that aggregates and ships them.
 - **JSON API** — Request/response bodies are JSON (not protobuf), unlike the WASM-based providers.
 - **CORS** — All responses include CORS headers with configurable `ALLOWED_ORIGIN`.
@@ -44,8 +44,8 @@ The `#[event(queue)]` handler `consume_flag_logs_queue` processes batched flag l
 ## Build & Test
 
 ```bash
-make build  # cargo build --target wasm32-unknown-unknown --release (with RUSTFLAGS)
-make lint   # cargo clippy with same RUSTFLAGS and target
+make build
+make lint
 ```
 
 Deployment is handled by `deployer/Dockerfile` — see `deployer/README.md`.
