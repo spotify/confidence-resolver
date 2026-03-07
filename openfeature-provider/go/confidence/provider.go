@@ -31,6 +31,7 @@ type Option func(*providerOptions)
 type providerOptions struct {
 	statePollInterval time.Duration
 	logPollInterval   time.Duration
+	apply             *bool
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -44,6 +45,17 @@ func WithStatePollInterval(d time.Duration) Option {
 func WithLogPollInterval(d time.Duration) Option {
 	return func(o *providerOptions) {
 		o.logPollInterval = d
+	}
+}
+
+// WithApply controls whether flag evaluations record "flag applied" events
+// (exposure tracking). When set to false, flags are resolved without triggering
+// exposure events, which is useful for peeking at flag values for analytics
+// or caching without affecting experiment analysis.
+// Defaults to true when not specified.
+func WithApply(apply bool) Option {
+	return func(o *providerOptions) {
+		o.apply = &apply
 	}
 }
 
@@ -61,6 +73,7 @@ type LocalResolverProvider struct {
 	mu                sync.Mutex
 	statePollInterval time.Duration
 	logPollInterval   time.Duration
+	apply             bool
 }
 
 // Compile-time interface conformance checks
@@ -100,6 +113,10 @@ func NewLocalResolverProvider(
 	if logPollInterval <= 0 {
 		logPollInterval = getLogPollInterval(logger)
 	}
+	apply := true
+	if options.apply != nil {
+		apply = *options.apply
+	}
 
 	return &LocalResolverProvider{
 		resolverSupplier:  resolverSupplier,
@@ -109,6 +126,7 @@ func NewLocalResolverProvider(
 		logger:            logger,
 		statePollInterval: statePollInterval,
 		logPollInterval:   logPollInterval,
+		apply:             apply,
 	}
 }
 
@@ -209,7 +227,7 @@ func evaluate[T any](
 	requestFlagName := "flags/" + flagName
 	request := &resolver.ResolveFlagsRequest{
 		Flags:             []string{requestFlagName},
-		Apply:             true,
+		Apply:             p.apply,
 		ClientSecret:      p.clientSecret,
 		EvaluationContext: protoCtx,
 		Sdk: &resolvertypes.Sdk{

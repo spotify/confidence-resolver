@@ -26,6 +26,7 @@ type ProviderConfig struct {
 	StatePollInterval             time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to GOMAXPROCS
+	Apply                         *bool                // Optional: controls exposure tracking. nil or true = record "flag applied" events (default). false = resolve without exposure.
 }
 
 type ProviderTestConfig struct {
@@ -37,6 +38,7 @@ type ProviderTestConfig struct {
 	StatePollInterval    time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to GOMAXPROCS
+	Apply                *bool                // Optional: controls exposure tracking. nil or true = record "flag applied" events (default). false = resolve without exposure.
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
@@ -86,7 +88,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		return lr.NewLocalResolverWithPoolSize(ctx, logSink, config.ResolverPoolSize)
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.Apply)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
@@ -115,20 +117,23 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 		return lr.NewLocalResolverWithPoolSize(ctx, logSink, config.ResolverPoolSize)
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.Apply)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
 }
 
-// buildProviderOptions creates options slice from poll intervals
-func buildProviderOptions(statePollInterval, logPollInterval time.Duration) []Option {
+// buildProviderOptions creates options slice from config values
+func buildProviderOptions(statePollInterval, logPollInterval time.Duration, apply *bool) []Option {
 	var opts []Option
 	if statePollInterval > 0 {
 		opts = append(opts, WithStatePollInterval(statePollInterval))
 	}
 	if logPollInterval > 0 {
 		opts = append(opts, WithLogPollInterval(logPollInterval))
+	}
+	if apply != nil {
+		opts = append(opts, WithApply(*apply))
 	}
 	return opts
 }
