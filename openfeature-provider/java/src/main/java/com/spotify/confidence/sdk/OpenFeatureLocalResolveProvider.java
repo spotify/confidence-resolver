@@ -50,21 +50,19 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final String clientSecret;
   private static final Logger log =
       org.slf4j.LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
+  private final LocalResolver resolver;
+  private final WasmFlagLogger flagLogger;
   private final MaterializationStore materializationStore;
-  private final ResolverApi wasmResolveApi;
-  private static final Duration POLL_LOG_INTERVAL = Duration.ofSeconds(15);
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
-  private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(30);
+  private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
   private final ScheduledExecutorService flagsFetcherExecutor =
-      Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
-  private final ScheduledExecutorService logPollExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
   private final ScheduledExecutorService assignLogExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
   private final AccountStateProvider stateProvider;
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
-  private final ChannelFactory channelFactory;
+  private volatile boolean initialized = false;
 
   private static long getPollIntervalSeconds() {
     return Optional.ofNullable(System.getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"))
@@ -96,24 +94,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   /**
    * Creates a new OpenFeature provider for local flag resolution with custom channel factory.
    *
-   * <p>This constructor accepts a {@link LocalProviderConfig} which allows you to customize how
-   * gRPC channels are created, particularly useful for testing with mock servers or advanced
-   * production scenarios requiring custom connection logic.
-   *
-   * <p><strong>Example with custom channel factory for testing:</strong>
-   *
-   * <pre>{@code
-   * ChannelFactory mockFactory = (target, interceptors) ->
-   *     InProcessChannelBuilder.forName("test-server")
-   *         .usePlaintext()
-   *         .intercept(interceptors.toArray(new ClientInterceptor[0]))
-   *         .build();
-   *
-   * LocalProviderConfig config = new LocalProviderConfig(mockFactory);
-   * OpenFeatureLocalResolveProvider provider =
-   *     new OpenFeatureLocalResolveProvider(config, "client-secret");
-   * }</pre>
-   *
    * @param config the provider configuration including optional channel factory
    * @param clientSecret the client secret for your application, used for flag resolution
    *     authentication
@@ -130,18 +110,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   /**
    * Creates a new OpenFeature provider for local flag resolution with a custom sticky resolve
    * implementation.
-   *
-   * <p>This constructor uses the default gRPC channel factory but allows you to provide a custom
-   * {@link MaterializationStore} such as a {@link MaterializationStore} for local storage of sticky
-   * assignments.
-   *
-   * <p><strong>Example with custom materialization repository:</strong>
-   *
-   * <pre>{@code
-   * MaterializationStore store = new InMemoryMaterializationStoreExample();
-   * OpenFeatureLocalResolveProvider provider =
-   *     new OpenFeatureLocalResolveProvider("client-secret", store);
-   * }</pre>
    *
    * @param clientSecret the client secret for your application, used for flag resolution
    *     authentication
@@ -167,15 +135,17 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.materializationStore = materializationStore;
     this.stateProvider = new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory());
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
-    this.wasmResolveApi = new ThreadLocalSwapWasmResolverApi(wasmFlagLogger, materializationStore);
-    this.channelFactory = config.getChannelFactory();
+    this.flagLogger = wasmFlagLogger;
+    final int numInstances = PooledResolver.getNumInstances();
+    final LocalResolver inner =
+        new PooledResolver(
+            numInstances,
+            () -> new RecoveringResolver(() -> new WasmLocalResolver(flagLogger::write)));
+    this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
   /**
    * Creates a new OpenFeature provider for testing with a custom WasmFlagLogger.
-   *
-   * <p>This constructor allows injecting a custom WasmFlagLogger for testing purposes, enabling
-   * verification of flag log data without making network calls.
    *
    * @param accountStateProvider the state provider for resolver state
    * @param clientSecret the client secret for authentication
@@ -188,11 +158,16 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       String clientSecret,
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger) {
-    this.materializationStore = materializationStore;
     this.clientSecret = clientSecret;
+    this.materializationStore = materializationStore;
     this.stateProvider = accountStateProvider;
-    this.wasmResolveApi = new ThreadLocalSwapWasmResolverApi(wasmFlagLogger, materializationStore);
-    this.channelFactory = new LocalProviderConfig().getChannelFactory();
+    this.flagLogger = wasmFlagLogger;
+    final int numInstances = PooledResolver.getNumInstances();
+    final LocalResolver inner =
+        new PooledResolver(
+            numInstances,
+            () -> new RecoveringResolver(() -> new WasmLocalResolver(wasmFlagLogger::write)));
+    this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
   @Override
@@ -209,7 +184,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     // Only initialize WASM and set READY if we got valid state (non-empty accountId)
     if (!accountIdRef.get().isEmpty()) {
-      wasmResolveApi.init(resolverStateProtobuf.get(), accountIdRef.get());
+      resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+      initialized = true;
       this.state.set(ProviderState.READY);
     } else {
       log.warn(
@@ -220,20 +196,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final long pollIntervalSeconds = getPollIntervalSeconds();
     scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
 
-    logPollExecutor.scheduleAtFixedRate(
-        () -> {
-          if (wasmResolveApi.isInitialized()) {
-            wasmResolveApi.updateStateAndFlushLogs(resolverStateProtobuf.get(), accountIdRef.get());
-          }
-        },
-        POLL_LOG_INTERVAL.getSeconds(),
-        POLL_LOG_INTERVAL.getSeconds(),
-        TimeUnit.SECONDS);
-
     assignLogExecutor.scheduleAtFixedRate(
         () -> {
-          if (wasmResolveApi.isInitialized()) {
-            wasmResolveApi.flushAssignLogs();
+          if (initialized) {
+            resolver.flushAssignLogs();
           }
         },
         ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
@@ -250,7 +216,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     }
 
     // Use short retry interval (1s) when not initialized, normal interval otherwise
-    long delaySeconds = wasmResolveApi.isInitialized() ? pollIntervalSeconds : 1;
+    long delaySeconds = initialized ? pollIntervalSeconds : 1;
 
     flagsFetcherExecutor.schedule(
         () -> {
@@ -258,10 +224,17 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
           resolverStateProtobuf.set(stateProvider.provide());
           accountIdRef.set(stateProvider.accountId());
 
-          if (!accountIdRef.get().isEmpty() && !wasmResolveApi.isInitialized()) {
-            wasmResolveApi.init(resolverStateProtobuf.get(), accountIdRef.get());
-            this.state.set(ProviderState.READY);
-            log.info("Provider recovered and is now READY");
+          if (!accountIdRef.get().isEmpty()) {
+            if (!initialized) {
+              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+              initialized = true;
+              this.state.set(ProviderState.READY);
+              log.info("Provider recovered and is now READY");
+            } else {
+              // State refresh + full log flush
+              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+              resolver.flushAllLogs();
+            }
           }
 
           scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
@@ -344,17 +317,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     state.set(ProviderState.NOT_READY);
     log.debug("Shutting down scheduled executors");
     flagsFetcherExecutor.shutdown();
-    logPollExecutor.shutdown();
     assignLogExecutor.shutdown();
 
     try {
       if (!flagsFetcherExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
         log.warn("Flags fetcher executor did not terminate gracefully");
         flagsFetcherExecutor.shutdownNow();
-      }
-      if (!logPollExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
-        log.warn("Log poll executor did not terminate gracefully");
-        logPollExecutor.shutdownNow();
       }
       if (!assignLogExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
         log.warn("Assign log executor did not terminate gracefully");
@@ -363,7 +331,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     } catch (InterruptedException e) {
       log.warn("Interrupted while waiting for scheduled executors to shut down", e);
       flagsFetcherExecutor.shutdownNow();
-      logPollExecutor.shutdownNow();
       assignLogExecutor.shutdownNow();
       Thread.currentThread().interrupt();
     }
@@ -373,9 +340,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       remoteMaterializationStore.shutdown();
     }
 
-    // wasmResolveApi.close() flushes logs and calls flagLogger.shutdown() which waits for pending
-    // writes
-    this.wasmResolveApi.close();
+    // resolver.close() flushes remaining logs via the log sink
+    this.resolver.close();
+
+    // flagLogger.shutdown() waits for pending async writes to complete
+    this.flagLogger.shutdown();
 
     FeatureProvider.super.shutdown();
   }
@@ -393,7 +362,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     }
 
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
-    // resolve the flag by calling the resolver API
+    // resolve the flag by calling the resolver
     ResolveFlagsResponse resolveFlagResponse;
     try {
       final String requestFlagName = "flags/" + flagPath.getFlag();
@@ -412,12 +381,13 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                       .build())
               .build();
 
-      resolveFlagResponse =
-          wasmResolveApi
+      final var processResponse =
+          resolver
               .resolveProcess(
                   ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build())
               .toCompletableFuture()
-              .get();
+              .join();
+      resolveFlagResponse = processResponse.getResolved().getResponse();
 
       if (resolveFlagResponse.getResolvedFlagsList().isEmpty()) {
         log.warn("No active flag '{}' was found", flagPath.getFlag());
@@ -463,8 +433,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     } catch (StatusRuntimeException e) {
       handleStatusRuntimeException(e);
       throw new GeneralError("Unknown error occurred when calling the provider backend");
-    } catch (ExecutionException | InterruptedException e) {
-      throw new RuntimeException(e);
     }
   }
 
@@ -502,12 +470,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       }
     }
 
-    return wasmResolveApi
+    return resolver
         .resolveProcess(
             ResolveProcessRequest.newBuilder()
                 .setWithoutMaterializations(reqBuilder.build())
                 .build())
-        .toCompletableFuture();
+        .thenApply(processResponse -> processResponse.getResolved().getResponse());
   }
 
   /**
@@ -517,7 +485,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * @param request the apply flags request containing resolve token and flags to apply
    */
   void applyFlags(ApplyFlagsRequest request) {
-    wasmResolveApi.applyFlags(request);
+    resolver.applyFlags(request);
   }
 
   private static void handleStatusRuntimeException(StatusRuntimeException e) {

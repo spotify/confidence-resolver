@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/ruby/v0.1.1...openfeature-provider/ruby/v0.1.2) (2026-03-06)
+
+
+### Bug Fixes
+
+* **ruby:** rename gemspec to fix typo in filename ([#315](https://github.com/spotify/confidence-resolver/issues/315)) ([512ca88](https://github.com/spotify/confidence-resolver/commit/512ca88ec03653dd3641648be1b7ff69100c6517))
+
 ## [0.1.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/ruby/v0.1.0...openfeature-provider/ruby/v0.1.1) (2025-11-12)
 
 

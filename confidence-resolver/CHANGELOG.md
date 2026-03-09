@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.12.1...confidence_resolver-v0.13.0) (2026-03-06)
+
+
+### Features
+
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+
+
+### Bug Fixes
+
+* Skip rule if unrecognized ([#289](https://github.com/spotify/confidence-resolver/issues/289)) ([ea7a9fc](https://github.com/spotify/confidence-resolver/commit/ea7a9fc0c93235b1d8ee66ce4d52827c3516f87d))
+
 ## [0.12.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.12.0...confidence_resolver-v0.12.1) (2026-02-20)
 
 

@@ -13,11 +13,6 @@ class NoOpWasmFlagLogger implements WasmFlagLogger {
   }
 
   @Override
-  public void writeSync(WriteFlagLogsRequest request) {
-    // No-op: discard all log requests
-  }
-
-  @Override
   public void shutdown() {
     // No-op: nothing to shut down
   }

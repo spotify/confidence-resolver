@@ -8,7 +8,7 @@ INSTALL_STAMP := .install.stamp
 BUILD_STAMP := .build.stamp
 SRC := $(shell find lib -name '*.rb' 2>/dev/null)
 SPEC := $(shell find spec -name '*.rb' 2>/dev/null)
-GEMSPEC := confidence-openfeaure-provider.gemspec
+GEMSPEC := confidence-openfeature-provider.gemspec
 
 .PHONY: install build test lint clean
 

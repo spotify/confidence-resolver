@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.4.1...openfeature-provider-python-v0.5.0) (2026-03-06)
+
+
+### Features
+
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.17 to 0.1.18
+
 ## [0.4.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.4.0...openfeature-provider-python-v0.4.1) (2026-02-20)
 
 
