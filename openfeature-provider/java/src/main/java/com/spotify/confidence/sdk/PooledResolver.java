@@ -24,13 +24,20 @@ class PooledResolver implements LocalResolver {
   private final Slot[] slots;
   private final AtomicLong roundRobin = new AtomicLong(0);
 
-  static final int DEFAULT_POOL_SIZE = 2;
+  static int getNumInstances(int configuredPoolSize) {
+    final Optional<Integer> envOverride =
+        Optional.ofNullable(System.getProperty("CONFIDENCE_NUMBER_OF_WASM_INSTANCES"))
+            .or(() -> Optional.ofNullable(System.getenv("CONFIDENCE_NUMBER_OF_WASM_INSTANCES")))
+            .map(Integer::parseInt);
 
-  static int getNumInstances() {
-    return Optional.ofNullable(System.getProperty("CONFIDENCE_NUMBER_OF_WASM_INSTANCES"))
-        .or(() -> Optional.ofNullable(System.getenv("CONFIDENCE_NUMBER_OF_WASM_INSTANCES")))
-        .map(Integer::parseInt)
-        .orElse(DEFAULT_POOL_SIZE);
+    if (envOverride.isPresent()) {
+      logger.warn(
+          "CONFIDENCE_NUMBER_OF_WASM_INSTANCES is deprecated and will be removed in a future"
+              + " release. Use LocalProviderConfig.builder().resolverPoolSize() instead.");
+      return envOverride.get();
+    }
+
+    return configuredPoolSize;
   }
 
   PooledResolver(int size, Supplier<LocalResolver> factory) {
