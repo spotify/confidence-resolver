@@ -165,7 +165,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration)
 - `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
 - `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
-- `ResolverPoolSize` (int): Number of WASM resolver instances in the pool (default: `GOMAXPROCS`, i.e., number of CPU cores)
+- `ResolverPoolSize` (int): Number of WASM resolver instances in the pool (default: `2`). Increase for higher concurrency.
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
 
   - `nil` (default): Falls back to default values for flags requiring materializations
