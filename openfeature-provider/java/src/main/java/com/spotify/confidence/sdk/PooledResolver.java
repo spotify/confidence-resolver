@@ -34,13 +34,14 @@ class PooledResolver implements LocalResolver {
       logger.warn(
           "CONFIDENCE_NUMBER_OF_WASM_INSTANCES is deprecated and will be removed in a future"
               + " release. Use LocalProviderConfig.builder().resolverPoolSize() instead.");
-      return envOverride.get();
+      configuredPoolSize = envOverride.get();
     }
 
     return configuredPoolSize;
   }
 
   PooledResolver(int size, Supplier<LocalResolver> factory) {
+    size = Math.min(size, Runtime.getRuntime().availableProcessors());
     // +1 slot like Go implementation for extra headroom
     this.slots = new Slot[size + 1];
     for (int i = 0; i < slots.length; i++) {
