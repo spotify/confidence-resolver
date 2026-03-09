@@ -350,6 +350,48 @@ const confidence = Confidence.create({
 });
 ```
 
+## Metrics (Prometheus / Micrometer)
+
+The provider can expose resolver metrics via [Micrometer](https://micrometer.io/), making them available to Prometheus or any other supported monitoring system.
+
+### Setup
+
+Add Micrometer and the Prometheus registry to your dependencies:
+
+```xml
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-prometheus</artifactId>
+    <version>1.12.0</version>
+</dependency>
+```
+
+Register a `MeterRegistry` with the provider:
+
+```java
+PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+
+OpenFeatureLocalResolveProvider provider =
+    new OpenFeatureLocalResolveProvider(config, clientSecret);
+provider.registerMetrics(registry);
+
+// Expose registry.scrape() on your /metrics HTTP endpoint
+```
+
+### Exposed Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `confidence.resolver.wasm.memory_bytes` | Gauge | Total WASM linear memory in bytes across all pool instances |
+| `confidence.resolver.resolve.latency.sum` | Counter | Cumulative resolve latency in microseconds |
+| `confidence.resolver.resolve.latency.count` | Counter | Total number of resolves |
+| `confidence.resolver.resolve.count` | Counter | Resolve count, tagged by `reason` (e.g. `RESOLVE_REASON_MATCH`) |
+
+### Limitations
+
+- **Metric staleness**: Metrics update on log flush, which is tied to the state refresh interval (default 15s). Between flushes, Prometheus sees stale values.
+- **No percentiles**: Resolve latency is exposed as sum/count counters (sufficient for computing averages), not as a histogram — p50/p99 queries are not available.
+
 ## Requirements
 
 - Java 17+
