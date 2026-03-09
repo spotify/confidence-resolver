@@ -136,7 +136,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.stateProvider = new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory());
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
     this.flagLogger = wasmFlagLogger;
-    final int numInstances = PooledResolver.getNumInstances();
+    final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
@@ -162,7 +162,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.materializationStore = materializationStore;
     this.stateProvider = accountStateProvider;
     this.flagLogger = wasmFlagLogger;
-    final int numInstances = PooledResolver.getNumInstances();
+    final int numInstances =
+        PooledResolver.getNumInstances(LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE);
     final LocalResolver inner =
         new PooledResolver(
             numInstances,

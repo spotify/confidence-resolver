@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -45,6 +46,10 @@ type PooledResolver struct {
 var _ LocalResolver = (*PooledResolver)(nil)
 
 func NewPooledResolver(size int, supplier LocalResolverSupplier) *PooledResolver {
+	maxProcs := runtime.GOMAXPROCS(0)
+	if size > maxProcs {
+		size = maxProcs
+	}
 	slots := make([]slot, size+1)
 	for i := range slots {
 		slots[i] = slot{

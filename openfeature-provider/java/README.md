@@ -116,18 +116,34 @@ OpenFeatureAPI.getInstance().getProvider().shutdown();
 
 ## Configuration
 
+### Provider Configuration
+
+Use `LocalProviderConfig.builder()` to configure the provider:
+
+```java
+LocalProviderConfig config = LocalProviderConfig.builder()
+    .resolverPoolSize(4) // Number of WASM resolver instances (default: 2). Increase for higher concurrency.
+    .build();
+
+OpenFeatureLocalResolveProvider provider =
+    new OpenFeatureLocalResolveProvider(config, "your-client-secret");
+```
+
 ### Environment Variables
 
 Configure the provider behavior using environment variables:
 
 - `CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS`: How often to poll Confidence to get updates (default: `30` seconds)
-- `CONFIDENCE_NUMBER_OF_WASM_INSTANCES`: How many WASM instances to create (this defaults to `Runtime.getRuntime().availableProcessors()` and will affect the performance of the provider)
 - `CONFIDENCE_MATERIALIZATION_READ_TIMEOUT_SECONDS`: Timeout for materialization read operations when using remote materialization store (default: `2` seconds)
 - `CONFIDENCE_MATERIALIZATION_WRITE_TIMEOUT_SECONDS`: Timeout for materialization write operations when using remote materialization store (default: `5` seconds)
 
-##### Deprecated in favour of a custom ChannelFactory:
-- `CONFIDENCE_DOMAIN`: Override the default Confidence service endpoint (default: `edge-grpc.spotify.com`)
-- `CONFIDENCE_GRPC_PLAINTEXT`: Use plaintext gRPC connections instead of TLS (default: `false`)
+#### Deprecated Environment Variables
+
+The following environment variables are deprecated and will be removed in a future version. Use `LocalProviderConfig.builder()` instead:
+
+- `CONFIDENCE_NUMBER_OF_WASM_INSTANCES`: Use `.resolverPoolSize()` instead
+- `CONFIDENCE_DOMAIN`: Use a custom `ChannelFactory` instead
+- `CONFIDENCE_GRPC_PLAINTEXT`: Use a custom `ChannelFactory` instead
 
 ### Custom Channel Factory (Advanced)
 

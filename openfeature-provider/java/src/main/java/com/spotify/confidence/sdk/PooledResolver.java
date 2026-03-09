@@ -24,15 +24,24 @@ class PooledResolver implements LocalResolver {
   private final Slot[] slots;
   private final AtomicLong roundRobin = new AtomicLong(0);
 
-  static int getNumInstances() {
-    final var defaultNumberOfInstances = Runtime.getRuntime().availableProcessors();
-    return Optional.ofNullable(System.getProperty("CONFIDENCE_NUMBER_OF_WASM_INSTANCES"))
-        .or(() -> Optional.ofNullable(System.getenv("CONFIDENCE_NUMBER_OF_WASM_INSTANCES")))
-        .map(Integer::parseInt)
-        .orElse(defaultNumberOfInstances);
+  static int getNumInstances(int configuredPoolSize) {
+    final Optional<Integer> envOverride =
+        Optional.ofNullable(System.getProperty("CONFIDENCE_NUMBER_OF_WASM_INSTANCES"))
+            .or(() -> Optional.ofNullable(System.getenv("CONFIDENCE_NUMBER_OF_WASM_INSTANCES")))
+            .map(Integer::parseInt);
+
+    if (envOverride.isPresent()) {
+      logger.warn(
+          "CONFIDENCE_NUMBER_OF_WASM_INSTANCES is deprecated and will be removed in a future"
+              + " release. Use LocalProviderConfig.builder().resolverPoolSize() instead.");
+      configuredPoolSize = envOverride.get();
+    }
+
+    return configuredPoolSize;
   }
 
   PooledResolver(int size, Supplier<LocalResolver> factory) {
+    size = Math.min(size, Runtime.getRuntime().availableProcessors());
     // +1 slot like Go implementation for extra headroom
     this.slots = new Slot[size + 1];
     for (int i = 0; i < slots.length; i++) {
