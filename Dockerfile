@@ -622,6 +622,8 @@ RUN --mount=type=secret,id=crates_io_token \
 FROM openfeature-provider-rust.build AS openfeature-provider-rust.publish
 
 WORKDIR /workspace/openfeature-provider/rust
+# Copy shared proto files into crate directory for cargo publish tarball verification
+RUN cp -r ../proto proto
 RUN --mount=type=secret,id=crates_io_token \
     cargo login $(cat /run/secrets/crates_io_token) && \
     cargo publish

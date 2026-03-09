@@ -9,7 +9,7 @@ homepage = "https://confidence.spotify.com/"
 readme = "README.md"
 keywords = ["openfeature", "feature-flags", "confidence", "local-resolver"]
 categories = ["development-tools"]
-include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE"]
+include = ["src/**/*", "proto/**/*", "build.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [lib]
 name = "spotify_confidence_openfeature_provider_local"
