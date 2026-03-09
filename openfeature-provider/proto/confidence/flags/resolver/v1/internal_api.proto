@@ -44,6 +44,25 @@ message WriteFlagLogsResponse {}
 message TelemetryData {
   // Information about the SDK/provider
   Sdk sdk = 2;
+
+  ResolveLatency resolve_latency = 4;
+  repeated ResolveRate resolve_rate = 5;
+
+  // Current WASM linear memory size in bytes
+  uint64 memory_bytes = 7;
+
+  message ResolveLatency {
+    // Delta sum of observed values since the last flush (microseconds).
+    uint32 sum = 1;
+    // Delta count of observations since the last flush.
+    uint32 count = 2;
+  }
+
+  // Resolve rate tagged by reason.
+  message ResolveRate {
+    uint32 count = 1;
+    ResolveReason reason = 2;
+  }
 }
 
 message ClientInfo {

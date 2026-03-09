@@ -7,6 +7,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
@@ -142,7 +143,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
-            () -> new RecoveringResolver(() -> new WasmLocalResolver(flagLogger::write)));
+            () -> new RecoveringResolver(() -> new WasmLocalResolver(this::onLogFlush)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -168,7 +169,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
-            () -> new RecoveringResolver(() -> new WasmLocalResolver(wasmFlagLogger::write)));
+            () -> new RecoveringResolver(() -> new WasmLocalResolver(this::onLogFlush)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -176,12 +177,18 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * Registers Prometheus/Micrometer metrics for this provider. Requires {@code
    * io.micrometer:micrometer-core} on the classpath.
    *
+   * <p>Metrics are sourced from the WASM resolver's own telemetry — the same data sent to the
+   * Confidence backend is exposed locally via Micrometer.
+   *
    * <p>Exposed metrics:
    *
    * <ul>
    *   <li>{@code confidence.resolver.wasm.memory_bytes} — total WASM linear memory (gauge)
-   *   <li>{@code confidence.resolver.resolve} — flag resolution latency and count (timer)
-   *   <li>{@code confidence.resolver.state.updates} — state refresh count (counter)
+   *   <li>{@code confidence.resolver.resolve.latency.sum} — cumulative resolve latency in
+   *       microseconds (counter)
+   *   <li>{@code confidence.resolver.resolve.latency.count} — total number of resolves (counter)
+   *   <li>{@code confidence.resolver.resolve.count} — resolve count tagged by {@code reason}
+   *       (counter)
    * </ul>
    *
    * <p><strong>Example with Prometheus:</strong>
@@ -220,10 +227,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
       initialized = true;
       this.state.set(ProviderState.READY);
-      final ProviderMetrics m = metrics;
-      if (m != null) {
-        m.recordStateUpdate();
-      }
     } else {
       log.warn(
           "Initial state load failed, provider starting in NOT_READY state, serving default"
@@ -271,10 +274,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               // State refresh + full log flush
               resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
               resolver.flushAllLogs();
-            }
-            final ProviderMetrics m = metrics;
-            if (m != null) {
-              m.recordStateUpdate();
             }
           }
 
@@ -422,17 +421,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                       .build())
               .build();
 
-      final long resolveStart = System.nanoTime();
       final var processResponse =
           resolver
               .resolveProcess(
                   ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build())
               .toCompletableFuture()
               .join();
-      final ProviderMetrics m = metrics;
-      if (m != null) {
-        m.recordResolve(System.nanoTime() - resolveStart);
-      }
       resolveFlagResponse = processResponse.getResolved().getResponse();
 
       if (resolveFlagResponse.getResolvedFlagsList().isEmpty()) {
@@ -516,20 +510,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       }
     }
 
-    final long resolveStart = System.nanoTime();
     return resolver
         .resolveProcess(
             ResolveProcessRequest.newBuilder()
                 .setWithoutMaterializations(reqBuilder.build())
                 .build())
-        .thenApply(
-            processResponse -> {
-              final ProviderMetrics m = metrics;
-              if (m != null) {
-                m.recordResolve(System.nanoTime() - resolveStart);
-              }
-              return processResponse.getResolved().getResponse();
-            });
+        .thenApply(processResponse -> processResponse.getResolved().getResponse());
   }
 
   /**
@@ -540,6 +526,14 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    */
   void applyFlags(ApplyFlagsRequest request) {
     resolver.applyFlags(request);
+  }
+
+  private void onLogFlush(WriteFlagLogsRequest request) {
+    final ProviderMetrics m = metrics;
+    if (m != null && request.hasTelemetryData()) {
+      m.recordTelemetry(request.getTelemetryData());
+    }
+    flagLogger.write(request);
   }
 
   private static void handleStatusRuntimeException(StatusRuntimeException e) {
