@@ -184,4 +184,9 @@ class MaterializingResolver implements LocalResolver {
   public void close() {
     delegate.close();
   }
+
+  @Override
+  public long getWasmMemoryBytes() {
+    return delegate.getWasmMemoryBytes();
+  }
 }

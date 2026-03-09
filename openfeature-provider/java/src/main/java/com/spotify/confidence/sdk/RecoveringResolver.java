@@ -122,6 +122,12 @@ class RecoveringResolver implements LocalResolver {
   }
 
   @Override
+  public long getWasmMemoryBytes() {
+    final LocalResolver lr = current.get();
+    return lr != null ? lr.getWasmMemoryBytes() : 0;
+  }
+
+  @Override
   public void close() {
     // During close, do NOT recreate on failure — we are shutting down.
     try {

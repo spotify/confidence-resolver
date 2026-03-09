@@ -292,6 +292,11 @@ class WasmLocalResolver implements LocalResolver {
         });
   }
 
+  @Override
+  public long getWasmMemoryBytes() {
+    return (long) instance.memory().pages() * Memory.PAGE_SIZE;
+  }
+
   private interface ParserFn<T> {
 
     T apply(byte[] data) throws InvalidProtocolBufferException;

@@ -71,6 +71,15 @@ class PooledResolver implements LocalResolver {
     maintenance(LocalResolver::close);
   }
 
+  @Override
+  public long getWasmMemoryBytes() {
+    long total = 0;
+    for (Slot slot : slots) {
+      total += slot.resolver.getWasmMemoryBytes();
+    }
+    return total;
+  }
+
   /**
    * Acquires a read lock on a slot via round-robin with fallback. Used for resolve and apply
    * operations which can run concurrently.

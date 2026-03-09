@@ -40,4 +40,9 @@ interface LocalResolver {
 
   /** Closes the resolver and releases resources. */
   void close();
+
+  /** Returns the total WASM linear memory in bytes across all instances. */
+  default long getWasmMemoryBytes() {
+    return 0;
+  }
 }

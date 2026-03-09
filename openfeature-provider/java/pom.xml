@@ -208,6 +208,12 @@
       <artifactId>sdk</artifactId>
       <version>1.18.2</version>
     </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-core</artifactId>
+      <version>1.14.5</version>
+      <optional>true</optional>
+    </dependency>
   </dependencies>
 
   <build>
@@ -457,6 +463,8 @@
                 <ignoredUnusedDeclaredDependency>io.grpc:grpc-netty-shaded</ignoredUnusedDeclaredDependency>
                 <!-- Required by generated gRPC stubs -->
                 <ignoredUnusedDeclaredDependency>javax.annotation:javax.annotation-api</ignoredUnusedDeclaredDependency>
+                <!-- Optional: only used when consumer provides MeterRegistry -->
+                <ignoredUnusedDeclaredDependency>io.micrometer:micrometer-core</ignoredUnusedDeclaredDependency>
               </ignoredUnusedDeclaredDependencies>
             </configuration>
           </execution>

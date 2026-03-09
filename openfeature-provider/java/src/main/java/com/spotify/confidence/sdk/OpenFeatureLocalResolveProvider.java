@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.slf4j.Logger;
 
+
 /**
  * OpenFeature provider for Confidence feature flags using local resolution.
  *
@@ -63,6 +64,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
   private volatile boolean initialized = false;
+  private volatile ProviderMetrics metrics;
 
   private static long getPollIntervalSeconds() {
     return Optional.ofNullable(System.getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"))
@@ -170,6 +172,37 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
+  /**
+   * Registers Prometheus/Micrometer metrics for this provider. Requires {@code
+   * io.micrometer:micrometer-core} on the classpath.
+   *
+   * <p>Exposed metrics:
+   *
+   * <ul>
+   *   <li>{@code confidence.resolver.wasm.memory_bytes} — total WASM linear memory (gauge)
+   *   <li>{@code confidence.resolver.resolve} — flag resolution latency and count (timer)
+   *   <li>{@code confidence.resolver.state.updates} — state refresh count (counter)
+   * </ul>
+   *
+   * <p><strong>Example with Prometheus:</strong>
+   *
+   * <pre>{@code
+   * PrometheusMeterRegistry promRegistry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+   * provider.registerMetrics(promRegistry);
+   * // promRegistry.scrape() returns Prometheus text format
+   * }</pre>
+   *
+   * @param meterRegistry a Micrometer {@code MeterRegistry} instance
+   * @return this provider for chaining
+   */
+  public OpenFeatureLocalResolveProvider registerMetrics(Object meterRegistry) {
+    this.metrics =
+        new ProviderMetrics(
+            (io.micrometer.core.instrument.MeterRegistry) meterRegistry,
+            resolver::getWasmMemoryBytes);
+    return this;
+  }
+
   @Override
   public ProviderState getState() {
     return state.get();
@@ -187,6 +220,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
       initialized = true;
       this.state.set(ProviderState.READY);
+      final ProviderMetrics m = metrics;
+      if (m != null) {
+        m.recordStateUpdate();
+      }
     } else {
       log.warn(
           "Initial state load failed, provider starting in NOT_READY state, serving default"
@@ -234,6 +271,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               // State refresh + full log flush
               resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
               resolver.flushAllLogs();
+            }
+            final ProviderMetrics m = metrics;
+            if (m != null) {
+              m.recordStateUpdate();
             }
           }
 
@@ -381,12 +422,17 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                       .build())
               .build();
 
+      final long resolveStart = System.nanoTime();
       final var processResponse =
           resolver
               .resolveProcess(
                   ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build())
               .toCompletableFuture()
               .join();
+      final ProviderMetrics m = metrics;
+      if (m != null) {
+        m.recordResolve(System.nanoTime() - resolveStart);
+      }
       resolveFlagResponse = processResponse.getResolved().getResponse();
 
       if (resolveFlagResponse.getResolvedFlagsList().isEmpty()) {
@@ -470,12 +516,20 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       }
     }
 
+    final long resolveStart = System.nanoTime();
     return resolver
         .resolveProcess(
             ResolveProcessRequest.newBuilder()
                 .setWithoutMaterializations(reqBuilder.build())
                 .build())
-        .thenApply(processResponse -> processResponse.getResolved().getResponse());
+        .thenApply(
+            processResponse -> {
+              final ProviderMetrics m = metrics;
+              if (m != null) {
+                m.recordResolve(System.nanoTime() - resolveStart);
+              }
+              return processResponse.getResolved().getResponse();
+            });
   }
 
   /**
