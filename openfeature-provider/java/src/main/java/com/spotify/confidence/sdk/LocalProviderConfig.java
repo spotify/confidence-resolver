@@ -1,6 +1,10 @@
 package com.spotify.confidence.sdk;
 
 public class LocalProviderConfig {
+  /**
+   * Default number of WASM resolver instances in the pool. The actual pool size is capped at {@code
+   * Runtime.getRuntime().availableProcessors()}.
+   */
   public static final int DEFAULT_RESOLVER_POOL_SIZE = 2;
 
   private final ChannelFactory channelFactory;
@@ -51,6 +55,10 @@ public class LocalProviderConfig {
     return useRemoteMaterializationStore;
   }
 
+  /**
+   * Returns the number of WASM resolver instances in the pool. Defaults to {@link
+   * #DEFAULT_RESOLVER_POOL_SIZE}.
+   */
   public int getResolverPoolSize() {
     return resolverPoolSize;
   }
@@ -80,6 +88,13 @@ public class LocalProviderConfig {
       return this;
     }
 
+    /**
+     * Sets the number of WASM resolver instances in the pool. Increase for higher concurrency (with
+     * the penalty of higher memory footprint). The value is capped at the number of available
+     * processors. Defaults to {@link #DEFAULT_RESOLVER_POOL_SIZE}.
+     *
+     * @param resolverPoolSize the desired pool size
+     */
     public Builder resolverPoolSize(int resolverPoolSize) {
       this.resolverPoolSize = resolverPoolSize;
       return this;
