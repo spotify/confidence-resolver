@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.13.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.12.1...openfeature-provider-java-v0.13.0) (2026-03-06)
+
+
+### Features
+
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+
+
+### Bug Fixes
+
+* **java,go:** fix flaky flag log tests due to background flush race ([#310](https://github.com/spotify/confidence-resolver/issues/310)) ([f1ec5c6](https://github.com/spotify/confidence-resolver/commit/f1ec5c621760505c5bddc0cca14073bc18dc8374))
+* **java:** use writeLock for close/flush to prevent concurrent WASM access ([#303](https://github.com/spotify/confidence-resolver/issues/303)) ([6bcc320](https://github.com/spotify/confidence-resolver/commit/6bcc3205d38ac02d6e886862827c8deab6d5f455))
+
+
+### Performance Improvements
+
+* **java:** combine AOT compilation, shared module, and bounded flush ([#284](https://github.com/spotify/confidence-resolver/issues/284)) ([78b7423](https://github.com/spotify/confidence-resolver/commit/78b74236e1d725bd3ae33a6e3bdf83265ea84043))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.17 to 0.1.18
+
 ## [0.12.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.12.0...openfeature-provider-java-v0.12.1) (2026-02-20)
 
 

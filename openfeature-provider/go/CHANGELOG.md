@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.11.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.10.1...openfeature-provider/go/v0.11.0) (2026-03-06)
+
+
+### Features
+
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+
+
+### Bug Fixes
+
+* **java,go:** fix flaky flag log tests due to background flush race ([#310](https://github.com/spotify/confidence-resolver/issues/310)) ([f1ec5c6](https://github.com/spotify/confidence-resolver/commit/f1ec5c621760505c5bddc0cca14073bc18dc8374))
+* Skip rule if unrecognized ([#289](https://github.com/spotify/confidence-resolver/issues/289)) ([ea7a9fc](https://github.com/spotify/confidence-resolver/commit/ea7a9fc0c93235b1d8ee66ce4d52827c3516f87d))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.17 to 0.1.18
+
 ## [0.10.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.10.0...openfeature-provider/go/v0.10.1) (2026-02-20)
 
 

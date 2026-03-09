@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.3.1...openfeature-provider/rust-v0.4.0) (2026-03-06)
+
+
+### Features
+
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.12.1 to 0.13.0
+
 ## [0.3.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.3.0...openfeature-provider/rust-v0.3.1) (2026-02-20)
 
 
