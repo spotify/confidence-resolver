@@ -24,12 +24,13 @@ class PooledResolver implements LocalResolver {
   private final Slot[] slots;
   private final AtomicLong roundRobin = new AtomicLong(0);
 
+  static final int DEFAULT_POOL_SIZE = 2;
+
   static int getNumInstances() {
-    final var defaultNumberOfInstances = Runtime.getRuntime().availableProcessors();
     return Optional.ofNullable(System.getProperty("CONFIDENCE_NUMBER_OF_WASM_INSTANCES"))
         .or(() -> Optional.ofNullable(System.getenv("CONFIDENCE_NUMBER_OF_WASM_INSTANCES")))
         .map(Integer::parseInt)
-        .orElse(defaultNumberOfInstances);
+        .orElse(DEFAULT_POOL_SIZE);
   }
 
   PooledResolver(int size, Supplier<LocalResolver> factory) {
