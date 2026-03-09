@@ -2,9 +2,18 @@ use std::io::Result;
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
-    let proto_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("proto");
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+    // Crate-local proto/ is used by cargo publish (tarball verification).
+    // Shared workspace ../proto/ is the canonical source during development.
+    let proto_root = {
+        let local = manifest_dir.join("proto");
+        if local.exists() {
+            local
+        } else {
+            manifest_dir.join("..").join("proto")
+        }
+    };
 
     let proto_files = vec![
         proto_root.join("confidence/flags/resolver/v1/types.proto"),
