@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
@@ -19,6 +20,7 @@ type LocalResolverFactory interface {
 type LocalResolver interface {
 	SetResolverState(*wasm.SetResolverStateRequest) error
 	ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error)
+	ApplyFlags(*resolver.ApplyFlagsRequest) error
 	FlushAllLogs() error
 	FlushAssignLogs() error
 	Close(context.Context) error

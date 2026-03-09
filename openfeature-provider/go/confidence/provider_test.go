@@ -8,6 +8,7 @@ import (
 
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -495,6 +496,10 @@ func (m *mockResolverAPIForInit) FlushAllLogs() error {
 }
 
 func (m *mockResolverAPIForInit) FlushAssignLogs() error {
+	return nil
+}
+
+func (m *mockResolverAPIForInit) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
 	return nil
 }
 

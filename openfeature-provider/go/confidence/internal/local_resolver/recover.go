@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
@@ -92,6 +93,13 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 		if err != nil {
 			r.lastState.Store(request)
 		}
+	})
+	return
+}
+
+func (r *RecoveringResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) (err error) {
+	r.withRecover("ApplyFlags", &err, func(lr LocalResolver) {
+		err = lr.ApplyFlags(request)
 	})
 	return
 }
