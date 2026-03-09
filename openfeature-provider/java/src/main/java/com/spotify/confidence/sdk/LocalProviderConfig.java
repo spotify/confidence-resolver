@@ -17,7 +17,7 @@ public class LocalProviderConfig {
   }
 
   public LocalProviderConfig(ChannelFactory channelFactory, HttpClientFactory httpClientFactory) {
-    this(channelFactory, httpClientFactory, false, 0);
+    this(channelFactory, httpClientFactory, false, DEFAULT_RESOLVER_POOL_SIZE);
   }
 
   public LocalProviderConfig(
