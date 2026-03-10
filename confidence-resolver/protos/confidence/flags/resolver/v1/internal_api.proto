@@ -125,13 +125,6 @@ message TelemetryData {
   uint64 memory_bytes = 7;
 
   message ResolveLatency {
-    option (confidence.api.histogram) = {
-      min_value: 1
-      max_value: 1000000
-      bucket_count: 100
-      unit: "microseconds"
-    };
-
     // Delta sum of observed values since the last flush.
     uint32 sum = 1;
     uint32 count = 2;
