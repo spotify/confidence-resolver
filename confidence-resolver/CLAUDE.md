@@ -38,7 +38,7 @@ The crate does NOT use `thiserror`. It has a custom error system:
 The build script compiles protos from `protos/`. Beyond standard prost generation:
 - When `json` feature is enabled, `pbjson-build` generates additional `.serde.rs` files for each module
 - Google well-known types are re-exported from `pbjson_types` (with `json`) or `prost_types` (without)
-- It also generates `telemetry_config.rs` by scanning proto annotations for histogram configs and emitting `HistogramConfig` trait impls
+- It also generates `telemetry_config.rs` with constants derived from proto descriptors (e.g. `REASON_COUNT` from the `ResolveReason` enum)
 
 ## Key Types
 
