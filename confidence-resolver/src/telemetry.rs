@@ -100,22 +100,21 @@ impl Histogram {
     }
 }
 
-struct HistogramSnapshot {
-    sum: u64,
-    count: u64,
-    buckets: Vec<u64>,
-}
-
 /// Plain snapshot of cumulative telemetry counters.
 ///
 /// Used for delta computation between flushes and as the future intermediate
 /// representation for Prometheus text format serialization.
 #[derive(Clone, Default)]
 pub struct TelemetrySnapshot {
-    pub latency_sum: u64,
-    pub latency_count: u64,
-    pub latency_buckets: Vec<u64>,
+    pub latency: HistogramSnapshot,
     pub resolve_rates: Vec<u64>,
+}
+
+#[derive(Clone, Default)]
+pub struct HistogramSnapshot {
+    pub sum: u64,
+    pub count: u64,
+    pub buckets: Vec<u64>,
 }
 
 /// Concurrent telemetry collector.
@@ -174,11 +173,8 @@ impl Telemetry {
     /// [`TelemetrySnapshot`] with raw u64 counters. Not perfectly atomic across
     /// all fields, but each individual counter load is atomic — acceptable for metrics.
     pub fn snapshot(&self) -> TelemetrySnapshot {
-        let hist = self.resolve_latency.snapshot();
         TelemetrySnapshot {
-            latency_sum: hist.sum,
-            latency_count: hist.count,
-            latency_buckets: hist.buckets,
+            latency: self.resolve_latency.snapshot(),
             resolve_rates: self
                 .resolve_rates
                 .iter()
@@ -199,16 +195,17 @@ impl Telemetry {
         let previous = last.swap(Arc::new(current.clone()));
 
         // Delta histogram
-        let delta_sum = current.latency_sum.wrapping_sub(previous.latency_sum) as u32;
-        let delta_count = current.latency_count.wrapping_sub(previous.latency_count) as u32;
+        let delta_sum = current.latency.sum.wrapping_sub(previous.latency.sum) as u32;
+        let delta_count = current.latency.count.wrapping_sub(previous.latency.count) as u32;
 
         let resolve_latency = if delta_count > 0 {
             let delta_buckets: Vec<u32> = current
-                .latency_buckets
+                .latency
+                .buckets
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    let p = previous.latency_buckets.get(i).copied().unwrap_or(0);
+                    let p = previous.latency.buckets.get(i).copied().unwrap_or(0);
                     c.wrapping_sub(p) as u32
                 })
                 .collect();
@@ -372,8 +369,8 @@ mod tests {
         let tel = Telemetry::new();
         let snap = tel.snapshot();
 
-        assert_eq!(snap.latency_count, 0);
-        assert_eq!(snap.latency_sum, 0);
+        assert_eq!(snap.latency.count, 0);
+        assert_eq!(snap.latency.sum, 0);
         assert!(snap.resolve_rates.iter().all(|&r| r == 0));
     }
 
@@ -385,8 +382,8 @@ mod tests {
         tel.record_latency_us(3000);
 
         let snap = tel.snapshot();
-        assert_eq!(snap.latency_count, 3);
-        assert_eq!(snap.latency_sum, 6000);
+        assert_eq!(snap.latency.count, 3);
+        assert_eq!(snap.latency.sum, 6000);
     }
 
     #[test]
@@ -412,12 +409,12 @@ mod tests {
         tel.mark_resolve(ResolveReason::Match);
 
         let snap1 = tel.snapshot();
-        assert_eq!(snap1.latency_count, 1);
+        assert_eq!(snap1.latency.count, 1);
         assert_eq!(snap1.resolve_rates[ResolveReason::Match as usize], 1);
 
         // Second snapshot should show same values
         let snap2 = tel.snapshot();
-        assert_eq!(snap2.latency_count, 1);
+        assert_eq!(snap2.latency.count, 1);
         assert_eq!(snap2.resolve_rates[ResolveReason::Match as usize], 1);
 
         // Add more data
@@ -425,7 +422,7 @@ mod tests {
         tel.mark_resolve(ResolveReason::NoTreatmentMatch);
 
         let snap3 = tel.snapshot();
-        assert_eq!(snap3.latency_count, 2);
+        assert_eq!(snap3.latency.count, 2);
         assert_eq!(snap3.resolve_rates[ResolveReason::Match as usize], 1);
         assert_eq!(
             snap3.resolve_rates[ResolveReason::NoTreatmentMatch as usize],
@@ -456,7 +453,7 @@ mod tests {
         }
 
         let snap = tel.snapshot();
-        assert_eq!(snap.latency_count, 1000);
+        assert_eq!(snap.latency.count, 1000);
         assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 1000);
     }
 
