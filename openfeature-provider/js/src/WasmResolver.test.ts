@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnsafeWasmResolver, WasmResolver } from './WasmResolver';
 import { readFileSync } from 'node:fs';
 import { ResolveProcessRequest } from './proto/confidence/wasm/wasm_api';
-import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
-import { WriteFlagLogsRequest } from './proto/test-only';
+import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
+import { SdkId as TestSdkId, WriteFlagLogsRequest } from './proto/test-only';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
 const stateBytes = readFileSync(__dirname + '/../../../wasm/resolver_state.pb');
@@ -137,6 +137,31 @@ describe('basic operation', () => {
           const total = span.counts.reduce((a, b) => a + b, 0);
           expect(total).toBeGreaterThan(0);
         }
+      });
+
+      it('should include sdk info in telemetry data', () => {
+        const requestWithSdk: ResolveProcessRequest = {
+          deferredMaterializations: {
+            ...RESOLVE_REQUEST.deferredMaterializations!,
+            sdk: {
+              id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+              version: '1.0.0',
+            },
+          },
+        };
+        wasmResolver.resolveProcess(requestWithSdk);
+
+        const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
+        const telemetry = decoded.telemetryData;
+
+        expect(telemetry).toBeDefined();
+        // SDK info must be preserved alongside telemetry metrics
+        expect(telemetry!.sdk).toBeDefined();
+        expect(telemetry!.sdk!.id).toBe(TestSdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER);
+        expect(telemetry!.sdk!.version).toBe('1.0.0');
+        // Telemetry metrics should also be present
+        expect(telemetry!.resolveRate.length).toBeGreaterThan(0);
+        expect(telemetry!.resolveLatency).toBeDefined();
       });
     });
   });
