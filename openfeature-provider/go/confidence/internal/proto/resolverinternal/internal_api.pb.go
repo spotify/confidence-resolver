@@ -185,7 +185,8 @@ func (*WriteFlagLogsResponse) Descriptor() ([]byte, []int) {
 	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{1}
 }
 
-// Collection of telemetry metrics
+// Collection of telemetry metrics. Counter and histogram fields contain deltas
+// since the last flush. Gauge fields are latest point-in-time values.
 type TelemetryData struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Information about the SDK/provider

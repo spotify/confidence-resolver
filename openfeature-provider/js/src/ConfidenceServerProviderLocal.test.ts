@@ -23,6 +23,7 @@ const mockedWasmResolver: MockedObject<LocalResolver> = {
   flushLogs: vi.fn().mockReturnValue(new Uint8Array(100)),
   flushAssigned: vi.fn().mockReturnValue(new Uint8Array(50)),
   applyFlags: vi.fn(),
+  prometheusSnapshot: vi.fn().mockReturnValue(''),
 };
 
 let provider: ConfidenceServerProviderLocal;

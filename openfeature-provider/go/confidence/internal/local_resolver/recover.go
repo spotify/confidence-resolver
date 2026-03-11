@@ -117,6 +117,13 @@ func (r *RecoveringResolver) FlushAssignLogs() (err error) {
 	return
 }
 
+func (r *RecoveringResolver) PrometheusSnapshot() (text string, err error) {
+	r.withRecover("PrometheusSnapshot", &err, func(lr LocalResolver) {
+		text, err = lr.PrometheusSnapshot()
+	})
+	return
+}
+
 func (r *RecoveringResolver) Close(ctx context.Context) error {
 	// For Close, if we panic, don't recreate during shutdown; just surface error.
 	defer func() {

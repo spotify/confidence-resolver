@@ -363,6 +363,13 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   /**
+   * Returns a Prometheus metrics snapshot from the WASM resolver.
+   */
+  getPrometheusMetrics(): string {
+    return this.resolver.prometheusSnapshot('0');
+  }
+
+  /**
    * Applies a previously resolved flag, logging that it was used/exposed.
    * Call this when a flag value is actually rendered or used in the client.
    * @param resolveToken - Base64-encoded resolve token from the flag bundle

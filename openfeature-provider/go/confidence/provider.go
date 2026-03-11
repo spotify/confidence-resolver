@@ -338,6 +338,15 @@ func evaluate[T any](
 	}
 }
 
+// GetPrometheusMetrics returns a Prometheus text-format metrics snapshot
+// aggregated from all pooled resolver instances.
+func (p *LocalResolverProvider) GetPrometheusMetrics() (string, error) {
+	if p.resolver == nil {
+		return "", fmt.Errorf("provider not initialized")
+	}
+	return p.resolver.PrometheusSnapshot()
+}
+
 // Hooks returns provider hooks (none for this implementation)
 func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
 	return []openfeature.Hook{}

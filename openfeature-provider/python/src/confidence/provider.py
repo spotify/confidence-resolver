@@ -928,6 +928,19 @@ class ConfidenceProvider(AbstractProvider):
 
         return current, True
 
+    def get_prometheus_metrics(self) -> str:
+        """Get a Prometheus metrics snapshot.
+
+        Returns:
+            The Prometheus metrics text.
+
+        Raises:
+            RuntimeError: If the provider is not initialized.
+        """
+        if self._resolver is None:
+            raise RuntimeError("Provider not initialized")
+        return self._resolver.prometheus_snapshot()
+
     @staticmethod
     def _map_resolve_reason(reason: types_pb2.ResolveReason) -> Reason:
         """Map protobuf ResolveReason to OpenFeature Reason.

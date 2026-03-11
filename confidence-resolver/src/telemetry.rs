@@ -1,3 +1,4 @@
+use core::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -115,6 +116,93 @@ pub struct HistogramSnapshot {
     pub sum: u64,
     pub count: u64,
     pub buckets: Vec<u64>,
+}
+
+impl TelemetrySnapshot {
+    /// Format the snapshot as Prometheus exposition text.
+    ///
+    /// All values are cumulative counters, matching what Prometheus expects.
+    /// The histogram uses cumulative `le` buckets derived from the exponential
+    /// bucket boundaries.
+    ///
+    /// `instance` is included as an `instance="..."` label on every metric,
+    /// allowing outputs from multiple WASM instances to be concatenated into
+    /// a single scrape endpoint.
+    pub fn to_prometheus(&self, instance: &str) -> String {
+        let mut out = String::new();
+        // fmt::Write for String is infallible; ignore the Ok.
+        let _ = self.write_prometheus(&mut out, instance);
+        out
+    }
+
+    fn write_prometheus(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
+        self.write_histogram(w, instance)?;
+        self.write_resolve_rates(w, instance)
+    }
+
+    fn write_histogram(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
+        if self.latency.count == 0 {
+            return Ok(());
+        }
+
+        writeln!(
+            w,
+            "# TYPE confidence_resolve_latency_microseconds histogram"
+        )?;
+
+        let mut cumulative: u64 = 0;
+        for (i, &count) in self.latency.buckets.iter().enumerate() {
+            cumulative = cumulative.wrapping_add(count);
+            if cumulative == 0 {
+                continue;
+            }
+            let upper = ((i as f64 + 1.0) * LN_RATIO).exp();
+            writeln!(
+                w,
+                "confidence_resolve_latency_microseconds_bucket{{instance=\"{instance}\",le=\"{upper:.6e}\"}} {cumulative}"
+            )?;
+        }
+        writeln!(
+            w,
+            "confidence_resolve_latency_microseconds_bucket{{instance=\"{instance}\",le=\"+Inf\"}} {}",
+            self.latency.count
+        )?;
+        writeln!(
+            w,
+            "confidence_resolve_latency_microseconds_sum{{instance=\"{instance}\"}} {}",
+            self.latency.sum
+        )?;
+        writeln!(
+            w,
+            "confidence_resolve_latency_microseconds_count{{instance=\"{instance}\"}} {}",
+            self.latency.count
+        )?;
+
+        Ok(())
+    }
+
+    fn write_resolve_rates(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
+        let has_any = self.resolve_rates.iter().any(|&c| c > 0);
+        if !has_any {
+            return Ok(());
+        }
+
+        writeln!(w, "# TYPE confidence_resolves_total counter")?;
+        for (i, &count) in self.resolve_rates.iter().enumerate() {
+            if count == 0 {
+                continue;
+            }
+            let label = ResolveReason::try_from(i as i32)
+                .map(|r| r.as_str_name())
+                .unwrap_or("UNKNOWN");
+            writeln!(
+                w,
+                "confidence_resolves_total{{instance=\"{instance}\",reason=\"{label}\"}} {count}"
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Concurrent telemetry collector.
@@ -524,5 +612,85 @@ mod tests {
         let delta = tel.delta_snapshot(&last);
         assert!(delta.resolve_latency.is_none()); // no counter activity
         assert_eq!(delta.state_age.unwrap().last_state_update, 1000);
+    }
+
+    #[test]
+    fn prometheus_empty_snapshot() {
+        let snap = TelemetrySnapshot::default();
+        assert_eq!(snap.to_prometheus("w0"), "");
+    }
+
+    #[test]
+    fn prometheus_histogram_and_counters() {
+        let tel = Telemetry::new();
+        tel.record_latency_us(100);
+        tel.record_latency_us(500);
+        tel.mark_resolve(ResolveReason::Match);
+        tel.mark_resolve(ResolveReason::Match);
+        tel.mark_resolve(ResolveReason::NoSegmentMatch);
+
+        let prom = tel.snapshot().to_prometheus("w0");
+
+        // Histogram header
+        assert!(prom.contains("# TYPE confidence_resolve_latency_microseconds histogram"));
+        // Must have +Inf bucket with instance label
+        assert!(prom.contains(
+            r#"confidence_resolve_latency_microseconds_bucket{instance="w0",le="+Inf"} 2"#
+        ));
+        // Sum and count with instance label
+        assert!(prom.contains(r#"confidence_resolve_latency_microseconds_sum{instance="w0"} 600"#));
+        assert!(prom.contains(r#"confidence_resolve_latency_microseconds_count{instance="w0"} 2"#));
+
+        // Counters with instance label
+        assert!(prom.contains("# TYPE confidence_resolves_total counter"));
+        assert!(prom.contains(
+            r#"confidence_resolves_total{instance="w0",reason="RESOLVE_REASON_MATCH"} 2"#
+        ));
+        assert!(prom.contains(
+            r#"confidence_resolves_total{instance="w0",reason="RESOLVE_REASON_NO_SEGMENT_MATCH"} 1"#
+        ));
+        // Zero-count reasons should be omitted
+        assert!(!prom.contains("FLAG_ARCHIVED"));
+    }
+
+    #[test]
+    fn prometheus_cumulative_buckets() {
+        let tel = Telemetry::new();
+        // Two observations in different buckets
+        tel.record_latency_us(10);
+        tel.record_latency_us(10_000);
+
+        let prom = tel.snapshot().to_prometheus("w0");
+
+        // Parse all le buckets and verify they are monotonically non-decreasing
+        let bucket_counts: Vec<u64> = prom
+            .lines()
+            .filter(|l| l.contains("le=\"") && !l.contains("+Inf"))
+            .map(|l| l.rsplit_once(' ').unwrap().1.parse::<u64>().unwrap())
+            .collect();
+
+        for pair in bucket_counts.windows(2) {
+            assert!(
+                pair[1] >= pair[0],
+                "Prometheus buckets must be cumulative, got {} then {}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    #[test]
+    fn prometheus_distinct_instances_concatenate() {
+        let tel = Telemetry::new();
+        tel.record_latency_us(100);
+        tel.mark_resolve(ResolveReason::Match);
+
+        let snap = tel.snapshot();
+        let mut combined = snap.to_prometheus("w0");
+        combined.push_str(&snap.to_prometheus("w1"));
+
+        // Both instances present
+        assert!(combined.contains(r#"instance="w0""#));
+        assert!(combined.contains(r#"instance="w1""#));
     }
 }

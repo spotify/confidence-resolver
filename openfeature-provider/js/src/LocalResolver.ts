@@ -8,4 +8,5 @@ export interface LocalResolver {
   flushLogs(): Uint8Array;
   flushAssigned(): Uint8Array;
   applyFlags(request: ApplyFlagsRequest): void;
+  prometheusSnapshot(instance: string): string;
 }

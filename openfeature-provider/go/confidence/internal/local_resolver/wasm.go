@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "embed"
@@ -17,6 +19,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// instanceCounter is a package-level counter for auto-assigning unique instance IDs.
+var instanceCounter atomic.Int64
 
 // defaultWasmBytes contains the embedded WASM resolver module.
 // This file is automatically populated during the build process from wasm/confidence_resolver.wasm.
@@ -32,9 +37,10 @@ type LogSink func(logs *resolverv1.WriteFlagLogsRequest)
 func NoOpLogSink(logs *resolverv1.WriteFlagLogsRequest) {}
 
 type WasmResolver struct {
-	instance api.Module
-	logSink  LogSink
-	mu       *sync.Mutex
+	instance   api.Module
+	logSink    LogSink
+	mu         *sync.Mutex
+	instanceID string
 }
 
 var _ LocalResolver = (*WasmResolver)(nil)
@@ -65,6 +71,18 @@ func (r *WasmResolver) FlushAssignLogs() error {
 		r.logSink(resp)
 	}
 	return err
+}
+
+func (r *WasmResolver) PrometheusSnapshot() (string, error) {
+	req := &wasm.PrometheusSnapshotRequest{
+		Instance: r.instanceID,
+	}
+	resp := &wasm.PrometheusSnapshotResponse{}
+	err := r.call("wasm_msg_guest_prometheus_snapshot", req, resp)
+	if err != nil {
+		return "", err
+	}
+	return resp.GetText(), nil
 }
 
 func (r *WasmResolver) Close(ctx context.Context) error {
@@ -158,10 +176,12 @@ func (wrf *WasmResolverFactory) New() LocalResolver {
 	if err != nil {
 		panic(err)
 	}
+	id := instanceCounter.Add(1)
 	return &WasmResolver{
-		instance: instance,
-		logSink:  wrf.logSink,
-		mu:       &sync.Mutex{},
+		instance:   instance,
+		logSink:    wrf.logSink,
+		mu:         &sync.Mutex{},
+		instanceID: fmt.Sprintf("%d", id),
 	}
 }
 

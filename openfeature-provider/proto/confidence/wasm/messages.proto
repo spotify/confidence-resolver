@@ -24,3 +24,11 @@ message Response {
         string error = 2;
     }
 }
+
+message PrometheusSnapshotRequest {
+    string instance = 1;
+}
+
+message PrometheusSnapshotResponse {
+    string text = 1;
+}

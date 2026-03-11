@@ -150,3 +150,15 @@ class LocalResolver:
         """
         # TODO: Buffer logs and resend on failure (like JS implementation)
         return self._delegate.flush_assigned()
+
+    def prometheus_snapshot(self) -> str:
+        """Get a Prometheus metrics snapshot.
+
+        Returns:
+            The Prometheus metrics text.
+        """
+        try:
+            return self._delegate.prometheus_snapshot()
+        except WasmCrashError as error:
+            self._reload_instance(error)
+            raise

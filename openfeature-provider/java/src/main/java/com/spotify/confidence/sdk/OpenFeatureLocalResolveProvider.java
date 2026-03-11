@@ -488,6 +488,15 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     resolver.applyFlags(request);
   }
 
+  /**
+   * Returns a Prometheus metrics snapshot aggregated from all resolver instances in the pool.
+   *
+   * @return the concatenated Prometheus metrics text from all pool slots
+   */
+  public String getPrometheusMetrics() {
+    return resolver.prometheusSnapshot();
+  }
+
   private static void handleStatusRuntimeException(StatusRuntimeException e) {
     if (e.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED) {
       log.error("Deadline exceeded when calling provider backend", e);

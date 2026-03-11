@@ -20,6 +20,7 @@ type LocalResolver interface {
 	ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error)
 	FlushAllLogs() error
 	FlushAssignLogs() error
+	PrometheusSnapshot() (string, error)
 	Close(context.Context) error
 }
 

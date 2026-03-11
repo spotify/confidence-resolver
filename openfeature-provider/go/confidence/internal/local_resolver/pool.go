@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -89,6 +90,20 @@ func (s *PooledResolver) FlushAssignLogs() error {
 	return s.maintenance(func(lr LocalResolver) error {
 		return lr.FlushAssignLogs()
 	})
+}
+
+// PrometheusSnapshot implements LocalResolver.
+func (s *PooledResolver) PrometheusSnapshot() (string, error) {
+	var b strings.Builder
+	err := s.maintenance(func(lr LocalResolver) error {
+		text, err := lr.PrometheusSnapshot()
+		if err != nil {
+			return err
+		}
+		b.WriteString(text)
+		return nil
+	})
+	return b.String(), err
 }
 
 func (s *PooledResolver) Close(ctx context.Context) error {
