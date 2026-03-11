@@ -46,7 +46,7 @@ module Confidence
           evaluationContext: context || {},
           apply: apply,
           flags: flags,
-          sdk: {id: "SDK_ID_PYTHON_PROVIDER", version: VERSION}
+          sdk: {id: "SDK_ID_RUBY_PROVIDER", version: VERSION}
         })
 
         resolved_flags = result["resolvedFlags"] || []
