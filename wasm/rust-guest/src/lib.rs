@@ -188,12 +188,7 @@ wasm_msg_guest! {
 
     fn bounded_flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
         let mut req = RESOLVE_LOGGER.checkpoint();
-        let mut telemetry = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
-        // Preserve SDK info from resolve logger (delta_snapshot doesn't track it)
-        if let Some(existing_td) = &req.telemetry_data {
-            telemetry.sdk = existing_td.sdk.clone();
-        }
-        req.telemetry_data = Some(telemetry);
+        req.telemetry_data = Some(TELEMETRY.delta_snapshot(&LAST_FLUSHED));
         ASSIGN_LOGGER.checkpoint_fill_with_limit(&mut req, LOG_TARGET_BYTES, false);
         Ok(req)
     }
