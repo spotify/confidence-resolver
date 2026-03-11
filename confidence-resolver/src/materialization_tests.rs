@@ -299,7 +299,7 @@ fn segment_match_with_inclusion_record_present() {
 
     assert_eq!(
         resolver
-            .segment_match(&segment, "test-user", &mut ctx)
+            .segment_match(&segment, Some("test-user"), &mut ctx)
             .unwrap(),
         Some(true),
     );
@@ -315,7 +315,7 @@ fn segment_match_with_inclusion_record_absent() {
     let mut ctx = MaterializationContext::complete(vec![]);
     assert_eq!(
         resolver
-            .segment_match(&segment, "test-user", &mut ctx)
+            .segment_match(&segment, Some("test-user"), &mut ctx)
             .unwrap(),
         Some(false),
     );
@@ -329,7 +329,7 @@ fn segment_match_without_materializations_discovers_missing() {
         .unwrap();
 
     let mut ctx = MaterializationContext::discovery();
-    let result = resolver.segment_match(&segment, "test-user", &mut ctx);
+    let result = resolver.segment_match(&segment, Some("test-user"), &mut ctx);
 
     assert_eq!(result.unwrap(), None);
     assert!(ctx.has_missing_reads());
@@ -693,7 +693,7 @@ fn and_with_two_materialized_segments_discovers_both() {
         .unwrap();
 
     let mut ctx = MaterializationContext::discovery();
-    let _ = resolver.segment_match(&segment, "test-user", &mut ctx);
+    let _ = resolver.segment_match(&segment, Some("test-user"), &mut ctx);
 
     // Current behavior: AND short-circuits on the first false (mat_A returns false in
     // discovery mode), so mat_B is never evaluated. This means only mat_A is discovered.
@@ -724,7 +724,7 @@ fn or_with_two_materialized_segments_discovers_both() {
         .unwrap();
 
     let mut ctx = MaterializationContext::discovery();
-    let _ = resolver.segment_match(&segment, "test-user", &mut ctx);
+    let _ = resolver.segment_match(&segment, Some("test-user"), &mut ctx);
 
     // OR: mat_A returns false → continues to mat_B → mat_B returns false → both discovered!
     assert!(ctx.has_missing_reads());
@@ -758,7 +758,7 @@ fn and_with_known_false_attribute_prunes_materialized_segment() {
         .unwrap();
 
     let mut ctx = MaterializationContext::discovery();
-    let result = resolver.segment_match(&segment, "test-user", &mut ctx);
+    let result = resolver.segment_match(&segment, Some("test-user"), &mut ctx);
 
     // The attribute criterion is false → AND short-circuits → mat_A never evaluated
     assert_eq!(result.unwrap(), Some(false));
@@ -791,7 +791,7 @@ fn or_with_known_true_attribute_prunes_materialized_segment() {
         .unwrap();
 
     let mut ctx = MaterializationContext::discovery();
-    let result = resolver.segment_match(&segment, "test-user", &mut ctx);
+    let result = resolver.segment_match(&segment, Some("test-user"), &mut ctx);
 
     // The attribute criterion is true → OR short-circuits → mat_A never evaluated
     assert_eq!(result.unwrap(), Some(true));
@@ -823,7 +823,7 @@ fn and_with_two_materialized_segments_discovers_both_via_kleene() {
         .unwrap();
 
     let mut ctx = MaterializationContext::discovery();
-    let _ = resolver.segment_match(&segment, "test-user", &mut ctx);
+    let _ = resolver.segment_match(&segment, Some("test-user"), &mut ctx);
 
     assert_eq!(
         ctx.to_read.len(),
@@ -855,7 +855,7 @@ fn not_materialized_segment_discovers_and_returns_unknown() {
         .unwrap();
 
     let mut ctx = MaterializationContext::discovery();
-    let result = resolver.segment_match(&segment, "test-user", &mut ctx);
+    let result = resolver.segment_match(&segment, Some("test-user"), &mut ctx);
 
     // NOT(Unknown) = Unknown
     assert_eq!(result.unwrap(), None);
