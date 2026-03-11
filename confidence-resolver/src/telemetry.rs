@@ -1,9 +1,12 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use arc_swap::ArcSwap;
 
 use crate::ResolveReason;
+
+type Sdk = crate::proto::confidence::flags::resolver::v1::Sdk;
 
 mod pb {
     pub use crate::proto::confidence::flags::resolver::v1::telemetry_data::{
@@ -159,6 +162,9 @@ pub struct Telemetry {
 
     /// Provider called at snapshot time to read current memory usage in bytes.
     memory_provider: Box<dyn Fn() -> u64 + Send + Sync>,
+
+    /// SDK info, set once from the first resolve request.
+    sdk: OnceLock<Sdk>,
 }
 
 impl Telemetry {
@@ -173,7 +179,13 @@ impl Telemetry {
             resolve_rates: resolve_rates.into_boxed_slice(),
             last_state_update: AtomicU64::new(0),
             memory_provider: Box::new(memory_provider),
+            sdk: OnceLock::new(),
         }
+    }
+
+    /// Set the SDK info. Only the first call takes effect.
+    pub fn set_sdk(&self, sdk: Sdk) {
+        let _ = self.sdk.set(sdk);
     }
 
     /// Record a resolve latency observation in microseconds.
@@ -280,7 +292,7 @@ impl Telemetry {
         };
 
         pb::TelemetryData {
-            sdk: None,
+            sdk: self.sdk.get().cloned(),
             resolve_latency,
             resolve_rate,
             state_age,

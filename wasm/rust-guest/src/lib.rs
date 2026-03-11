@@ -161,6 +161,10 @@ wasm_msg_guest! {
             None => return Err("request is required".to_string()),
         };
 
+        if let Some(sdk) = resolve_request.sdk.clone() {
+            TELEMETRY.set_sdk(sdk);
+        }
+
         let evaluation_context = resolve_request.evaluation_context.clone().unwrap_or_default();
         let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
         let result = resolver.resolve_flags(request);
