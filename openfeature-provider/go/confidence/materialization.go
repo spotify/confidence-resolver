@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
@@ -166,6 +167,10 @@ func readResultsToMaterializationRecords(results []ReadResult) []*wasm.Materiali
 		}
 	}
 	return records
+}
+
+func (m *materializationSupportedResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
+	return m.current.ApplyFlags(request)
 }
 
 func (m *materializationSupportedResolver) FlushAllLogs() (err error) {

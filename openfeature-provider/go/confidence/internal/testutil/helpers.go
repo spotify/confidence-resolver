@@ -428,6 +428,7 @@ func (m *MockedLocalResolver) ResolveProcess(*wasm.ResolveProcessRequest) (*wasm
 	return m.Response, m.Err
 }
 func (m MockedLocalResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }
+func (m MockedLocalResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error         { return nil }
 
 func MustJSONToProto(jsonString string) *structpb.Value {
 	var v structpb.Value

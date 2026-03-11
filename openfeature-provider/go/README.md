@@ -395,6 +395,59 @@ With `nil` default, you get the resolved value as-is using natural Go types (num
 - Negative numbers cannot convert to unsigned integers
 - Null values in the flag use the corresponding default value for that field
 
+## Direct Resolve API
+
+In addition to the standard OpenFeature evaluation methods, the provider exposes a lower-level `Resolve` / `ApplyFlags` API for use cases that need more control — for example, resolving multiple flags in a single call or deferring exposure logging.
+
+### Resolve with immediate apply
+
+```go
+provider, _ := confidence.NewProvider(ctx, confidence.ProviderConfig{
+    ClientSecret: "your-client-secret",
+})
+openfeature.SetProviderAndWait(provider)
+
+evalCtx := openfeature.FlattenedContext{
+    "targeting_key": "user-123",
+    "country":       "US",
+}
+
+// Resolve one or more flags at once with apply=true to record exposures immediately.
+// Pass an empty slice to resolve all flags available to the client.
+resp, err := provider.Resolve(ctx, evalCtx, []string{"flag-a", "flag-b"}, true)
+if err != nil {
+    log.Fatal(err)
+}
+for _, f := range resp.ResolvedFlags {
+    log.Printf("%s → %s", f.Flag, f.Variant)
+}
+```
+
+### Deferred apply
+
+When `apply` is `false`, the response contains a `ResolveToken`. Pass it to `ApplyFlags` later to record exposure events — useful when you resolve flags on the server but only want to log exposure once the client actually renders the experience.
+
+```go
+// 1. Resolve without applying
+resp, err := provider.Resolve(ctx, evalCtx, []string{"checkout-flow"}, false)
+if err != nil {
+    log.Fatal(err)
+}
+
+// 2. … later, after the user has been exposed …
+err = provider.ApplyFlags(&resolver.ApplyFlagsRequest{
+    Flags: []*resolver.AppliedFlag{
+        {Flag: "flags/checkout-flow", ApplyTime: timestamppb.Now()},
+    },
+    ClientSecret: "your-client-secret",
+    ResolveToken: resp.ResolveToken,
+    SendTime:     timestamppb.Now(),
+})
+if err != nil {
+    log.Printf("apply failed: %v", err)
+}
+```
+
 ## Logging
 
 The provider uses `log/slog` for structured logging. By default, logs at `Info` level and above are written to `stderr`.
