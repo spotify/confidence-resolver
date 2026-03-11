@@ -466,3 +466,16 @@ describe('SDK telemetry', () => {
     );
   });
 });
+
+describe('getPrometheusMetrics', () => {
+  it('calls prometheusSnapshot on the resolver and returns the result', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.prometheusSnapshot.mockReturnValue('# HELP some_metric\nsome_metric 42\n');
+
+    const result = provider.getPrometheusMetrics();
+
+    expect(mockedWasmResolver.prometheusSnapshot).toHaveBeenCalledWith('0');
+    expect(result).toBe('# HELP some_metric\nsome_metric 42\n');
+  });
+});

@@ -287,6 +287,25 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
         .isGreaterThanOrEqualTo(numThreads * resolutionsPerThread);
   }
 
+  @Test
+  void testGetPrometheusMetrics() throws Exception {
+    provider.initialize(new ImmutableContext());
+
+    // Resolve a flag to generate telemetry data
+    final ImmutableContext context =
+        new ImmutableContext(
+            "tutorial_visitor", Map.of("visitor_id", new Value("tutorial_visitor")));
+    provider.getObjectEvaluation("tutorial-feature", new Value("default"), context);
+
+    // Retrieve Prometheus metrics
+    final String metrics = provider.getPrometheusMetrics();
+
+    // Verify metrics are present and contain expected metric names
+    assertThat(metrics).isNotNull();
+    assertThat(metrics).isNotEmpty();
+    assertThat(metrics).contains("confidence_resolve_latency");
+  }
+
   @Nested
   class WithOpenFeatureApis {
 
