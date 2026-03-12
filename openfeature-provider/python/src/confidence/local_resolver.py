@@ -45,7 +45,7 @@ class LocalResolver:
         self._wasm_bytes = wasm_bytes
         self._delegate_factory = delegate_factory or WasmResolver
         self._delegate: WasmResolver = self._delegate_factory(wasm_bytes)
-        self._current_state: Optional[Tuple[bytes, str]] = None
+        self._current_state: Optional[Tuple[bytes, str, object]] = None
         self._buffered_logs: List[bytes] = []
 
     def _reload_instance(self, error: BaseException) -> None:
