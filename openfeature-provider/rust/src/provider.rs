@@ -310,7 +310,7 @@ impl ConfidenceProvider {
             sdk: Some(Sdk {
                 sdk: Some(
                     confidence_resolver::proto::confidence::flags::resolver::v1::sdk::Sdk::Id(
-                        SdkId::RustProvider as i32,
+                        SdkId::RustLocalProvider as i32,
                     ),
                 ),
                 version: VERSION.to_string(),

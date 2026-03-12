@@ -452,7 +452,7 @@ class ConfidenceProvider(AbstractProvider):
             resolve_req.apply = True
             if proto_context is not None:
                 resolve_req.evaluation_context.CopyFrom(proto_context)
-            resolve_req.sdk.id = types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER
+            resolve_req.sdk.id = types_pb2.SdkId.SDK_ID_PYTHON_LOCAL_PROVIDER
             resolve_req.sdk.version = __version__
 
             # Build process request — use DeferredMaterializations if store is configured,

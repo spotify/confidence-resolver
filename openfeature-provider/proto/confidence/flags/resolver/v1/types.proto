@@ -69,4 +69,8 @@ enum SdkId {
   SDK_ID_GO_LOCAL_PROVIDER = 20;
   SDK_ID_JAVA_LOCAL_PROVIDER = 21;
   SDK_ID_JS_LOCAL_SERVER_PROVIDER = 22;
+  // Confidence Python Local Provider.
+  SDK_ID_PYTHON_LOCAL_PROVIDER = 23;
+  // Confidence Rust Local Provider.
+  SDK_ID_RUST_LOCAL_PROVIDER = 24;
 }
