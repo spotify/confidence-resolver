@@ -25,7 +25,6 @@ impl Host for L {
         _evaluation_context: &Struct,
         _values: &[ResolvedValue<'_>],
         _client: &Client,
-        _sdk: &Option<flags_resolver::Sdk>,
     ) {
     }
 
@@ -83,6 +82,7 @@ fn make_state_from_json_flags(
         flags,
         segments,
         bitsets,
+        sdk: None,
     }
 }
 
@@ -279,6 +279,7 @@ fn make_materialized_segment_state() -> (Segment, ResolverState) {
         flags: HashMap::new(),
         segments,
         bitsets,
+        sdk: None,
     };
     (segment, state)
 }
@@ -349,6 +350,7 @@ fn simple_resolve_suspends_when_materializations_needed() {
     let state = ResolverState::from_proto(
         EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
         "confidence-test",
+        None,
     )
     .unwrap();
     let secret = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx";
@@ -382,6 +384,7 @@ fn resolve_with_complete_materializations_does_not_suspend() {
     let state = ResolverState::from_proto(
         EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
         "confidence-test",
+        None,
     )
     .unwrap();
     let secret = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx";
@@ -421,6 +424,7 @@ fn resolve_with_empty_complete_materializations_falls_through() {
     let state = ResolverState::from_proto(
         EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
         "confidence-test",
+        None,
     )
     .unwrap();
     let secret = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx";
@@ -460,6 +464,7 @@ fn discovery_mode_prevents_resolve_via_later_rule() {
     let state = ResolverState::from_proto(
         EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
         "confidence-test",
+        None,
     )
     .unwrap();
     let secret = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx";
@@ -491,6 +496,7 @@ fn early_rule_match_skips_later_materialization_rule() {
     let state = ResolverState::from_proto(
         EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
         "confidence-test",
+        None,
     )
     .unwrap();
     let secret = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx";
@@ -530,6 +536,7 @@ fn multiple_flags_suspend_with_deduplicated_reads() {
     let state = ResolverState::from_proto(
         MULTIPLE_STICKY_FLAGS_STATE.to_owned().try_into().unwrap(),
         "test",
+        None,
     )
     .unwrap();
 
@@ -578,6 +585,7 @@ fn resume_after_suspension_resolves_all_flags() {
     let state = ResolverState::from_proto(
         MULTIPLE_STICKY_FLAGS_STATE.to_owned().try_into().unwrap(),
         "test",
+        None,
     )
     .unwrap();
 
@@ -672,6 +680,7 @@ fn make_segment_with_targeting(name: &str, targeting_json: &str) -> (Segment, Re
         flags: HashMap::new(),
         segments,
         bitsets,
+        sdk: None,
     };
     (segment, state)
 }

@@ -38,7 +38,7 @@ class TestLocalResolverSetState:
         resolver.set_resolver_state(test_resolver_state, test_account_id)
 
         assert resolver._current_state is not None
-        assert resolver._current_state == (test_resolver_state, test_account_id)
+        assert resolver._current_state == (test_resolver_state, test_account_id, None)
 
     def test_set_resolver_state_delegates_to_wasm(
         self, wasm_bytes: bytes, test_resolver_state: bytes, test_account_id: str

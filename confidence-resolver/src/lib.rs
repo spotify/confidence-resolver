@@ -136,9 +136,14 @@ pub struct ResolverState {
     pub flags: HashMap<String, Flag>,
     pub segments: HashMap<String, Segment>,
     pub bitsets: HashMap<String, bv::BitVec<u8, bv::Lsb0>>,
+    pub sdk: Option<flags_resolver::Sdk>,
 }
 impl ResolverState {
-    pub fn from_proto(state_pb: ResolverStatePb, account_id: &str) -> Fallible<Self> {
+    pub fn from_proto(
+        state_pb: ResolverStatePb,
+        account_id: &str,
+        sdk: Option<flags_resolver::Sdk>,
+    ) -> Fallible<Self> {
         let mut secrets = HashMap::new();
         let mut flags = HashMap::new();
         let mut segments = HashMap::new();
@@ -192,6 +197,7 @@ impl ResolverState {
             flags,
             segments,
             bitsets,
+            sdk,
         })
     }
 
@@ -263,7 +269,6 @@ pub trait Host {
         evaluation_context: &Struct,
         values: &[ResolvedValue<'_>],
         client: &Client,
-        sdk: &Option<flags_resolver::Sdk>,
     );
 
     fn log_assign(
@@ -864,7 +869,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 &self.evaluation_context.context,
                 flags_to_apply.as_slice(),
                 self.client,
-                &resolve_request.sdk.clone(),
+                &self.state.sdk,
             );
         } else {
             let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
@@ -896,7 +901,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             &self.evaluation_context.context,
             &resolved_values,
             self.client,
-            &resolve_request.sdk.clone(),
         );
 
         Ok(ResolveProcessResponse::resolved(
@@ -969,7 +973,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             evaluation_context,
             assigned_flags.as_slice(),
             self.client,
-            &request.sdk,
+            &self.state.sdk,
         );
 
         Ok(())
@@ -1725,7 +1729,6 @@ mod tests {
             _evaluation_context: &Struct,
             _values: &[ResolvedValue<'_>],
             _client: &Client,
-            _sdk: &Option<Sdk>,
         ) {
             // In tests, we don't need to print anything
         }
@@ -1753,6 +1756,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -1776,6 +1780,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -1822,6 +1827,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -1871,6 +1877,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -1937,6 +1944,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2068,6 +2076,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2105,6 +2114,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2119,7 +2129,6 @@ mod tests {
                 _evaluation_context: &Struct,
                 _values: &[ResolvedValue<'_>],
                 _client: &Client,
-                _sdk: &Option<Sdk>,
             ) {
                 // Do nothing for resolve logs
             }
@@ -2245,6 +2254,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2265,7 +2275,6 @@ mod tests {
                 _evaluation_context: &Struct,
                 _values: &[ResolvedValue<'_>],
                 _client: &Client,
-                _sdk: &Option<Sdk>,
             ) {
                 // Do nothing for resolve logs
             }
@@ -2418,6 +2427,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2477,6 +2487,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2504,6 +2515,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2534,6 +2546,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -3842,6 +3855,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets: HashMap::new(),
+            sdk: None,
         };
 
         (segment, state)
@@ -3885,6 +3899,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            sdk: None,
         };
 
         let client = Client {
@@ -3959,6 +3974,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            sdk: None,
         };
 
         let client = Client {
@@ -4028,6 +4044,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            sdk: None,
         };
 
         let client = Client {
@@ -4073,6 +4090,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
             "confidence-test",
+            None,
         )
         .unwrap();
 
@@ -4229,6 +4247,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
             "confidence-test",
+            None,
         )
         .unwrap();
 
@@ -4268,6 +4287,7 @@ mod tests {
         let state = ResolverState::from_proto(
             MULTIPLE_STICKY_FLAGS_STATE.to_owned().try_into().unwrap(),
             "test",
+            None,
         )
         .unwrap();
 
@@ -4372,6 +4392,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4400,6 +4421,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4432,6 +4454,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4465,6 +4488,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4493,6 +4517,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4599,6 +4624,7 @@ mod tests {
             flags,
             segments,
             bitsets: HashMap::new(),
+            sdk: None,
         };
 
         let context_json = r#"{"targeting_key": "roug", "user": {"email": "test@example.com"}}"#;
@@ -4619,6 +4645,56 @@ mod tests {
             ResolveReason::NoSegmentMatch,
             "Unrecognized targeting rule should cause the rule to be skipped, not fail the flag"
         );
+    }
+
+    #[test]
+    fn test_from_proto_stores_sdk() {
+        let sdk = Some(Sdk {
+            sdk: Some(flags_resolver::sdk::Sdk::Id(
+                flags_resolver::SdkId::PythonProvider as i32,
+            )),
+            version: "1.2.3".to_string(),
+        });
+
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            sdk.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(state.sdk, sdk);
+    }
+
+    #[test]
+    fn test_from_proto_stores_sdk_none() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(state.sdk, None);
+    }
+
+    #[test]
+    fn test_from_proto_stores_sdk_with_custom_id() {
+        let sdk = Some(Sdk {
+            sdk: Some(flags_resolver::sdk::Sdk::CustomId(
+                "my-custom-sdk".to_string(),
+            )),
+            version: "0.0.1".to_string(),
+        });
+
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            sdk.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(state.sdk, sdk);
     }
 
     // -- Helper to build a minimal resolver state from JSON parts --
@@ -4645,6 +4721,7 @@ mod tests {
             flags,
             segments,
             bitsets: HashMap::new(),
+            sdk: None,
         };
         (state, flag_name, SECRET.to_string())
     }
@@ -4868,6 +4945,7 @@ mod tests {
             flags,
             segments,
             bitsets,
+            sdk: None,
         };
 
         let context_json = r#"{"country": "SE"}"#;
@@ -4920,6 +4998,7 @@ mod tests {
             flags,
             segments,
             bitsets,
+            sdk: None,
         };
 
         let context_json = r#"{"country": "SE"}"#;

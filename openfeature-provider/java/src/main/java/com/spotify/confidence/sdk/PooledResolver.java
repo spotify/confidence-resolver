@@ -3,6 +3,7 @@ package com.spotify.confidence.sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicLong;
@@ -61,8 +62,8 @@ class PooledResolver implements LocalResolver {
   }
 
   @Override
-  public void setResolverState(byte[] state, String accountId) {
-    maintenance(lr -> lr.setResolverState(state, accountId));
+  public void setResolverState(byte[] state, String accountId, Sdk sdk) {
+    maintenance(lr -> lr.setResolverState(state, accountId, sdk));
   }
 
   @Override

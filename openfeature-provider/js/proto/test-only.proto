@@ -9,9 +9,21 @@ message WriteFlagLogsRequest {
   repeated bytes flag_resolve_info = 4;
 }
 
+message Sdk {
+  oneof sdk {
+    SdkId id = 1;
+    string custom_id = 2;
+  }
+  string version = 3;
+}
+
+enum SdkId {
+  SDK_ID_UNSPECIFIED = 0;
+  SDK_ID_JS_LOCAL_SERVER_PROVIDER = 22;
+}
+
 message TelemetryData {
-  // Information about the SDK/provider
-  // Sdk sdk = 2;
+  Sdk sdk = 2;
 
   ResolveLatency resolve_latency = 4;
   repeated ResolveRate resolve_rate = 5;

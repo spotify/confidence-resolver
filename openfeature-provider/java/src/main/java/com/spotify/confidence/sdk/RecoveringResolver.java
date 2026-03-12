@@ -4,6 +4,7 @@ import com.dylibso.chicory.wasm.ChicoryException;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -19,7 +20,7 @@ import org.slf4j.LoggerFactory;
 class RecoveringResolver implements LocalResolver {
   private static final Logger logger = LoggerFactory.getLogger(RecoveringResolver.class);
 
-  private record StateRecord(byte[] state, String accountId) {}
+  private record StateRecord(byte[] state, String accountId, Sdk sdk) {}
 
   private final Supplier<LocalResolver> factory;
   private final AtomicReference<LocalResolver> current = new AtomicReference<>();
@@ -40,7 +41,7 @@ class RecoveringResolver implements LocalResolver {
                 final LocalResolver newResolver = factory.get();
                 final StateRecord cached = lastState.get();
                 if (cached != null) {
-                  newResolver.setResolverState(cached.state(), cached.accountId());
+                  newResolver.setResolverState(cached.state(), cached.accountId(), cached.sdk());
                 }
                 current.set(newResolver);
                 if (old != null) {
@@ -73,10 +74,10 @@ class RecoveringResolver implements LocalResolver {
   }
 
   @Override
-  public void setResolverState(byte[] state, String accountId) {
+  public void setResolverState(byte[] state, String accountId, Sdk sdk) {
     try {
-      current.get().setResolverState(state, accountId);
-      lastState.set(new StateRecord(state, accountId));
+      current.get().setResolverState(state, accountId, sdk);
+      lastState.set(new StateRecord(state, accountId, sdk));
     } catch (ChicoryException e) {
       handleFailure("setResolverState", e);
       throw e;

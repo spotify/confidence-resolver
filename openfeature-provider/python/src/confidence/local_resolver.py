@@ -45,7 +45,7 @@ class LocalResolver:
         self._wasm_bytes = wasm_bytes
         self._delegate_factory = delegate_factory or WasmResolver
         self._delegate: WasmResolver = self._delegate_factory(wasm_bytes)
-        self._current_state: Optional[Tuple[bytes, str]] = None
+        self._current_state: Optional[Tuple[bytes, str, object]] = None
         self._buffered_logs: List[bytes] = []
 
     def _reload_instance(self, error: BaseException) -> None:
@@ -71,13 +71,15 @@ class LocalResolver:
 
         # Restore state if available
         if self._current_state is not None:
-            state, account_id = self._current_state
+            state, account_id, sdk = self._current_state
             try:
-                self._delegate.set_resolver_state(state, account_id)
+                self._delegate.set_resolver_state(state, account_id, sdk)
             except Exception as e:
                 logger.error("Failed to restore state after reload: %s", e)
 
-    def set_resolver_state(self, state: bytes, account_id: str) -> None:
+    def set_resolver_state(
+        self, state: bytes, account_id: str, sdk: Optional[object] = None
+    ) -> None:
         """Set the resolver state.
 
         Stores the state for recovery and delegates to WasmResolver.
@@ -85,10 +87,11 @@ class LocalResolver:
         Args:
             state: The serialized resolver state bytes.
             account_id: The account ID for the resolver.
+            sdk: Optional SDK identifier and version.
         """
-        self._current_state = (state, account_id)
+        self._current_state = (state, account_id, sdk)
         try:
-            self._delegate.set_resolver_state(state, account_id)
+            self._delegate.set_resolver_state(state, account_id, sdk)
         except WasmCrashError as error:
             self._reload_instance(error)
             raise

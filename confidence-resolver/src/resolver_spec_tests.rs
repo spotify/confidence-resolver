@@ -23,7 +23,6 @@ impl Host for L {
         _evaluation_context: &Struct,
         _values: &[ResolvedValue<'_>],
         _client: &Client,
-        _sdk: &Option<flags_resolver::Sdk>,
     ) {
     }
 
@@ -174,6 +173,7 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
         flags,
         segments,
         bitsets,
+        sdk: None,
     }
 }
 

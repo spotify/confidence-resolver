@@ -81,7 +81,6 @@ impl Host for WasmHost {
         evaluation_context: &Struct,
         values: &[ResolvedValue<'_>],
         client: &Client,
-        _sdk: &Option<Sdk>,
     ) {
         RESOLVE_LOGGER.log_resolve(
             resolve_id,
@@ -89,7 +88,6 @@ impl Host for WasmHost {
             &client.client_credential_name,
             values,
             client,
-            _sdk,
         );
     }
 
@@ -134,7 +132,7 @@ wasm_msg_guest! {
     fn set_resolver_state(request: SetResolverStateRequest) -> WasmResult<Void> {
         let state_pb = ResolverStatePb::decode(request.state.as_slice())
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
-        let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str())?;
+        let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str(), request.sdk)?;
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
         // TODO: track state age once we decide on the right timestamp source
         // let now = WasmHost::current_time();
@@ -188,7 +186,11 @@ wasm_msg_guest! {
 
     fn bounded_flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
         let mut req = RESOLVE_LOGGER.checkpoint();
-        req.telemetry_data = Some(TELEMETRY.delta_snapshot(&LAST_FLUSHED));
+        let mut td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
+        if let Some(state) = RESOLVER_STATE.load().as_ref() {
+            td.sdk = state.sdk.clone();
+        }
+        req.telemetry_data = Some(td);
         ASSIGN_LOGGER.checkpoint_fill_with_limit(&mut req, LOG_TARGET_BYTES, false);
         Ok(req)
     }

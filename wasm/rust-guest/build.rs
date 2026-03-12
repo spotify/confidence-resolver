@@ -23,6 +23,14 @@ fn main() {
         ".google.protobuf.Timestamp",
         "::confidence_resolver::proto::google::Timestamp",
     );
+    config.extern_path(
+        ".rust_guest.Sdk",
+        "::confidence_resolver::proto::confidence::flags::resolver::v1::Sdk",
+    );
+    config.extern_path(
+        ".rust_guest.SdkId",
+        "::confidence_resolver::proto::confidence::flags::resolver::v1::SdkId",
+    );
 
     config
         .compile_protos(&["messages.proto", "types.proto"], &["../proto"])

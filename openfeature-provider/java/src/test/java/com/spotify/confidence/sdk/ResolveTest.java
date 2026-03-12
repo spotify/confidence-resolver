@@ -191,11 +191,11 @@ class ResolveTest {
   }
 
   protected void useStateWithFlagsWithMaterialization() {
-    resolver.setResolverState(exampleStateWithMaterializationBytes, ACCOUNT);
+    resolver.setResolverState(exampleStateWithMaterializationBytes, ACCOUNT, null);
   }
 
   protected void useStateWithoutFlagsWithMaterialization() {
-    resolver.setResolverState(exampleStateBytes, ACCOUNT);
+    resolver.setResolverState(exampleStateBytes, ACCOUNT, null);
   }
 
   @Test
