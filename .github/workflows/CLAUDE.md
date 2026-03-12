@@ -22,6 +22,10 @@ The Rust provider (`openfeature-provider/rust`) depends on `confidence-resolver`
 
 All publish jobs require the **`deployment` GitHub environment** (environment protection rules apply).
 
+### Post-release
+
+After a release is published, remember to update internal version registries with the new version numbers.
+
 ### Cloudflare deployer
 
 On `confidence-cloudflare-resolver` release, the deployer Docker image is built and pushed to `ghcr.io/<owner>/confidence-cloudflare-deployer` with both a version tag and `latest`.

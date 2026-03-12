@@ -97,6 +97,10 @@ RUN --mount=type=secret,id=my_secret \
 - **Java** — Credentials mounted as Docker secrets. Requires GitHub secrets: `MAVEN_SETTINGS`, `GPG_PRIVATE_KEY`, `SIGN_KEY_PASS`. Uses `central-publishing-maven-plugin` (not nexus-staging).
 - **Rust** — Published via Docker stages to crates.io.
 
+## Post-Release Checklist
+
+After releasing a new version of any SDK from this repo, update internal version registries with the new version numbers.
+
 ## Build & Run
 
 ### Root Makefile
