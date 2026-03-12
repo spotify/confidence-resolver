@@ -64,10 +64,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       new AtomicReference<>(ProviderState.NOT_READY);
   private volatile boolean initialized = false;
   private static final Sdk SDK =
-      Sdk.newBuilder()
-          .setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER)
-          .setVersion(Version.VERSION)
-          .build();
+      Sdk.newBuilder().setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER).setVersion(Version.VERSION).build();
 
   private static long getPollIntervalSeconds() {
     return Optional.ofNullable(System.getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"))
