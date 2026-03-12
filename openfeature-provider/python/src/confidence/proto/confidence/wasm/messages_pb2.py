@@ -22,7 +22,7 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from confidence.flags.resolver.v1 import types_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_types__pb2
+from ..flags.resolver.v1 import types_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_types__pb2
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x63onfidence/wasm/messages.proto\x12\x0f\x63onfidence.wasm\x1a(confidence/flags/resolver/v1/types.proto\"\x06\n\x04Void\"l\n\x17SetResolverStateRequest\x12\r\n\x05state\x18\x01 \x01(\x0c\x12\x12\n\naccount_id\x18\x02 \x01(\t\x12.\n\x03sdk\x18\x03 \x01(\x0b\x32!.confidence.flags.resolver.v1.Sdk\"\x17\n\x07Request\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"5\n\x08Response\x12\x0e\n\x04\x64\x61ta\x18\x01 \x01(\x0cH\x00\x12\x0f\n\x05\x65rror\x18\x02 \x01(\tH\x00\x42\x08\n\x06resultB\x8c\x01\n\x1f\x63om.spotify.confidence.sdk.wasmB\x08MessagesP\x00Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3')
