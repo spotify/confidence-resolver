@@ -4592,4 +4592,54 @@ mod tests {
             "Unrecognized targeting rule should cause the rule to be skipped, not fail the flag"
         );
     }
+
+    #[test]
+    fn test_from_proto_stores_sdk() {
+        let sdk = Some(Sdk {
+            sdk: Some(flags_resolver::sdk::Sdk::Id(
+                flags_resolver::SdkId::PythonProvider as i32,
+            )),
+            version: "1.2.3".to_string(),
+        });
+
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            sdk.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(state.sdk, sdk);
+    }
+
+    #[test]
+    fn test_from_proto_stores_sdk_none() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(state.sdk, None);
+    }
+
+    #[test]
+    fn test_from_proto_stores_sdk_with_custom_id() {
+        let sdk = Some(Sdk {
+            sdk: Some(flags_resolver::sdk::Sdk::CustomId(
+                "my-custom-sdk".to_string(),
+            )),
+            version: "0.0.1".to_string(),
+        });
+
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            sdk.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(state.sdk, sdk);
+    }
 }
