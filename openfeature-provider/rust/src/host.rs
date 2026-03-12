@@ -3,7 +3,6 @@
 use std::sync::LazyLock;
 
 use confidence_resolver::assign_logger::AssignLogger;
-use confidence_resolver::proto::confidence::flags::resolver::v1::Sdk;
 use confidence_resolver::proto::google::Struct;
 use confidence_resolver::resolve_logger::ResolveLogger;
 use confidence_resolver::{Client, FlagToApply, Host, ResolvedValue};
@@ -31,7 +30,6 @@ impl Host for NativeHost {
         evaluation_context: &Struct,
         values: &[ResolvedValue<'_>],
         client: &Client,
-        _sdk: &Option<Sdk>,
     ) {
         RESOLVE_LOGGER.log_resolve(
             resolve_id,
@@ -47,8 +45,7 @@ impl Host for NativeHost {
         evaluation_context: &Struct,
         assigned_flags: &[FlagToApply],
         client: &Client,
-        sdk: &Option<Sdk>,
     ) {
-        ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client, sdk);
+        ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client);
     }
 }

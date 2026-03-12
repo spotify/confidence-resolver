@@ -23,7 +23,6 @@ impl Host for L {
         _evaluation_context: &Struct,
         _values: &[ResolvedValue<'_>],
         _client: &Client,
-        _sdk: &Option<flags_resolver::Sdk>,
     ) {
     }
 
@@ -32,7 +31,6 @@ impl Host for L {
         _evaluation_context: &Struct,
         _assigned_flag: &[FlagToApply],
         _client: &Client,
-        _sdk: &Option<flags_resolver::Sdk>,
     ) {
     }
 }

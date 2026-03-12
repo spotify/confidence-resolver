@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::RwLock;
 
 use confidence_resolver::proto::confidence::flags::admin::v1::ResolverState as ResolverStatePb;
+use confidence_resolver::proto::confidence::flags::resolver::v1::Sdk;
 use confidence_resolver::ResolverState;
 
 use crate::error::{Error, Result};
@@ -33,11 +34,12 @@ pub struct StateFetcher {
     client_secret: String,
     cdn_url: String,
     etag: RwLock<Option<String>>,
+    sdk: Option<Sdk>,
 }
 
 impl StateFetcher {
-    /// Create a new state fetcher with the given client and client secret.
-    pub fn new(client: ClientWithMiddleware, client_secret: String) -> Self {
+    /// Create a new state fetcher with the given client, client secret, and sdk identity.
+    pub fn new(client: ClientWithMiddleware, client_secret: String, sdk: Option<Sdk>) -> Self {
         let hash = Self::hash_client_secret(&client_secret);
         let cdn_url = format!("{}/{}", CDN_BASE_URL, hash);
 
@@ -46,6 +48,7 @@ impl StateFetcher {
             client_secret,
             cdn_url,
             etag: RwLock::new(None),
+            sdk,
         }
     }
 
@@ -108,7 +111,7 @@ impl StateFetcher {
             .map_err(|e| Error::StateParse(format!("Failed to decode ResolverState: {}", e)))?;
 
         // Convert to ResolverState
-        let state = ResolverState::from_proto(state_pb, &request.account_id, None)
+        let state = ResolverState::from_proto(state_pb, &request.account_id, self.sdk.clone())
             .map_err(|e| Error::StateParse(format!("Failed to create ResolverState: {:?}", e)))?;
 
         Ok(Some((state, request.account_id)))

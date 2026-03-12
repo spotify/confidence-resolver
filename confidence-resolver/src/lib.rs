@@ -269,7 +269,6 @@ pub trait Host {
         evaluation_context: &Struct,
         values: &[ResolvedValue<'_>],
         client: &Client,
-        sdk: &Option<flags_resolver::Sdk>,
     );
 
     fn log_assign(
@@ -277,7 +276,6 @@ pub trait Host {
         evaluation_context: &Struct,
         assigned_flags: &[FlagToApply],
         client: &Client,
-        sdk: &Option<flags_resolver::Sdk>,
     );
 
     fn encrypt_resolve_token(token_data: &[u8], encryption_key: &[u8]) -> Result<Vec<u8>, String> {
@@ -870,7 +868,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 &self.evaluation_context.context,
                 flags_to_apply.as_slice(),
                 self.client,
-                &resolve_request.sdk.clone(),
             );
         } else {
             let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
@@ -902,7 +899,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             &self.evaluation_context.context,
             &resolved_values,
             self.client,
-            &resolve_request.sdk.clone(),
         );
 
         Ok(ResolveProcessResponse::resolved(
@@ -975,7 +971,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             evaluation_context,
             assigned_flags.as_slice(),
             self.client,
-            &request.sdk,
         );
 
         Ok(())
@@ -1672,7 +1667,6 @@ mod tests {
             _evaluation_context: &Struct,
             _values: &[ResolvedValue<'_>],
             _client: &Client,
-            _sdk: &Option<Sdk>,
         ) {
             // In tests, we don't need to print anything
         }
@@ -1682,7 +1676,6 @@ mod tests {
             _evaluation_context: &Struct,
             _assigned_flag: &[FlagToApply],
             _client: &Client,
-            _sdk: &Option<Sdk>,
         ) {
             // In tests, we don't need to print anything
         }
@@ -2073,7 +2066,6 @@ mod tests {
                 _evaluation_context: &Struct,
                 _values: &[ResolvedValue<'_>],
                 _client: &Client,
-                _sdk: &Option<Sdk>,
             ) {
                 // Do nothing for resolve logs
             }
@@ -2083,7 +2075,6 @@ mod tests {
                 _evaluation_context: &Struct,
                 assigned_flag: &[FlagToApply],
                 _client: &Client,
-                _sdk: &Option<Sdk>,
             ) {
                 let mut logs = TestLogger::get_instance()
                     .assign_logs
@@ -2220,7 +2211,6 @@ mod tests {
                 _evaluation_context: &Struct,
                 _values: &[ResolvedValue<'_>],
                 _client: &Client,
-                _sdk: &Option<Sdk>,
             ) {
                 // Do nothing for resolve logs
             }
@@ -2230,7 +2220,6 @@ mod tests {
                 evaluation_context: &Struct,
                 assigned_flag: &[FlagToApply],
                 _client: &Client,
-                _sdk: &Option<Sdk>,
             ) {
                 let mut logs = TestLogger::get_instance()
                     .assign_logs

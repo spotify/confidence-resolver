@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
+use arc_swap::ArcSwap;
+use std::sync::Arc;
+
 use crate::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
 use crate::FlagToApply;
 use prost::{length_delimiter_len, Message};
@@ -22,17 +25,30 @@ struct State {
     pending_bytes: usize,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AssignLogger {
     assigned: crossbeam_queue::SegQueue<pb::FlagAssigned>,
     state: Mutex<State>,
+    sdk: ArcSwap<Option<crate::flags_resolver::Sdk>>,
+}
+
+impl Default for AssignLogger {
+    fn default() -> Self {
+        Self {
+            assigned: crossbeam_queue::SegQueue::new(),
+            state: Mutex::default(),
+            sdk: ArcSwap::from_pointee(None),
+        }
+    }
 }
 
 impl AssignLogger {
     pub fn new() -> Self {
-        Self {
-            ..Default::default()
-        }
+        Self::default()
+    }
+
+    pub fn set_sdk(&self, sdk: Option<crate::flags_resolver::Sdk>) {
+        self.sdk.store(Arc::new(sdk));
     }
 
     pub fn log_assigns(
@@ -41,12 +57,12 @@ impl AssignLogger {
         _evaluation_context: &crate::proto::google::Struct,
         assigned_flags: &[FlagToApply],
         client: &crate::Client,
-        sdk: &Option<crate::flags_resolver::Sdk>,
     ) {
+        let sdk = self.sdk.load();
         let client_info = Some(pb::ClientInfo {
             client: client.client_name.to_string(),
             client_credential: client.client_credential_name.to_string(),
-            sdk: sdk.clone(),
+            sdk: (**sdk).clone(),
         });
         let flags = assigned_flags
             .iter()

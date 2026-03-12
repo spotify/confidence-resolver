@@ -38,6 +38,17 @@ use crate::VERSION;
 /// Default interval for polling state updates (30 seconds).
 const DEFAULT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
+fn provider_sdk() -> Sdk {
+    Sdk {
+        sdk: Some(
+            confidence_resolver::proto::confidence::flags::resolver::v1::sdk::Sdk::Id(
+                SdkId::RustProvider as i32,
+            ),
+        ),
+        version: VERSION.to_string(),
+    }
+}
+
 /// Default interval for flushing all logs (15 seconds).
 const DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_secs(15);
 
@@ -150,6 +161,7 @@ impl ConfidenceProvider {
         let state_fetcher = Arc::new(StateFetcher::new(
             client.clone(),
             options.client_secret.clone(),
+            Some(provider_sdk()),
         ));
         let log_manager = Arc::new(LogManager::new(
             client.clone(),
@@ -192,6 +204,8 @@ impl ConfidenceProvider {
 
     /// Initialize the provider by fetching initial state and starting background tasks.
     pub async fn init(&mut self) -> Result<()> {
+        ASSIGN_LOGGER.set_sdk(Some(provider_sdk()));
+
         // Fetch initial state
         let result = self.state_fetcher.fetch().await?;
         if let Some((state, account_id)) = result {
@@ -307,14 +321,7 @@ impl ConfidenceProvider {
             evaluation_context: Some(proto_context.clone()),
             apply: true,
             client_secret: self.client_secret.clone(),
-            sdk: Some(Sdk {
-                sdk: Some(
-                    confidence_resolver::proto::confidence::flags::resolver::v1::sdk::Sdk::Id(
-                        SdkId::RustProvider as i32,
-                    ),
-                ),
-                version: VERSION.to_string(),
-            }),
+            sdk: Some(provider_sdk()),
         };
 
         // Build the initial process request.
