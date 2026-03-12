@@ -96,7 +96,12 @@ class WasmResolver:
         # Instantiate the module with imports
         self._instance = linker.instantiate(self._store, self._module)
 
-    def set_resolver_state(self, state: bytes, account_id: str, sdk=None) -> None:
+    def set_resolver_state(
+        self,
+        state: bytes,
+        account_id: str,
+        sdk: Optional[protobuf_message.Message] = None,
+    ) -> None:
         """Set the resolver state in the WASM module.
 
         Args:

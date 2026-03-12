@@ -77,7 +77,9 @@ class LocalResolver:
             except Exception as e:
                 logger.error("Failed to restore state after reload: %s", e)
 
-    def set_resolver_state(self, state: bytes, account_id: str, sdk=None) -> None:
+    def set_resolver_state(
+        self, state: bytes, account_id: str, sdk: Optional[object] = None
+    ) -> None:
         """Set the resolver state.
 
         Stores the state for recovery and delegates to WasmResolver.
