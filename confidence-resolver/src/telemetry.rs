@@ -109,6 +109,7 @@ impl Histogram {
 pub struct TelemetrySnapshot {
     pub latency: HistogramSnapshot,
     pub resolve_rates: Vec<u64>,
+    pub memory_bytes: u64,
 }
 
 #[derive(Clone, Default)]
@@ -137,7 +138,8 @@ impl TelemetrySnapshot {
 
     fn write_prometheus(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
         self.write_histogram(w, instance)?;
-        self.write_resolve_rates(w, instance)
+        self.write_resolve_rates(w, instance)?;
+        self.write_memory(w, instance)
     }
 
     fn write_histogram(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
@@ -202,6 +204,18 @@ impl TelemetrySnapshot {
         }
 
         Ok(())
+    }
+
+    fn write_memory(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
+        if self.memory_bytes == 0 {
+            return Ok(());
+        }
+        writeln!(w, "# TYPE confidence_memory_bytes gauge")?;
+        writeln!(
+            w,
+            "confidence_memory_bytes{{instance=\"{instance}\"}} {}",
+            self.memory_bytes
+        )
     }
 }
 
@@ -268,6 +282,7 @@ impl Telemetry {
                 .iter()
                 .map(|c| c.load(Ordering::Relaxed))
                 .collect(),
+            memory_bytes: (self.memory_provider)(),
         }
     }
 
