@@ -136,9 +136,10 @@ pub struct ResolverState {
     pub flags: HashMap<String, Flag>,
     pub segments: HashMap<String, Segment>,
     pub bitsets: HashMap<String, bv::BitVec<u8, bv::Lsb0>>,
+    pub sdk: Option<flags_resolver::Sdk>,
 }
 impl ResolverState {
-    pub fn from_proto(state_pb: ResolverStatePb, account_id: &str) -> Fallible<Self> {
+    pub fn from_proto(state_pb: ResolverStatePb, account_id: &str, sdk: Option<flags_resolver::Sdk>) -> Fallible<Self> {
         let mut secrets = HashMap::new();
         let mut flags = HashMap::new();
         let mut segments = HashMap::new();
@@ -192,6 +193,7 @@ impl ResolverState {
             flags,
             segments,
             bitsets,
+            sdk,
         })
     }
 
@@ -1694,6 +1696,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -1717,6 +1720,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -1763,6 +1767,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -1812,6 +1817,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -1878,6 +1884,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2009,6 +2016,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2046,6 +2054,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2186,6 +2195,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2359,6 +2369,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2418,6 +2429,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2445,6 +2457,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -2475,6 +2488,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -3783,6 +3797,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets: HashMap::new(),
+            sdk: None,
         };
 
         (segment, state)
@@ -3826,6 +3841,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            sdk: None,
         };
 
         let client = Client {
@@ -3900,6 +3916,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            sdk: None,
         };
 
         let client = Client {
@@ -3969,6 +3986,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            sdk: None,
         };
 
         let client = Client {
@@ -4014,6 +4032,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
             "confidence-test",
+            None,
         )
         .unwrap();
 
@@ -4170,6 +4189,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE_2.to_owned().try_into().unwrap(),
             "confidence-test",
+            None,
         )
         .unwrap();
 
@@ -4209,6 +4229,7 @@ mod tests {
         let state = ResolverState::from_proto(
             MULTIPLE_STICKY_FLAGS_STATE.to_owned().try_into().unwrap(),
             "test",
+            None,
         )
         .unwrap();
 
@@ -4313,6 +4334,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4341,6 +4363,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4373,6 +4396,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4406,6 +4430,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4434,6 +4459,7 @@ mod tests {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
+            None,
         )
         .unwrap();
 
@@ -4540,6 +4566,7 @@ mod tests {
             flags,
             segments,
             bitsets: HashMap::new(),
+            sdk: None,
         };
 
         let context_json = r#"{"targeting_key": "roug", "user": {"email": "test@example.com"}}"#;

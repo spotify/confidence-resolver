@@ -174,6 +174,7 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
         flags,
         segments,
         bitsets,
+        sdk: None,
     }
 }
 

@@ -108,7 +108,7 @@ impl StateFetcher {
             .map_err(|e| Error::StateParse(format!("Failed to decode ResolverState: {}", e)))?;
 
         // Convert to ResolverState
-        let state = ResolverState::from_proto(state_pb, &request.account_id)
+        let state = ResolverState::from_proto(state_pb, &request.account_id, None)
             .map_err(|e| Error::StateParse(format!("Failed to create ResolverState: {:?}", e)))?;
 
         Ok(Some((state, request.account_id)))

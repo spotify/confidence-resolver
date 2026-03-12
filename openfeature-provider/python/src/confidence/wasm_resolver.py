@@ -96,16 +96,21 @@ class WasmResolver:
         # Instantiate the module with imports
         self._instance = linker.instantiate(self._store, self._module)
 
-    def set_resolver_state(self, state: bytes, account_id: str) -> None:
+    def set_resolver_state(
+        self, state: bytes, account_id: str, sdk=None
+    ) -> None:
         """Set the resolver state in the WASM module.
 
         Args:
             state: The serialized resolver state bytes.
             account_id: The account ID for the resolver.
+            sdk: Optional SDK identifier and version.
         """
         request = messages_pb2.SetResolverStateRequest()
         request.state = state
         request.account_id = account_id
+        if sdk is not None:
+            request.sdk.CopyFrom(sdk)
 
         req_ptr = self._transfer_request(request)
         resp_ptr = self._wasm_msg_guest_set_resolver_state(self._store, req_ptr)

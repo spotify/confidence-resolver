@@ -3,9 +3,9 @@
 import grpc
 import warnings
 
-from . import internal_api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_internal__api__pb2
+from confidence.flags.resolver.v1 import internal_api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_internal__api__pb2
 
-GRPC_GENERATED_VERSION = '1.76.0'
+GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 

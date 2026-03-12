@@ -19,7 +19,6 @@ mod pb {
     pub use crate::proto::confidence::flags::admin::v1::{
         client_resolve_info, flag_resolve_info, ClientResolveInfo, FlagResolveInfo,
     };
-    pub use crate::proto::confidence::flags::resolver::v1::TelemetryData;
     pub use crate::proto::{confidence::flags::resolver::v1::WriteFlagLogsRequest, google::Struct};
 }
 
@@ -70,7 +69,6 @@ impl<H: Host> ResolveLogger<H> {
         client_credential: &str,
         values: &[crate::ResolvedValue<'_>],
         _client: &crate::Client,
-        sdk: &Option<crate::flags_resolver::Sdk>,
     ) {
         self.with_state(|state: &ResolveInfoState| {
             state
@@ -79,15 +77,6 @@ impl<H: Host> ResolveLogger<H> {
                     let schema = SchemaFromEvaluationContext::get_schema(resolve_context);
                     client_resolve_info.schemas.insert(schema);
                 });
-
-            // Store SDK info if not already set
-            if let Some(sdk_value) = sdk {
-                if let Ok(mut sdk_lock) = state.sdk.write() {
-                    if sdk_lock.is_none() {
-                        *sdk_lock = Some(sdk_value.clone());
-                    }
-                }
-            }
 
             for value in values {
                 let af = &value.inner;
@@ -143,21 +132,13 @@ impl<H: Host> ResolveLogger<H> {
                 let client_resolve_info = build_client_resolve_info(&state);
                 let flag_resolve_info = build_flag_resolve_info(&state);
 
-                let telemetry_data = {
-                    let sdk = state.sdk.read().ok().and_then(|s| s.clone());
-                    sdk.map(|s| pb::TelemetryData {
-                        sdk: Some(s),
-                        ..Default::default()
-                    })
-                };
-
                 pb::WriteFlagLogsRequest {
                     flag_resolve_info,
                     client_resolve_info,
                     // Assignment events are handled by `AssignLogger`, so this logger
                     // only returns schema/counter data here.
                     flag_assigned: Vec::new(),
-                    telemetry_data,
+                    telemetry_data: None,
                 }
             })
             .unwrap_or_default()
@@ -181,30 +162,15 @@ struct ClientResolveInfo {
     schemas: BoundedSet<DerivedClientSchema, SCHEMA_SAMPLE_COUNT>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ResolveInfoState {
     flag_resolve_info: HashMap<String, FlagResolveInfo>,
     client_resolve_info: HashMap<String, ClientResolveInfo>,
-    sdk: RwLock<Option<crate::flags_resolver::Sdk>>,
 }
 
 impl ResolveInfoState {
     fn new() -> Self {
-        ResolveInfoState {
-            flag_resolve_info: HashMap::default(),
-            client_resolve_info: HashMap::default(),
-            sdk: RwLock::new(None),
-        }
-    }
-}
-
-impl Default for ResolveInfoState {
-    fn default() -> Self {
-        ResolveInfoState {
-            flag_resolve_info: HashMap::default(),
-            client_resolve_info: HashMap::default(),
-            sdk: RwLock::new(None),
-        }
+        Self::default()
     }
 }
 
@@ -423,7 +389,7 @@ mod tests {
         let client = test_client();
         let cred = "clients/test/clientCredentials/test";
         let rv = [];
-        logger.log_resolve("id", &ctx, cred, &rv, &client, &None);
+        logger.log_resolve("id", &ctx, cred, &rv, &client);
         let req = logger.checkpoint();
         // find the client entry in the built request
         let crec = req
@@ -514,7 +480,7 @@ mod tests {
         let client = test_client();
         let cred = "clients/test/clientCredentials/test";
         let rv = [];
-        logger.log_resolve("id", &ctx, cred, &rv, &client, &None);
+        logger.log_resolve("id", &ctx, cred, &rv, &client);
         let req = logger.checkpoint();
         let crec = req
             .client_resolve_info
@@ -574,7 +540,7 @@ mod tests {
 
         let client = test_client();
         let cred = "clients/test/clientCredentials/test";
-        logger.log_resolve("id", &Struct::default(), cred, &rv, &client, &None);
+        logger.log_resolve("id", &Struct::default(), cred, &rv, &client);
         let req = logger.checkpoint();
 
         let flag_info = req
@@ -646,7 +612,7 @@ mod tests {
 
         let client = test_client();
         let cred = "clients/test/clientCredentials/test";
-        logger.log_resolve("id", &Struct::default(), cred, &rv, &client, &None);
+        logger.log_resolve("id", &Struct::default(), cred, &rv, &client);
         let req = logger.checkpoint();
 
         let flag_info = req
@@ -748,7 +714,7 @@ mod tests {
                 while !done_cl.load(Ordering::Relaxed) {
                     let rv = [crate::ResolvedValue::new(&f)
                         .with_variant_match(&r, &s, &v, "assign", "user")];
-                    lg.log_resolve("id", &Struct::default(), &cred_s, &rv, &client, &None);
+                    lg.log_resolve("id", &Struct::default(), &cred_s, &rv, &client);
                     count += 1;
                 }
                 count

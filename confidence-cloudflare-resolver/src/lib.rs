@@ -56,6 +56,7 @@ static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
     ResolverState::from_proto(
         cdn_request.state.to_vec().try_into().unwrap(),
         &cdn_request.account_id,
+        None,
     )
     .unwrap()
 });
@@ -82,7 +83,6 @@ impl Host for H {
             client.client_credential_name.as_str(),
             values,
             client,
-            sdk,
         );
     }
 

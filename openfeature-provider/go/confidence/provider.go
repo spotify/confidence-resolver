@@ -413,6 +413,10 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 	setResolverStateRequest := &wasm.SetResolverStateRequest{
 		State:     initialState,
 		AccountId: accountId,
+		Sdk: &resolvertypes.Sdk{
+			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+			Version: Version,
+		},
 	}
 	if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
 		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
@@ -504,6 +508,10 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 				setResolverStateRequest := &wasm.SetResolverStateRequest{
 					State:     state,
 					AccountId: accountId,
+					Sdk: &resolvertypes.Sdk{
+						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+						Version: Version,
+					},
 				}
 				if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
 					p.logger.Error("Failed to update state", "error", err)

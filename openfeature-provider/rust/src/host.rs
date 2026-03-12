@@ -39,7 +39,6 @@ impl Host for NativeHost {
             &client.client_credential_name,
             values,
             client,
-            sdk,
         );
     }
 

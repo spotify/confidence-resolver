@@ -260,7 +260,9 @@ export class ConfidenceServerProviderLocal implements Provider {
     // Parse SetResolverStateRequest from response
     const bytes = new Uint8Array(await resp.arrayBuffer());
 
-    this.resolver.setResolverState(SetResolverStateRequest.decode(bytes));
+    const stateRequest = SetResolverStateRequest.decode(bytes);
+    stateRequest.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
+    this.resolver.setResolverState(stateRequest);
   }
 
   // TODO should this return success/failure, or even throw?
