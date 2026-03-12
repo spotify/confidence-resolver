@@ -276,6 +276,7 @@ pub trait Host {
         evaluation_context: &Struct,
         assigned_flags: &[FlagToApply],
         client: &Client,
+        sdk: &Option<flags_resolver::Sdk>,
     );
 
     fn encrypt_resolve_token(token_data: &[u8], encryption_key: &[u8]) -> Result<Vec<u8>, String> {
@@ -868,6 +869,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 &self.evaluation_context.context,
                 flags_to_apply.as_slice(),
                 self.client,
+                &self.state.sdk,
             );
         } else {
             let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
@@ -971,6 +973,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             evaluation_context,
             assigned_flags.as_slice(),
             self.client,
+            &self.state.sdk,
         );
 
         Ok(())
@@ -1676,6 +1679,7 @@ mod tests {
             _evaluation_context: &Struct,
             _assigned_flag: &[FlagToApply],
             _client: &Client,
+            _sdk: &Option<Sdk>,
         ) {
             // In tests, we don't need to print anything
         }
@@ -2075,6 +2079,7 @@ mod tests {
                 _evaluation_context: &Struct,
                 assigned_flag: &[FlagToApply],
                 _client: &Client,
+                _sdk: &Option<Sdk>,
             ) {
                 let mut logs = TestLogger::get_instance()
                     .assign_logs
@@ -2220,6 +2225,7 @@ mod tests {
                 evaluation_context: &Struct,
                 assigned_flag: &[FlagToApply],
                 _client: &Client,
+                _sdk: &Option<Sdk>,
             ) {
                 let mut logs = TestLogger::get_instance()
                     .assign_logs

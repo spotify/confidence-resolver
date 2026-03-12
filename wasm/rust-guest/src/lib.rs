@@ -25,7 +25,7 @@ use crate::proto::SetResolverStateRequest;
 use confidence_resolver::{
     proto::{
         confidence::flags::admin::v1::ResolverState as ResolverStatePb,
-        confidence::flags::resolver::v1::{ApplyFlagsRequest, ResolveProcessResponse},
+        confidence::flags::resolver::v1::{ApplyFlagsRequest, ResolveProcessResponse, Sdk},
         google::{Struct, Timestamp},
     },
     Client, FlagToApply, Host, ResolvedValue, ResolverState,
@@ -96,8 +96,9 @@ impl Host for WasmHost {
         evaluation_context: &Struct,
         assigned_flags: &[FlagToApply],
         client: &Client,
+        sdk: &Option<Sdk>,
     ) {
-        ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client);
+        ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client, sdk);
     }
 
     fn encrypt_resolve_token(token_data: &[u8], _encryption_key: &[u8]) -> Result<Vec<u8>, String> {
@@ -131,8 +132,7 @@ wasm_msg_guest! {
     fn set_resolver_state(request: SetResolverStateRequest) -> WasmResult<Void> {
         let state_pb = ResolverStatePb::decode(request.state.as_slice())
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
-        let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str(), request.sdk.clone())?;
-        ASSIGN_LOGGER.set_sdk(request.sdk);
+        let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str(), request.sdk)?;
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
         // TODO: track state age once we decide on the right timestamp source
         // let now = WasmHost::current_time();

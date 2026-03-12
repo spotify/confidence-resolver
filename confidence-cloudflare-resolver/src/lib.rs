@@ -36,6 +36,7 @@ pub struct SetResolverStateRequest {
 const CDN_STATE_BYTES: &[u8] = include_bytes!("../../data/resolver_state_current.pb");
 const ENCRYPTION_KEY_BASE64: &str = include_str!("../../data/encryption_key");
 
+use confidence::flags::resolver::v1::Sdk;
 use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
 use confidence_resolver::resolve_logger::ResolveLogger;
 use std::sync::{LazyLock, OnceLock};
@@ -89,8 +90,9 @@ impl Host for H {
         evaluation_context: &Struct,
         assigned_flags: &[FlagToApply],
         client: &Client,
+        sdk: &Option<Sdk>,
     ) {
-        ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client);
+        ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client, sdk);
     }
 }
 
