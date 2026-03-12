@@ -139,7 +139,11 @@ pub struct ResolverState {
     pub sdk: Option<flags_resolver::Sdk>,
 }
 impl ResolverState {
-    pub fn from_proto(state_pb: ResolverStatePb, account_id: &str, sdk: Option<flags_resolver::Sdk>) -> Fallible<Self> {
+    pub fn from_proto(
+        state_pb: ResolverStatePb,
+        account_id: &str,
+        sdk: Option<flags_resolver::Sdk>,
+    ) -> Fallible<Self> {
         let mut secrets = HashMap::new();
         let mut flags = HashMap::new();
         let mut segments = HashMap::new();
