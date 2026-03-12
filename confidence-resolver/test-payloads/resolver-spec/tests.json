@@ -171,18 +171,6 @@
           }
         ],
         "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [
-          {
-            "flag": "flags/full-rollout-flag",
-            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
-            "variant": "",
-            "value": null,
-            "shouldApply": false
-          }
-        ],
-        "expectError": null
       }
     }
   },
@@ -862,18 +850,6 @@
               "enabled": true
             },
             "shouldApply": true
-          }
-        ],
-        "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [
-          {
-            "flag": "flags/full-rollout-flag",
-            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
-            "variant": "",
-            "value": null,
-            "shouldApply": false
           }
         ],
         "expectError": null
@@ -1765,18 +1741,6 @@
               "enabled": true
             },
             "shouldApply": true
-          }
-        ],
-        "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [
-          {
-            "flag": "flags/mat-write-no-unit-flag",
-            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
-            "variant": "",
-            "value": null,
-            "shouldApply": false
           }
         ],
         "expectError": null

@@ -1054,9 +1054,17 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             } else {
                 TARGETING_KEY
             };
-            let unit: String = match self.get_targeting_key(targeting_key) {
-                Ok(Some(u)) => u,
-                Ok(None) => continue,
+            let unit: Option<String> = match self.get_targeting_key(targeting_key) {
+                Ok(Some(u)) => Some(u),
+                Ok(None) => {
+                    if rule.targeting_key_selector.is_empty() {
+                        // When targetingKeySelector is blank and no targeting_key
+                        // in context, allow full rollouts to proceed with unit=None.
+                        None
+                    } else {
+                        continue;
+                    }
+                }
                 Err(_) => return Ok(resolved_value.error(ResolveReason::TargetingKeyError)),
             };
 
@@ -1068,6 +1076,11 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             if let Some(materialization_spec) = &rule.materialization_spec {
                 let read_materialization = &materialization_spec.read_materialization;
                 if !read_materialization.is_empty() {
+                    // A rule without a targeting key cannot have materialization_specs
+                    // in practice, but guard defensively: skip if unit is absent.
+                    let Some(ref unit_str) = unit else {
+                        continue;
+                    };
                     let read_mode =
                         materialization_spec
                             .mode
@@ -1078,7 +1091,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             });
                     match materialization_context.has_rule_materialization(
                         read_materialization,
-                        &unit,
+                        unit_str,
                         &rule.name,
                     )? {
                         Some(false) => {
@@ -1093,7 +1106,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             } else {
                                 materialization_matched = match self.targeting_match(
                                     segment,
-                                    &unit,
+                                    unit.as_deref(),
                                     &mut HashSet::new(),
                                     materialization_context,
                                 ) {
@@ -1107,12 +1120,13 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             if materialization_matched == Some(true) {
                                 if let Some(assignment) = materialization_context.select_assignment(
                                     read_materialization,
-                                    &unit,
+                                    unit_str,
                                     &rule.name,
                                     &spec.assignments,
                                 ) {
-                                    return resolved_value
-                                        .try_with_variant_match(rule, segment, assignment, &unit);
+                                    return resolved_value.try_with_variant_match(
+                                        rule, segment, assignment, unit_str,
+                                    );
                                 }
                             }
                         }
@@ -1125,7 +1139,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
             if materialization_matched != Some(true) {
                 materialization_matched =
-                    match self.segment_match(segment, &unit, materialization_context) {
+                    match self.segment_match(segment, unit.as_deref(), materialization_context) {
                         Ok(matched) => matched,
                         Err(ResolveError::UnrecognizedRule) => {
                             continue;
@@ -1153,17 +1167,24 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 }
             }
 
-            let bucket_count = spec.bucket_count;
-            let variant_salt = segment_name.split("/").nth(1).or_fail()?;
-            let key = format!("{}|{}", variant_salt, unit);
-            let bucket = bucket(hash(&key), bucket_count as u64)? as i32;
-
-            let matched_assignment = spec.assignments.iter().find(|assignment| {
-                assignment
-                    .bucket_ranges
-                    .iter()
-                    .any(|range| range.lower <= bucket && bucket < range.upper)
-            });
+            let matched_assignment = if has_only_one_full_variant(spec) {
+                // Full rollout — deterministic, no hash needed
+                spec.assignments.first()
+            } else if let Some(ref unit_str) = unit {
+                let bucket_count = spec.bucket_count;
+                let variant_salt = segment_name.split("/").nth(1).or_fail()?;
+                let key = format!("{}|{}", variant_salt, unit_str);
+                let bucket = bucket(hash(&key), bucket_count as u64)? as i32;
+                spec.assignments.iter().find(|assignment| {
+                    assignment
+                        .bucket_ranges
+                        .iter()
+                        .any(|range| range.lower <= bucket && bucket < range.upper)
+                })
+            } else {
+                // No unit and not a full rollout — can't hash-bucket.
+                continue;
+            };
 
             if let Some(rule::Assignment {
                 assignment_id,
@@ -1179,24 +1200,28 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     _ => "".to_string(),
                 };
 
-                let write_spec = rule
-                    .materialization_spec
-                    .as_ref()
-                    .map(|materialization_spec| &materialization_spec.write_materialization);
+                let unit_str = unit.as_deref().unwrap_or("");
 
-                // write the materialization info if write spec exists
-                if let Some(materialization) = write_spec {
-                    materialization_context.add_to_write(
-                        unit.clone(),
-                        materialization.clone(),
-                        rule.name.clone(),
-                        variant_name.clone(),
-                    )?
+                // Only write materialization if unit is present
+                if unit.is_some() {
+                    let write_spec = rule
+                        .materialization_spec
+                        .as_ref()
+                        .map(|materialization_spec| &materialization_spec.write_materialization);
+
+                    if let Some(materialization) = write_spec {
+                        materialization_context.add_to_write(
+                            unit_str.to_string(),
+                            materialization.clone(),
+                            rule.name.clone(),
+                            variant_name.clone(),
+                        )?
+                    }
                 }
 
                 match assignment {
                     rule::assignment::Assignment::Fallthrough(_) => {
-                        resolved_value.attribute_fallthrough_rule(rule, assignment_id, &unit);
+                        resolved_value.attribute_fallthrough_rule(rule, assignment_id, unit_str);
                         continue;
                     }
                     rule::assignment::Assignment::ClientDefault(_) => {
@@ -1204,7 +1229,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             rule,
                             segment,
                             assignment_id,
-                            &unit,
+                            unit_str,
                         ));
                     }
                     rule::assignment::Assignment::Variant(_) => {
@@ -1218,7 +1243,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                             segment,
                             variant,
                             assignment_id,
-                            &unit,
+                            unit_str,
                         ));
                     }
                 };
@@ -1271,7 +1296,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     ) -> Result<bool, ResolveError> {
         let result = self.segment_match_internal(
             segment,
-            unit,
+            Some(unit),
             &mut HashSet::new(),
             &mut MaterializationContext::unsupported(),
         )?;
@@ -1281,7 +1306,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     pub fn segment_match(
         &self,
         segment: &Segment,
-        unit: &str,
+        unit: Option<&str>,
         materialization_context: &mut MaterializationContext,
     ) -> Result<Tribool, ResolveError> {
         self.segment_match_internal(segment, unit, &mut HashSet::new(), materialization_context)
@@ -1290,7 +1315,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     fn segment_match_internal(
         &self,
         segment: &Segment,
-        unit: &str,
+        unit: Option<&str>,
         visited: &mut HashSet<String>,
         materializations: &mut MaterializationContext,
     ) -> Result<Tribool, ResolveError> {
@@ -1308,22 +1333,32 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         let Some(bitset) = self.state.bitsets.get(&segment.name) else {
             return Ok(targeting_result); // preserve Unknown if targeting was Unknown
         };
-        let salted_unit = self.client.account.salt_unit(unit)?;
-        let unit_hash = bucket(hash(&salted_unit), BUCKETS)?;
-        if unit_hash >= bitset.len() {
-            return Ok(Some(false));
-        }
-        if bitset[unit_hash] {
-            Ok(targeting_result) // preserve Unknown if targeting was Unknown
+
+        if let Some(unit_str) = unit {
+            let salted_unit = self.client.account.salt_unit(unit_str)?;
+            let unit_hash = bucket(hash(&salted_unit), BUCKETS)?;
+            if unit_hash >= bitset.len() {
+                return Ok(Some(false));
+            }
+            if bitset[unit_hash] {
+                Ok(targeting_result) // preserve Unknown if targeting was Unknown
+            } else {
+                Ok(Some(false))
+            }
         } else {
-            Ok(Some(false))
+            // No unit — if all bits are set the segment matches without hashing
+            if bitset.all() {
+                Ok(targeting_result)
+            } else {
+                Ok(Some(false))
+            }
         }
     }
 
     fn targeting_match(
         &self,
         segment: &Segment,
-        unit: &str,
+        unit: Option<&str>,
         visited: &mut HashSet<String>,
         materialization_context: &mut MaterializationContext,
     ) -> Result<Tribool, ResolveError> {
@@ -1362,7 +1397,12 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 criterion::Criterion::MaterializedSegment(MaterializedSegmentCriterion {
                     materialized_segment,
                 }) => {
-                    materialization_context.is_unit_in_materialization(materialized_segment, unit)
+                    // Materialized segment criteria require a unit
+                    let Some(unit_str) = unit else {
+                        return Ok(Some(false));
+                    };
+                    materialization_context
+                        .is_unit_in_materialization(materialized_segment, unit_str)
                 }
             }
         };
@@ -1444,6 +1484,25 @@ fn list_wrapper(value: &targeting::value::Value) -> targeting::ListValue {
             }],
         },
     }
+}
+
+/// Returns true if the assignment spec has exactly one assignment with a single
+/// bucket range covering [0, bucket_count). Mirrors the Java resolver's
+/// `hasOnlyOneFullVariant`. No hash-based bucketing is needed in this case.
+fn has_only_one_full_variant(spec: &rule::AssignmentSpec) -> bool {
+    if spec.assignments.len() != 1 {
+        return false;
+    }
+    let Some(assignment) = spec.assignments.first() else {
+        return false;
+    };
+    if assignment.bucket_ranges.len() != 1 {
+        return false;
+    }
+    let Some(range) = assignment.bucket_ranges.first() else {
+        return false;
+    };
+    range.lower == 0 && range.upper == spec.bucket_count
 }
 
 /// Resolved flag value — wraps an `AssignedFlag` (serializable) with a reference
@@ -3853,7 +3912,7 @@ mod tests {
         }]);
 
         let matches = resolver
-            .segment_match(&segment, "test-user", &mut mat_ctx)
+            .segment_match(&segment, Some("test-user"), &mut mat_ctx)
             .unwrap();
 
         assert_eq!(
@@ -3922,7 +3981,7 @@ mod tests {
         let mut mat_ctx = MaterializationContext::complete(vec![]);
 
         let matches = resolver
-            .segment_match(&segment, "test-user", &mut mat_ctx)
+            .segment_match(&segment, Some("test-user"), &mut mat_ctx)
             .unwrap();
 
         assert_eq!(
@@ -3991,7 +4050,7 @@ mod tests {
         let mut mat_ctx = MaterializationContext::discovery();
 
         // When no materializations are available, returns Unknown and records the missing inclusion
-        let result = resolver.segment_match(&segment, "test-user", &mut mat_ctx);
+        let result = resolver.segment_match(&segment, Some("test-user"), &mut mat_ctx);
 
         assert_eq!(
             result.unwrap(),
@@ -4559,6 +4618,322 @@ mod tests {
             resolved_value.reason(),
             ResolveReason::NoSegmentMatch,
             "Unrecognized targeting rule should cause the rule to be skipped, not fail the flag"
+        );
+    }
+
+    // -- Helper to build a minimal resolver state from JSON parts --
+    fn make_state(flag_json: &str, segment_json: &str) -> (ResolverState, String, String) {
+        let flag: Flag = serde_json::from_str(flag_json).unwrap();
+        let segment: Segment = serde_json::from_str(segment_json).unwrap();
+        let flag_name = flag.name.clone();
+        let mut segments = HashMap::new();
+        segments.insert(segment.name.clone(), segment);
+        let mut flags = HashMap::new();
+        flags.insert(flag.name.clone(), flag);
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            SECRET.to_string(),
+            Client {
+                account: Account::new("accounts/test"),
+                client_name: "clients/test".to_string(),
+                client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
+                environments: vec![],
+            },
+        );
+        let state = ResolverState {
+            secrets,
+            flags,
+            segments,
+            bitsets: HashMap::new(),
+        };
+        (state, flag_name, SECRET.to_string())
+    }
+
+    const FULL_ROLLOUT_SEGMENT: &str = r#"{
+        "name": "segments/all-users",
+        "targeting": {
+            "criteria": {
+                "c1": {
+                    "attribute": {
+                        "attributeName": "country",
+                        "eqRule": { "value": { "stringValue": "SE" } }
+                    }
+                }
+            },
+            "expression": { "ref": "c1" }
+        }
+    }"#;
+
+    fn full_rollout_flag(targeting_key_selector: &str) -> String {
+        format!(
+            r#"{{
+            "name": "flags/full-rollout-test",
+            "state": "ACTIVE",
+            "clients": ["clients/test"],
+            "variants": [
+                {{ "name": "on", "value": {{ "enabled": true }} }}
+            ],
+            "rules": [
+                {{
+                    "name": "flags/full-rollout-test/rules/rule1",
+                    "segment": "segments/all-users",
+                    "enabled": true,
+                    "targetingKeySelector": "{}",
+                    "assignmentSpec": {{
+                        "bucketCount": 1000,
+                        "assignments": [
+                            {{
+                                "assignmentId": "a1",
+                                "variant": {{ "variant": "on" }},
+                                "bucketRanges": [{{ "lower": 0, "upper": 1000 }}]
+                            }}
+                        ]
+                    }}
+                }}
+            ]
+        }}"#,
+            targeting_key_selector
+        )
+    }
+
+    fn partial_rollout_flag() -> String {
+        r#"{
+            "name": "flags/partial-rollout-test",
+            "state": "ACTIVE",
+            "clients": ["clients/test"],
+            "variants": [
+                { "name": "on", "value": { "enabled": true } }
+            ],
+            "rules": [
+                {
+                    "name": "flags/partial-rollout-test/rules/rule1",
+                    "segment": "segments/all-users",
+                    "enabled": true,
+                    "targetingKeySelector": "",
+                    "assignmentSpec": {
+                        "bucketCount": 1000,
+                        "assignments": [
+                            {
+                                "assignmentId": "a1",
+                                "variant": { "variant": "on" },
+                                "bucketRanges": [{ "lower": 0, "upper": 500 }]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#
+        .to_string()
+    }
+
+    #[test]
+    fn test_full_rollout_no_targeting_key_resolves() {
+        let flag_json = full_rollout_flag("");
+        let (state, flag_name, _) = make_state(&flag_json, FULL_ROLLOUT_SEGMENT);
+        let context_json = r#"{"country": "SE"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+        let flag = resolver.state.flags.get(&flag_name).unwrap();
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::unsupported())
+            .unwrap();
+        assert_eq!(
+            resolved_value.reason(),
+            ResolveReason::Match,
+            "Full rollout with no targeting key should resolve to MATCH"
+        );
+    }
+
+    #[test]
+    fn test_partial_rollout_no_targeting_key_skips() {
+        let flag_json = partial_rollout_flag();
+        let (state, _, _) = make_state(&flag_json, FULL_ROLLOUT_SEGMENT);
+        let context_json = r#"{"country": "SE"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+        let flag = resolver
+            .state
+            .flags
+            .get("flags/partial-rollout-test")
+            .unwrap();
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::unsupported())
+            .unwrap();
+        assert_eq!(
+            resolved_value.reason(),
+            ResolveReason::NoSegmentMatch,
+            "Partial rollout with no targeting key should skip (can't hash without unit)"
+        );
+    }
+
+    #[test]
+    fn test_full_rollout_with_targeting_key_still_works() {
+        let flag_json = full_rollout_flag("");
+        let (state, flag_name, _) = make_state(&flag_json, FULL_ROLLOUT_SEGMENT);
+        let context_json = r#"{"targeting_key": "user1", "country": "SE"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+        let flag = resolver.state.flags.get(&flag_name).unwrap();
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::unsupported())
+            .unwrap();
+        assert_eq!(
+            resolved_value.reason(),
+            ResolveReason::Match,
+            "Full rollout with targeting key present should still resolve to MATCH"
+        );
+    }
+
+    #[test]
+    fn test_full_rollout_no_unit_skips_materialization_write() {
+        let flag_json = r#"{
+            "name": "flags/full-rollout-mat-write",
+            "state": "ACTIVE",
+            "clients": ["clients/test"],
+            "variants": [
+                { "name": "on", "value": { "enabled": true } }
+            ],
+            "rules": [
+                {
+                    "name": "flags/full-rollout-mat-write/rules/rule1",
+                    "segment": "segments/all-users",
+                    "enabled": true,
+                    "targetingKeySelector": "",
+                    "materializationSpec": {
+                        "writeMaterialization": "materializations/mat-write"
+                    },
+                    "assignmentSpec": {
+                        "bucketCount": 1000,
+                        "assignments": [
+                            {
+                                "assignmentId": "a1",
+                                "variant": { "variant": "on" },
+                                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#;
+        let (state, _, _) = make_state(flag_json, FULL_ROLLOUT_SEGMENT);
+        let context_json = r#"{"country": "SE"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+        let flag = resolver
+            .state
+            .flags
+            .get("flags/full-rollout-mat-write")
+            .unwrap();
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::discovery())
+            .unwrap();
+        assert_eq!(
+            resolved_value.reason(),
+            ResolveReason::Match,
+            "Full rollout with write materialization and no unit should still MATCH"
+        );
+    }
+
+    #[test]
+    fn test_full_rollout_no_unit_bitset_all_set() {
+        let flag_json = full_rollout_flag("");
+        let segment: Segment = serde_json::from_str(FULL_ROLLOUT_SEGMENT).unwrap();
+        let flag: Flag = serde_json::from_str(&flag_json).unwrap();
+        let flag_name = flag.name.clone();
+        let seg_name = segment.name.clone();
+
+        let mut segments = HashMap::new();
+        segments.insert(seg_name.clone(), segment);
+        let mut flags = HashMap::new();
+        flags.insert(flag.name.clone(), flag);
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            SECRET.to_string(),
+            Client {
+                account: Account::new("accounts/test"),
+                client_name: "clients/test".to_string(),
+                client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
+                environments: vec![],
+            },
+        );
+        let mut bitsets = HashMap::new();
+        bitsets.insert(seg_name, bitvec::prelude::BitVec::repeat(true, 1_000_000));
+
+        let state = ResolverState {
+            secrets,
+            flags,
+            segments,
+            bitsets,
+        };
+
+        let context_json = r#"{"country": "SE"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+        let flag = resolver.state.flags.get(&flag_name).unwrap();
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::unsupported())
+            .unwrap();
+        assert_eq!(
+            resolved_value.reason(),
+            ResolveReason::Match,
+            "Full rollout with all-set bitset and no unit should MATCH"
+        );
+    }
+
+    #[test]
+    fn test_full_rollout_no_unit_bitset_partial() {
+        let flag_json = full_rollout_flag("");
+        let segment: Segment = serde_json::from_str(FULL_ROLLOUT_SEGMENT).unwrap();
+        let flag: Flag = serde_json::from_str(&flag_json).unwrap();
+        let flag_name = flag.name.clone();
+        let seg_name = segment.name.clone();
+
+        let mut segments = HashMap::new();
+        segments.insert(seg_name.clone(), segment);
+        let mut flags = HashMap::new();
+        flags.insert(flag.name.clone(), flag);
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            SECRET.to_string(),
+            Client {
+                account: Account::new("accounts/test"),
+                client_name: "clients/test".to_string(),
+                client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
+                environments: vec![],
+            },
+        );
+        // Partial bitset — only half the buckets are set
+        let mut bv = bitvec::prelude::BitVec::repeat(false, 1_000_000);
+        for i in 0..500_000 {
+            bv.set(i, true);
+        }
+        let mut bitsets = HashMap::new();
+        bitsets.insert(seg_name, bv);
+
+        let state = ResolverState {
+            secrets,
+            flags,
+            segments,
+            bitsets,
+        };
+
+        let context_json = r#"{"country": "SE"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+        let flag = resolver.state.flags.get(&flag_name).unwrap();
+        let resolved_value = resolver
+            .resolve_flag(flag, &mut MaterializationContext::unsupported())
+            .unwrap();
+        assert_eq!(
+            resolved_value.reason(),
+            ResolveReason::NoSegmentMatch,
+            "Partial bitset with no unit should NOT match (can't hash unit into bitset)"
         );
     }
 }
