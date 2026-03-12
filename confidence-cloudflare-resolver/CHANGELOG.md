@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.3](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.6.2...confidence-cloudflare-resolver-v0.6.3) (2026-03-12)
+
+
+### Bug Fixes
+
+* pass the sdk with the state to get it into telemetry ([#332](https://github.com/spotify/confidence-resolver/issues/332)) ([1f22c5f](https://github.com/spotify/confidence-resolver/commit/1f22c5fa38c4e8a7d56ea4616db94f9b991d41ab))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.13.0 to 0.14.0
+
 ## [0.6.2](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.6.1...confidence-cloudflare-resolver-v0.6.2) (2026-03-06)
 
 

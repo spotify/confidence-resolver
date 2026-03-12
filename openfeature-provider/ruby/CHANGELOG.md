@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/ruby/v0.1.2...openfeature-provider/ruby/v0.1.3) (2026-03-12)
+
+
+### Bug Fixes
+
+* **ruby:** use correct SDK_ID_RUBY_PROVIDER for telemetry ([#328](https://github.com/spotify/confidence-resolver/issues/328)) ([7aa5935](https://github.com/spotify/confidence-resolver/commit/7aa5935aa65a882044539349913b1246e0457b5b))
+
 ## [0.1.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/ruby/v0.1.1...openfeature-provider/ruby/v0.1.2) (2026-03-06)
 
 
