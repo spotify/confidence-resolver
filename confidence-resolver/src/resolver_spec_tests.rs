@@ -490,11 +490,9 @@ spec_test!(nested_segment_match);
 spec_test!(circular_segment_dependency);
 
 // Variant / assignment
-spec_test!(variant_match);
 spec_test!(fallthrough_then_match);
 spec_test!(client_default_match);
 spec_test!(bucket_gap_no_match);
-spec_test!(full_rollout_no_targeting_key);
 spec_test!(multi_variant_no_targeting_key);
 
 // Any rule with inner rules
@@ -572,3 +570,74 @@ spec_test!(ends_with_no_match);
 spec_test!(resolve_with_apply_true);
 spec_test!(resolve_with_apply_true_empty_result);
 spec_test!(resolve_with_apply_true_no_match);
+
+// Is-null / is-not-null
+spec_test!(is_null_explicit);
+spec_test!(is_null_implicit);
+spec_test!(is_null_non_null_value);
+spec_test!(is_not_null_with_value);
+spec_test!(is_not_null_missing);
+
+// NOT any rule
+spec_test!(not_any_no_overlap);
+spec_test!(not_any_has_overlap);
+spec_test!(not_any_empty_list);
+spec_test!(not_any_null_list);
+spec_test!(not_any_missing_field);
+
+// NOT all rule
+spec_test!(not_all_some_outside);
+spec_test!(not_all_all_inside);
+spec_test!(not_all_empty_list);
+spec_test!(not_all_null_list);
+spec_test!(not_all_missing_field);
+
+// ALL rule edge cases
+spec_test!(all_rule_empty_list);
+spec_test!(all_rule_null_list);
+spec_test!(all_rule_missing_field);
+spec_test!(all_rule_heterogeneous);
+
+// ANY rule edge cases
+spec_test!(any_rule_empty_list);
+spec_test!(any_rule_null_list);
+spec_test!(any_rule_missing_field);
+spec_test!(any_rule_nested_list);
+
+// Context value as list
+spec_test!(set_with_input_list);
+spec_test!(eq_with_input_list);
+spec_test!(range_with_input_list);
+
+// Custom targeting key selector
+spec_test!(custom_key_match);
+spec_test!(custom_key_missing);
+spec_test!(custom_key_wrong_type);
+
+// Semver targeting
+spec_test!(semver_match);
+spec_test!(semver_no_match);
+
+// Timestamp targeting
+spec_test!(timestamp_match);
+spec_test!(timestamp_no_match);
+spec_test!(timestamp_bad_value);
+
+// Targeting key + rollout edge cases
+spec_test!(full_rollout_invalid_key_type);
+spec_test!(partial_rollout_invalid_key_type);
+
+// Segment edge cases
+spec_test!(same_segment_twice);
+spec_test!(fallthrough_single_rule);
+
+// Materialized segment criterion
+spec_test!(mat_criterion_no_match);
+spec_test!(nested_mat_match);
+spec_test!(nested_mat_no_match);
+
+// Combined criteria (attribute + materialized segment)
+spec_test!(combined_both_match);
+spec_test!(combined_only_attr);
+spec_test!(combined_only_mat);
+spec_test!(combined_neither);
