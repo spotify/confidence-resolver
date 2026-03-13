@@ -1687,6 +1687,350 @@
           "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a-match", "variant": { "variant": "on" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
         }
       ]
+    },
+    "flags/is-null-flag": {
+      "name": "flags/is-null-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/is-null-flag/rules/rule1",
+          "segment": "segments/is-null",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/is-not-null-flag": {
+      "name": "flags/is-not-null-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/is-not-null-flag/rules/rule1",
+          "segment": "segments/is-not-null",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/not-any-flag": {
+      "name": "flags/not-any-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/not-any-flag/rules/rule1",
+          "segment": "segments/not-any-rule",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/not-all-flag": {
+      "name": "flags/not-all-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/not-all-flag/rules/rule1",
+          "segment": "segments/not-all-rule",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/semver-flag": {
+      "name": "flags/semver-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/semver-flag/rules/rule1",
+          "segment": "segments/semver-range",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/timestamp-flag": {
+      "name": "flags/timestamp-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/timestamp-flag/rules/rule1",
+          "segment": "segments/timestamp-range",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/custom-key-flag": {
+      "name": "flags/custom-key-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/custom-key-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "customId",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/catch-all-100pct-flag": {
+      "name": "flags/catch-all-100pct-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/catch-all-100pct-flag/rules/rule1",
+          "segment": "segments/catch-all",
+          "enabled": true,
+          "targetingKeySelector": "",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/catch-all-50pct-flag": {
+      "name": "flags/catch-all-50pct-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "control", "value": { "group": "control" } },
+        { "name": "treatment", "value": { "group": "treatment" } }
+      ],
+      "rules": [
+        {
+          "name": "flags/catch-all-50pct-flag/rules/rule1",
+          "segment": "segments/catch-all",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a-ctrl",
+                "variant": { "variant": "control" },
+                "bucketRanges": [{ "lower": 0, "upper": 500 }]
+              },
+              {
+                "assignmentId": "a-treat",
+                "variant": { "variant": "treatment" },
+                "bucketRanges": [{ "lower": 500, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/same-segment-twice-flag": {
+      "name": "flags/same-segment-twice-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/same-segment-twice-flag/rules/rule1",
+          "segment": "segments/same-segment-twice",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/fallthrough-single-flag": {
+      "name": "flags/fallthrough-single-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/fallthrough-single-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a-ft",
+                "fallthrough": {},
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/mat-nested-flag": {
+      "name": "flags/mat-nested-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-nested-flag/rules/rule1",
+          "segment": "segments/mat-nested-outer",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/combined-criteria-flag": {
+      "name": "flags/combined-criteria-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/combined-criteria-flag/rules/rule1",
+          "segment": "segments/combined-criteria",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
     }
   },
   "segments": {
@@ -2149,6 +2493,194 @@
         },
         "expression": { "ref": "c1" }
       }
+    },
+    "segments/catch-all": {
+      "name": "segments/catch-all",
+      "state": "OK"
+    },
+    "segments/is-null": {
+      "name": "segments/is-null",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "null-attribute",
+              "eqRule": {
+                "value": {}
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/is-not-null": {
+      "name": "segments/is-not-null",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "null-attribute",
+              "eqRule": {
+                "value": {}
+              }
+            }
+          }
+        },
+        "expression": { "not": { "ref": "c1" } }
+      }
+    },
+    "segments/not-any-rule": {
+      "name": "segments/not-any-rule",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "tags",
+              "anyRule": {
+                "rule": {
+                  "eqRule": {
+                    "value": { "stringValue": "premium" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "not": { "ref": "c1" } }
+      }
+    },
+    "segments/not-all-rule": {
+      "name": "segments/not-all-rule",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "scores",
+              "allRule": {
+                "rule": {
+                  "rangeRule": {
+                    "startInclusive": { "numberValue": 0.0 },
+                    "endInclusive": { "numberValue": 100.0 }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "not": { "ref": "c1" } }
+      }
+    },
+    "segments/semver-range": {
+      "name": "segments/semver-range",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "version",
+              "rangeRule": {
+                "startInclusive": {
+                  "versionValue": { "version": "2.0.0" }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/timestamp-range": {
+      "name": "segments/timestamp-range",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "releaseTime",
+              "rangeRule": {
+                "startInclusive": {
+                  "timestampValue": "2022-11-17T15:16:17.118Z"
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/same-segment-twice": {
+      "name": "segments/same-segment-twice",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "segment": {
+              "segment": "segments/country-se"
+            }
+          },
+          "c2": {
+            "segment": {
+              "segment": "segments/country-se"
+            }
+          }
+        },
+        "expression": { "or": { "operands": [{ "ref": "c1" }, { "ref": "c2" }] } }
+      }
+    },
+    "segments/mat-nested-inner": {
+      "name": "segments/mat-nested-inner",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "materializedSegment": {
+              "materializedSegment": "materializations/mat-nested"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/mat-nested-outer": {
+      "name": "segments/mat-nested-outer",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "segment": {
+              "segment": "segments/mat-nested-inner"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/combined-criteria": {
+      "name": "segments/combined-criteria",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "country",
+              "eqRule": {
+                "value": { "stringValue": "SE" }
+              }
+            }
+          },
+          "c2": {
+            "materializedSegment": {
+              "materializedSegment": "materializations/mat-combined"
+            }
+          }
+        },
+        "expression": { "and": { "operands": [{ "ref": "c1" }, { "ref": "c2" }] } }
+      }
     }
   },
   "bitsets": {
@@ -2179,7 +2711,18 @@
     "segments/and-country-age": "ALL",
     "segments/or-country-email": "ALL",
     "segments/not-country-se": "ALL",
-    "segments/country-us": "ALL"
+    "segments/country-us": "ALL",
+    "segments/catch-all": "ALL",
+    "segments/is-null": "ALL",
+    "segments/is-not-null": "ALL",
+    "segments/not-any-rule": "ALL",
+    "segments/not-all-rule": "ALL",
+    "segments/semver-range": "ALL",
+    "segments/timestamp-range": "ALL",
+    "segments/same-segment-twice": "ALL",
+    "segments/mat-nested-inner": "ALL",
+    "segments/mat-nested-outer": "ALL",
+    "segments/combined-criteria": "ALL"
   },
   "clients": {
     "test-secret": {
