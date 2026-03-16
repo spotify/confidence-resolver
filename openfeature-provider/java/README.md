@@ -39,7 +39,7 @@ You'll need a **client secret** from Confidence to use this provider.
 ## Quick Start
 
 ```java
-import com.spotify.confidence.OpenFeatureLocalResolveProvider;
+import com.spotify.confidence.sdk.OpenFeatureLocalResolveProvider;
 import dev.openfeature.sdk.OpenFeatureAPI;
 import dev.openfeature.sdk.Client;
 import dev.openfeature.sdk.MutableContext;
@@ -150,8 +150,8 @@ The following environment variables are deprecated and will be removed in a futu
 For testing or advanced production scenarios, you can provide a custom `ChannelFactory` to control how gRPC channels are created:
 
 ```java
-import com.spotify.confidence.LocalProviderConfig;
-import com.spotify.confidence.ChannelFactory;
+import com.spotify.confidence.sdk.LocalProviderConfig;
+import com.spotify.confidence.sdk.ChannelFactory;
 
 // Example: Custom channel factory for testing with in-process server
 ChannelFactory mockFactory = (target, interceptors) ->
