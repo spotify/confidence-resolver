@@ -124,6 +124,10 @@ message TelemetryData {
   // Current linear memory size in bytes
   uint64 memory_bytes = 7;
 
+  // Version of the embedded resolver (e.g. "0.14.0").
+  // Set from the confidence-resolver crate version at build time.
+  string resolver_version = 8;
+
   message ResolveLatency {
     option (confidence.api.histogram) = {
       min_value: 1
