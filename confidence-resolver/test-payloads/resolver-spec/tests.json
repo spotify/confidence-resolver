@@ -3917,7 +3917,8 @@
             "reason": "RESOLVE_REASON_MATCH",
             "variant": "on",
             "value": { "enabled": true },
-            "shouldApply": true
+            "shouldApply": true,
+            "assignmentId": "a2"
           }
         ],
         "expectError": null
