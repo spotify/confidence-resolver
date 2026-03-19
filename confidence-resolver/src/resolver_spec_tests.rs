@@ -641,3 +641,6 @@ spec_test!(combined_both_match);
 spec_test!(combined_only_attr);
 spec_test!(combined_only_mat);
 spec_test!(combined_neither);
+
+// Materialization: duplicate variant assignments
+spec_test!(mat_same_variant_two_assignments_returns_correct_assignment_id);
