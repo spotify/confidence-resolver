@@ -120,6 +120,7 @@ struct SpecResolvedFlag {
     variant: String,
     value: Option<serde_json::Value>,
     should_apply: Option<bool>,
+    assignment_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +425,37 @@ fn run_spec_test(state: &ResolverState, test_case: &SpecTestCase) {
                 test_case.name, expected_flag.flag, expected_should_apply, actual_should_apply,
             );
         }
+
+        // assignmentId assertion (from resolve token)
+        if let Some(expected_assignment_id) = &expected_flag.assignment_id {
+            let token = resolver
+                .decrypt_resolve_token(&resolve_response.resolve_token)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "[{}] Failed to decrypt resolve token: {}",
+                        test_case.name, e,
+                    )
+                });
+            match token.resolve_token {
+                Some(flags_resolver::resolve_token::ResolveToken::TokenV1(token_v1)) => {
+                    let assigned = token_v1.assignments.get(&expected_flag.flag).unwrap_or_else(|| {
+                        panic!(
+                            "[{}] Flag '{}' not found in resolve token assignments",
+                            test_case.name, expected_flag.flag,
+                        )
+                    });
+                    assert_eq!(
+                        &assigned.assignment_id, expected_assignment_id,
+                        "[{}] assignmentId mismatch for flag '{}'",
+                        test_case.name, expected_flag.flag,
+                    );
+                }
+                _ => panic!(
+                    "[{}] Expected TokenV1 in resolve token",
+                    test_case.name,
+                ),
+            }
+        }
     }
 }
 
@@ -641,3 +673,6 @@ spec_test!(combined_both_match);
 spec_test!(combined_only_attr);
 spec_test!(combined_only_mat);
 spec_test!(combined_neither);
+
+// Materialization: duplicate variant assignments
+spec_test!(mat_same_variant_two_assignments_returns_correct_assignment_id);

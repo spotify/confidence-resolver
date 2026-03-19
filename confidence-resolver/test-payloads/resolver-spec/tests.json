@@ -3891,5 +3891,38 @@
         "expectError": null
       }
     }
+  },
+  {
+    "name": "mat_same_variant_two_assignments_returns_correct_assignment_id",
+    "resolveRequest": {
+      "flags": ["flags/mat-same-variant-flag"],
+      "evaluationContext": { "targeting_key": "user1", "country": "SE" },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {
+            "flags/mat-same-variant-flag/rules/rule1": "on"
+          }
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/mat-same-variant-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true,
+            "assignmentId": "a2"
+          }
+        ],
+        "expectError": null
+      }
+    }
   }
 ]
