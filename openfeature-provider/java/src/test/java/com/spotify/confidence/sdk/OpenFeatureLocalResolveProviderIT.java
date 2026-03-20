@@ -42,7 +42,7 @@ class OpenFeatureLocalResolveProviderIT {
 
   @AfterAll
   static void teardown() {
-    OpenFeatureAPI.getInstance().getProvider().shutdown();
+    OpenFeatureAPI.getInstance().shutdown();
   }
 
   @Test
