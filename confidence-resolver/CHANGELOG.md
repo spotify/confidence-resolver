@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.14.0...confidence_resolver-v0.15.0) (2026-03-20)
+
+
+### Features
+
+* add resolver_version field to TelemetryData ([#346](https://github.com/spotify/confidence-resolver/issues/346)) ([10ab1c6](https://github.com/spotify/confidence-resolver/commit/10ab1c657cb830dc36f433d1dca0af73beecaa27))
+
 ## [0.14.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.13.0...confidence_resolver-v0.14.0) (2026-03-12)
 
 

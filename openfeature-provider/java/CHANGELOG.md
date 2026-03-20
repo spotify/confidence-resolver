@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.13.1...openfeature-provider-java-v0.13.2) (2026-03-20)
+
+
+### Bug Fixes
+
+* correct Java provider telemetry version path ([#340](https://github.com/spotify/confidence-resolver/issues/340)) ([6c55bcc](https://github.com/spotify/confidence-resolver/commit/6c55bcc589df1fe897cd66bf762d67cf48fd5e7d))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.19 to 0.1.20
+
 ## [0.13.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.13.0...openfeature-provider-java-v0.13.1) (2026-03-12)
 
 
