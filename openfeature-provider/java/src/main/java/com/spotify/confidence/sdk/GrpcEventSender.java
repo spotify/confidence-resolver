@@ -74,8 +74,7 @@ class GrpcEventSender implements Consumer<Messages.FlushEventsResponse> {
   void shutdown() {
     executorService.shutdown();
     try {
-      if (!executorService.awaitTermination(
-          shutdownTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
+      if (!executorService.awaitTermination(shutdownTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
         logger.warn("Event sender executor did not terminate gracefully");
         executorService.shutdownNow();
       }

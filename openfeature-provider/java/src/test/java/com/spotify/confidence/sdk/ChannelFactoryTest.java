@@ -50,7 +50,8 @@ public class ChannelFactoryTest {
     assertTrue(
         targetsReceived.get(0).contains("grpc") || targetsReceived.get(0).contains("edge"),
         "Target should be a gRPC endpoint, got: " + targetsReceived.get(0));
-    assertEquals(2, interceptorCounts.size(), "Interceptors should have been called for each channel");
+    assertEquals(
+        2, interceptorCounts.size(), "Interceptors should have been called for each channel");
   }
 
   @Test
