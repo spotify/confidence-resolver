@@ -4,6 +4,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
+import com.spotify.confidence.sdk.wasm.Messages;
 import java.util.concurrent.CompletionStage;
 
 /** Common interface for the compositional local resolver layers. */
@@ -39,6 +40,16 @@ interface LocalResolver {
 
   /** Flushes pending assignment logs only. */
   void flushAssignLogs();
+
+  /**
+   * Tracks a business event for experimentation analytics.
+   *
+   * @param event the event to track
+   */
+  void trackEvent(Messages.Event event);
+
+  /** Flushes pending tracked events. */
+  void flushEvents();
 
   /** Closes the resolver and releases resources. */
   void close();

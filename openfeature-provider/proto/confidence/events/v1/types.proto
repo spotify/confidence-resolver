@@ -1,0 +1,28 @@
+syntax = "proto3";
+package confidence.events.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option java_package = "com.spotify.confidence.sdk.events.v1";
+option java_multiple_files = true;
+option java_outer_classname = "TypesProto";
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events";
+
+message Event {
+  string event_definition = 1;
+  google.protobuf.Struct payload = 2;
+  google.protobuf.Timestamp event_time = 3;
+}
+
+message EventError {
+  int32 index = 1;
+  Reason reason = 2;
+  string message = 3;
+
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    EVENT_DEFINITION_NOT_FOUND = 1;
+    EVENT_SCHEMA_VALIDATION_FAILED = 2;
+  }
+}

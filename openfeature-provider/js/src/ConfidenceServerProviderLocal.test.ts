@@ -23,6 +23,8 @@ const mockedWasmResolver: MockedObject<LocalResolver> = {
   flushLogs: vi.fn().mockReturnValue(new Uint8Array(100)),
   flushAssigned: vi.fn().mockReturnValue(new Uint8Array(50)),
   applyFlags: vi.fn(),
+  trackEvent: vi.fn(),
+  flushEvents: vi.fn().mockReturnValue({ events: [], sendTime: undefined }),
 };
 
 let provider: ConfidenceServerProviderLocal;

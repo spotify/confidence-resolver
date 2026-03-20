@@ -23,6 +23,8 @@ type LocalResolver interface {
 	ApplyFlags(*resolver.ApplyFlagsRequest) error
 	FlushAllLogs() error
 	FlushAssignLogs() error
+	TrackEvent(*wasm.Event) error
+	FlushEvents() (*wasm.FlushEventsResponse, error)
 	Close(context.Context) error
 }
 

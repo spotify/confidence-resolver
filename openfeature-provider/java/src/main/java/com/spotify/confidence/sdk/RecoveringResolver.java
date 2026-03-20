@@ -5,6 +5,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
+import com.spotify.confidence.sdk.wasm.Messages;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -119,6 +120,25 @@ class RecoveringResolver implements LocalResolver {
       current.get().flushAssignLogs();
     } catch (ChicoryException e) {
       handleFailure("flushAssignLogs", e);
+    }
+  }
+
+  @Override
+  public void trackEvent(Messages.Event event) {
+    try {
+      current.get().trackEvent(event);
+    } catch (ChicoryException e) {
+      handleFailure("trackEvent", e);
+      throw e;
+    }
+  }
+
+  @Override
+  public void flushEvents() {
+    try {
+      current.get().flushEvents();
+    } catch (ChicoryException e) {
+      handleFailure("flushEvents", e);
     }
   }
 

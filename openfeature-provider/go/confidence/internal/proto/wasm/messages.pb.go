@@ -10,6 +10,8 @@ import (
 	resolver "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -244,11 +246,115 @@ func (*Response_Data) isResponse_Result() {}
 
 func (*Response_Error) isResponse_Result() {}
 
+type Event struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	EventDefinition string                 `protobuf:"bytes,1,opt,name=event_definition,json=eventDefinition,proto3" json:"event_definition,omitempty"`
+	Payload         *structpb.Struct       `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
+	EventTime       *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=event_time,json=eventTime,proto3" json:"event_time,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *Event) Reset() {
+	*x = Event{}
+	mi := &file_confidence_wasm_messages_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Event) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Event) ProtoMessage() {}
+
+func (x *Event) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_wasm_messages_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Event.ProtoReflect.Descriptor instead.
+func (*Event) Descriptor() ([]byte, []int) {
+	return file_confidence_wasm_messages_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Event) GetEventDefinition() string {
+	if x != nil {
+		return x.EventDefinition
+	}
+	return ""
+}
+
+func (x *Event) GetPayload() *structpb.Struct {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *Event) GetEventTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EventTime
+	}
+	return nil
+}
+
+type FlushEventsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Events        []*Event               `protobuf:"bytes,2,rep,name=events,proto3" json:"events,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FlushEventsResponse) Reset() {
+	*x = FlushEventsResponse{}
+	mi := &file_confidence_wasm_messages_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlushEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlushEventsResponse) ProtoMessage() {}
+
+func (x *FlushEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_wasm_messages_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlushEventsResponse.ProtoReflect.Descriptor instead.
+func (*FlushEventsResponse) Descriptor() ([]byte, []int) {
+	return file_confidence_wasm_messages_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *FlushEventsResponse) GetEvents() []*Event {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
 var File_confidence_wasm_messages_proto protoreflect.FileDescriptor
 
 const file_confidence_wasm_messages_proto_rawDesc = "" +
 	"\n" +
-	"\x1econfidence/wasm/messages.proto\x12\x0fconfidence.wasm\x1a(confidence/flags/resolver/v1/types.proto\"\x06\n" +
+	"\x1econfidence/wasm/messages.proto\x12\x0fconfidence.wasm\x1a(confidence/flags/resolver/v1/types.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x06\n" +
 	"\x04Void\"\x83\x01\n" +
 	"\x17SetResolverStateRequest\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\fR\x05state\x12\x1d\n" +
@@ -260,7 +366,14 @@ const file_confidence_wasm_messages_proto_rawDesc = "" +
 	"\bResponse\x12\x14\n" +
 	"\x04data\x18\x01 \x01(\fH\x00R\x04data\x12\x16\n" +
 	"\x05error\x18\x02 \x01(\tH\x00R\x05errorB\b\n" +
-	"\x06resultB\x8c\x01\n" +
+	"\x06result\"\xa0\x01\n" +
+	"\x05Event\x12)\n" +
+	"\x10event_definition\x18\x01 \x01(\tR\x0feventDefinition\x121\n" +
+	"\apayload\x18\x02 \x01(\v2\x17.google.protobuf.StructR\apayload\x129\n" +
+	"\n" +
+	"event_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\teventTime\"E\n" +
+	"\x13FlushEventsResponse\x12.\n" +
+	"\x06events\x18\x02 \x03(\v2\x16.confidence.wasm.EventR\x06eventsB\x8c\x01\n" +
 	"\x1fcom.spotify.confidence.sdk.wasmB\bMessagesP\x00Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
 
 var (
@@ -275,21 +388,28 @@ func file_confidence_wasm_messages_proto_rawDescGZIP() []byte {
 	return file_confidence_wasm_messages_proto_rawDescData
 }
 
-var file_confidence_wasm_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_confidence_wasm_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_confidence_wasm_messages_proto_goTypes = []any{
 	(*Void)(nil),                    // 0: confidence.wasm.Void
 	(*SetResolverStateRequest)(nil), // 1: confidence.wasm.SetResolverStateRequest
 	(*Request)(nil),                 // 2: confidence.wasm.Request
 	(*Response)(nil),                // 3: confidence.wasm.Response
-	(*resolver.Sdk)(nil),            // 4: confidence.flags.resolver.v1.Sdk
+	(*Event)(nil),                   // 4: confidence.wasm.Event
+	(*FlushEventsResponse)(nil),     // 5: confidence.wasm.FlushEventsResponse
+	(*resolver.Sdk)(nil),            // 6: confidence.flags.resolver.v1.Sdk
+	(*structpb.Struct)(nil),         // 7: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),   // 8: google.protobuf.Timestamp
 }
 var file_confidence_wasm_messages_proto_depIdxs = []int32{
-	4, // 0: confidence.wasm.SetResolverStateRequest.sdk:type_name -> confidence.flags.resolver.v1.Sdk
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	6, // 0: confidence.wasm.SetResolverStateRequest.sdk:type_name -> confidence.flags.resolver.v1.Sdk
+	7, // 1: confidence.wasm.Event.payload:type_name -> google.protobuf.Struct
+	8, // 2: confidence.wasm.Event.event_time:type_name -> google.protobuf.Timestamp
+	4, // 3: confidence.wasm.FlushEventsResponse.events:type_name -> confidence.wasm.Event
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_confidence_wasm_messages_proto_init() }
@@ -307,7 +427,7 @@ func file_confidence_wasm_messages_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_wasm_messages_proto_rawDesc), len(file_confidence_wasm_messages_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

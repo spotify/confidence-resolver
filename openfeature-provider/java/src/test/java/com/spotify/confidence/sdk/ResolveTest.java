@@ -34,7 +34,7 @@ class ResolveTest {
   private final LocalResolver resolver;
 
   public ResolveTest() {
-    resolver = new WasmLocalResolver(request -> {});
+    resolver = new WasmLocalResolver(request -> {}, response -> {});
   }
 
   @BeforeEach

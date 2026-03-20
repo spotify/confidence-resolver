@@ -3,6 +3,7 @@ package com.spotify.confidence.sdk;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.Struct;
+import com.google.protobuf.Timestamp;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
@@ -10,6 +11,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
+import com.spotify.confidence.sdk.wasm.Messages;
 import dev.openfeature.sdk.*;
 import dev.openfeature.sdk.exceptions.FlagNotFoundError;
 import dev.openfeature.sdk.exceptions.GeneralError;
@@ -17,10 +19,12 @@ import dev.openfeature.sdk.exceptions.TypeMismatchError;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import org.slf4j.Logger;
 
@@ -52,6 +56,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       org.slf4j.LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
   private final LocalResolver resolver;
   private final WasmFlagLogger flagLogger;
+  private final GrpcEventSender eventSender;
   private final MaterializationStore materializationStore;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
@@ -138,11 +143,15 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.stateProvider = new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory());
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
     this.flagLogger = wasmFlagLogger;
+    this.eventSender = new GrpcEventSender(clientSecret, config.getChannelFactory());
     final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
+    final Consumer<Messages.FlushEventsResponse> eventSinkRef = this.eventSender;
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
-            () -> new RecoveringResolver(() -> new WasmLocalResolver(flagLogger::write)));
+            () ->
+                new RecoveringResolver(
+                    () -> new WasmLocalResolver(flagLogger::write, eventSinkRef)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -160,16 +169,29 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       String clientSecret,
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger) {
+    this(accountStateProvider, clientSecret, materializationStore, wasmFlagLogger, resp -> {});
+  }
+
+  @VisibleForTesting
+  public OpenFeatureLocalResolveProvider(
+      AccountStateProvider accountStateProvider,
+      String clientSecret,
+      MaterializationStore materializationStore,
+      WasmFlagLogger wasmFlagLogger,
+      Consumer<Messages.FlushEventsResponse> eventSink) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
     this.stateProvider = accountStateProvider;
     this.flagLogger = wasmFlagLogger;
+    this.eventSender = null;
     final int numInstances =
         PooledResolver.getNumInstances(LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE);
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
-            () -> new RecoveringResolver(() -> new WasmLocalResolver(wasmFlagLogger::write)));
+            () ->
+                new RecoveringResolver(
+                    () -> new WasmLocalResolver(wasmFlagLogger::write, eventSink)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -234,9 +256,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               this.state.set(ProviderState.READY);
               log.info("Provider recovered and is now READY");
             } else {
-              // State refresh + full log flush
+              // State refresh + full log flush + event flush
               resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
               resolver.flushAllLogs();
+              resolver.flushEvents();
             }
           }
 
@@ -348,6 +371,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     // flagLogger.shutdown() waits for pending async writes to complete
     this.flagLogger.shutdown();
+
+    // eventSender.shutdown() waits for pending event publishes to complete
+    if (this.eventSender != null) {
+      this.eventSender.shutdown();
+    }
 
     FeatureProvider.super.shutdown();
   }
@@ -489,6 +517,37 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    */
   void applyFlags(ApplyFlagsRequest request) {
     resolver.applyFlags(request);
+  }
+
+  @Override
+  public void track(String trackingEventName, EvaluationContext ctx, TrackingEventDetails details) {
+    if (!initialized) {
+      return;
+    }
+    Struct contextStruct = OpenFeatureUtils.convertToProto(ctx);
+    Struct.Builder payloadBuilder = contextStruct.toBuilder();
+    if (details != null) {
+      details
+          .getValue()
+          .ifPresent(
+              value ->
+                  payloadBuilder.putFields(
+                      "value",
+                      com.google.protobuf.Value.newBuilder()
+                          .setNumberValue(value.doubleValue())
+                          .build()));
+    }
+    Instant now = Instant.now();
+    resolver.trackEvent(
+        Messages.Event.newBuilder()
+            .setEventDefinition("eventDefinitions/" + trackingEventName)
+            .setPayload(payloadBuilder.build())
+            .setEventTime(
+                Timestamp.newBuilder()
+                    .setSeconds(now.getEpochSecond())
+                    .setNanos(now.getNano())
+                    .build())
+            .build());
   }
 
   private static void handleStatusRuntimeException(StatusRuntimeException e) {

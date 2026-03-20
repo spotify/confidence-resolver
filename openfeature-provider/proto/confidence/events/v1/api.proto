@@ -1,0 +1,24 @@
+syntax = "proto3";
+package confidence.events.v1;
+
+import "google/protobuf/timestamp.proto";
+import "confidence/events/v1/types.proto";
+
+option java_package = "com.spotify.confidence.sdk.events.v1";
+option java_multiple_files = true;
+option java_outer_classname = "ApiProto";
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events";
+
+service EventsService {
+  rpc PublishEvents(PublishEventsRequest) returns (PublishEventsResponse) {}
+}
+
+message PublishEventsRequest {
+  string client_secret = 1;
+  repeated Event events = 2;
+  google.protobuf.Timestamp send_time = 3;
+}
+
+message PublishEventsResponse {
+  repeated EventError errors = 1;
+}

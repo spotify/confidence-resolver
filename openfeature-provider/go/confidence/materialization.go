@@ -185,6 +185,14 @@ func (m *materializationSupportedResolver) SetResolverState(request *wasm.SetRes
 	return m.current.SetResolverState(request)
 }
 
+func (m *materializationSupportedResolver) TrackEvent(event *wasm.Event) error {
+	return m.current.TrackEvent(event)
+}
+
+func (m *materializationSupportedResolver) FlushEvents() (*wasm.FlushEventsResponse, error) {
+	return m.current.FlushEvents()
+}
+
 func (m *materializationSupportedResolver) Close(ctx context.Context) error {
 	return m.current.Close(ctx)
 }

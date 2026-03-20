@@ -1,5 +1,6 @@
 import { BinaryWriter } from '@bufbuild/protobuf/wire';
-import { Request, Response, Void, SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import { Request, Response, Void, SetResolverStateRequest, FlushEventsResponse } from './proto/confidence/wasm/messages';
+import { Event } from './proto/confidence/wasm/messages';
 import { Timestamp } from './proto/google/protobuf/timestamp';
 import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
 import { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
@@ -21,6 +22,8 @@ const EXPORT_FN_NAMES = [
   'wasm_msg_guest_bounded_flush_logs',
   'wasm_msg_guest_bounded_flush_assign',
   'wasm_msg_guest_apply_flags',
+  'wasm_msg_guest_track_event',
+  'wasm_msg_guest_flush_events',
 ] as const;
 type EXPORT_FN_NAMES = (typeof EXPORT_FN_NAMES)[number];
 
@@ -94,6 +97,21 @@ export class UnsafeWasmResolver implements LocalResolver {
     const reqPtr = this.transferRequest(request, ApplyFlagsRequest);
     const resPtr = this.exports.wasm_msg_guest_apply_flags(reqPtr);
     this.consumeResponse(resPtr, Void);
+  }
+
+  trackEvent(event: Event): void {
+    const reqPtr = this.transferRequest(event, Event);
+    const resPtr = this.exports.wasm_msg_guest_track_event(reqPtr);
+    this.consumeResponse(resPtr, Void);
+  }
+
+  flushEvents(): FlushEventsResponse {
+    const resPtr = this.exports.wasm_msg_guest_flush_events(0);
+    const { data, error } = this.consume(resPtr, Response);
+    if (error) {
+      throw new Error(error);
+    }
+    return FlushEventsResponse.decode(data!);
   }
 
   private transferRequest<T>(value: T, codec: Codec<T>): number {
@@ -212,6 +230,28 @@ export class WasmResolver implements LocalResolver {
   applyFlags(request: ApplyFlagsRequest): void {
     try {
       this.delegate.applyFlags(request);
+    } catch (error: unknown) {
+      if (error instanceof WebAssembly.RuntimeError) {
+        this.reloadInstance(error);
+      }
+      throw error;
+    }
+  }
+
+  trackEvent(event: Event): void {
+    try {
+      this.delegate.trackEvent(event);
+    } catch (error: unknown) {
+      if (error instanceof WebAssembly.RuntimeError) {
+        this.reloadInstance(error);
+      }
+      throw error;
+    }
+  }
+
+  flushEvents(): FlushEventsResponse {
+    try {
+      return this.delegate.flushEvents();
     } catch (error: unknown) {
       if (error instanceof WebAssembly.RuntimeError) {
         this.reloadInstance(error);

@@ -72,6 +72,16 @@ func (r *WasmResolver) FlushAssignLogs() error {
 	return err
 }
 
+func (r *WasmResolver) TrackEvent(event *wasm.Event) error {
+	return r.call("wasm_msg_guest_track_event", event, nil)
+}
+
+func (r *WasmResolver) FlushEvents() (*wasm.FlushEventsResponse, error) {
+	resp := &wasm.FlushEventsResponse{}
+	err := r.call("wasm_msg_guest_flush_events", nil, resp)
+	return resp, err
+}
+
 func (r *WasmResolver) Close(ctx context.Context) error {
 	// TODO we should call flush assigned until it doesn't flush any more
 	r.FlushAllLogs()

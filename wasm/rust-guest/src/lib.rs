@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::Bytes;
 use confidence_resolver::assign_logger::AssignLogger;
+use confidence_resolver::event_logger::{EventLogger, TrackedEvent};
 use confidence_resolver::proto::confidence::flags::resolver::v1::resolve_process_response;
 use confidence_resolver::telemetry::{Telemetry, TelemetrySnapshot};
 use prost::Message;
@@ -56,6 +57,7 @@ const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
+static EVENT_LOGGER: LazyLock<EventLogger> = LazyLock::new(EventLogger::new);
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
 });
@@ -197,6 +199,27 @@ wasm_msg_guest! {
 
     fn bounded_flush_assign(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
         Ok(ASSIGN_LOGGER.checkpoint_with_limit(LOG_TARGET_BYTES, true))
+    }
+
+    fn track_event(event: proto::Event) -> WasmResult<Void> {
+        EVENT_LOGGER.track(TrackedEvent {
+            event_definition: event.event_definition,
+            payload: event.payload.unwrap_or_default(),
+            event_time: event.event_time.unwrap_or_default(),
+        });
+        Ok(VOID)
+    }
+
+    fn flush_events(_request: Void) -> WasmResult<proto::FlushEventsResponse> {
+        let events = EVENT_LOGGER.flush();
+        let pb_events = events.into_iter().map(|e| proto::Event {
+            event_definition: e.event_definition,
+            payload: Some(e.payload),
+            event_time: Some(e.event_time),
+        }).collect();
+        Ok(proto::FlushEventsResponse {
+            events: pb_events,
+        })
     }
 
     fn apply_flags(request: ApplyFlagsRequest) -> WasmResult<Void> {

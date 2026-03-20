@@ -4,6 +4,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
+import com.spotify.confidence.sdk.wasm.Messages;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicLong;
@@ -74,6 +75,16 @@ class PooledResolver implements LocalResolver {
   @Override
   public void flushAssignLogs() {
     maintenance(LocalResolver::flushAssignLogs);
+  }
+
+  @Override
+  public void trackEvent(Messages.Event event) {
+    withReadSlotVoid(lr -> lr.trackEvent(event));
+  }
+
+  @Override
+  public void flushEvents() {
+    maintenance(LocalResolver::flushEvents);
   }
 
   @Override
