@@ -340,10 +340,7 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
       // Record the number of log requests before shutdown
       final int logRequestsBeforeShutdown = mockFlagLoggerService.getRequestCount();
 
-      // Shutdown the provider - this should flush all pending logs
-      OpenFeatureAPI.getInstance()
-          .getProvider()
-          .shutdown(); // Note the use of getProvider().shutdown()!!
+      // Shutdown via OpenFeatureAPI - SDK 1.20.2+ properly awaits provider shutdown (#1744)
       OpenFeatureAPI.getInstance().shutdown();
 
       assertEquals(
