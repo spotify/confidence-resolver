@@ -118,7 +118,7 @@ message TelemetryData {
   ];
 
   ResolveLatency resolve_latency = 4;
-  repeated ResolveRate resolve_rate = 5;
+  repeated ResolveRate resolve_rate = 5 [deprecated = true];
   StateAge state_age = 6;
 
   // Current linear memory size in bytes
@@ -127,6 +127,10 @@ message TelemetryData {
   // Version of the embedded resolver (e.g. "0.14.0").
   // Set from the confidence-resolver crate version at build time.
   string resolver_version = 8;
+
+  // Evaluation rate counters using the two-dimensional (reason, error_code) model,
+  // aligned with the remote SDK telemetry schema (confidence.telemetry.v1).
+  repeated EvaluationRate evaluation_rate = 9;
 
   message ResolveLatency {
     option (confidence.api.histogram) = {
@@ -144,10 +148,46 @@ message TelemetryData {
     double ln_ratio = 4;
   }
 
-  // resolve rate tagged by reason/error
+  // Deprecated: use EvaluationRate instead.
   message ResolveRate {
     uint32 count = 1;
     ResolveReason reason = 2;
+  }
+
+  // Evaluation outcome counter keyed by (reason, error_code).
+  // Matches the EvaluationTrace schema used in the X-CONFIDENCE-TELEMETRY header
+  // by remote SDKs (Java, Swift, JS), enabling unified metrics across local and
+  // remote resolvers.
+  message EvaluationRate {
+    uint32 count = 1;
+    EvaluationReason reason = 2;
+    EvaluationErrorCode error_code = 3;
+  }
+
+  // Evaluation reason, aligned with confidence.telemetry.v1.EvaluationTrace.EvaluationReason.
+  enum EvaluationReason {
+    EVALUATION_REASON_UNSPECIFIED = 0;
+    EVALUATION_REASON_TARGETING_MATCH = 1;
+    EVALUATION_REASON_DEFAULT = 2;
+    EVALUATION_REASON_STALE = 3;
+    EVALUATION_REASON_DISABLED = 4;
+    EVALUATION_REASON_CACHED = 5;
+    EVALUATION_REASON_STATIC = 6;
+    EVALUATION_REASON_SPLIT = 7;
+    EVALUATION_REASON_ERROR = 8;
+  }
+
+  // Evaluation error code, aligned with confidence.telemetry.v1.EvaluationTrace.EvaluationErrorCode.
+  enum EvaluationErrorCode {
+    EVALUATION_ERROR_CODE_UNSPECIFIED = 0;
+    EVALUATION_ERROR_CODE_PROVIDER_NOT_READY = 1;
+    EVALUATION_ERROR_CODE_FLAG_NOT_FOUND = 2;
+    EVALUATION_ERROR_CODE_PARSE_ERROR = 3;
+    EVALUATION_ERROR_CODE_TYPE_MISMATCH = 4;
+    EVALUATION_ERROR_CODE_TARGETING_KEY_MISSING = 5;
+    EVALUATION_ERROR_CODE_INVALID_CONTEXT = 6;
+    EVALUATION_ERROR_CODE_PROVIDER_FATAL = 7;
+    EVALUATION_ERROR_CODE_GENERAL = 8;
   }
 
   message StateAge {
