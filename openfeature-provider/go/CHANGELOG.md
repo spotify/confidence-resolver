@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.12.0...openfeature-provider/go/v0.13.0) (2026-03-20)
+
+
+### Features
+
+* add resolver_version field to TelemetryData ([#346](https://github.com/spotify/confidence-resolver/issues/346)) ([10ab1c6](https://github.com/spotify/confidence-resolver/commit/10ab1c657cb830dc36f433d1dca0af73beecaa27))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.19 to 0.1.20
+
 ## [0.12.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.11.0...openfeature-provider/go/v0.12.0) (2026-03-12)
 
 
