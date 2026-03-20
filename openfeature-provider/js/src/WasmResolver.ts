@@ -1,5 +1,11 @@
 import { BinaryWriter } from '@bufbuild/protobuf/wire';
-import { Request, Response, Void, SetResolverStateRequest, FlushEventsResponse } from './proto/confidence/wasm/messages';
+import {
+  Request,
+  Response,
+  Void,
+  SetResolverStateRequest,
+  FlushEventsResponse,
+} from './proto/confidence/wasm/messages';
 import { Event } from './proto/confidence/wasm/messages';
 import { Timestamp } from './proto/google/protobuf/timestamp';
 import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
