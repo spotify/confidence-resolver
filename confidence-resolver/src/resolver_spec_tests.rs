@@ -488,6 +488,7 @@ spec_test!(bitset_no_unit);
 // Nested / circular segments
 spec_test!(nested_segment_match);
 spec_test!(circular_segment_dependency);
+spec_test!(self_referencing_segment);
 
 // Variant / assignment
 spec_test!(fallthrough_then_match);
