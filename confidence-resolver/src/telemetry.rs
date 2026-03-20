@@ -7,9 +7,58 @@ use crate::ResolveReason;
 
 mod pb {
     pub use crate::proto::confidence::flags::resolver::v1::telemetry_data::{
-        BucketSpan, ResolveLatency, ResolveRate, StateAge,
+        BucketSpan, EvaluationErrorCode, EvaluationRate, EvaluationReason, ResolveLatency,
+        ResolveRate, StateAge,
     };
     pub use crate::proto::confidence::flags::resolver::v1::TelemetryData;
+}
+
+/// Maps a resolver ResolveReason to the two-dimensional (EvaluationReason, EvaluationErrorCode)
+/// model used by the remote SDK telemetry header. This keeps metrics consistent across local
+/// and remote resolvers.
+pub fn map_resolve_reason(
+    reason: ResolveReason,
+) -> (pb::EvaluationReason, pb::EvaluationErrorCode) {
+    match reason {
+        ResolveReason::Match => (
+            pb::EvaluationReason::TargetingMatch,
+            pb::EvaluationErrorCode::Unspecified,
+        ),
+        ResolveReason::NoSegmentMatch | ResolveReason::NoTreatmentMatch => (
+            pb::EvaluationReason::Default,
+            pb::EvaluationErrorCode::Unspecified,
+        ),
+        ResolveReason::FlagArchived => (
+            pb::EvaluationReason::Disabled,
+            pb::EvaluationErrorCode::Unspecified,
+        ),
+        ResolveReason::TargetingKeyError => (
+            pb::EvaluationReason::Error,
+            pb::EvaluationErrorCode::TargetingKeyMissing,
+        ),
+        ResolveReason::Error => (
+            pb::EvaluationReason::Error,
+            pb::EvaluationErrorCode::General,
+        ),
+        ResolveReason::UnrecognizedTargetingRule => (
+            pb::EvaluationReason::Error,
+            pb::EvaluationErrorCode::General,
+        ),
+        ResolveReason::MaterializationNotSupported => (
+            pb::EvaluationReason::Error,
+            pb::EvaluationErrorCode::General,
+        ),
+        ResolveReason::Unspecified => (
+            pb::EvaluationReason::Unspecified,
+            pb::EvaluationErrorCode::Unspecified,
+        ),
+    }
+}
+
+/// Compact key for the evaluation rate two-dimensional counter.
+/// Packed as (reason << 8 | error_code) to fit in a single usize for array indexing.
+fn eval_key(reason: pb::EvaluationReason, error_code: pb::EvaluationErrorCode) -> usize {
+    ((reason as usize) << 8) | (error_code as usize)
 }
 
 /// Trait for types that have histogram configuration metadata
@@ -131,6 +180,12 @@ struct HistogramSnapshot {
     buckets: Vec<u64>,
 }
 
+/// The number of distinct (reason, error_code) pairs we track.
+/// 9 reasons * 9 error codes = 81, but most combos are unused so we keep a
+/// sparse map. The fixed array uses EVAL_KEY_SPACE entries which is
+/// (max_reason << 8 | max_error_code) + 1 to allow direct indexing.
+const EVAL_KEY_SPACE: usize = (8 << 8) | 8 + 1;
+
 /// Plain snapshot of cumulative telemetry counters.
 ///
 /// Used for delta computation between flushes and as the future intermediate
@@ -141,6 +196,7 @@ pub struct TelemetrySnapshot {
     pub latency_count: u64,
     pub latency_buckets: Vec<u64>,
     pub resolve_rates: Vec<u64>,
+    pub evaluation_rates: Vec<u64>,
 }
 
 /// Concurrent telemetry collector.
@@ -151,8 +207,11 @@ pub struct TelemetrySnapshot {
 pub struct Telemetry {
     resolve_latency: Histogram,
 
-    /// Resolve rate counters, one per reason variant.
+    /// Legacy resolve rate counters, one per reason variant.
     resolve_rates: Box<[AtomicU64]>,
+
+    /// Two-dimensional evaluation rate counters indexed by eval_key(reason, error_code).
+    evaluation_rates: Box<[AtomicU64]>,
 
     /// Millisecond epoch of the last state update.
     last_state_update: AtomicU64,
@@ -168,9 +227,12 @@ impl Telemetry {
 
     pub fn with_memory_provider(memory_provider: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
         let resolve_rates: Vec<AtomicU64> = (0..REASON_COUNT).map(|_| AtomicU64::new(0)).collect();
+        let evaluation_rates: Vec<AtomicU64> =
+            (0..EVAL_KEY_SPACE).map(|_| AtomicU64::new(0)).collect();
         Telemetry {
             resolve_latency: Histogram::for_type::<pb::ResolveLatency>(),
             resolve_rates: resolve_rates.into_boxed_slice(),
+            evaluation_rates: evaluation_rates.into_boxed_slice(),
             last_state_update: AtomicU64::new(0),
             memory_provider: Box::new(memory_provider),
         }
@@ -182,8 +244,16 @@ impl Telemetry {
     }
 
     /// Increment the resolve rate counter for the given reason.
+    /// Also populates the new two-dimensional evaluation_rate counters.
     pub fn mark_resolve(&self, reason: ResolveReason) {
+        // Legacy flat counter
         if let Some(counter) = self.resolve_rates.get(reason as usize) {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+        // New two-dimensional counter
+        let (eval_reason, eval_error) = map_resolve_reason(reason);
+        let key = eval_key(eval_reason, eval_error);
+        if let Some(counter) = self.evaluation_rates.get(key) {
             counter.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -206,6 +276,11 @@ impl Telemetry {
             latency_buckets: hist.buckets,
             resolve_rates: self
                 .resolve_rates
+                .iter()
+                .map(|c| c.load(Ordering::Relaxed))
+                .collect(),
+            evaluation_rates: self
+                .evaluation_rates
                 .iter()
                 .map(|c| c.load(Ordering::Relaxed))
                 .collect(),
@@ -250,7 +325,7 @@ impl Telemetry {
             None
         };
 
-        // Delta resolve rates
+        // Legacy delta resolve rates (deprecated, kept for backward compatibility)
         let resolve_rate: Vec<pb::ResolveRate> = current
             .resolve_rates
             .iter()
@@ -269,6 +344,28 @@ impl Telemetry {
             })
             .collect();
 
+        // New two-dimensional evaluation rates
+        let evaluation_rate: Vec<pb::EvaluationRate> = current
+            .evaluation_rates
+            .iter()
+            .enumerate()
+            .filter_map(|(key, c)| {
+                let p = previous.evaluation_rates.get(key).copied().unwrap_or(0);
+                let delta = c.wrapping_sub(p) as u32;
+                if delta > 0 {
+                    let reason = (key >> 8) as i32;
+                    let error_code = (key & 0xFF) as i32;
+                    Some(pb::EvaluationRate {
+                        count: delta,
+                        reason,
+                        error_code,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         // Gauge fields: latest values as-is
         let last_update = self.last_state_update.load(Ordering::Relaxed);
         let state_age = if last_update > 0 {
@@ -279,10 +376,12 @@ impl Telemetry {
             None
         };
 
+        #[allow(deprecated)]
         pb::TelemetryData {
             sdk: None,
             resolve_latency,
             resolve_rate,
+            evaluation_rate,
             state_age,
             memory_bytes: (self.memory_provider)(),
             resolver_version: crate::version::VERSION.to_string(),
@@ -400,6 +499,7 @@ mod tests {
         assert_eq!(snap.latency_count, 0);
         assert_eq!(snap.latency_sum, 0);
         assert!(snap.resolve_rates.iter().all(|&r| r == 0));
+        assert!(snap.evaluation_rates.iter().all(|&r| r == 0));
     }
 
     #[test]
@@ -422,11 +522,54 @@ mod tests {
         tel.mark_resolve(ResolveReason::NoTreatmentMatch);
 
         let snap = tel.snapshot();
+        // Legacy counters still populated
         assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 2);
         assert_eq!(
             snap.resolve_rates[ResolveReason::NoTreatmentMatch as usize],
             1
         );
+
+        // New two-dimensional counters
+        let match_key = eval_key(
+            pb::EvaluationReason::TargetingMatch,
+            pb::EvaluationErrorCode::Unspecified,
+        );
+        assert_eq!(snap.evaluation_rates[match_key], 2);
+
+        // Both NoTreatmentMatch and NoSegmentMatch map to DEFAULT
+        let default_key = eval_key(
+            pb::EvaluationReason::Default,
+            pb::EvaluationErrorCode::Unspecified,
+        );
+        assert_eq!(snap.evaluation_rates[default_key], 1);
+    }
+
+    #[test]
+    fn telemetry_mark_resolve_error_reasons() {
+        let tel = Telemetry::new();
+        tel.mark_resolve(ResolveReason::TargetingKeyError);
+        tel.mark_resolve(ResolveReason::Error);
+        tel.mark_resolve(ResolveReason::FlagArchived);
+
+        let snap = tel.snapshot();
+
+        let targeting_key = eval_key(
+            pb::EvaluationReason::Error,
+            pb::EvaluationErrorCode::TargetingKeyMissing,
+        );
+        assert_eq!(snap.evaluation_rates[targeting_key], 1);
+
+        let general_key = eval_key(
+            pb::EvaluationReason::Error,
+            pb::EvaluationErrorCode::General,
+        );
+        assert_eq!(snap.evaluation_rates[general_key], 1);
+
+        let disabled_key = eval_key(
+            pb::EvaluationReason::Disabled,
+            pb::EvaluationErrorCode::Unspecified,
+        );
+        assert_eq!(snap.evaluation_rates[disabled_key], 1);
     }
 
     #[test]
@@ -483,6 +626,12 @@ mod tests {
         let snap = tel.snapshot();
         assert_eq!(snap.latency_count, 1000);
         assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 1000);
+
+        let match_key = eval_key(
+            pb::EvaluationReason::TargetingMatch,
+            pb::EvaluationErrorCode::Unspecified,
+        );
+        assert_eq!(snap.evaluation_rates[match_key], 1000);
     }
 
     #[test]
@@ -497,9 +646,23 @@ mod tests {
         let delta1 = tel.delta_snapshot(&last);
         assert_eq!(delta1.resolve_latency.as_ref().unwrap().count, 1);
         assert_eq!(delta1.resolve_latency.as_ref().unwrap().sum, 100);
+
+        // Legacy field
         assert_eq!(delta1.resolve_rate.len(), 1);
         assert_eq!(delta1.resolve_rate[0].count, 1);
         assert_eq!(delta1.resolve_rate[0].reason, ResolveReason::Match as i32);
+
+        // New evaluation_rate field
+        assert_eq!(delta1.evaluation_rate.len(), 1);
+        assert_eq!(delta1.evaluation_rate[0].count, 1);
+        assert_eq!(
+            delta1.evaluation_rate[0].reason,
+            pb::EvaluationReason::TargetingMatch as i32
+        );
+        assert_eq!(
+            delta1.evaluation_rate[0].error_code,
+            pb::EvaluationErrorCode::Unspecified as i32
+        );
 
         // Second flush: delta should only show new observations
         tel.record_latency_us(200);
@@ -524,6 +687,21 @@ mod tests {
             .find(|r| r.reason == ResolveReason::NoTreatmentMatch as i32)
             .unwrap();
         assert_eq!(no_match_rate.count, 1);
+
+        // Both Match and NoTreatmentMatch appear in evaluation_rate
+        let eval_match = delta2
+            .evaluation_rate
+            .iter()
+            .find(|r| r.reason == pb::EvaluationReason::TargetingMatch as i32)
+            .unwrap();
+        assert_eq!(eval_match.count, 1);
+
+        let eval_default = delta2
+            .evaluation_rate
+            .iter()
+            .find(|r| r.reason == pb::EvaluationReason::Default as i32)
+            .unwrap();
+        assert_eq!(eval_default.count, 1);
     }
 
     #[test]
@@ -538,6 +716,7 @@ mod tests {
         let delta = tel.delta_snapshot(&last);
         assert!(delta.resolve_latency.is_none());
         assert!(delta.resolve_rate.is_empty());
+        assert!(delta.evaluation_rate.is_empty());
     }
 
     #[test]
@@ -552,5 +731,69 @@ mod tests {
         let delta = tel.delta_snapshot(&last);
         assert!(delta.resolve_latency.is_none()); // no counter activity
         assert_eq!(delta.state_age.unwrap().last_state_update, 1000);
+    }
+
+    #[test]
+    fn map_resolve_reason_coverage() {
+        let cases = vec![
+            (
+                ResolveReason::Unspecified,
+                pb::EvaluationReason::Unspecified,
+                pb::EvaluationErrorCode::Unspecified,
+            ),
+            (
+                ResolveReason::Match,
+                pb::EvaluationReason::TargetingMatch,
+                pb::EvaluationErrorCode::Unspecified,
+            ),
+            (
+                ResolveReason::NoSegmentMatch,
+                pb::EvaluationReason::Default,
+                pb::EvaluationErrorCode::Unspecified,
+            ),
+            (
+                ResolveReason::NoTreatmentMatch,
+                pb::EvaluationReason::Default,
+                pb::EvaluationErrorCode::Unspecified,
+            ),
+            (
+                ResolveReason::FlagArchived,
+                pb::EvaluationReason::Disabled,
+                pb::EvaluationErrorCode::Unspecified,
+            ),
+            (
+                ResolveReason::TargetingKeyError,
+                pb::EvaluationReason::Error,
+                pb::EvaluationErrorCode::TargetingKeyMissing,
+            ),
+            (
+                ResolveReason::Error,
+                pb::EvaluationReason::Error,
+                pb::EvaluationErrorCode::General,
+            ),
+            (
+                ResolveReason::UnrecognizedTargetingRule,
+                pb::EvaluationReason::Error,
+                pb::EvaluationErrorCode::General,
+            ),
+            (
+                ResolveReason::MaterializationNotSupported,
+                pb::EvaluationReason::Error,
+                pb::EvaluationErrorCode::General,
+            ),
+        ];
+        for (resolve_reason, expected_reason, expected_error) in cases {
+            let (reason, error) = map_resolve_reason(resolve_reason);
+            assert_eq!(
+                reason, expected_reason,
+                "reason mismatch for {:?}",
+                resolve_reason
+            );
+            assert_eq!(
+                error, expected_error,
+                "error_code mismatch for {:?}",
+                resolve_reason
+            );
+        }
     }
 }
