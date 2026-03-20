@@ -184,7 +184,7 @@ struct HistogramSnapshot {
 /// 9 reasons * 9 error codes = 81, but most combos are unused so we keep a
 /// sparse map. The fixed array uses EVAL_KEY_SPACE entries which is
 /// (max_reason << 8 | max_error_code) + 1 to allow direct indexing.
-const EVAL_KEY_SPACE: usize = (8 << 8) | 8 + 1;
+const EVAL_KEY_SPACE: usize = ((8 << 8) | 8) + 1;
 
 /// Plain snapshot of cumulative telemetry counters.
 ///
