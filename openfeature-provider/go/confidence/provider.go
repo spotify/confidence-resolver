@@ -594,7 +594,6 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 	}()
 }
 
-
 // getStatePollInterval gets the state poll interval from environment or returns default
 // Deprecated: Use ProviderConfig.StatePollInterval instead. Environment variable support will be removed in a future version.
 func getStatePollInterval(logger *slog.Logger) time.Duration {
