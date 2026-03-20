@@ -15,7 +15,7 @@ import (
 )
 
 func TestNewLocalResolverProvider(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "test-secret", nil)
+	provider := NewLocalResolverProvider(nil, nil, nil, nil, "test-secret", nil)
 
 	if provider == nil {
 		t.Fatal("Expected provider to be created, got nil")
@@ -26,7 +26,7 @@ func TestNewLocalResolverProvider(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Metadata(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
+	provider := NewLocalResolverProvider(nil, nil, nil, nil, "secret", nil)
 	metadata := provider.Metadata()
 
 	if metadata.Name != "confidence-sdk-go-local" {
@@ -35,7 +35,7 @@ func TestLocalResolverProvider_Metadata(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Hooks(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
+	provider := NewLocalResolverProvider(nil, nil, nil, nil, "secret", nil)
 	hooks := provider.Hooks()
 
 	if hooks == nil {
@@ -429,7 +429,7 @@ func TestFlattenedContextToProto_InvalidValue(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Shutdown(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
+	provider := NewLocalResolverProvider(nil, nil, nil, nil, "secret", nil)
 	provider.Shutdown()
 
 	// Verify the method can be called without panicking even with nil components
@@ -437,7 +437,7 @@ func TestLocalResolverProvider_Shutdown(t *testing.T) {
 }
 
 func TestLocalResolverProvider_ShutdownWithCancelFunc(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
+	provider := NewLocalResolverProvider(nil, nil, nil, nil, "secret", nil)
 
 	// Simulate Init having been called by setting cancelFunc
 	cancelCalled := false
@@ -503,12 +503,18 @@ func (m *mockResolverAPIForInit) ApplyFlags(request *resolver.ApplyFlagsRequest)
 	return nil
 }
 
+func (m *mockResolverAPIForInit) TrackEvent(event *wasm.Event) error { return nil }
+func (m *mockResolverAPIForInit) FlushEvents() (*wasm.FlushEventsResponse, error) {
+	return &wasm.FlushEventsResponse{}, nil
+}
+
 // TestLocalResolverProvider_Init_NilStateProvider verifies Init fails when stateProvider is nil
 func TestLocalResolverProvider_Init_NilStateProvider(t *testing.T) {
 	provider := NewLocalResolverProvider(
 		mockResolverSupplier,
 		nil, // nil state provider
 		&tu.MockFlagLogger{},
+		nil,
 		"secret",
 		nil,
 	)
@@ -528,6 +534,7 @@ func TestLocalResolverProvider_Init_NilResolverAPI(t *testing.T) {
 		nil, // nil resolver API
 		&tu.StateProviderMock{},
 		&tu.MockFlagLogger{},
+		nil,
 		"secret",
 		nil,
 	)
@@ -547,6 +554,7 @@ func TestLocalResolverProvider_Init_NilFlagLogger(t *testing.T) {
 		mockResolverSupplier,
 		&tu.StateProviderMock{},
 		nil, // nil flag logger
+		nil,
 		"secret",
 		nil,
 	)
@@ -574,6 +582,7 @@ func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 		mockResolverSupplier,
 		mockStateProvider,
 		mockFlagLogger,
+		nil,
 		"secret",
 		nil,
 	)
@@ -604,6 +613,7 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 		func(ctx context.Context, ls lr.LogSink) lr.LocalResolver { return mockResolverAPI },
 		mockStateProvider,
 		mockFlagLogger,
+		nil,
 		"secret",
 		nil,
 	)
@@ -641,6 +651,7 @@ func TestLocalResolverProvider_Init_UpdateStateError(t *testing.T) {
 		mockResolverSupplier,
 		mockStateProvider,
 		mockFlagLogger,
+		nil,
 		"secret",
 		nil,
 	)
@@ -685,6 +696,7 @@ func TestLocalResolverProvider_Init_Success(t *testing.T) {
 		mockResolverSupplier,
 		mockStateProvider,
 		mockFlagLogger,
+		nil,
 		"secret",
 		nil,
 	)

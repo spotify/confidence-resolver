@@ -44,6 +44,7 @@ use err::Fallible;
 pub mod assign_logger;
 mod bounded_set;
 mod err;
+pub mod event_logger;
 pub mod flag_logger;
 mod gzip;
 pub mod proto;

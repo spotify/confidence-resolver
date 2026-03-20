@@ -125,6 +125,20 @@ func (r *RecoveringResolver) FlushAssignLogs() (err error) {
 	return
 }
 
+func (r *RecoveringResolver) TrackEvent(event *wasm.Event) (err error) {
+	r.withRecover("TrackEvent", &err, func(lr LocalResolver) {
+		err = lr.TrackEvent(event)
+	})
+	return
+}
+
+func (r *RecoveringResolver) FlushEvents() (resp *wasm.FlushEventsResponse, err error) {
+	r.withRecover("FlushEvents", &err, func(lr LocalResolver) {
+		resp, err = lr.FlushEvents()
+	})
+	return
+}
+
 func (r *RecoveringResolver) Close(ctx context.Context) error {
 	// For Close, if we panic, don't recreate during shutdown; just surface error.
 	defer func() {

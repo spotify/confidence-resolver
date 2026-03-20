@@ -3,6 +3,7 @@ syntax = "proto3";
 package rust_guest;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 import "types.proto";
 
 option java_package = "com.spotify.confidence.wasm";
@@ -37,4 +38,14 @@ message Response {
         bytes data = 1;
         string error = 2;
     }
+}
+
+message Event {
+    string event_definition = 1;
+    google.protobuf.Struct payload = 2;
+    google.protobuf.Timestamp event_time = 3;
+}
+
+message FlushEventsResponse {
+    repeated Event events = 2;
 }

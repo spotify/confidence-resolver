@@ -82,12 +82,18 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		materializationStore = newRemoteMaterializationStore(resolverv1.NewInternalFlagLoggerServiceClient(conn), config.ClientSecret)
 	}
 
+	// Create event sender using the same gRPC connection
+	eventSender, err := NewGrpcEventSender(target, logger, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create event sender: %w", err)
+	}
+
 	resolverSupplier := func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
 		return lr.NewLocalResolverWithPoolSize(ctx, logSink, config.ResolverPoolSize)
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
-	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
+	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, eventSender, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
 
@@ -116,7 +122,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
-	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
+	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, nil, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
 }

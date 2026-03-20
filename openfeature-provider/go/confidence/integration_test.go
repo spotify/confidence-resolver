@@ -206,7 +206,7 @@ func TestIntegration_OpenFeatureResolveStickyFlagMatStoreReadAndWrite(t *testing
 	}, matStore)
 
 	// Create provider with test state
-	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, nil, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	client := openfeature.NewClient("integration-test")
 
@@ -337,7 +337,7 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 		}, matStore)
 
 		// Create provider with test state
-		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, nil, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 		client := openfeature.NewClient("integration-test-mat-seg")
 
@@ -399,7 +399,7 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 		}, matStore)
 
 		// Create provider with test state
-		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, nil, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 		client := openfeature.NewClient("integration-test-mat-seg-not-in")
 
@@ -440,7 +440,7 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 		}, matStore)
 
 		// Create provider with test state
-		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, nil, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 		client := openfeature.NewClient("integration-test-mat-seg-no-ctx")
 
@@ -698,6 +698,6 @@ func createProviderWithTestState(
 	}, matStore)
 	// Create provider with the client secret from test state
 	// The test state includes client secret: mkjJruAATQWjeY7foFIWfVAcBWnci2YF
-	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, logger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, logger, nil, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	return provider, nil
 }

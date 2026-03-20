@@ -109,6 +109,32 @@ func (s *PooledResolver) FlushAssignLogs() error {
 	})
 }
 
+// TrackEvent implements LocalResolver.
+func (s *PooledResolver) TrackEvent(event *wasm.Event) error {
+	n := uint64(len(s.slots))
+	idx := s.rr.Add(1)
+	for !s.slots[idx%n].rw.TryRLock() {
+		idx = s.rr.Add(1)
+	}
+	slot := &s.slots[idx%n]
+	defer slot.rw.RUnlock()
+	return slot.lr.TrackEvent(event)
+}
+
+// FlushEvents implements LocalResolver.
+func (s *PooledResolver) FlushEvents() (*wasm.FlushEventsResponse, error) {
+	combined := &wasm.FlushEventsResponse{}
+	err := s.maintenance(func(lr LocalResolver) error {
+		resp, err := lr.FlushEvents()
+		if err != nil {
+			return err
+		}
+		combined.Events = append(combined.Events, resp.Events...)
+		return nil
+	})
+	return combined, err
+}
+
 func (s *PooledResolver) Close(ctx context.Context) error {
 	return s.maintenance(func(lr LocalResolver) error {
 		return lr.Close(ctx)

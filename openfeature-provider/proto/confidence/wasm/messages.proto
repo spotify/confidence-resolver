@@ -3,6 +3,8 @@ syntax = "proto3";
 package confidence.wasm;
 
 import "confidence/flags/resolver/v1/types.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 option java_package = "com.spotify.confidence.sdk.wasm";
 option java_multiple_files = false;
@@ -26,4 +28,14 @@ message Response {
         bytes data = 1;
         string error = 2;
     }
+}
+
+message Event {
+    string event_definition = 1;
+    google.protobuf.Struct payload = 2;
+    google.protobuf.Timestamp event_time = 3;
+}
+
+message FlushEventsResponse {
+    repeated Event events = 2;
 }

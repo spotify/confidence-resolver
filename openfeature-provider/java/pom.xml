@@ -246,6 +246,7 @@
                 <include>confidence/flags/resolver/v1/**/*.proto</include>
                 <include>confidence/flags/types/v1/**/*.proto</include>
                 <include>confidence/flags/admin/v1/**/*.proto</include>
+                <include>confidence/events/v1/**/*.proto</include>
                 <include>confidence/wasm/*.proto</include>
               </includes>
             </configuration>

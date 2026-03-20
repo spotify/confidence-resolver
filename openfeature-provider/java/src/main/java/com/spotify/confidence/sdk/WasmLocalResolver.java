@@ -43,16 +43,22 @@ class WasmLocalResolver implements LocalResolver {
   private final ExportFunction wasmMsgFree;
   private final Consumer<WriteFlagLogsRequest> logSink;
 
+  private final Consumer<Messages.FlushEventsResponse> eventSink;
+
   // api
   private final ExportFunction wasmMsgGuestSetResolverState;
   private final ExportFunction wasmMsgBoundedFlushLogs;
   private final ExportFunction wasmMsgBoundedFlushAssign;
   private final ExportFunction wasmMsgGuestApplyFlags;
   private final ExportFunction wasmMsgGuestResolveProcess;
+  private final ExportFunction wasmMsgGuestTrackEvent;
+  private final ExportFunction wasmMsgGuestFlushEvents;
   private final ReentrantLock lock = new ReentrantLock();
 
-  public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
+  public WasmLocalResolver(
+      Consumer<WriteFlagLogsRequest> logSink, Consumer<Messages.FlushEventsResponse> eventSink) {
     this.logSink = logSink;
+    this.eventSink = eventSink;
     instance =
         Instance.builder(ConfidenceResolverModule.load())
             .withImportValues(
@@ -78,6 +84,8 @@ class WasmLocalResolver implements LocalResolver {
     wasmMsgBoundedFlushAssign = instance.export("wasm_msg_guest_bounded_flush_assign");
     wasmMsgGuestApplyFlags = instance.export("wasm_msg_guest_apply_flags");
     wasmMsgGuestResolveProcess = instance.export("wasm_msg_guest_resolve_flags");
+    wasmMsgGuestTrackEvent = instance.export("wasm_msg_guest_track_event");
+    wasmMsgGuestFlushEvents = instance.export("wasm_msg_guest_flush_events");
   }
 
   private Message log(LogMessage message) {
@@ -189,6 +197,40 @@ class WasmLocalResolver implements LocalResolver {
   }
 
   @Override
+  public void trackEvent(Messages.Event event) {
+    lock.lock();
+    try {
+      if (closed) {
+        return;
+      }
+      final int reqPtr = transferRequest(event);
+      final int respPtr = (int) wasmMsgGuestTrackEvent.apply(reqPtr)[0];
+      consumeResponse(respPtr, Messages.Void::parseFrom);
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public void flushEvents() {
+    lock.lock();
+    try {
+      if (closed) {
+        return;
+      }
+      final var voidRequest = Messages.Void.getDefaultInstance();
+      final var reqPtr = transferRequest(voidRequest);
+      final var respPtr = (int) wasmMsgGuestFlushEvents.apply(reqPtr)[0];
+      final var response = consumeResponse(respPtr, Messages.FlushEventsResponse::parseFrom);
+      if (response.getEventsCount() > 0) {
+        eventSink.accept(response);
+      }
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
   public void close() {
     lock.lock();
     try {
@@ -203,6 +245,15 @@ class WasmLocalResolver implements LocalResolver {
           break;
         }
         logSink.accept(assignRequest);
+      }
+
+      // Flush pending events
+      final var eventReqPtr = transferRequest(voidRequest);
+      final var eventRespPtr = (int) wasmMsgGuestFlushEvents.apply(eventReqPtr)[0];
+      final var eventResponse =
+          consumeResponse(eventRespPtr, Messages.FlushEventsResponse::parseFrom);
+      if (eventResponse.getEventsCount() > 0) {
+        eventSink.accept(eventResponse);
       }
 
       // Final flush of resolve logs (also drains any remaining assigns)

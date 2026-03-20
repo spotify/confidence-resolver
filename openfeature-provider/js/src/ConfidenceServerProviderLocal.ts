@@ -1,4 +1,11 @@
-import type { EvaluationContext, JsonValue, Provider, ProviderMetadata, ProviderStatus } from '@openfeature/server-sdk';
+import type {
+  EvaluationContext,
+  JsonValue,
+  Provider,
+  ProviderMetadata,
+  ProviderStatus,
+  TrackingEventDetails,
+} from '@openfeature/server-sdk';
 import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
 import { SdkId } from './proto/confidence/flags/resolver/v1/types';
@@ -16,6 +23,7 @@ import {
   readResultsToMaterializationRecords,
 } from './materialization';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import { PublishEventsRequest } from './proto/confidence/events/v1/api';
 import FlagBundleType, * as FlagBundle from './flag-bundle';
 import { ErrorCode, ResolutionDetails } from './types';
 
@@ -108,6 +116,10 @@ export class ConfidenceServerProviderLocal implements Provider {
               ],
             }),
           ],
+          'https://events.confidence.dev/*': [
+            withRetry({ maxAttempts: 5, baseInterval: 500 }),
+            withTimeout(5 * TimeUnit.SECOND),
+          ],
           '*': [
             withResponse(url => {
               throw new Error(`Unknown route ${url}`);
@@ -159,6 +171,19 @@ export class ConfidenceServerProviderLocal implements Provider {
   async onClose(): Promise<void> {
     await this.flush(timeoutSignal(3000));
     this.main.abort();
+  }
+
+  track(trackingEventName: string, context: EvaluationContext, details: TrackingEventDetails): void {
+    const payload = {
+      ...ConfidenceServerProviderLocal.convertEvaluationContext(context),
+      ...(details ?? {}),
+    };
+    const now = new Date();
+    this.resolver.trackEvent({
+      eventDefinition: `eventDefinitions/${trackingEventName}`,
+      payload,
+      eventTime: now,
+    });
   }
 
   async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
@@ -271,6 +296,10 @@ export class ConfidenceServerProviderLocal implements Provider {
     if (writeFlagLogRequest.length > 0) {
       await this.sendFlagLogs(writeFlagLogRequest, signal);
     }
+    const { events } = this.resolver.flushEvents();
+    if (events.length > 0) {
+      await this.sendEvents(events, signal);
+    }
   }
 
   private async flushAssigned(): Promise<void> {
@@ -297,6 +326,33 @@ export class ConfidenceServerProviderLocal implements Provider {
     } catch (err) {
       // Network error (DNS/connect/TLS) - already retried by middleware, log and rethrow
       logger.warn('Failed to send flag logs', err);
+      throw err;
+    }
+  }
+
+  private async sendEvents(
+    events: { eventDefinition: string; payload?: { [key: string]: any }; eventTime?: Date }[],
+    signal = this.main.signal,
+  ): Promise<void> {
+    try {
+      const body = PublishEventsRequest.encode({
+        clientSecret: this.options.flagClientSecret,
+        events,
+        sendTime: new Date(),
+      }).finish();
+      const response = await this.fetch('https://events.confidence.dev/v1/events:publish', {
+        method: 'post',
+        signal,
+        headers: {
+          'Content-Type': 'application/x-protobuf',
+        },
+        body: body as Uint8Array<ArrayBuffer>,
+      });
+      if (!response.ok) {
+        logger.error(`Failed to publish events: ${response.status} ${response.statusText} - ${await response.text()}`);
+      }
+    } catch (err) {
+      logger.warn('Failed to send events', err);
       throw err;
     }
   }

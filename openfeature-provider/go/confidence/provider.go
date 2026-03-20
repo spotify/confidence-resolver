@@ -16,6 +16,7 @@ import (
 	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -54,6 +55,7 @@ type LocalResolverProvider struct {
 	resolver          lr.LocalResolver
 	stateProvider     StateProvider
 	flagLogger        FlagLogger
+	eventSender       EventSender
 	clientSecret      string
 	logger            *slog.Logger
 	cancelFunc        context.CancelFunc
@@ -67,6 +69,7 @@ type LocalResolverProvider struct {
 var (
 	_ openfeature.FeatureProvider = (*LocalResolverProvider)(nil)
 	_ openfeature.StateHandler    = (*LocalResolverProvider)(nil)
+	_ openfeature.Tracker         = (*LocalResolverProvider)(nil)
 )
 
 // NewLocalResolverProvider creates a new LocalResolverProvider
@@ -74,6 +77,7 @@ func NewLocalResolverProvider(
 	resolverSupplier LocalResolverSupplier,
 	stateProvider StateProvider,
 	flagLogger FlagLogger,
+	eventSender EventSender,
 	clientSecret string,
 	logger *slog.Logger,
 	opts ...Option,
@@ -105,6 +109,7 @@ func NewLocalResolverProvider(
 		resolverSupplier:  resolverSupplier,
 		stateProvider:     stateProvider,
 		flagLogger:        flagLogger,
+		eventSender:       eventSender,
 		clientSecret:      clientSecret,
 		logger:            logger,
 		statePollInterval: statePollInterval,
@@ -363,6 +368,33 @@ func (p *LocalResolverProvider) ApplyFlags(
 	return p.resolver.ApplyFlags(request)
 }
 
+// Track implements the openfeature.Tracker interface for recording business events.
+func (p *LocalResolverProvider) Track(
+	ctx context.Context,
+	trackingEventName string,
+	evalCtx openfeature.EvaluationContext,
+	details openfeature.TrackingEventDetails,
+) {
+	if p.resolver == nil {
+		return
+	}
+
+	processedCtx := processTargetingKey(evalCtx.Attributes())
+	protoCtx, err := flattenedContextToProto(processedCtx)
+	if err != nil {
+		p.logger.Error("Failed to convert context for track event", "error", err)
+		return
+	}
+
+	if err := p.resolver.TrackEvent(&wasm.Event{
+		EventDefinition: "eventDefinitions/" + trackingEventName,
+		Payload:         protoCtx,
+		EventTime:       timestamppb.Now(),
+	}); err != nil {
+		p.logger.Error("Failed to track event", "event", trackingEventName, "error", err)
+	}
+}
+
 // Hooks returns provider hooks (none for this implementation)
 func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
 	return []openfeature.Hook{}
@@ -470,6 +502,14 @@ func (p *LocalResolverProvider) Shutdown() {
 		}
 	}
 
+	// Shutdown event sender
+	if p.eventSender != nil {
+		p.eventSender.Shutdown()
+		if p.logger != nil {
+			p.logger.Debug("Shut down event sender")
+		}
+	}
+
 	if p.logger != nil {
 		p.logger.Info("Provider has been shut down")
 	}
@@ -537,6 +577,11 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 			case <-logTicker.C:
 				if err := p.resolver.FlushAllLogs(); err != nil {
 					p.logger.Error("Failed to flush all logs", "error", err)
+				}
+				if resp, err := p.resolver.FlushEvents(); err != nil {
+					p.logger.Error("Failed to flush events", "error", err)
+				} else if len(resp.GetEvents()) > 0 && p.eventSender != nil {
+					p.eventSender.Send(resp, p.clientSecret)
 				}
 			case <-assignTicker.C:
 				if err := p.resolver.FlushAssignLogs(); err != nil {

@@ -5,6 +5,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.MaterializationRecord;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
+import com.spotify.confidence.sdk.wasm.Messages;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -179,6 +180,16 @@ class MaterializingResolver implements LocalResolver {
   @Override
   public void flushAssignLogs() {
     delegate.flushAssignLogs();
+  }
+
+  @Override
+  public void trackEvent(Messages.Event event) {
+    delegate.trackEvent(event);
+  }
+
+  @Override
+  public void flushEvents() {
+    delegate.flushEvents();
   }
 
   @Override
