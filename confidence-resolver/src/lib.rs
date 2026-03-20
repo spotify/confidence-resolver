@@ -51,6 +51,7 @@ pub mod resolve_logger;
 mod schema_util;
 pub mod telemetry;
 mod value;
+mod version;
 
 use proto::confidence::flags::admin::v1 as flags_admin;
 use proto::confidence::flags::resolver::v1 as flags_resolver;

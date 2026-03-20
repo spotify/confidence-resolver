@@ -32,6 +32,8 @@ message TelemetryData {
   // Current linear memory size in bytes
   uint64 memory_bytes = 7;
 
+  string resolver_version = 8;
+
   message ResolveLatency {
     uint32 sum = 1;
     uint32 count = 2;

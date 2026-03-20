@@ -8,7 +8,8 @@
       "path": "confidence-resolver",
       "release-type": "rust",
       "changelog-path": "CHANGELOG.md",
-      "initial-version": "0.1.0"
+      "initial-version": "0.1.0",
+      "extra-files": ["src/version.rs"]
     },
     "confidence-cloudflare-resolver": {
       "path": "confidence-cloudflare-resolver",
