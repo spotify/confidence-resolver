@@ -2,6 +2,7 @@ package com.spotify.confidence.sdk;
 
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.MaterializationRecord;
+import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
@@ -164,6 +165,11 @@ class MaterializingResolver implements LocalResolver {
   @Override
   public void setResolverState(byte[] state, String accountId, Sdk sdk) {
     delegate.setResolverState(state, accountId, sdk);
+  }
+
+  @Override
+  public void registerResolve(RegisterResolveRequest request) {
+    delegate.registerResolve(request);
   }
 
   @Override

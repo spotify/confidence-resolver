@@ -8,7 +8,7 @@ import {
   PrometheusSnapshotResponse,
 } from './proto/confidence/wasm/messages';
 import { Timestamp } from './proto/google/protobuf/timestamp';
-import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
+import { RegisterResolveRequest, ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
 import { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
 import { LocalResolver } from './LocalResolver';
 import { getLogger } from './logger';
@@ -24,6 +24,7 @@ const EXPORT_FN_NAMES = [
   'wasm_msg_alloc',
   'wasm_msg_free',
   'wasm_msg_guest_resolve_flags',
+  'wasm_msg_guest_register_resolve',
   'wasm_msg_guest_set_resolver_state',
   'wasm_msg_guest_bounded_flush_logs',
   'wasm_msg_guest_bounded_flush_assign',
@@ -72,6 +73,12 @@ export class UnsafeWasmResolver implements LocalResolver {
     const reqPtr = this.transferRequest(request, ResolveProcessRequest);
     const resPtr = this.exports.wasm_msg_guest_resolve_flags(reqPtr);
     return this.consumeResponse(resPtr, ResolveProcessResponse);
+  }
+
+  registerResolve(request: RegisterResolveRequest): void {
+    const reqPtr = this.transferRequest(request, RegisterResolveRequest);
+    const resPtr = this.exports.wasm_msg_guest_register_resolve(reqPtr);
+    this.consumeResponse(resPtr, Void);
   }
 
   setResolverState(request: SetResolverStateRequest): void {
@@ -183,6 +190,16 @@ export class WasmResolver implements LocalResolver {
         this.reloadInstance(error);
       }
       throw error;
+    }
+  }
+
+  registerResolve(request: RegisterResolveRequest): void {
+    try {
+      this.delegate.registerResolve(request);
+    } catch (error: unknown) {
+      if (error instanceof WebAssembly.RuntimeError) {
+        this.reloadInstance(error);
+      }
     }
   }
 

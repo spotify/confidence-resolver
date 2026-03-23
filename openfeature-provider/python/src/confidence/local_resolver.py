@@ -119,6 +119,15 @@ class LocalResolver:
             self._reload_instance(error)
             raise
 
+    def register_resolve(
+        self, request: wasm_api_pb2.RegisterResolveRequest
+    ) -> None:
+        """Register a resolve evaluation for telemetry."""
+        try:
+            self._delegate.register_resolve(request)
+        except WasmCrashError:
+            pass
+
     def flush_logs(self) -> bytes:
         """Flush all pending logs including buffered logs.
 

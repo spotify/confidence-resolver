@@ -238,6 +238,15 @@ func evaluate[T any](
 	flagName, path := parseFlagPath(flag)
 	requestFlagName := "flags/" + flagName
 
+	start := time.Now()
+	registerResolve := func(reason resolver.ResolveReason) {
+		latencyUs := uint32(time.Since(start).Microseconds())
+		_ = p.resolver.RegisterResolve(&wasm.RegisterResolveRequest{
+			Reason: reason,
+			LatencyUs: latencyUs,
+		})
+	}
+
 	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, true)
 	if err != nil {
 		p.logger.Error("Failed to resolve flag", "flag", flagName, "error", err)
@@ -250,8 +259,8 @@ func evaluate[T any](
 		}
 	}
 
-	// Check if flag was found
 	if len(response.ResolvedFlags) == 0 {
+		registerResolve(resolver.ResolveReason_RESOLVE_REASON_FLAG_NOT_FOUND)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -263,9 +272,9 @@ func evaluate[T any](
 
 	resolvedFlag := response.ResolvedFlags[0]
 
-	// Verify flag name matches
 	if resolvedFlag.Flag != requestFlagName {
 		p.logger.Error("Unexpected flag from resolver", "expected", requestFlagName, "got", resolvedFlag.Flag)
+		registerResolve(resolver.ResolveReason_RESOLVE_REASON_FLAG_NOT_FOUND)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -275,8 +284,8 @@ func evaluate[T any](
 		}
 	}
 
-	// Check if variant is assigned
 	if resolvedFlag.Variant == "" {
+		registerResolve(resolvedFlag.Reason)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -286,10 +295,10 @@ func evaluate[T any](
 		}
 	}
 
-	// Convert protobuf struct to Go interface{}
 	value, ok := getValueForPath(path, resolvedFlag.Value)
 
 	if !ok {
+		registerResolve(resolver.ResolveReason_RESOLVE_REASON_FLAG_NOT_FOUND)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -302,6 +311,7 @@ func evaluate[T any](
 	result, err := unmarshalProto(value, defaultValue, path)
 
 	if err != nil {
+		registerResolve(resolver.ResolveReason_RESOLVE_REASON_TYPE_MISMATCH)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -311,6 +321,7 @@ func evaluate[T any](
 		}
 	}
 
+	registerResolve(resolvedFlag.Reason)
 	return openfeature.GenericResolutionDetail[T]{
 		Value: result,
 		ProviderResolutionDetail: openfeature.ProviderResolutionDetail{

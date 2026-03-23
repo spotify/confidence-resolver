@@ -1,7 +1,7 @@
 import type { EvaluationContext, JsonValue, Provider, ProviderMetadata, ProviderStatus } from '@openfeature/server-sdk';
 import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
-import { SdkId } from './proto/confidence/flags/resolver/v1/types';
+import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
 import { castStringToEnum, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
@@ -192,16 +192,35 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
   }
 
-  // TODO test unknown flagClientSecret
   async evaluate<T extends JsonValue>(
     flagKey: string,
     defaultValue: T,
     context: EvaluationContext,
   ): Promise<ResolutionDetails<T>> {
+    const startMs = performance.now();
     try {
       const [flagName] = flagKey.split('.', 1);
       const resolution = await this.resolve(context, [flagName], true);
-      return FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
+      const result = FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
+
+      if (!resolution.errorCode) {
+        const latencyUs = Math.round((performance.now() - startMs) * 1000);
+        let reason: ResolveReason;
+        if (result.errorCode === ErrorCode.FLAG_NOT_FOUND) {
+          reason = ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND;
+        } else if (result.errorCode === ErrorCode.TYPE_MISMATCH) {
+          reason = ResolveReason.RESOLVE_REASON_TYPE_MISMATCH;
+        } else {
+          reason = reasonStringToEnum(result.reason);
+        }
+        try {
+          this.resolver.registerResolve({ reason, latencyUs });
+        } catch {
+          // best-effort telemetry
+        }
+      }
+
+      return result;
     } finally {
       this.flushAssigned();
     }
@@ -405,5 +424,24 @@ export class ConfidenceServerProviderLocal implements Provider {
     };
 
     this.resolver.applyFlags(request);
+  }
+}
+
+function reasonStringToEnum(reason: string): ResolveReason {
+  switch (reason) {
+    case 'MATCH':
+      return ResolveReason.RESOLVE_REASON_MATCH;
+    case 'NO_SEGMENT_MATCH':
+      return ResolveReason.RESOLVE_REASON_NO_SEGMENT_MATCH;
+    case 'NO_TREATMENT_MATCH':
+      return ResolveReason.RESOLVE_REASON_NO_TREATMENT_MATCH;
+    case 'FLAG_ARCHIVED':
+      return ResolveReason.RESOLVE_REASON_FLAG_ARCHIVED;
+    case 'TARGETING_KEY_ERROR':
+      return ResolveReason.RESOLVE_REASON_TARGETING_KEY_ERROR;
+    case 'ERROR':
+      return ResolveReason.RESOLVE_REASON_ERROR;
+    default:
+      return ResolveReason.RESOLVE_REASON_UNSPECIFIED;
   }
 }

@@ -1,6 +1,7 @@
 package com.spotify.confidence.sdk;
 
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
@@ -54,6 +55,11 @@ class PooledResolver implements LocalResolver {
   @Override
   public CompletionStage<ResolveProcessResponse> resolveProcess(ResolveProcessRequest request) {
     return withReadSlot(lr -> lr.resolveProcess(request));
+  }
+
+  @Override
+  public void registerResolve(RegisterResolveRequest request) {
+    withReadSlotVoid(lr -> lr.registerResolve(request));
   }
 
   @Override

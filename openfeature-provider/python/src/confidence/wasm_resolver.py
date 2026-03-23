@@ -65,6 +65,9 @@ class WasmResolver:
         self._wasm_msg_guest_prometheus_snapshot = exports[
             "wasm_msg_guest_prometheus_snapshot"
         ]
+        self._wasm_msg_guest_register_resolve = exports[
+            "wasm_msg_guest_register_resolve"
+        ]
         self._memory = exports["memory"]
 
     def _register_host_functions(self) -> None:
@@ -146,6 +149,15 @@ class WasmResolver:
         response = wasm_api_pb2.ResolveProcessResponse()
         self._consume_response(resp_ptr, response)
         return response
+
+    def register_resolve(
+        self, request: wasm_api_pb2.RegisterResolveRequest
+    ) -> None:
+        """Register a resolve evaluation for telemetry."""
+        req_ptr = self._transfer_request(request)
+        resp_ptr = self._wasm_msg_guest_register_resolve(self._store, req_ptr)
+        if resp_ptr != 0:
+            self._consume_response(resp_ptr, None)
 
     def flush_logs(self) -> bytes:
         """Flush all pending logs from the WASM module.

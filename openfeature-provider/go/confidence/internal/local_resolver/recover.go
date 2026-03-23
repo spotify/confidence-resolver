@@ -100,6 +100,13 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 	return
 }
 
+func (r *RecoveringResolver) RegisterResolve(request *wasm.RegisterResolveRequest) (err error) {
+	r.withRecover("RegisterResolve", &err, func(lr LocalResolver) {
+		err = lr.RegisterResolve(request)
+	})
+	return
+}
+
 func (r *RecoveringResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) (err error) {
 	r.withRecover("ApplyFlags", &err, func(lr LocalResolver) {
 		err = lr.ApplyFlags(request)

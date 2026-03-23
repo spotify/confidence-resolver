@@ -57,6 +57,10 @@ func (r *WasmResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*was
 	return resp, err
 }
 
+func (r *WasmResolver) RegisterResolve(request *wasm.RegisterResolveRequest) error {
+	return r.call("wasm_msg_guest_register_resolve", request, nil)
+}
+
 func (r *WasmResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
 	return r.call("wasm_msg_guest_apply_flags", request, nil)
 }

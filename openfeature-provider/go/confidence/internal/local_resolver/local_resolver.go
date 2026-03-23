@@ -20,6 +20,7 @@ type LocalResolverFactory interface {
 type LocalResolver interface {
 	SetResolverState(*wasm.SetResolverStateRequest) error
 	ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error)
+	RegisterResolve(*wasm.RegisterResolveRequest) error
 	ApplyFlags(*resolver.ApplyFlagsRequest) error
 	FlushAllLogs() error
 	FlushAssignLogs() error
