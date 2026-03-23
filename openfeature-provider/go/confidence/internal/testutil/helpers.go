@@ -429,6 +429,7 @@ func (m *MockedLocalResolver) ResolveProcess(*wasm.ResolveProcessRequest) (*wasm
 }
 func (m MockedLocalResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }
 func (m MockedLocalResolver) PrometheusSnapshot() string                           { return "" }
+func (m MockedLocalResolver) RegisterResolve(*wasm.RegisterResolveRequest) error   { return nil }
 func (m MockedLocalResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error         { return nil }
 
 func MustJSONToProto(jsonString string) *structpb.Value {
