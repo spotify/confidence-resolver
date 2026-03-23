@@ -244,6 +244,94 @@ func (*Response_Data) isResponse_Result() {}
 
 func (*Response_Error) isResponse_Result() {}
 
+type PrometheusSnapshotRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Instance      string                 `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PrometheusSnapshotRequest) Reset() {
+	*x = PrometheusSnapshotRequest{}
+	mi := &file_confidence_wasm_messages_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrometheusSnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrometheusSnapshotRequest) ProtoMessage() {}
+
+func (x *PrometheusSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_wasm_messages_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrometheusSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*PrometheusSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_confidence_wasm_messages_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *PrometheusSnapshotRequest) GetInstance() string {
+	if x != nil {
+		return x.Instance
+	}
+	return ""
+}
+
+type PrometheusSnapshotResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PrometheusSnapshotResponse) Reset() {
+	*x = PrometheusSnapshotResponse{}
+	mi := &file_confidence_wasm_messages_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrometheusSnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrometheusSnapshotResponse) ProtoMessage() {}
+
+func (x *PrometheusSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_wasm_messages_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrometheusSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*PrometheusSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_confidence_wasm_messages_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *PrometheusSnapshotResponse) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
 var File_confidence_wasm_messages_proto protoreflect.FileDescriptor
 
 const file_confidence_wasm_messages_proto_rawDesc = "" +
@@ -260,7 +348,11 @@ const file_confidence_wasm_messages_proto_rawDesc = "" +
 	"\bResponse\x12\x14\n" +
 	"\x04data\x18\x01 \x01(\fH\x00R\x04data\x12\x16\n" +
 	"\x05error\x18\x02 \x01(\tH\x00R\x05errorB\b\n" +
-	"\x06resultB\x8c\x01\n" +
+	"\x06result\"7\n" +
+	"\x19PrometheusSnapshotRequest\x12\x1a\n" +
+	"\binstance\x18\x01 \x01(\tR\binstance\"0\n" +
+	"\x1aPrometheusSnapshotResponse\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04textB\x8c\x01\n" +
 	"\x1fcom.spotify.confidence.sdk.wasmB\bMessagesP\x00Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
 
 var (
@@ -275,16 +367,18 @@ func file_confidence_wasm_messages_proto_rawDescGZIP() []byte {
 	return file_confidence_wasm_messages_proto_rawDescData
 }
 
-var file_confidence_wasm_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_confidence_wasm_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_confidence_wasm_messages_proto_goTypes = []any{
-	(*Void)(nil),                    // 0: confidence.wasm.Void
-	(*SetResolverStateRequest)(nil), // 1: confidence.wasm.SetResolverStateRequest
-	(*Request)(nil),                 // 2: confidence.wasm.Request
-	(*Response)(nil),                // 3: confidence.wasm.Response
-	(*resolver.Sdk)(nil),            // 4: confidence.flags.resolver.v1.Sdk
+	(*Void)(nil),                       // 0: confidence.wasm.Void
+	(*SetResolverStateRequest)(nil),    // 1: confidence.wasm.SetResolverStateRequest
+	(*Request)(nil),                    // 2: confidence.wasm.Request
+	(*Response)(nil),                   // 3: confidence.wasm.Response
+	(*PrometheusSnapshotRequest)(nil),  // 4: confidence.wasm.PrometheusSnapshotRequest
+	(*PrometheusSnapshotResponse)(nil), // 5: confidence.wasm.PrometheusSnapshotResponse
+	(*resolver.Sdk)(nil),               // 6: confidence.flags.resolver.v1.Sdk
 }
 var file_confidence_wasm_messages_proto_depIdxs = []int32{
-	4, // 0: confidence.wasm.SetResolverStateRequest.sdk:type_name -> confidence.flags.resolver.v1.Sdk
+	6, // 0: confidence.wasm.SetResolverStateRequest.sdk:type_name -> confidence.flags.resolver.v1.Sdk
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
@@ -307,7 +401,7 @@ func file_confidence_wasm_messages_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_wasm_messages_proto_rawDesc), len(file_confidence_wasm_messages_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
