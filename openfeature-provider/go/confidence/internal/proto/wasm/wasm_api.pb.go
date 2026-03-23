@@ -335,6 +335,58 @@ func (x *LogMessage) GetMessage() string {
 	return ""
 }
 
+type RegisterResolveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        resolver.ResolveReason `protobuf:"varint,1,opt,name=reason,proto3,enum=confidence.flags.resolver.v1.ResolveReason" json:"reason,omitempty"`
+	LatencyUs     uint32                 `protobuf:"varint,2,opt,name=latency_us,json=latencyUs,proto3" json:"latency_us,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterResolveRequest) Reset() {
+	*x = RegisterResolveRequest{}
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterResolveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterResolveRequest) ProtoMessage() {}
+
+func (x *RegisterResolveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterResolveRequest.ProtoReflect.Descriptor instead.
+func (*RegisterResolveRequest) Descriptor() ([]byte, []int) {
+	return file_confidence_wasm_wasm_api_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RegisterResolveRequest) GetReason() resolver.ResolveReason {
+	if x != nil {
+		return x.Reason
+	}
+	return resolver.ResolveReason(0)
+}
+
+func (x *RegisterResolveRequest) GetLatencyUs() uint32 {
+	if x != nil {
+		return x.LatencyUs
+	}
+	return 0
+}
+
 type ResolveProcessRequest_StaticMaterializations struct {
 	state            protoimpl.MessageState        `protogen:"open.v1"`
 	ResolveRequest   *resolver.ResolveFlagsRequest `protobuf:"bytes,1,opt,name=resolve_request,json=resolveRequest,proto3" json:"resolve_request,omitempty"`
@@ -345,7 +397,7 @@ type ResolveProcessRequest_StaticMaterializations struct {
 
 func (x *ResolveProcessRequest_StaticMaterializations) Reset() {
 	*x = ResolveProcessRequest_StaticMaterializations{}
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[4]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -357,7 +409,7 @@ func (x *ResolveProcessRequest_StaticMaterializations) String() string {
 func (*ResolveProcessRequest_StaticMaterializations) ProtoMessage() {}
 
 func (x *ResolveProcessRequest_StaticMaterializations) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[4]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -397,7 +449,7 @@ type ResolveProcessRequest_Resume struct {
 
 func (x *ResolveProcessRequest_Resume) Reset() {
 	*x = ResolveProcessRequest_Resume{}
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[5]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -409,7 +461,7 @@ func (x *ResolveProcessRequest_Resume) String() string {
 func (*ResolveProcessRequest_Resume) ProtoMessage() {}
 
 func (x *ResolveProcessRequest_Resume) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[5]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +501,7 @@ type ResolveProcessResponse_Resolved struct {
 
 func (x *ResolveProcessResponse_Resolved) Reset() {
 	*x = ResolveProcessResponse_Resolved{}
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[6]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -461,7 +513,7 @@ func (x *ResolveProcessResponse_Resolved) String() string {
 func (*ResolveProcessResponse_Resolved) ProtoMessage() {}
 
 func (x *ResolveProcessResponse_Resolved) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[6]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -501,7 +553,7 @@ type ResolveProcessResponse_Suspended struct {
 
 func (x *ResolveProcessResponse_Suspended) Reset() {
 	*x = ResolveProcessResponse_Suspended{}
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[7]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -513,7 +565,7 @@ func (x *ResolveProcessResponse_Suspended) String() string {
 func (*ResolveProcessResponse_Suspended) ProtoMessage() {}
 
 func (x *ResolveProcessResponse_Suspended) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[7]
+	mi := &file_confidence_wasm_wasm_api_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -547,7 +599,7 @@ var File_confidence_wasm_wasm_api_proto protoreflect.FileDescriptor
 
 const file_confidence_wasm_wasm_api_proto_rawDesc = "" +
 	"\n" +
-	"\x1econfidence/wasm/wasm_api.proto\x12\x1cconfidence.flags.resolver.v1\x1a&confidence/flags/resolver/v1/api.proto\"\xbb\x06\n" +
+	"\x1econfidence/wasm/wasm_api.proto\x12\x1cconfidence.flags.resolver.v1\x1a&confidence/flags/resolver/v1/api.proto\x1a(confidence/flags/resolver/v1/types.proto\"\xbb\x06\n" +
 	"\x15ResolveProcessRequest\x12p\n" +
 	"\x19deferred_materializations\x18\x01 \x01(\v21.confidence.flags.resolver.v1.ResolveFlagsRequestH\x00R\x18deferredMaterializations\x12\x85\x01\n" +
 	"\x17static_materializations\x18\x02 \x01(\v2J.confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializationsH\x00R\x16staticMaterializations\x12n\n" +
@@ -577,7 +629,11 @@ const file_confidence_wasm_wasm_api_proto_rawDesc = "" +
 	"\avariant\x18\x04 \x01(\tR\avariant\"&\n" +
 	"\n" +
 	"LogMessage\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessageB\x9d\x01\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"|\n" +
+	"\x16RegisterResolveRequest\x12C\n" +
+	"\x06reason\x18\x01 \x01(\x0e2+.confidence.flags.resolver.v1.ResolveReasonR\x06reason\x12\x1d\n" +
+	"\n" +
+	"latency_us\x18\x02 \x01(\rR\tlatencyUsB\x9d\x01\n" +
 	",com.spotify.confidence.sdk.flags.resolver.v1B\fWasmApiProtoP\x01Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3"
 
 var (
@@ -592,37 +648,40 @@ func file_confidence_wasm_wasm_api_proto_rawDescGZIP() []byte {
 	return file_confidence_wasm_wasm_api_proto_rawDescData
 }
 
-var file_confidence_wasm_wasm_api_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_confidence_wasm_wasm_api_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_confidence_wasm_wasm_api_proto_goTypes = []any{
 	(*ResolveProcessRequest)(nil),                        // 0: confidence.flags.resolver.v1.ResolveProcessRequest
 	(*ResolveProcessResponse)(nil),                       // 1: confidence.flags.resolver.v1.ResolveProcessResponse
 	(*MaterializationRecord)(nil),                        // 2: confidence.flags.resolver.v1.MaterializationRecord
 	(*LogMessage)(nil),                                   // 3: confidence.flags.resolver.v1.LogMessage
-	(*ResolveProcessRequest_StaticMaterializations)(nil), // 4: confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializations
-	(*ResolveProcessRequest_Resume)(nil),                 // 5: confidence.flags.resolver.v1.ResolveProcessRequest.Resume
-	(*ResolveProcessResponse_Resolved)(nil),              // 6: confidence.flags.resolver.v1.ResolveProcessResponse.Resolved
-	(*ResolveProcessResponse_Suspended)(nil),             // 7: confidence.flags.resolver.v1.ResolveProcessResponse.Suspended
-	(*resolver.ResolveFlagsRequest)(nil),                 // 8: confidence.flags.resolver.v1.ResolveFlagsRequest
-	(*resolver.ResolveFlagsResponse)(nil),                // 9: confidence.flags.resolver.v1.ResolveFlagsResponse
+	(*RegisterResolveRequest)(nil),                       // 4: confidence.flags.resolver.v1.RegisterResolveRequest
+	(*ResolveProcessRequest_StaticMaterializations)(nil), // 5: confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializations
+	(*ResolveProcessRequest_Resume)(nil),                 // 6: confidence.flags.resolver.v1.ResolveProcessRequest.Resume
+	(*ResolveProcessResponse_Resolved)(nil),              // 7: confidence.flags.resolver.v1.ResolveProcessResponse.Resolved
+	(*ResolveProcessResponse_Suspended)(nil),             // 8: confidence.flags.resolver.v1.ResolveProcessResponse.Suspended
+	(*resolver.ResolveFlagsRequest)(nil),                 // 9: confidence.flags.resolver.v1.ResolveFlagsRequest
+	(resolver.ResolveReason)(0),                          // 10: confidence.flags.resolver.v1.ResolveReason
+	(*resolver.ResolveFlagsResponse)(nil),                // 11: confidence.flags.resolver.v1.ResolveFlagsResponse
 }
 var file_confidence_wasm_wasm_api_proto_depIdxs = []int32{
-	8,  // 0: confidence.flags.resolver.v1.ResolveProcessRequest.deferred_materializations:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
-	4,  // 1: confidence.flags.resolver.v1.ResolveProcessRequest.static_materializations:type_name -> confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializations
-	8,  // 2: confidence.flags.resolver.v1.ResolveProcessRequest.without_materializations:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
-	5,  // 3: confidence.flags.resolver.v1.ResolveProcessRequest.resume:type_name -> confidence.flags.resolver.v1.ResolveProcessRequest.Resume
-	6,  // 4: confidence.flags.resolver.v1.ResolveProcessResponse.resolved:type_name -> confidence.flags.resolver.v1.ResolveProcessResponse.Resolved
-	7,  // 5: confidence.flags.resolver.v1.ResolveProcessResponse.suspended:type_name -> confidence.flags.resolver.v1.ResolveProcessResponse.Suspended
-	8,  // 6: confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializations.resolve_request:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
-	2,  // 7: confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializations.materializations:type_name -> confidence.flags.resolver.v1.MaterializationRecord
-	2,  // 8: confidence.flags.resolver.v1.ResolveProcessRequest.Resume.materializations:type_name -> confidence.flags.resolver.v1.MaterializationRecord
-	9,  // 9: confidence.flags.resolver.v1.ResolveProcessResponse.Resolved.response:type_name -> confidence.flags.resolver.v1.ResolveFlagsResponse
-	2,  // 10: confidence.flags.resolver.v1.ResolveProcessResponse.Resolved.materializations_to_write:type_name -> confidence.flags.resolver.v1.MaterializationRecord
-	2,  // 11: confidence.flags.resolver.v1.ResolveProcessResponse.Suspended.materializations_to_read:type_name -> confidence.flags.resolver.v1.MaterializationRecord
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	9,  // 0: confidence.flags.resolver.v1.ResolveProcessRequest.deferred_materializations:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
+	5,  // 1: confidence.flags.resolver.v1.ResolveProcessRequest.static_materializations:type_name -> confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializations
+	9,  // 2: confidence.flags.resolver.v1.ResolveProcessRequest.without_materializations:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
+	6,  // 3: confidence.flags.resolver.v1.ResolveProcessRequest.resume:type_name -> confidence.flags.resolver.v1.ResolveProcessRequest.Resume
+	7,  // 4: confidence.flags.resolver.v1.ResolveProcessResponse.resolved:type_name -> confidence.flags.resolver.v1.ResolveProcessResponse.Resolved
+	8,  // 5: confidence.flags.resolver.v1.ResolveProcessResponse.suspended:type_name -> confidence.flags.resolver.v1.ResolveProcessResponse.Suspended
+	10, // 6: confidence.flags.resolver.v1.RegisterResolveRequest.reason:type_name -> confidence.flags.resolver.v1.ResolveReason
+	9,  // 7: confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializations.resolve_request:type_name -> confidence.flags.resolver.v1.ResolveFlagsRequest
+	2,  // 8: confidence.flags.resolver.v1.ResolveProcessRequest.StaticMaterializations.materializations:type_name -> confidence.flags.resolver.v1.MaterializationRecord
+	2,  // 9: confidence.flags.resolver.v1.ResolveProcessRequest.Resume.materializations:type_name -> confidence.flags.resolver.v1.MaterializationRecord
+	11, // 10: confidence.flags.resolver.v1.ResolveProcessResponse.Resolved.response:type_name -> confidence.flags.resolver.v1.ResolveFlagsResponse
+	2,  // 11: confidence.flags.resolver.v1.ResolveProcessResponse.Resolved.materializations_to_write:type_name -> confidence.flags.resolver.v1.MaterializationRecord
+	2,  // 12: confidence.flags.resolver.v1.ResolveProcessResponse.Suspended.materializations_to_read:type_name -> confidence.flags.resolver.v1.MaterializationRecord
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_confidence_wasm_wasm_api_proto_init() }
@@ -646,7 +705,7 @@ func file_confidence_wasm_wasm_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_wasm_wasm_api_proto_rawDesc), len(file_confidence_wasm_wasm_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

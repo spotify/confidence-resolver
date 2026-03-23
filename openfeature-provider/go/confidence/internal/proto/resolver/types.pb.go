@@ -45,20 +45,26 @@ const (
 	ResolveReason_RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE ResolveReason = 7
 	// The flag could not be resolved because a rule is using materialization
 	ResolveReason_RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED ResolveReason = 8
+	// The resolved value type does not match the type requested by the SDK
+	ResolveReason_RESOLVE_REASON_TYPE_MISMATCH ResolveReason = 9
+	// The flag was not found in the resolve response
+	ResolveReason_RESOLVE_REASON_FLAG_NOT_FOUND ResolveReason = 10
 )
 
 // Enum value maps for ResolveReason.
 var (
 	ResolveReason_name = map[int32]string{
-		0: "RESOLVE_REASON_UNSPECIFIED",
-		1: "RESOLVE_REASON_MATCH",
-		2: "RESOLVE_REASON_NO_SEGMENT_MATCH",
-		3: "RESOLVE_REASON_NO_TREATMENT_MATCH",
-		4: "RESOLVE_REASON_FLAG_ARCHIVED",
-		5: "RESOLVE_REASON_TARGETING_KEY_ERROR",
-		6: "RESOLVE_REASON_ERROR",
-		7: "RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE",
-		8: "RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED",
+		0:  "RESOLVE_REASON_UNSPECIFIED",
+		1:  "RESOLVE_REASON_MATCH",
+		2:  "RESOLVE_REASON_NO_SEGMENT_MATCH",
+		3:  "RESOLVE_REASON_NO_TREATMENT_MATCH",
+		4:  "RESOLVE_REASON_FLAG_ARCHIVED",
+		5:  "RESOLVE_REASON_TARGETING_KEY_ERROR",
+		6:  "RESOLVE_REASON_ERROR",
+		7:  "RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE",
+		8:  "RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED",
+		9:  "RESOLVE_REASON_TYPE_MISMATCH",
+		10: "RESOLVE_REASON_FLAG_NOT_FOUND",
 	}
 	ResolveReason_value = map[string]int32{
 		"RESOLVE_REASON_UNSPECIFIED":                   0,
@@ -70,6 +76,8 @@ var (
 		"RESOLVE_REASON_ERROR":                         6,
 		"RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE":   7,
 		"RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED": 8,
+		"RESOLVE_REASON_TYPE_MISMATCH":                 9,
+		"RESOLVE_REASON_FLAG_NOT_FOUND":                10,
 	}
 )
 
@@ -313,7 +321,7 @@ const file_confidence_flags_resolver_v1_types_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x0e2#.confidence.flags.resolver.v1.SdkIdH\x00R\x02id\x12\x1d\n" +
 	"\tcustom_id\x18\x02 \x01(\tH\x00R\bcustomId\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversionB\x05\n" +
-	"\x03sdk*\xdf\x02\n" +
+	"\x03sdk*\xa4\x03\n" +
 	"\rResolveReason\x12\x1e\n" +
 	"\x1aRESOLVE_REASON_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14RESOLVE_REASON_MATCH\x10\x01\x12#\n" +
@@ -323,7 +331,10 @@ const file_confidence_flags_resolver_v1_types_proto_rawDesc = "" +
 	"\"RESOLVE_REASON_TARGETING_KEY_ERROR\x10\x05\x12\x18\n" +
 	"\x14RESOLVE_REASON_ERROR\x10\x06\x12.\n" +
 	"*RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE\x10\a\x120\n" +
-	",RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED\x10\b*\xa3\x05\n" +
+	",RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED\x10\b\x12 \n" +
+	"\x1cRESOLVE_REASON_TYPE_MISMATCH\x10\t\x12!\n" +
+	"\x1dRESOLVE_REASON_FLAG_NOT_FOUND\x10\n" +
+	"*\xa3\x05\n" +
 	"\x05SdkId\x12\x16\n" +
 	"\x12SDK_ID_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14SDK_ID_JAVA_PROVIDER\x10\x01\x12\x1a\n" +
