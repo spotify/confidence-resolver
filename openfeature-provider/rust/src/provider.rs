@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -26,7 +26,7 @@ use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
 
 use crate::error::{Error, Result};
 use crate::gateway::GatewayMiddleware;
-use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER};
+use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER, TELEMETRY};
 use crate::logger::LogManager;
 use crate::materialization::{
     materialization_records_to_read_ops, materialization_records_to_write_ops,
@@ -424,12 +424,20 @@ impl ConfidenceProvider {
         })?;
 
         // Get resolved flag
-        let resolved_flag = flags_response.resolved_flags.first().ok_or_else(|| {
-            EvaluationError::builder()
-                .code(EvaluationErrorCode::FlagNotFound)
-                .message(format!("Flag '{}' not found", flag_name))
-                .build()
-        })?;
+        let resolved_flag = match flags_response.resolved_flags.first() {
+            Some(f) => f,
+            None => {
+                return Ok(ResolveResult {
+                    value: None,
+                    variant: None,
+                    reason: EvaluationReason::Error,
+                    resolve_reason: ResolveReason::FlagNotFound,
+                });
+            }
+        };
+
+        let resolve_reason =
+            ResolveReason::try_from(resolved_flag.reason).unwrap_or(ResolveReason::Error);
 
         // Check variant
         if resolved_flag.variant.is_empty() {
@@ -437,6 +445,7 @@ impl ConfidenceProvider {
                 value: None,
                 variant: None,
                 reason: map_resolve_reason(resolved_flag.reason),
+                resolve_reason,
             });
         }
 
@@ -452,6 +461,7 @@ impl ConfidenceProvider {
             value,
             variant: Some(resolved_flag.variant.clone()),
             reason: EvaluationReason::TargetingMatch,
+            resolve_reason,
         })
     }
 
@@ -484,6 +494,7 @@ struct ResolveResult {
     value: Option<Struct>,
     variant: Option<String>,
     reason: EvaluationReason,
+    resolve_reason: ResolveReason,
 }
 
 #[async_trait]
@@ -513,26 +524,38 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<bool>> {
-        let result = self.resolve_flag(flag_key, evaluation_context).await?;
+        let start = Instant::now();
+        let result = match self.resolve_flag(flag_key, evaluation_context).await {
+            Ok(r) => r,
+            Err(e) => {
+                do_register_resolve(ResolveReason::Error, start);
+                return Err(e);
+            }
+        };
 
-        // If no variant assigned (no match), return error so caller can use their default
         if result.variant.is_none() {
+            do_register_resolve(result.resolve_reason, start);
             return Err(no_variant_matched_error(&result.reason));
         }
 
-        let value = extract_bool_value(&result.value).ok_or_else(|| {
-            EvaluationError::builder()
-                .code(EvaluationErrorCode::TypeMismatch)
-                .message("Value is not a boolean")
-                .build()
-        })?;
-
-        Ok(ResolutionDetails {
-            value,
-            variant: result.variant,
-            reason: Some(result.reason),
-            flag_metadata: None,
-        })
+        match extract_bool_value(&result.value) {
+            Some(value) => {
+                do_register_resolve(result.resolve_reason, start);
+                Ok(ResolutionDetails {
+                    value,
+                    variant: result.variant,
+                    reason: Some(result.reason),
+                    flag_metadata: None,
+                })
+            }
+            None => {
+                do_register_resolve(ResolveReason::TypeMismatch, start);
+                Err(EvaluationError::builder()
+                    .code(EvaluationErrorCode::TypeMismatch)
+                    .message("Value is not a boolean")
+                    .build())
+            }
+        }
     }
 
     async fn resolve_int_value(
@@ -540,28 +563,38 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<i64>> {
-        let result = self.resolve_flag(flag_key, evaluation_context).await?;
+        let start = Instant::now();
+        let result = match self.resolve_flag(flag_key, evaluation_context).await {
+            Ok(r) => r,
+            Err(e) => {
+                do_register_resolve(ResolveReason::Error, start);
+                return Err(e);
+            }
+        };
 
-        // If no variant assigned (no match), return error so caller can use their default
         if result.variant.is_none() {
+            do_register_resolve(result.resolve_reason, start);
             return Err(no_variant_matched_error(&result.reason));
         }
 
-        let value = extract_number_value(&result.value)
-            .map(|v| v as i64)
-            .ok_or_else(|| {
-                EvaluationError::builder()
+        match extract_number_value(&result.value).map(|v| v as i64) {
+            Some(value) => {
+                do_register_resolve(result.resolve_reason, start);
+                Ok(ResolutionDetails {
+                    value,
+                    variant: result.variant,
+                    reason: Some(result.reason),
+                    flag_metadata: None,
+                })
+            }
+            None => {
+                do_register_resolve(ResolveReason::TypeMismatch, start);
+                Err(EvaluationError::builder()
                     .code(EvaluationErrorCode::TypeMismatch)
                     .message("Value is not a number")
-                    .build()
-            })?;
-
-        Ok(ResolutionDetails {
-            value,
-            variant: result.variant,
-            reason: Some(result.reason),
-            flag_metadata: None,
-        })
+                    .build())
+            }
+        }
     }
 
     async fn resolve_float_value(
@@ -569,26 +602,38 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<f64>> {
-        let result = self.resolve_flag(flag_key, evaluation_context).await?;
+        let start = Instant::now();
+        let result = match self.resolve_flag(flag_key, evaluation_context).await {
+            Ok(r) => r,
+            Err(e) => {
+                do_register_resolve(ResolveReason::Error, start);
+                return Err(e);
+            }
+        };
 
-        // If no variant assigned (no match), return error so caller can use their default
         if result.variant.is_none() {
+            do_register_resolve(result.resolve_reason, start);
             return Err(no_variant_matched_error(&result.reason));
         }
 
-        let value = extract_number_value(&result.value).ok_or_else(|| {
-            EvaluationError::builder()
-                .code(EvaluationErrorCode::TypeMismatch)
-                .message("Value is not a number")
-                .build()
-        })?;
-
-        Ok(ResolutionDetails {
-            value,
-            variant: result.variant,
-            reason: Some(result.reason),
-            flag_metadata: None,
-        })
+        match extract_number_value(&result.value) {
+            Some(value) => {
+                do_register_resolve(result.resolve_reason, start);
+                Ok(ResolutionDetails {
+                    value,
+                    variant: result.variant,
+                    reason: Some(result.reason),
+                    flag_metadata: None,
+                })
+            }
+            None => {
+                do_register_resolve(ResolveReason::TypeMismatch, start);
+                Err(EvaluationError::builder()
+                    .code(EvaluationErrorCode::TypeMismatch)
+                    .message("Value is not a number")
+                    .build())
+            }
+        }
     }
 
     async fn resolve_string_value(
@@ -596,26 +641,38 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<String>> {
-        let result = self.resolve_flag(flag_key, evaluation_context).await?;
+        let start = Instant::now();
+        let result = match self.resolve_flag(flag_key, evaluation_context).await {
+            Ok(r) => r,
+            Err(e) => {
+                do_register_resolve(ResolveReason::Error, start);
+                return Err(e);
+            }
+        };
 
-        // If no variant assigned (no match), return error so caller can use their default
         if result.variant.is_none() {
+            do_register_resolve(result.resolve_reason, start);
             return Err(no_variant_matched_error(&result.reason));
         }
 
-        let value = extract_string_value(&result.value).ok_or_else(|| {
-            EvaluationError::builder()
-                .code(EvaluationErrorCode::TypeMismatch)
-                .message("Value is not a string")
-                .build()
-        })?;
-
-        Ok(ResolutionDetails {
-            value,
-            variant: result.variant,
-            reason: Some(result.reason),
-            flag_metadata: None,
-        })
+        match extract_string_value(&result.value) {
+            Some(value) => {
+                do_register_resolve(result.resolve_reason, start);
+                Ok(ResolutionDetails {
+                    value,
+                    variant: result.variant,
+                    reason: Some(result.reason),
+                    flag_metadata: None,
+                })
+            }
+            None => {
+                do_register_resolve(ResolveReason::TypeMismatch, start);
+                Err(EvaluationError::builder()
+                    .code(EvaluationErrorCode::TypeMismatch)
+                    .message("Value is not a string")
+                    .build())
+            }
+        }
     }
 
     async fn resolve_struct_value(
@@ -623,10 +680,17 @@ impl FeatureProvider for ConfidenceProvider {
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<StructValue>> {
-        let result = self.resolve_flag(flag_key, evaluation_context).await?;
+        let start = Instant::now();
+        let result = match self.resolve_flag(flag_key, evaluation_context).await {
+            Ok(r) => r,
+            Err(e) => {
+                do_register_resolve(ResolveReason::Error, start);
+                return Err(e);
+            }
+        };
 
-        // If no variant assigned (no match), return error so caller can use their default
         if result.variant.is_none() {
+            do_register_resolve(result.resolve_reason, start);
             return Err(no_variant_matched_error(&result.reason));
         }
 
@@ -635,6 +699,7 @@ impl FeatureProvider for ConfidenceProvider {
             .map(|s| proto_struct_to_openfeature(&s))
             .unwrap_or_default();
 
+        do_register_resolve(result.resolve_reason, start);
         Ok(ResolutionDetails {
             value,
             variant: result.variant,
@@ -645,6 +710,12 @@ impl FeatureProvider for ConfidenceProvider {
 }
 
 // Helper functions
+
+fn do_register_resolve(reason: ResolveReason, start: Instant) {
+    let latency_us = start.elapsed().as_micros() as u32;
+    TELEMETRY.record_latency_us(latency_us);
+    TELEMETRY.mark_resolve(reason);
+}
 
 /// Create an error for when no variant was matched (e.g., no segment match).
 /// This allows the caller to use their own default via `.unwrap_or(default)`.

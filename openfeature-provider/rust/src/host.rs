@@ -2,10 +2,12 @@
 
 use std::sync::LazyLock;
 
+use arc_swap::ArcSwap;
 use confidence_resolver::assign_logger::AssignLogger;
 use confidence_resolver::proto::confidence::flags::resolver::v1::Sdk;
 use confidence_resolver::proto::google::Struct;
 use confidence_resolver::resolve_logger::ResolveLogger;
+use confidence_resolver::telemetry::{Telemetry, TelemetrySnapshot};
 use confidence_resolver::{Client, FlagToApply, Host, ResolvedValue};
 
 /// Global resolve logger instance.
@@ -13,6 +15,13 @@ pub static RESOLVE_LOGGER: LazyLock<ResolveLogger<NativeHost>> = LazyLock::new(R
 
 /// Global assign logger instance.
 pub static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
+
+/// Global telemetry instance for recording resolve rates and latencies.
+pub static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(Telemetry::new);
+
+/// Snapshot of the last flushed telemetry, used for delta computation.
+pub static LAST_FLUSHED: LazyLock<ArcSwap<TelemetrySnapshot>> =
+    LazyLock::new(|| ArcSwap::from_pointee(TelemetrySnapshot::default()));
 
 /// Native Rust host implementation for the confidence resolver.
 ///

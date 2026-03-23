@@ -8,7 +8,7 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRe
 use confidence_resolver::resolve_logger::ResolveLogger;
 
 use crate::error::Result;
-use crate::host::NativeHost;
+use crate::host::{NativeHost, LAST_FLUSHED, TELEMETRY};
 
 /// API endpoint for flag logs.
 const FLAG_LOGS_URL: &str = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
@@ -73,7 +73,7 @@ impl LogManager {
         }
     }
 
-    /// Flush all logs (both resolve and assign logs).
+    /// Flush all logs (both resolve and assign logs), including telemetry deltas.
     pub async fn flush_all(
         &self,
         resolve_logger: &ResolveLogger<NativeHost>,
@@ -81,6 +81,9 @@ impl LogManager {
     ) -> Result<()> {
         let mut request = resolve_logger.checkpoint();
         assign_logger.checkpoint_fill_with_limit(&mut request, LOG_TARGET_BYTES, false);
+
+        let td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
+        request.telemetry_data = Some(td);
 
         let encoded = request.encode_to_vec();
         if !encoded.is_empty() && has_logs(&request) {
