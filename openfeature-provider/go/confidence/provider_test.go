@@ -498,8 +498,8 @@ func (m *mockResolverAPIForInit) FlushAssignLogs() error {
 	return nil
 }
 
-func (m *mockResolverAPIForInit) PrometheusSnapshot() (string, error) {
-	return "", nil
+func (m *mockResolverAPIForInit) PrometheusSnapshot() string {
+	return ""
 }
 
 // TestLocalResolverProvider_Init_NilStateProvider verifies Init fails when stateProvider is nil

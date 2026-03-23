@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -33,6 +35,7 @@ import java.util.function.Function;
  * {@link ReentrantLock} provides mutual exclusion for all operations.
  */
 class WasmLocalResolver implements LocalResolver {
+  private static final Logger logger = LoggerFactory.getLogger(WasmLocalResolver.class);
   private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger(0);
   private final FunctionType HOST_FN_TYPE =
       FunctionType.of(List.of(ValType.I32), List.of(ValType.I32));
@@ -230,6 +233,9 @@ class WasmLocalResolver implements LocalResolver {
       final int respPtr = (int) wasmMsgGuestPrometheusSnapshot.apply(reqPtr)[0];
       final var response = consumeResponse(respPtr, Messages.PrometheusSnapshotResponse::parseFrom);
       return response.getText();
+    } catch (RuntimeException e) {
+      logger.warn("prometheus snapshot failed", e);
+      return "";
     } finally {
       lock.unlock();
     }

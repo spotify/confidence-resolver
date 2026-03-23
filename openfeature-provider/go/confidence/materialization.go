@@ -180,7 +180,7 @@ func (m *materializationSupportedResolver) SetResolverState(request *wasm.SetRes
 	return m.current.SetResolverState(request)
 }
 
-func (m *materializationSupportedResolver) PrometheusSnapshot() (string, error) {
+func (m *materializationSupportedResolver) PrometheusSnapshot() string {
 	return m.current.PrometheusSnapshot()
 }
 

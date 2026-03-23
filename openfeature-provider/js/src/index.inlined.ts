@@ -2,6 +2,7 @@ import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServ
 import { LocalResolver } from './LocalResolver';
 import { WasmResolver } from './WasmResolver';
 export type { MaterializationStore } from './materialization';
+export type { SnapshotConfig } from './ConfidenceServerProviderLocal';
 
 // @ts-expect-error - wasm imported as data URL via bundler (configured in tsdown.config.ts)
 import wasmDataUrl from '../../../wasm/confidence_resolver.wasm';

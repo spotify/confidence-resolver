@@ -117,11 +117,12 @@ func (r *RecoveringResolver) FlushAssignLogs() (err error) {
 	return
 }
 
-func (r *RecoveringResolver) PrometheusSnapshot() (text string, err error) {
-	r.withRecover("PrometheusSnapshot", &err, func(lr LocalResolver) {
-		text, err = lr.PrometheusSnapshot()
+func (r *RecoveringResolver) PrometheusSnapshot() string {
+	var text string
+	r.withRecover("PrometheusSnapshot", nil, func(lr LocalResolver) {
+		text = lr.PrometheusSnapshot()
 	})
-	return
+	return text
 }
 
 func (r *RecoveringResolver) Close(ctx context.Context) error {

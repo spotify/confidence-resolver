@@ -298,7 +298,7 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
     provider.getObjectEvaluation("tutorial-feature", new Value("default"), context);
 
     // Retrieve Prometheus metrics
-    final String metrics = provider.getPrometheusMetrics();
+    final String metrics = provider.getPrometheusMetrics(new SnapshotConfig());
 
     // Verify metrics are present and contain expected metric names
     assertThat(metrics).isNotNull();

@@ -338,11 +338,18 @@ func evaluate[T any](
 	}
 }
 
+// SnapshotConfig holds options for GetPrometheusMetrics.
+//
+// Experimental: this API is subject to change.
+type SnapshotConfig struct{}
+
 // GetPrometheusMetrics returns a Prometheus text-format metrics snapshot
 // aggregated from all pooled resolver instances.
-func (p *LocalResolverProvider) GetPrometheusMetrics() (string, error) {
+//
+// Experimental: this API is subject to change.
+func (p *LocalResolverProvider) GetPrometheusMetrics(_ SnapshotConfig) string {
 	if p.resolver == nil {
-		return "", fmt.Errorf("provider not initialized")
+		return ""
 	}
 	return p.resolver.PrometheusSnapshot()
 }

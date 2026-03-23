@@ -93,17 +93,13 @@ func (s *PooledResolver) FlushAssignLogs() error {
 }
 
 // PrometheusSnapshot implements LocalResolver.
-func (s *PooledResolver) PrometheusSnapshot() (string, error) {
+func (s *PooledResolver) PrometheusSnapshot() string {
 	var b strings.Builder
-	err := s.maintenance(func(lr LocalResolver) error {
-		text, err := lr.PrometheusSnapshot()
-		if err != nil {
-			return err
-		}
-		b.WriteString(text)
+	s.maintenance(func(lr LocalResolver) error {
+		b.WriteString(lr.PrometheusSnapshot())
 		return nil
 	})
-	return b.String(), err
+	return b.String()
 }
 
 func (s *PooledResolver) Close(ctx context.Context) error {

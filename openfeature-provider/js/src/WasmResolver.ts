@@ -235,6 +235,11 @@ export class WasmResolver implements LocalResolver {
   }
 
   prometheusSnapshot(instance: string): string {
-    return this.delegate.prometheusSnapshot(instance);
+    try {
+      return this.delegate.prometheusSnapshot(instance);
+    } catch (error: unknown) {
+      logger.error('prometheus snapshot failed:', error);
+      return '';
+    }
   }
 }

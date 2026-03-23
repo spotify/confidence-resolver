@@ -25,6 +25,14 @@ const logger = getLogger('provider');
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
 export const DEFAULT_FLUSH_INTERVAL = 15_000;
+
+/**
+ * Configuration for {@link ConfidenceServerProviderLocal.getPrometheusMetrics}.
+ *
+ * @experimental This API is subject to change.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface SnapshotConfig {}
 export interface ProviderOptions {
   flagClientSecret: string;
   initializeTimeout?: number;
@@ -364,8 +372,10 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   /**
    * Returns a Prometheus metrics snapshot from the WASM resolver.
+   *
+   * @experimental This API is subject to change.
    */
-  getPrometheusMetrics(): string {
+  getPrometheusMetrics(_request?: SnapshotConfig): string {
     return this.resolver.prometheusSnapshot('0');
   }
 

@@ -3,6 +3,7 @@ import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServ
 import { WasmResolver } from './WasmResolver';
 import { LocalResolver } from './LocalResolver';
 export type { MaterializationStore } from './materialization';
+export type { SnapshotConfig } from './ConfidenceServerProviderLocal';
 
 let resolver: Promise<LocalResolver> | null = null;
 export interface ProviderOptionsExt extends ProviderOptions {

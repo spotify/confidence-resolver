@@ -735,10 +735,7 @@ func TestIntegration_GetPrometheusMetrics(t *testing.T) {
 	t.Logf("Flag evaluation result: %+v", result)
 
 	// Get Prometheus metrics
-	metrics, err := provider.GetPrometheusMetrics()
-	if err != nil {
-		t.Fatalf("GetPrometheusMetrics() returned error: %v", err)
-	}
+	metrics := provider.GetPrometheusMetrics(SnapshotConfig{})
 
 	if metrics == "" {
 		t.Fatal("GetPrometheusMetrics() returned empty string, expected metrics output")

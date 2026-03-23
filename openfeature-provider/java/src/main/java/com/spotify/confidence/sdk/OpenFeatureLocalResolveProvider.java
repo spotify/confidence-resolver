@@ -491,9 +491,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   /**
    * Returns a Prometheus metrics snapshot aggregated from all resolver instances in the pool.
    *
+   * <p><b>Experimental:</b> this API is subject to change.
+   *
+   * @param request the snapshot config (currently unused, reserved for future options)
    * @return the concatenated Prometheus metrics text from all pool slots
    */
-  public String getPrometheusMetrics() {
+  public String getPrometheusMetrics(SnapshotConfig request) {
     return resolver.prometheusSnapshot();
   }
 

@@ -140,7 +140,7 @@ class RecoveringResolver implements LocalResolver {
       return current.get().prometheusSnapshot();
     } catch (ChicoryException e) {
       handleFailure("prometheusSnapshot", e);
-      throw e;
+      return "";
     }
   }
 }

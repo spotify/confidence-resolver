@@ -155,10 +155,11 @@ class LocalResolver:
         """Get a Prometheus metrics snapshot.
 
         Returns:
-            The Prometheus metrics text.
+            The Prometheus metrics text, or empty string on failure.
         """
         try:
             return self._delegate.prometheus_snapshot()
         except WasmCrashError as error:
+            logger.warning("prometheus snapshot failed: %s", error)
             self._reload_instance(error)
-            raise
+            return ""

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -73,16 +74,16 @@ func (r *WasmResolver) FlushAssignLogs() error {
 	return err
 }
 
-func (r *WasmResolver) PrometheusSnapshot() (string, error) {
+func (r *WasmResolver) PrometheusSnapshot() string {
 	req := &wasm.PrometheusSnapshotRequest{
 		Instance: r.instanceID,
 	}
 	resp := &wasm.PrometheusSnapshotResponse{}
-	err := r.call("wasm_msg_guest_prometheus_snapshot", req, resp)
-	if err != nil {
-		return "", err
+	if err := r.call("wasm_msg_guest_prometheus_snapshot", req, resp); err != nil {
+		slog.Warn("prometheus snapshot failed", "error", err)
+		return ""
 	}
-	return resp.GetText(), nil
+	return resp.GetText()
 }
 
 func (r *WasmResolver) Close(ctx context.Context) error {
