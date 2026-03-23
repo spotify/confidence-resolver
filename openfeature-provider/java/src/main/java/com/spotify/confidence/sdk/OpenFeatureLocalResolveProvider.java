@@ -63,6 +63,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
   private volatile boolean initialized = false;
+  private static final Sdk SDK =
+      Sdk.newBuilder().setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER).setVersion(Version.VERSION).build();
 
   private static long getPollIntervalSeconds() {
     return Optional.ofNullable(System.getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"))
@@ -136,7 +138,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.stateProvider = new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory());
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
     this.flagLogger = wasmFlagLogger;
-    final int numInstances = PooledResolver.getNumInstances();
+    final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
@@ -162,7 +164,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.materializationStore = materializationStore;
     this.stateProvider = accountStateProvider;
     this.flagLogger = wasmFlagLogger;
-    final int numInstances = PooledResolver.getNumInstances();
+    final int numInstances =
+        PooledResolver.getNumInstances(LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE);
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
@@ -184,7 +187,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     // Only initialize WASM and set READY if we got valid state (non-empty accountId)
     if (!accountIdRef.get().isEmpty()) {
-      resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+      resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
       initialized = true;
       this.state.set(ProviderState.READY);
     } else {
@@ -226,13 +229,13 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
           if (!accountIdRef.get().isEmpty()) {
             if (!initialized) {
-              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
               initialized = true;
               this.state.set(ProviderState.READY);
               log.info("Provider recovered and is now READY");
             } else {
               // State refresh + full log flush
-              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get());
+              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
               resolver.flushAllLogs();
             }
           }

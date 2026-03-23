@@ -243,7 +243,11 @@ class ConfidenceProvider(AbstractProvider):
         try:
             state, account_id, _ = self._state_fetcher.fetch()
             if account_id:
-                self._resolver.set_resolver_state(state, account_id)
+                sdk = types_pb2.Sdk(
+                    id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
+                    version=__version__,
+                )
+                self._resolver.set_resolver_state(state, account_id, sdk)
                 self._status = ProviderStatus.READY
                 self.emit_provider_ready(ProviderEventDetails())
                 logger.info("ConfidenceProvider initialized successfully")
@@ -746,8 +750,12 @@ class ConfidenceProvider(AbstractProvider):
             try:
                 state, account_id, changed = self._state_fetcher.fetch()
                 if changed and account_id:
+                    sdk = types_pb2.Sdk(
+                        id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
+                        version=__version__,
+                    )
                     with self._resolver_lock:
-                        self._resolver.set_resolver_state(state, account_id)
+                        self._resolver.set_resolver_state(state, account_id, sdk)
                     logger.debug("Resolver state updated")
 
                 # If we were NOT_READY and now have valid state, transition to READY

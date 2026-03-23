@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package confidence.wasm;
 
+import "confidence/flags/resolver/v1/types.proto";
+
 option java_package = "com.spotify.confidence.sdk.wasm";
 option java_multiple_files = false;
 option java_outer_classname = "Messages";
@@ -12,6 +14,7 @@ message Void {}
 message SetResolverStateRequest {
     bytes state = 1;
     string account_id = 2;
+    confidence.flags.resolver.v1.Sdk sdk = 3;
 }
 
 message Request {

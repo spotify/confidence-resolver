@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.12.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.11.0...openfeature-provider/go/v0.12.0) (2026-03-12)
+
+
+### Features
+
+* **go:** add Resolve and ApplyFlags API to provider ([#321](https://github.com/spotify/confidence-resolver/issues/321)) ([11f10da](https://github.com/spotify/confidence-resolver/commit/11f10da6fdfae93d3da0e658caff7369382f989e))
+* **rust:** resolve full rollout rules when targeting key is missing ([#325](https://github.com/spotify/confidence-resolver/issues/325)) ([c9e4cb0](https://github.com/spotify/confidence-resolver/commit/c9e4cb00320d9fb13a1353d28942ed230fc7dcc5))
+
+
+### Bug Fixes
+
+* pass the sdk with the state to get it into telemetry ([#332](https://github.com/spotify/confidence-resolver/issues/332)) ([1f22c5f](https://github.com/spotify/confidence-resolver/commit/1f22c5fa38c4e8a7d56ea4616db94f9b991d41ab))
+* **rust:** replace semver crate with custom version parser ([#312](https://github.com/spotify/confidence-resolver/issues/312)) ([88f2f7a](https://github.com/spotify/confidence-resolver/commit/88f2f7aff995f584c8924361df91476c83908f39))
+
+
+### Performance Improvements
+
+* **java,go:** lower default WASM pool size ([#320](https://github.com/spotify/confidence-resolver/issues/320)) ([08bf1bc](https://github.com/spotify/confidence-resolver/commit/08bf1bc43da8f8e0defe7be4b44fb5e3749d621a))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.18 to 0.1.19
+
 ## [0.11.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.10.1...openfeature-provider/go/v0.11.0) (2026-03-06)
 
 

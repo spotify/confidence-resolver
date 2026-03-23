@@ -25,7 +25,7 @@ type ProviderConfig struct {
 	UseRemoteMaterializationStore bool                 // set to true to use a Remote lookup for materializations. Requires that MaterializationStore is nil.
 	StatePollInterval             time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
-	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to GOMAXPROCS
+	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 }
 
 type ProviderTestConfig struct {
@@ -36,7 +36,7 @@ type ProviderTestConfig struct {
 	MaterializationStore MaterializationStore // Optional
 	StatePollInterval    time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
-	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to GOMAXPROCS
+	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {

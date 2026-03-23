@@ -3,7 +3,7 @@ import { UnsafeWasmResolver, WasmResolver } from './WasmResolver';
 import { readFileSync } from 'node:fs';
 import { ResolveProcessRequest } from './proto/confidence/wasm/wasm_api';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
-import { WriteFlagLogsRequest } from './proto/test-only';
+import { WriteFlagLogsRequest, SdkId } from './proto/test-only';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
 const stateBytes = readFileSync(__dirname + '/../../../wasm/resolver_state.pb');
@@ -137,6 +137,23 @@ describe('basic operation', () => {
           const total = span.counts.reduce((a, b) => a + b, 0);
           expect(total).toBeGreaterThan(0);
         }
+      });
+
+      it('should include SDK info from setResolverState in telemetry', () => {
+        const resolverWithSdk = new WasmResolver(module);
+        resolverWithSdk.setResolverState({
+          ...SET_STATE_REQUEST,
+          sdk: { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: '1.2.3' },
+        });
+        resolverWithSdk.resolveProcess(RESOLVE_REQUEST);
+
+        const decoded = WriteFlagLogsRequest.decode(resolverWithSdk.flushLogs());
+        const telemetry = decoded.telemetryData;
+
+        expect(telemetry).toBeDefined();
+        expect(telemetry!.sdk).toBeDefined();
+        expect(telemetry!.sdk!.id).toBe(SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER);
+        expect(telemetry!.sdk!.version).toBe('1.2.3');
       });
     });
   });

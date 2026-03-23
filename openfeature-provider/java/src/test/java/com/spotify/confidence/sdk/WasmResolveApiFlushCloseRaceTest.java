@@ -45,7 +45,7 @@ class WasmResolveApiFlushCloseRaceTest {
     for (int i = 0; i < iterations; i++) {
       final var logger = new CapturingWasmFlagLogger();
       final var resolver = new WasmLocalResolver(logger::write);
-      resolver.setResolverState(resolverState, accountId);
+      resolver.setResolverState(resolverState, accountId, null);
 
       // Resolve a flag to create a flag assignment in the WASM buffer
       resolver.resolveProcess(buildResolveRequest()).toCompletableFuture().join();

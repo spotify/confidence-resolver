@@ -3,10 +3,12 @@ package local_resolver
 import (
 	"context"
 	"errors"
-	"runtime"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
+
+const DefaultPoolSize = 2
 
 type LocalResolverSupplier func() LocalResolver
 
@@ -18,17 +20,18 @@ type LocalResolverFactory interface {
 type LocalResolver interface {
 	SetResolverState(*wasm.SetResolverStateRequest) error
 	ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error)
+	ApplyFlags(*resolver.ApplyFlagsRequest) error
 	FlushAllLogs() error
 	FlushAssignLogs() error
 	PrometheusSnapshot() string
 	Close(context.Context) error
 }
 
-// DefaultResolverFactory composes the default stack: Wasm -> Recovering -> Pooled(GOMAXPROCS)
+// DefaultResolverFactory composes the default stack: Wasm -> Recovering -> Pooled(DefaultPoolSize)
 func DefaultResolverFactory(logSink LogSink) LocalResolverFactory {
 	base := NewWasmResolverFactory(logSink)
 	rcv := NewRecoveringResolverFactory(base)
-	return NewPooledResolverFactory(rcv, runtime.GOMAXPROCS(0))
+	return NewPooledResolverFactory(rcv, DefaultPoolSize)
 }
 
 type localResolverImpl struct {
@@ -40,7 +43,7 @@ func NewLocalResolverWithPoolSize(ctx context.Context, logSink LogSink, poolSize
 	factory := NewWasmResolverFactory(logSink)
 	factory = NewRecoveringResolverFactory(factory)
 	if poolSize <= 0 {
-		poolSize = runtime.GOMAXPROCS(0)
+		poolSize = DefaultPoolSize
 	}
 	return &localResolverImpl{
 		PooledResolver: *NewPooledResolver(poolSize, factory.New),

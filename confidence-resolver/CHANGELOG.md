@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.13.0...confidence_resolver-v0.14.0) (2026-03-12)
+
+
+### Features
+
+* **rust:** resolve full rollout rules when targeting key is missing ([#325](https://github.com/spotify/confidence-resolver/issues/325)) ([c9e4cb0](https://github.com/spotify/confidence-resolver/commit/c9e4cb00320d9fb13a1353d28942ed230fc7dcc5))
+
+
+### Bug Fixes
+
+* pass the sdk with the state to get it into telemetry ([#332](https://github.com/spotify/confidence-resolver/issues/332)) ([1f22c5f](https://github.com/spotify/confidence-resolver/commit/1f22c5fa38c4e8a7d56ea4616db94f9b991d41ab))
+* **rust:** replace semver crate with custom version parser ([#312](https://github.com/spotify/confidence-resolver/issues/312)) ([88f2f7a](https://github.com/spotify/confidence-resolver/commit/88f2f7aff995f584c8924361df91476c83908f39))
+
 ## [0.13.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.12.1...confidence_resolver-v0.13.0) (2026-03-06)
 
 

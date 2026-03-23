@@ -3,6 +3,7 @@ syntax = "proto3";
 package rust_guest;
 
 import "google/protobuf/struct.proto";
+import "types.proto";
 
 option java_package = "com.spotify.confidence.wasm";
 option java_multiple_files = false;
@@ -17,6 +18,7 @@ message InitThreadRequest {
 message SetResolverStateRequest {
     bytes state = 1;
     string account_id = 2;
+    Sdk sdk = 3;
 }
 
 message ResolveSimpleRequest {

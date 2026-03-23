@@ -14,6 +14,7 @@ import (
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -54,6 +55,10 @@ func (r *WasmResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*was
 	resp := &wasm.ResolveProcessResponse{}
 	err := r.call("wasm_msg_guest_resolve_flags", request, resp)
 	return resp, err
+}
+
+func (r *WasmResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
+	return r.call("wasm_msg_guest_apply_flags", request, nil)
 }
 
 func (r *WasmResolver) FlushAllLogs() error {

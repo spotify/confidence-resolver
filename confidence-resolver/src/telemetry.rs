@@ -360,6 +360,7 @@ impl Telemetry {
             resolve_rate,
             state_age,
             memory_bytes: (self.memory_provider)(),
+            resolver_version: crate::version::VERSION.to_string(),
         }
     }
 }

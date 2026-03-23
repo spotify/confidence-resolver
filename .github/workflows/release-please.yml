@@ -1,3 +1,5 @@
+# NOTE: After a release is published, remember to update internal version registries
+# with the new version numbers.
 name: Release Please
 
 on:

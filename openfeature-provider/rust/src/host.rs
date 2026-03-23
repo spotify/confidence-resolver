@@ -31,7 +31,6 @@ impl Host for NativeHost {
         evaluation_context: &Struct,
         values: &[ResolvedValue<'_>],
         client: &Client,
-        sdk: &Option<Sdk>,
     ) {
         RESOLVE_LOGGER.log_resolve(
             resolve_id,
@@ -39,7 +38,6 @@ impl Host for NativeHost {
             &client.client_credential_name,
             values,
             client,
-            sdk,
         );
     }
 

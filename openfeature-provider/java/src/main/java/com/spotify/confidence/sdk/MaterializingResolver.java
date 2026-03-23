@@ -4,6 +4,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.MaterializationRecord;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -161,8 +162,8 @@ class MaterializingResolver implements LocalResolver {
   // --- Pass-through to delegate ---
 
   @Override
-  public void setResolverState(byte[] state, String accountId) {
-    delegate.setResolverState(state, accountId);
+  public void setResolverState(byte[] state, String accountId, Sdk sdk) {
+    delegate.setResolverState(state, accountId, sdk);
   }
 
   @Override

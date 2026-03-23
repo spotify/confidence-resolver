@@ -1,13 +1,15 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "bump-minor-pre-major": true,
+  "pull-request-footer": "> **Post-release reminder:** After merging this PR, remember to update internal version registries with the new version numbers.",
   "plugins": ["cargo-workspace"],
   "packages": {
     "confidence-resolver": {
       "path": "confidence-resolver",
       "release-type": "rust",
       "changelog-path": "CHANGELOG.md",
-      "initial-version": "0.1.0"
+      "initial-version": "0.1.0",
+      "extra-files": ["src/version.rs"]
     },
     "confidence-cloudflare-resolver": {
       "path": "confidence-cloudflare-resolver",
@@ -37,7 +39,7 @@
           "path": "pom.xml"
         },
         "README.md",
-        "src/main/java/com/spotify/confidence/Version.java"
+        "src/main/java/com/spotify/confidence/sdk/Version.java"
       ]
     },
     "openfeature-provider/js": {

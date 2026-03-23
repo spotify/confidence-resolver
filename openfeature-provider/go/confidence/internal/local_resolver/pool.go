@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
@@ -46,6 +48,10 @@ type PooledResolver struct {
 var _ LocalResolver = (*PooledResolver)(nil)
 
 func NewPooledResolver(size int, supplier LocalResolverSupplier) *PooledResolver {
+	maxProcs := runtime.GOMAXPROCS(0)
+	if size > maxProcs {
+		size = maxProcs
+	}
 	slots := make([]slot, size+1)
 	for i := range slots {
 		slots[i] = slot{
@@ -69,6 +75,18 @@ func (s *PooledResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*w
 	slot := &s.slots[idx%n]
 	defer slot.rw.RUnlock()
 	return slot.lr.ResolveProcess(request)
+}
+
+// ApplyFlags implements LocalResolver.
+func (s *PooledResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
+	n := uint64(len(s.slots))
+	idx := s.rr.Add(1)
+	for !s.slots[idx%n].rw.TryRLock() {
+		idx = s.rr.Add(1)
+	}
+	slot := &s.slots[idx%n]
+	defer slot.rw.RUnlock()
+	return slot.lr.ApplyFlags(request)
 }
 
 // SetResolverState implements LocalResolver.

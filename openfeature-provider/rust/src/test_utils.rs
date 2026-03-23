@@ -60,6 +60,7 @@ pub fn create_minimal_state() -> (ResolverStateRuntime, String) {
     let state = ResolverStateRuntime::from_proto(
         ResolverState::decode(Bytes::from(state_bytes)).unwrap(),
         TEST_ACCOUNT_ID,
+        None,
     )
     .expect("Failed to create minimal state");
 
@@ -190,6 +191,7 @@ pub fn create_state_with_flag() -> (ResolverStateRuntime, String) {
     let state = ResolverStateRuntime::from_proto(
         ResolverState::decode(Bytes::from(state_bytes)).unwrap(),
         TEST_ACCOUNT_ID,
+        None,
     )
     .expect("Failed to create state with flag");
 
@@ -304,6 +306,7 @@ pub fn create_state_with_sticky_flag() -> (ResolverStateRuntime, String) {
     let state = ResolverStateRuntime::from_proto(
         ResolverState::decode(Bytes::from(state_bytes)).unwrap(),
         TEST_ACCOUNT_ID,
+        None,
     )
     .expect("Failed to create state with sticky flag");
 

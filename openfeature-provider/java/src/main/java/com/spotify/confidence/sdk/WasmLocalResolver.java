@@ -16,6 +16,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.LogMessage;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
+import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
 import java.time.Instant;
@@ -103,14 +104,17 @@ class WasmLocalResolver implements LocalResolver {
   }
 
   @Override
-  public void setResolverState(byte[] state, String accountId) {
+  public void setResolverState(byte[] state, String accountId, Sdk sdk) {
     lock.lock();
     try {
-      final var resolverStateRequest =
+      final var builder =
           Messages.SetResolverStateRequest.newBuilder()
               .setState(ByteString.copyFrom(state))
-              .setAccountId(accountId)
-              .build();
+              .setAccountId(accountId);
+      if (sdk != null) {
+        builder.setSdk(sdk);
+      }
+      final var resolverStateRequest = builder.build();
       final byte[] request =
           Messages.Request.newBuilder()
               .setData(ByteString.copyFrom(resolverStateRequest.toByteArray()))

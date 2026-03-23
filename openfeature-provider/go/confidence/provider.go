@@ -168,48 +168,24 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	return evaluate(p, ctx, flag, defaultValue, evalCtx)
 }
 
-// generic evaluation not a member since members can't be generic
-func evaluate[T any](
-	p *LocalResolverProvider,
-	ctx context.Context,
-	flag string,
-	defaultValue T,
+// resolveFlags is the shared resolve implementation used by both the OpenFeature
+// evaluate methods and the direct Resolve API. It converts the evaluation context,
+// builds the protobuf request, calls the WASM resolver, and extracts the response.
+func (p *LocalResolverProvider) resolveFlags(
 	evalCtx openfeature.FlattenedContext,
-) openfeature.GenericResolutionDetail[T] {
-	// TODO this needs better proper handling, thread safety etc.
-	if p.resolver == nil {
-		return openfeature.GenericResolutionDetail[T]{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewProviderNotReadyResolutionError("provider not initialized"),
-			},
-		}
-	}
-	// Parse flag path (supports "flag.path.to.value" syntax)
-	flagName, path := parseFlagPath(flag)
-
-	// Process targeting key (convert "targetingKey" to "targeting_key")
+	flagNames []string,
+	apply bool,
+) (*resolver.ResolveFlagsResponse, error) {
 	processedCtx := processTargetingKey(evalCtx)
 
-	// Convert evaluation context to protobuf Struct
 	protoCtx, err := flattenedContextToProto(processedCtx)
 	if err != nil {
-		p.logger.Error("Failed to convert evaluation context to proto", "error", err)
-		return openfeature.GenericResolutionDetail[T]{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewGeneralResolutionError(fmt.Sprintf("failed to convert context: %v", err)),
-			},
-		}
+		return nil, fmt.Errorf("failed to convert context: %w", err)
 	}
 
-	// Build resolve request
-	requestFlagName := "flags/" + flagName
 	request := &resolver.ResolveFlagsRequest{
-		Flags:             []string{requestFlagName},
-		Apply:             true,
+		Flags:             flagNames,
+		Apply:             apply,
 		ClientSecret:      p.clientSecret,
 		EvaluationContext: protoCtx,
 		Sdk: &resolvertypes.Sdk{
@@ -220,10 +196,6 @@ func evaluate[T any](
 		},
 	}
 
-	// Create ResolveProcess request without materialization support.
-	// Flags that require materializations will error gracefully.
-	// When materialization support is enabled, the materializationSupportedResolver
-	// wrapper overrides this with DeferredMaterializations and handles suspend/resume.
 	processRequest := &wasm.ResolveProcessRequest{
 		Resolve: &wasm.ResolveProcessRequest_WithoutMaterializations{
 			WithoutMaterializations: request,
@@ -232,37 +204,48 @@ func evaluate[T any](
 
 	processResponse, err := p.resolver.ResolveProcess(processRequest)
 	if err != nil {
+		return nil, fmt.Errorf("resolve failed: %w", err)
+	}
+
+	switch result := processResponse.Result.(type) {
+	case *wasm.ResolveProcessResponse_Resolved_:
+		return result.Resolved.Response, nil
+	case *wasm.ResolveProcessResponse_Suspended_:
+		return nil, fmt.Errorf("unexpected suspended response")
+	default:
+		return nil, fmt.Errorf("unexpected resolve result type")
+	}
+}
+
+// generic evaluation not a member since members can't be generic
+func evaluate[T any](
+	p *LocalResolverProvider,
+	ctx context.Context,
+	flag string,
+	defaultValue T,
+	evalCtx openfeature.FlattenedContext,
+) openfeature.GenericResolutionDetail[T] {
+	if p.resolver == nil {
+		return openfeature.GenericResolutionDetail[T]{
+			Value: defaultValue,
+			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
+				Reason:          openfeature.ErrorReason,
+				ResolutionError: openfeature.NewProviderNotReadyResolutionError("provider not initialized"),
+			},
+		}
+	}
+
+	flagName, path := parseFlagPath(flag)
+	requestFlagName := "flags/" + flagName
+
+	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, true)
+	if err != nil {
 		p.logger.Error("Failed to resolve flag", "flag", flagName, "error", err)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewGeneralResolutionError(fmt.Sprintf("resolve failed: %v", err)),
-			},
-		}
-	}
-
-	// Extract the actual resolve response
-	var response *resolver.ResolveFlagsResponse
-	switch result := processResponse.Result.(type) {
-	case *wasm.ResolveProcessResponse_Resolved_:
-		response = result.Resolved.Response
-	case *wasm.ResolveProcessResponse_Suspended_:
-		p.logger.Error("Unexpected suspended response for flag", "flag", flagName)
-		return openfeature.GenericResolutionDetail[T]{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewGeneralResolutionError("unexpected suspended response"),
-			},
-		}
-	default:
-		p.logger.Error("Unexpected resolve result type for flag", "flag", flagName)
-		return openfeature.GenericResolutionDetail[T]{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewGeneralResolutionError("unexpected resolve result"),
+				ResolutionError: openfeature.NewGeneralResolutionError(err.Error()),
 			},
 		}
 	}
@@ -354,6 +337,48 @@ func (p *LocalResolverProvider) GetPrometheusMetrics(_ SnapshotConfig) string {
 	return p.resolver.PrometheusSnapshot()
 }
 
+// Resolve resolves multiple flags for the given context. If flagNames is empty,
+// all flags available to the client are resolved. When apply is true, exposure
+// events are recorded immediately. When apply is false, the response contains a
+// resolve_token that must be passed to ApplyFlags later to record exposures.
+//
+// Returns an error if the provider has not been initialized (Init not called),
+// the evaluation context cannot be converted, or the WASM resolver fails.
+// On success the returned ResolveFlagsResponse contains the resolved flag
+// values and, when apply is false, the resolve_token for deferred application.
+func (p *LocalResolverProvider) Resolve(
+	ctx context.Context,
+	evalCtx openfeature.FlattenedContext,
+	flagNames []string,
+	apply bool,
+) (*resolver.ResolveFlagsResponse, error) {
+	if p.resolver == nil {
+		return nil, fmt.Errorf("provider not initialized")
+	}
+
+	requestFlags := make([]string, len(flagNames))
+	for i, name := range flagNames {
+		requestFlags[i] = "flags/" + name
+	}
+
+	return p.resolveFlags(evalCtx, requestFlags, apply)
+}
+
+// ApplyFlags records exposure events for flags previously resolved with
+// apply=false. The request must contain the resolve_token from the original
+// resolve response.
+//
+// Returns an error if the provider has not been initialized or the WASM
+// resolver fails to process the apply request.
+func (p *LocalResolverProvider) ApplyFlags(
+	request *resolver.ApplyFlagsRequest,
+) error {
+	if p.resolver == nil {
+		return fmt.Errorf("provider not initialized")
+	}
+	return p.resolver.ApplyFlags(request)
+}
+
 // Hooks returns provider hooks (none for this implementation)
 func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
 	return []openfeature.Hook{}
@@ -404,6 +429,10 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 	setResolverStateRequest := &wasm.SetResolverStateRequest{
 		State:     initialState,
 		AccountId: accountId,
+		Sdk: &resolvertypes.Sdk{
+			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+			Version: Version,
+		},
 	}
 	if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
 		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
@@ -495,6 +524,10 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 				setResolverStateRequest := &wasm.SetResolverStateRequest{
 					State:     state,
 					AccountId: accountId,
+					Sdk: &resolvertypes.Sdk{
+						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+						Version: Version,
+					},
 				}
 				if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
 					p.logger.Error("Failed to update state", "error", err)
