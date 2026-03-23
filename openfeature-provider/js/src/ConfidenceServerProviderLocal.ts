@@ -207,12 +207,18 @@ export class ConfidenceServerProviderLocal implements Provider {
       let reason: ResolveReason;
       if (resolution.errorCode) {
         reason = ResolveReason.RESOLVE_REASON_ERROR;
-      } else if (result.errorCode === ErrorCode.FLAG_NOT_FOUND) {
-        reason = ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND;
-      } else if (result.errorCode === ErrorCode.TYPE_MISMATCH) {
-        reason = ResolveReason.RESOLVE_REASON_TYPE_MISMATCH;
       } else {
-        reason = reasonStringToEnum(result.reason);
+        const [flagNameForTelemetry] = flagKey.split('.', 1);
+        const flagResolution = resolution.flags[flagNameForTelemetry];
+        if (flagResolution?.reason === 'MATERIALIZATION_NOT_SUPPORTED') {
+          reason = ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED;
+        } else if (result.errorCode === ErrorCode.FLAG_NOT_FOUND) {
+          reason = ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND;
+        } else if (result.errorCode === ErrorCode.TYPE_MISMATCH) {
+          reason = ResolveReason.RESOLVE_REASON_TYPE_MISMATCH;
+        } else {
+          reason = reasonStringToEnum(result.reason);
+        }
       }
       try {
         this.resolver.registerResolve({ reason, latencyUs });

@@ -5,6 +5,7 @@ export type ResolutionReason =
   | 'NO_SEGMENT_MATCH'
   | 'TARGETING_KEY_ERROR'
   | 'NO_TREATMENT_MATCH'
+  | 'MATERIALIZATION_NOT_SUPPORTED'
   | 'UNSPECIFIED';
 
 export enum ErrorCode {

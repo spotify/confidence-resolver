@@ -442,6 +442,19 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             .variant(resolvedFlag.getVariant())
             .build();
       }
+    } catch (CompletionException e) {
+      if (e.getCause() instanceof MaterializationNotSupportedException) {
+        log.warn(
+            "Flag '{}' requires materializations but no materialization store is configured. "
+                + "Enable it via LocalProviderConfig.builder().useRemoteMaterializationStore(true)",
+            flagPath.getFlag());
+        doRegisterResolve(ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED, startNanos);
+        return ProviderEvaluation.<Value>builder()
+            .value(defaultValue)
+            .reason(ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED.toString())
+            .build();
+      }
+      throw e;
     } catch (StatusRuntimeException e) {
       handleStatusRuntimeException(e);
       throw new GeneralError("Unknown error occurred when calling the provider backend");
