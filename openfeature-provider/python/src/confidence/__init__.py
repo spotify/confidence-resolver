@@ -5,7 +5,7 @@ implementing the OpenFeature provider interface.
 """
 
 from confidence.version import __version__
-from confidence.provider import ConfidenceProvider
+from confidence.provider import ConfidenceProvider, SnapshotConfig
 from confidence.materialization import (
     MaterializationStore,
     MaterializationNotSupportedError,
@@ -16,6 +16,7 @@ from confidence.materialization import (
 __all__ = [
     "__version__",
     "ConfidenceProvider",
+    "SnapshotConfig",
     "MaterializationStore",
     "MaterializationNotSupportedError",
     "RemoteMaterializationStore",

@@ -81,6 +81,13 @@ class PooledResolver implements LocalResolver {
     maintenance(LocalResolver::close);
   }
 
+  @Override
+  public String prometheusSnapshot() {
+    final StringBuilder sb = new StringBuilder();
+    maintenance(lr -> sb.append(lr.prometheusSnapshot()));
+    return sb.toString();
+  }
+
   /**
    * Acquires a read lock on a slot via round-robin with fallback. Used for resolve and apply
    * operations which can run concurrently.

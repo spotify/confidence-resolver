@@ -185,6 +185,10 @@ func (m *materializationSupportedResolver) SetResolverState(request *wasm.SetRes
 	return m.current.SetResolverState(request)
 }
 
+func (m *materializationSupportedResolver) PrometheusSnapshot() string {
+	return m.current.PrometheusSnapshot()
+}
+
 func (m *materializationSupportedResolver) Close(ctx context.Context) error {
 	return m.current.Close(ctx)
 }

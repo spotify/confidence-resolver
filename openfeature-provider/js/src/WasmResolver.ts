@@ -1,5 +1,12 @@
 import { BinaryWriter } from '@bufbuild/protobuf/wire';
-import { Request, Response, Void, SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import {
+  Request,
+  Response,
+  Void,
+  SetResolverStateRequest,
+  PrometheusSnapshotRequest,
+  PrometheusSnapshotResponse,
+} from './proto/confidence/wasm/messages';
 import { Timestamp } from './proto/google/protobuf/timestamp';
 import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
 import { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
@@ -21,6 +28,7 @@ const EXPORT_FN_NAMES = [
   'wasm_msg_guest_bounded_flush_logs',
   'wasm_msg_guest_bounded_flush_assign',
   'wasm_msg_guest_apply_flags',
+  'wasm_msg_guest_prometheus_snapshot',
 ] as const;
 type EXPORT_FN_NAMES = (typeof EXPORT_FN_NAMES)[number];
 
@@ -94,6 +102,12 @@ export class UnsafeWasmResolver implements LocalResolver {
     const reqPtr = this.transferRequest(request, ApplyFlagsRequest);
     const resPtr = this.exports.wasm_msg_guest_apply_flags(reqPtr);
     this.consumeResponse(resPtr, Void);
+  }
+
+  prometheusSnapshot(instance: string): string {
+    const reqPtr = this.transferRequest({ instance }, PrometheusSnapshotRequest);
+    const resPtr = this.exports.wasm_msg_guest_prometheus_snapshot(reqPtr);
+    return this.consumeResponse(resPtr, PrometheusSnapshotResponse).text;
   }
 
   private transferRequest<T>(value: T, codec: Codec<T>): number {
@@ -217,6 +231,15 @@ export class WasmResolver implements LocalResolver {
         this.reloadInstance(error);
       }
       throw error;
+    }
+  }
+
+  prometheusSnapshot(instance: string): string {
+    try {
+      return this.delegate.prometheusSnapshot(instance);
+    } catch (error: unknown) {
+      logger.error('prometheus snapshot failed:', error);
+      return '';
     }
   }
 }

@@ -185,4 +185,9 @@ class MaterializingResolver implements LocalResolver {
   public void close() {
     delegate.close();
   }
+
+  @Override
+  public String prometheusSnapshot() {
+    return delegate.prometheusSnapshot();
+  }
 }

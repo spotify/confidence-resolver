@@ -42,4 +42,7 @@ interface LocalResolver {
 
   /** Closes the resolver and releases resources. */
   void close();
+
+  /** Returns a Prometheus metrics snapshot for this resolver instance. */
+  String prometheusSnapshot();
 }

@@ -23,6 +23,7 @@ type LocalResolver interface {
 	ApplyFlags(*resolver.ApplyFlagsRequest) error
 	FlushAllLogs() error
 	FlushAssignLogs() error
+	PrometheusSnapshot() string
 	Close(context.Context) error
 }
 

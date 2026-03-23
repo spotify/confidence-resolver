@@ -199,6 +199,11 @@ wasm_msg_guest! {
         Ok(ASSIGN_LOGGER.checkpoint_with_limit(LOG_TARGET_BYTES, true))
     }
 
+    fn prometheus_snapshot(request: proto::PrometheusSnapshotRequest) -> WasmResult<proto::PrometheusSnapshotResponse> {
+        let text = TELEMETRY.snapshot().to_prometheus(&request.instance);
+        Ok(proto::PrometheusSnapshotResponse { text })
+    }
+
     fn apply_flags(request: ApplyFlagsRequest) -> WasmResult<Void> {
         let resolver_state = get_resolver_state()?;
         // Use empty evaluation context - the real one is extracted from the resolve token

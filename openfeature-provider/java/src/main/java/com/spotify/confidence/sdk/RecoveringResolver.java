@@ -134,4 +134,14 @@ class RecoveringResolver implements LocalResolver {
       logger.warn("Resolver panicked during close, not recreating", e);
     }
   }
+
+  @Override
+  public String prometheusSnapshot() {
+    try {
+      return current.get().prometheusSnapshot();
+    } catch (ChicoryException e) {
+      handleFailure("prometheusSnapshot", e);
+      return "";
+    }
+  }
 }

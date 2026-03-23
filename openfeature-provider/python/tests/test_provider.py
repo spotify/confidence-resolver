@@ -795,3 +795,47 @@ class TestDefaultOnError:
             assert result.reason == Reason.ERROR
         finally:
             provider.shutdown()
+
+
+class TestPrometheusMetrics:
+    """Tests for Prometheus metrics export."""
+
+    def test_get_prometheus_metrics(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Test that get_prometheus_metrics returns metrics after resolution."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            # Resolve a flag to generate telemetry
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes={"visitor_id": "tutorial_visitor"},
+            )
+            provider.resolve_string_details(
+                flag_key="tutorial-feature.message",
+                default_value="default-message",
+                evaluation_context=ctx,
+            )
+
+            metrics = provider.get_prometheus_metrics()
+
+            assert isinstance(metrics, str)
+            assert len(metrics) > 0
+            assert "confidence_resolve_latency" in metrics
+        finally:
+            provider.shutdown()

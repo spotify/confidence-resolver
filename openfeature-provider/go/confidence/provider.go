@@ -321,6 +321,22 @@ func evaluate[T any](
 	}
 }
 
+// SnapshotConfig holds options for GetPrometheusMetrics.
+//
+// Experimental: this API is subject to change.
+type SnapshotConfig struct{}
+
+// GetPrometheusMetrics returns a Prometheus text-format metrics snapshot
+// aggregated from all pooled resolver instances.
+//
+// Experimental: this API is subject to change.
+func (p *LocalResolverProvider) GetPrometheusMetrics(_ SnapshotConfig) string {
+	if p.resolver == nil {
+		return ""
+	}
+	return p.resolver.PrometheusSnapshot()
+}
+
 // Resolve resolves multiple flags for the given context. If flagNames is empty,
 // all flags available to the client are resolved. When apply is true, exposure
 // events are recorded immediately. When apply is false, the response contains a

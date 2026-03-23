@@ -47,6 +47,15 @@ DEFAULT_LOG_POLL_INTERVAL = 15.0
 DEFAULT_ASSIGN_POLL_INTERVAL = 0.1
 
 
+class SnapshotConfig:
+    """Configuration for :meth:`ConfidenceProvider.get_prometheus_metrics`.
+
+    **Experimental:** this API is subject to change.
+    """
+
+    pass
+
+
 def _load_wasm_from_resources() -> bytes:
     """Load the WASM binary from package resources.
 
@@ -935,6 +944,21 @@ class ConfidenceProvider(AbstractProvider):
                 return None, False
 
         return current, True
+
+    def get_prometheus_metrics(self, request: Optional["SnapshotConfig"] = None) -> str:
+        """Get a Prometheus metrics snapshot.
+
+        **Experimental:** this API is subject to change.
+
+        Args:
+            request: Optional config (reserved for future options).
+
+        Returns:
+            The Prometheus metrics text, or empty string if not initialized.
+        """
+        if self._resolver is None:
+            return ""
+        return self._resolver.prometheus_snapshot()
 
     @staticmethod
     def _map_resolve_reason(reason: types_pb2.ResolveReason) -> Reason:

@@ -4,6 +4,7 @@ This module provides the WasmResolver class that interfaces with the
 Confidence flag resolver WASM module for local flag resolution.
 """
 
+import itertools
 from datetime import datetime
 from typing import Optional
 
@@ -13,6 +14,8 @@ from wasmtime import Config, Engine, Func, FuncType, Linker, Module, Store, ValT
 
 from confidence.proto.confidence.wasm import messages_pb2
 from confidence.proto.confidence.wasm import wasm_api_pb2
+
+_instance_counter = itertools.count()
 
 
 class WasmResolver:
@@ -31,6 +34,8 @@ class WasmResolver:
         Args:
             wasm_bytes: The compiled WASM binary bytes.
         """
+        self._instance_id = str(next(_instance_counter))
+
         # Create WASM engine and store with caching enabled for faster startup
         config = Config()
         config.cache = True
@@ -56,6 +61,9 @@ class WasmResolver:
         ]
         self._wasm_msg_guest_bounded_flush_assign = exports[
             "wasm_msg_guest_bounded_flush_assign"
+        ]
+        self._wasm_msg_guest_prometheus_snapshot = exports[
+            "wasm_msg_guest_prometheus_snapshot"
         ]
         self._memory = exports["memory"]
 
@@ -176,6 +184,22 @@ class WasmResolver:
             raise RuntimeError(f"WASM error: {response.error}")
 
         return response.data if response.data else b""
+
+    def prometheus_snapshot(self) -> str:
+        """Get a Prometheus metrics snapshot from the WASM module.
+
+        Returns:
+            The Prometheus metrics text.
+        """
+        request = messages_pb2.PrometheusSnapshotRequest()
+        request.instance = self._instance_id
+
+        req_ptr = self._transfer_request(request)
+        resp_ptr = self._wasm_msg_guest_prometheus_snapshot(self._store, req_ptr)
+
+        response = messages_pb2.PrometheusSnapshotResponse()
+        self._consume_response(resp_ptr, response)
+        return response.text
 
     def _transfer_request(self, message: protobuf_message.Message) -> int:
         """Transfer a protobuf message to WASM memory as a Request.

@@ -23,9 +23,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Lowest layer of the compositional resolver: direct WASM interaction. Each instance wraps a single
@@ -33,9 +36,12 @@ import java.util.function.Function;
  * {@link ReentrantLock} provides mutual exclusion for all operations.
  */
 class WasmLocalResolver implements LocalResolver {
+  private static final Logger logger = LoggerFactory.getLogger(WasmLocalResolver.class);
+  private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger(0);
   private final FunctionType HOST_FN_TYPE =
       FunctionType.of(List.of(ValType.I32), List.of(ValType.I32));
   private final Instance instance;
+  private final String instanceId;
   private boolean closed = false;
 
   // interop
@@ -49,10 +55,12 @@ class WasmLocalResolver implements LocalResolver {
   private final ExportFunction wasmMsgBoundedFlushAssign;
   private final ExportFunction wasmMsgGuestApplyFlags;
   private final ExportFunction wasmMsgGuestResolveProcess;
+  private final ExportFunction wasmMsgGuestPrometheusSnapshot;
   private final ReentrantLock lock = new ReentrantLock();
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
     this.logSink = logSink;
+    this.instanceId = String.valueOf(INSTANCE_COUNTER.getAndIncrement());
     instance =
         Instance.builder(ConfidenceResolverModule.load())
             .withImportValues(
@@ -78,6 +86,7 @@ class WasmLocalResolver implements LocalResolver {
     wasmMsgBoundedFlushAssign = instance.export("wasm_msg_guest_bounded_flush_assign");
     wasmMsgGuestApplyFlags = instance.export("wasm_msg_guest_apply_flags");
     wasmMsgGuestResolveProcess = instance.export("wasm_msg_guest_resolve_flags");
+    wasmMsgGuestPrometheusSnapshot = instance.export("wasm_msg_guest_prometheus_snapshot");
   }
 
   private Message log(LogMessage message) {
@@ -213,6 +222,24 @@ class WasmLocalResolver implements LocalResolver {
         logSink.accept(request);
       }
       closed = true;
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public String prometheusSnapshot() {
+    lock.lock();
+    try {
+      final var snapshotRequest =
+          Messages.PrometheusSnapshotRequest.newBuilder().setInstance(instanceId).build();
+      final int reqPtr = transferRequest(snapshotRequest);
+      final int respPtr = (int) wasmMsgGuestPrometheusSnapshot.apply(reqPtr)[0];
+      final var response = consumeResponse(respPtr, Messages.PrometheusSnapshotResponse::parseFrom);
+      return response.getText();
+    } catch (RuntimeException e) {
+      logger.warn("prometheus snapshot failed", e);
+      return "";
     } finally {
       lock.unlock();
     }

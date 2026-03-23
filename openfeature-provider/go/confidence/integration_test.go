@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -680,6 +681,71 @@ func TestIntegration_OpenFeatureObjectWithStructDefault(t *testing.T) {
 
 		t.Logf("JSON tag override worked: Msg=%q, Heading=%q", config.Msg, config.Heading)
 	})
+
+	// Cleanup
+	openfeature.Shutdown()
+}
+
+func TestIntegration_GetPrometheusMetrics(t *testing.T) {
+	// Load test state
+	testState := tu.LoadTestResolverState(t)
+	accountID := tu.LoadTestAccountID(t)
+
+	ctx := context.Background()
+
+	// Create mock state provider
+	stateProvider := &mockStateProvider{
+		state: testState,
+	}
+
+	// Create tracking logger with actual GrpcWasmFlagLogger and mocked connection
+	mockStub := &mockGrpcStubForIntegration{
+		onCallReceived: make(chan struct{}, 100),
+	}
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	trackingLogger := &trackingFlagLogger{
+		actualLogger:       actualGrpcLogger,
+		lastWriteCompleted: make(chan struct{}, 1),
+	}
+
+	// Create provider with test state
+	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger, newUnsupportedMaterializationStore())
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+
+	// Register with OpenFeature
+	err = openfeature.SetProviderAndWait(provider)
+	if err != nil {
+		t.Fatalf("Failed to set provider: %v", err)
+	}
+
+	client := openfeature.NewClient("prometheus-metrics-test")
+
+	evalCtx := openfeature.NewEvaluationContext(
+		"tutorial_visitor",
+		map[string]interface{}{
+			"visitor_id": "tutorial_visitor",
+		},
+	)
+
+	// Resolve a flag to generate telemetry
+	result, _ := client.ObjectValueDetails(ctx, "tutorial-feature", map[string]interface{}{}, evalCtx)
+	t.Logf("Flag evaluation result: %+v", result)
+
+	// Get Prometheus metrics
+	metrics := provider.GetPrometheusMetrics(SnapshotConfig{})
+
+	if metrics == "" {
+		t.Fatal("GetPrometheusMetrics() returned empty string, expected metrics output")
+	}
+
+	if !strings.Contains(metrics, "confidence_resolve_latency") {
+		t.Errorf("Expected metrics to contain 'confidence_resolve_latency', got:\n%s", metrics)
+	}
+
+	t.Logf("Prometheus metrics output:\n%s", metrics)
 
 	// Cleanup
 	openfeature.Shutdown()
