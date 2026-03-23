@@ -242,7 +242,7 @@ func evaluate[T any](
 	registerResolve := func(reason resolver.ResolveReason) {
 		latencyUs := uint32(time.Since(start).Microseconds())
 		_ = p.resolver.RegisterResolve(&wasm.RegisterResolveRequest{
-			Reason: reason,
+			Reason:    reason,
 			LatencyUs: latencyUs,
 		})
 	}
