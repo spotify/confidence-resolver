@@ -100,17 +100,17 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 	return
 }
 
-func (r *RecoveringResolver) RegisterResolve(request *wasm.RegisterResolveRequest) error {
+func (r *RecoveringResolver) RegisterResolve(request *wasm.RegisterResolveRequest) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Warn("RegisterResolve panicked, ignoring", "error", rec)
 		}
 	}()
 	if r.broken.Load() {
-		return nil
+		return
 	}
 	lr := r.get()
-	return lr.RegisterResolve(request)
+	lr.RegisterResolve(request)
 }
 
 func (r *RecoveringResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) (err error) {

@@ -169,8 +169,8 @@ func readResultsToMaterializationRecords(results []ReadResult) []*wasm.Materiali
 	return records
 }
 
-func (m *materializationSupportedResolver) RegisterResolve(request *wasm.RegisterResolveRequest) error {
-	return m.current.RegisterResolve(request)
+func (m *materializationSupportedResolver) RegisterResolve(request *wasm.RegisterResolveRequest) {
+	m.current.RegisterResolve(request)
 }
 
 func (m *materializationSupportedResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {

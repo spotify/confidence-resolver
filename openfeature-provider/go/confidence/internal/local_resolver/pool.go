@@ -78,7 +78,7 @@ func (s *PooledResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*w
 }
 
 // RegisterResolve implements LocalResolver.
-func (s *PooledResolver) RegisterResolve(request *wasm.RegisterResolveRequest) error {
+func (s *PooledResolver) RegisterResolve(request *wasm.RegisterResolveRequest) {
 	n := uint64(len(s.slots))
 	idx := s.rr.Add(1)
 	for !s.slots[idx%n].rw.TryRLock() {
@@ -86,7 +86,7 @@ func (s *PooledResolver) RegisterResolve(request *wasm.RegisterResolveRequest) e
 	}
 	slot := &s.slots[idx%n]
 	defer slot.rw.RUnlock()
-	return slot.lr.RegisterResolve(request)
+	slot.lr.RegisterResolve(request)
 }
 
 // ApplyFlags implements LocalResolver.
