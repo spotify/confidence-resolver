@@ -203,21 +203,21 @@ export class ConfidenceServerProviderLocal implements Provider {
       const resolution = await this.resolve(context, [flagName], true);
       const result = FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
 
-      if (!resolution.errorCode) {
-        const latencyUs = Math.round((performance.now() - startMs) * 1000);
-        let reason: ResolveReason;
-        if (result.errorCode === ErrorCode.FLAG_NOT_FOUND) {
-          reason = ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND;
-        } else if (result.errorCode === ErrorCode.TYPE_MISMATCH) {
-          reason = ResolveReason.RESOLVE_REASON_TYPE_MISMATCH;
-        } else {
-          reason = reasonStringToEnum(result.reason);
-        }
-        try {
-          this.resolver.registerResolve({ reason, latencyUs });
-        } catch {
-          // best-effort telemetry
-        }
+      const latencyUs = Math.round((performance.now() - startMs) * 1000);
+      let reason: ResolveReason;
+      if (resolution.errorCode) {
+        reason = ResolveReason.RESOLVE_REASON_ERROR;
+      } else if (result.errorCode === ErrorCode.FLAG_NOT_FOUND) {
+        reason = ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND;
+      } else if (result.errorCode === ErrorCode.TYPE_MISMATCH) {
+        reason = ResolveReason.RESOLVE_REASON_TYPE_MISMATCH;
+      } else {
+        reason = reasonStringToEnum(result.reason);
+      }
+      try {
+        this.resolver.registerResolve({ reason, latencyUs });
+      } catch {
+        // best-effort telemetry
       }
 
       return result;
