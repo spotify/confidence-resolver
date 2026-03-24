@@ -482,10 +482,7 @@ impl ResolveProcessRequest {
     }
 }
 impl ResolveProcessResponse {
-    pub fn resolved(
-        response: ResolveFlagsResponse,
-        to_write: Vec<MaterializationRecord>,
-    ) -> Self {
+    pub fn resolved(response: ResolveFlagsResponse, to_write: Vec<MaterializationRecord>) -> Self {
         ResolveProcessResponse {
             result: Some(resolve_process_response::Result::Resolved(
                 resolve_process_response::Resolved {
