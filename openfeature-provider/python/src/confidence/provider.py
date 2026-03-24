@@ -987,7 +987,8 @@ class ConfidenceProvider(AbstractProvider):
         """
         if self._resolver is None:
             return ""
-        return self._resolver.prometheus_snapshot()
+        with self._resolver_lock:
+            return self._resolver.prometheus_snapshot()
 
     @staticmethod
     def _map_resolve_reason(reason: types_pb2.ResolveReason) -> Reason:
