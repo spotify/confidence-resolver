@@ -2,6 +2,7 @@ package confidence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -249,7 +250,24 @@ func evaluate[T any](
 
 	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, true)
 	if err != nil {
+		var matErr *MaterializationNotSupportedError
+		if errors.As(err, &matErr) {
+			p.logger.Warn(
+				"Flag requires materializations but no materialization store is configured. "+
+					"Enable it via UseRemoteMaterializationStore in your provider config.",
+				"flag", flagName,
+			)
+			registerResolve(resolver.ResolveReason_RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED)
+			return openfeature.GenericResolutionDetail[T]{
+				Value: defaultValue,
+				ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
+					Reason:          openfeature.ErrorReason,
+					ResolutionError: openfeature.NewGeneralResolutionError(fmt.Sprintf("flag '%s' requires materializations; configure a materialization store", flagName)),
+				},
+			}
+		}
 		p.logger.Error("Failed to resolve flag", "flag", flagName, "error", err)
+		registerResolve(resolver.ResolveReason_RESOLVE_REASON_ERROR)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
