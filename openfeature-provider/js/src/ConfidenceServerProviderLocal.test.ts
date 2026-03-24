@@ -19,6 +19,7 @@ vi.mock(import('./hash'), async () => {
 
 const mockedWasmResolver: MockedObject<LocalResolver> = {
   resolveProcess: vi.fn(),
+  registerResolve: vi.fn(),
   setResolverState: vi.fn(),
   flushLogs: vi.fn().mockReturnValue(new Uint8Array(100)),
   flushAssigned: vi.fn().mockReturnValue(new Uint8Array(50)),

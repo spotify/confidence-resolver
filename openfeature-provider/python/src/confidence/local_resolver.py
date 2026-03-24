@@ -119,9 +119,7 @@ class LocalResolver:
             self._reload_instance(error)
             raise
 
-    def register_resolve(
-        self, request: wasm_api_pb2.RegisterResolveRequest
-    ) -> None:
+    def register_resolve(self, request: wasm_api_pb2.RegisterResolveRequest) -> None:
         """Register a resolve evaluation for telemetry."""
         try:
             self._delegate.register_resolve(request)
