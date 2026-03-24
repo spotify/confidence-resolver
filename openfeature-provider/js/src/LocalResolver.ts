@@ -1,4 +1,8 @@
-import type { ResolveProcessRequest, ResolveProcessResponse, RegisterResolveRequest } from './proto/confidence/wasm/wasm_api';
+import type {
+  ResolveProcessRequest,
+  ResolveProcessResponse,
+  RegisterResolveRequest,
+} from './proto/confidence/wasm/wasm_api';
 import type { SetResolverStateRequest } from './proto/confidence/wasm/messages';
 import type { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
 

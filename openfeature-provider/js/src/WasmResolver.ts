@@ -8,7 +8,11 @@ import {
   PrometheusSnapshotResponse,
 } from './proto/confidence/wasm/messages';
 import { Timestamp } from './proto/google/protobuf/timestamp';
-import { RegisterResolveRequest, ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
+import {
+  RegisterResolveRequest,
+  ResolveProcessRequest,
+  ResolveProcessResponse,
+} from './proto/confidence/wasm/wasm_api';
 import { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
 import { LocalResolver } from './LocalResolver';
 import { getLogger } from './logger';
