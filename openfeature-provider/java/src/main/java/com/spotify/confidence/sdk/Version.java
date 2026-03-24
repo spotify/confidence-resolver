@@ -6,7 +6,7 @@ package com.spotify.confidence.sdk;
  */
 public final class Version {
   /** Current version of the Confidence OpenFeature local provider. */
-  public static final String VERSION = "0.13.1"; // x-release-please-version
+  public static final String VERSION = "0.14.0"; // x-release-please-version
 
   private Version() {
     // Utility class, prevent instantiation

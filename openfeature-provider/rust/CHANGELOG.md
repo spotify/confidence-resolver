@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.4.1...openfeature-provider/rust-v0.5.0) (2026-03-24)
+
+
+### Features
+
+* add register_resolve WASM export for SDK-side telemetry ([#354](https://github.com/spotify/confidence-resolver/issues/354)) ([31499bc](https://github.com/spotify/confidence-resolver/commit/31499bc911942ecd751b4a4a702f35ded41e9776))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.14.0 to 0.15.0
+
 ## [0.4.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.4.0...openfeature-provider/rust-v0.4.1) (2026-03-12)
 
 
