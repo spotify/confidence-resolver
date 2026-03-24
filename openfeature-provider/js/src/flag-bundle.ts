@@ -85,7 +85,7 @@ export function resolve<T extends JsonValue>(
   if (flag.reason === 'MATERIALIZATION_NOT_SUPPORTED') {
     logger?.warn(
       `Flag '%s' requires materializations but no materialization store is configured. ` +
-        `Pass materializationStore: 'CONFIDENCE_REMOTE_STORE' to createConfidenceServerProvider()`,
+        `Pass a MaterializationStore implementation or: 'CONFIDENCE_REMOTE_STORE' to createConfidenceServerProvider()`,
       flagName,
     );
     return {
