@@ -563,7 +563,7 @@ describe('registerResolve telemetry', () => {
     );
   });
 
-  it('does not call registerResolve when resolve itself fails', async () => {
+  it('calls registerResolve with ERROR reason when resolve itself fails', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
     mockedWasmResolver.resolveProcess.mockImplementation(() => {
@@ -575,7 +575,11 @@ describe('registerResolve telemetry', () => {
     });
 
     expect(result.errorCode).toBeDefined();
-    expect(mockedWasmResolver.registerResolve).not.toHaveBeenCalled();
+    expect(mockedWasmResolver.registerResolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: ResolveReason.RESOLVE_REASON_ERROR,
+      }),
+    );
   });
 });
 
