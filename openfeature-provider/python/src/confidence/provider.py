@@ -438,11 +438,9 @@ class ConfidenceProvider(AbstractProvider):
         flag_key: str,
         default_value: Any,
         evaluation_context: Optional[EvaluationContext],
-        start_time: Optional[float] = None,
+        start_time: float,
     ) -> FlagResolutionDetails[Any]:
         """Core resolution logic for all flag types."""
-        if start_time is None:
-            start_time = time.monotonic()
 
         if self._resolver is None:
             return FlagResolutionDetails(
@@ -559,7 +557,7 @@ class ConfidenceProvider(AbstractProvider):
             with self._resolver_lock:
                 self._resolver.register_resolve(request)
         except Exception:
-            logger.debug("Failed to register resolve telemetry", exc_info=True)
+            logger.warning("Failed to register resolve telemetry", exc_info=True)
 
     def _resolve_with_materialization(
         self, request: wasm_api_pb2.ResolveProcessRequest

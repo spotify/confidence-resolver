@@ -58,7 +58,10 @@ func (r *WasmResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*was
 }
 
 func (r *WasmResolver) RegisterResolve(request *wasm.RegisterResolveRequest) error {
-	return r.call("wasm_msg_guest_register_resolve", request, nil)
+	if err := r.call("wasm_msg_guest_register_resolve", request, nil); err != nil {
+		slog.Warn("Failed to register resolve telemetry", "error", err)
+	}
+	return nil
 }
 
 func (r *WasmResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
