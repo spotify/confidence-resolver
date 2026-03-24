@@ -507,6 +507,23 @@ class ConfidenceProvider(AbstractProvider):
                     error_message="Unexpected flag returned",
                 )
 
+            if (
+                resolved_flag.reason
+                == types_pb2.ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED
+            ):
+                logger.warning(
+                    "Flag '%s' requires materializations but no materialization store is "
+                    "configured. Enable it via ConfidenceProvider(use_remote_materialization_store=True)",
+                    flag_name,
+                )
+                self._do_register_resolve(resolved_flag.reason, start_time)
+                return FlagResolutionDetails(
+                    value=default_value,
+                    reason=Reason.ERROR,
+                    error_code=ErrorCode.GENERAL,
+                    error_message=f"Flag '{flag_name}' requires materializations. Configure a materialization store.",
+                )
+
             if not resolved_flag.variant:
                 self._do_register_resolve(resolved_flag.reason, start_time)
                 return FlagResolutionDetails(
