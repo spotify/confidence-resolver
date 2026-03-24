@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnsafeWasmResolver, WasmResolver } from './WasmResolver';
 import { readFileSync } from 'node:fs';
-import { ResolveProcessRequest } from './proto/confidence/wasm/wasm_api';
+import { RegisterResolveRequest, ResolveProcessRequest } from './proto/confidence/wasm/wasm_api';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest, SdkId } from './proto/test-only';
 
@@ -79,10 +79,18 @@ describe('basic operation', () => {
     });
 
     describe('telemetry', () => {
+      const MATCH_RESOLVE: RegisterResolveRequest = {
+        reason: ResolveReason.RESOLVE_REASON_MATCH,
+        latencyUs: 1000,
+      };
+
       it('should report resolve rate matching the number of resolves', () => {
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.registerResolve(MATCH_RESOLVE);
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.registerResolve(MATCH_RESOLVE);
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.registerResolve(MATCH_RESOLVE);
 
         const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
         const telemetry = decoded.telemetryData;
@@ -97,6 +105,7 @@ describe('basic operation', () => {
       it('should report resolve latency matching the number of resolves', () => {
         for (let i = 0; i < 1000; i++) {
           wasmResolver.resolveProcess(RESOLVE_REQUEST);
+          wasmResolver.registerResolve(MATCH_RESOLVE);
         }
 
         const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
@@ -110,15 +119,17 @@ describe('basic operation', () => {
 
       it('should send telemetry deltas across flushes', () => {
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.registerResolve(MATCH_RESOLVE);
 
         const first = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
         expect(first.telemetryData?.resolveLatency?.count).toBe(1);
 
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.registerResolve(MATCH_RESOLVE);
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.registerResolve(MATCH_RESOLVE);
 
         const second = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
-        // telemetry sends deltas since last flush, not cumulative
         expect(second.telemetryData?.resolveLatency?.count).toBe(2);
 
         const matchRate = second.telemetryData!.resolveRate.find(r => r.reason === ResolveReason.RESOLVE_REASON_MATCH);
@@ -127,6 +138,7 @@ describe('basic operation', () => {
 
       it('should have bucket spans with valid offsets and counts', () => {
         wasmResolver.resolveProcess(RESOLVE_REQUEST);
+        wasmResolver.registerResolve(MATCH_RESOLVE);
 
         const decoded = WriteFlagLogsRequest.decode(wasmResolver.flushLogs());
         const buckets = decoded.telemetryData?.resolveLatency?.buckets ?? [];
@@ -146,6 +158,7 @@ describe('basic operation', () => {
           sdk: { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: '1.2.3' },
         });
         resolverWithSdk.resolveProcess(RESOLVE_REQUEST);
+        resolverWithSdk.registerResolve(MATCH_RESOLVE);
 
         const decoded = WriteFlagLogsRequest.decode(resolverWithSdk.flushLogs());
         const telemetry = decoded.telemetryData;

@@ -4,11 +4,11 @@ use prost::Message;
 use reqwest_middleware::ClientWithMiddleware;
 
 use confidence_resolver::assign_logger::AssignLogger;
-use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
+use confidence_resolver::proto::confidence::flags::resolver::v1::{Sdk, WriteFlagLogsRequest};
 use confidence_resolver::resolve_logger::ResolveLogger;
 
 use crate::error::Result;
-use crate::host::NativeHost;
+use crate::host::{NativeHost, LAST_FLUSHED, TELEMETRY};
 
 /// API endpoint for flag logs.
 const FLAG_LOGS_URL: &str = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
@@ -63,17 +63,19 @@ impl LogSender {
 /// Log manager that coordinates flushing logs from the loggers.
 pub struct LogManager {
     sender: LogSender,
+    sdk: Sdk,
 }
 
 impl LogManager {
-    /// Create a new log manager with the given client and client secret.
-    pub fn new(client: ClientWithMiddleware, client_secret: String) -> Self {
+    /// Create a new log manager with the given client, client secret, and SDK identity.
+    pub fn new(client: ClientWithMiddleware, client_secret: String, sdk: Sdk) -> Self {
         Self {
             sender: LogSender::new(client, client_secret),
+            sdk,
         }
     }
 
-    /// Flush all logs (both resolve and assign logs).
+    /// Flush all logs (both resolve and assign logs), including telemetry deltas.
     pub async fn flush_all(
         &self,
         resolve_logger: &ResolveLogger<NativeHost>,
@@ -81,6 +83,10 @@ impl LogManager {
     ) -> Result<()> {
         let mut request = resolve_logger.checkpoint();
         assign_logger.checkpoint_fill_with_limit(&mut request, LOG_TARGET_BYTES, false);
+
+        let mut td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
+        td.sdk = Some(self.sdk.clone());
+        request.telemetry_data = Some(td);
 
         let encoded = request.encode_to_vec();
         if !encoded.is_empty() && has_logs(&request) {

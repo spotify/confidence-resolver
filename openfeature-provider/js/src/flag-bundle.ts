@@ -82,6 +82,21 @@ export function resolve<T extends JsonValue>(
     };
   }
 
+  if (flag.reason === 'MATERIALIZATION_NOT_SUPPORTED') {
+    logger?.warn(
+      `Flag '%s' requires materializations but no materialization store is configured. ` +
+        `Pass a MaterializationStore implementation or: 'CONFIDENCE_REMOTE_STORE' to createConfidenceServerProvider()`,
+      flagName,
+    );
+    return {
+      reason: 'ERROR',
+      errorCode: ErrorCode.GENERAL,
+      errorMessage: `Flag '${flagName}' requires materializations. Configure a materialization store.`,
+      value: defaultValue,
+      shouldApply: false,
+    };
+  }
+
   let value: FlagValue = flag.value;
   for (let i = 0; i < path.length; i++) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -166,6 +181,8 @@ function convertReason(reason: ResolveReason): ResolutionReason {
       return 'NO_TREATMENT_MATCH';
     case ResolveReason.RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE:
       return 'ERROR';
+    case ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED:
+      return 'MATERIALIZATION_NOT_SUPPORTED';
     default:
       return 'UNSPECIFIED';
   }

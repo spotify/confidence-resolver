@@ -23,6 +23,7 @@ func (m *mockResolver) ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.Resolv
 	}
 	return &wasm.ResolveProcessResponse{}, nil
 }
+func (m *mockResolver) RegisterResolve(*wasm.RegisterResolveRequest) {}
 func (m *mockResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error { return nil }
 func (m *mockResolver) FlushAllLogs() error                          { return nil }
 func (m *mockResolver) FlushAssignLogs() error                       { return nil }

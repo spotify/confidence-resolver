@@ -43,6 +43,10 @@ enum ResolveReason {
   RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE = 7;
   // The flag could not be resolved because a rule is using materialization
   RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED = 8;
+  // The resolved value type does not match the type requested by the SDK
+  RESOLVE_REASON_TYPE_MISMATCH = 9;
+  // The flag was not found in the resolve response
+  RESOLVE_REASON_FLAG_NOT_FOUND = 10;
 }
 
 enum SdkId {

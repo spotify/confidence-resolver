@@ -110,8 +110,8 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreWi
 	if err == nil {
 		t.Fatalf("Expected to fail resolve got: %v", details)
 	}
-	if err.Error() != "error code: GENERAL: resolve failed: failed to read materializations: materialization read not supported" {
-		t.Fatalf("Expected different error message, got: %v", err)
+	if err.Error() != "error code: GENERAL: flag 'custom-targeted-flag' requires materializations; configure a materialization store" {
+		t.Fatalf("Expected materialization store error, got: %v", err)
 	}
 	if details.Reason != "ERROR" {
 		t.Errorf("Expected Variant flags/custom-targeted-flag/variants/default, got %v", details.Reason)

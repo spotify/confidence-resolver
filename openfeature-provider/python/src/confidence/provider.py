@@ -6,6 +6,7 @@ AbstractProvider interface for local flag resolution using the Confidence WASM r
 
 import logging
 import threading
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import grpc
@@ -319,7 +320,10 @@ class ConfidenceProvider(AbstractProvider):
         type_convert: Callable[[Any], T],
     ) -> FlagResolutionDetails[T]:
         """Generic typed resolution with type checking and conversion."""
-        result = self._resolve_object(flag_key, default_value, evaluation_context)
+        start_time = time.monotonic()
+        result = self._resolve_object(
+            flag_key, default_value, evaluation_context, start_time
+        )
 
         if result.value is None or result.error_code is not None:
             return FlagResolutionDetails(
@@ -331,6 +335,9 @@ class ConfidenceProvider(AbstractProvider):
             )
 
         if not type_check(result.value):
+            self._do_register_resolve(
+                types_pb2.RESOLVE_REASON_TYPE_MISMATCH, start_time
+            )
             return FlagResolutionDetails(
                 value=default_value,
                 reason=Reason.ERROR,
@@ -431,18 +438,10 @@ class ConfidenceProvider(AbstractProvider):
         flag_key: str,
         default_value: Any,
         evaluation_context: Optional[EvaluationContext],
+        start_time: float,
     ) -> FlagResolutionDetails[Any]:
-        """Core resolution logic for all flag types.
+        """Core resolution logic for all flag types."""
 
-        Args:
-            flag_key: The flag key (may include path).
-            default_value: The default value.
-            evaluation_context: The evaluation context.
-
-        Returns:
-            The resolved flag details.
-        """
-        # Check resolver is ready
         if self._resolver is None:
             return FlagResolutionDetails(
                 value=default_value,
@@ -452,13 +451,9 @@ class ConfidenceProvider(AbstractProvider):
             )
 
         try:
-            # Parse flag path
             flag_name, path = self._parse_flag_path(flag_key)
-
-            # Convert evaluation context to proto
             proto_context = self._context_to_proto(evaluation_context)
 
-            # Build resolve request
             resolve_req = api_pb2.ResolveFlagsRequest()
             resolve_req.flags.append(f"flags/{flag_name}")
             resolve_req.client_secret = self._client_secret
@@ -468,8 +463,6 @@ class ConfidenceProvider(AbstractProvider):
             resolve_req.sdk.id = types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER
             resolve_req.sdk.version = __version__
 
-            # Build process request — use DeferredMaterializations if store is configured,
-            # otherwise WithoutMaterializations (error flags that need materializations).
             request = wasm_api_pb2.ResolveProcessRequest()
             if self._materialization_store is not None and not isinstance(
                 self._materialization_store, UnsupportedMaterializationStore
@@ -478,10 +471,8 @@ class ConfidenceProvider(AbstractProvider):
             else:
                 request.without_materializations.CopyFrom(resolve_req)
 
-            # Resolve with materialization handling
             response = self._resolve_with_materialization(request)
 
-            # Check for resolved flags
             if not response.HasField("resolved"):
                 return FlagResolutionDetails(
                     value=default_value,
@@ -492,6 +483,9 @@ class ConfidenceProvider(AbstractProvider):
 
             resolved_flags = response.resolved.response.resolved_flags
             if len(resolved_flags) == 0:
+                self._do_register_resolve(
+                    types_pb2.RESOLVE_REASON_FLAG_NOT_FOUND, start_time
+                )
                 return FlagResolutionDetails(
                     value=default_value,
                     reason=Reason.ERROR,
@@ -501,9 +495,11 @@ class ConfidenceProvider(AbstractProvider):
 
             resolved_flag = resolved_flags[0]
 
-            # Verify flag name matches
             expected_name = f"flags/{flag_name}"
             if resolved_flag.flag != expected_name:
+                self._do_register_resolve(
+                    types_pb2.RESOLVE_REASON_FLAG_NOT_FOUND, start_time
+                )
                 return FlagResolutionDetails(
                     value=default_value,
                     reason=Reason.ERROR,
@@ -511,20 +507,38 @@ class ConfidenceProvider(AbstractProvider):
                     error_message="Unexpected flag returned",
                 )
 
-            # Check if variant is assigned
+            if (
+                resolved_flag.reason
+                == types_pb2.ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED
+            ):
+                logger.warning(
+                    "Flag '%s' requires materializations but no materialization store is "
+                    "configured. Enable it via ConfidenceProvider(use_remote_materialization_store=True)",
+                    flag_name,
+                )
+                self._do_register_resolve(resolved_flag.reason, start_time)
+                return FlagResolutionDetails(
+                    value=default_value,
+                    reason=Reason.ERROR,
+                    error_code=ErrorCode.GENERAL,
+                    error_message=f"Flag '{flag_name}' requires materializations. Configure a materialization store.",
+                )
+
             if not resolved_flag.variant:
+                self._do_register_resolve(resolved_flag.reason, start_time)
                 return FlagResolutionDetails(
                     value=default_value,
                     reason=self._map_resolve_reason(resolved_flag.reason),
                 )
 
-            # Convert protobuf struct to Python dict
             value = self._proto_struct_to_dict(resolved_flag.value)
 
-            # Extract nested path if specified
             if path:
                 value, found = self._get_value_for_path(path, value)
                 if not found:
+                    self._do_register_resolve(
+                        types_pb2.RESOLVE_REASON_FLAG_NOT_FOUND, start_time
+                    )
                     return FlagResolutionDetails(
                         value=default_value,
                         reason=Reason.ERROR,
@@ -532,6 +546,7 @@ class ConfidenceProvider(AbstractProvider):
                         error_message=f"Path '{path}' not found in flag '{flag_name}'",
                     )
 
+            self._do_register_resolve(resolved_flag.reason, start_time)
             return FlagResolutionDetails(
                 value=value,
                 reason=self._map_resolve_reason(resolved_flag.reason),
@@ -546,6 +561,20 @@ class ConfidenceProvider(AbstractProvider):
                 error_code=ErrorCode.GENERAL,
                 error_message=str(e),
             )
+
+    def _do_register_resolve(self, reason: int, start_time: float) -> None:
+        """Register a resolve evaluation for telemetry."""
+        if self._resolver is None:
+            return
+        latency_us = int((time.monotonic() - start_time) * 1_000_000)
+        try:
+            request = wasm_api_pb2.RegisterResolveRequest()
+            request.reason = reason
+            request.latency_us = min(latency_us, 2**32 - 1)
+            with self._resolver_lock:
+                self._resolver.register_resolve(request)
+        except Exception:
+            logger.warning("Failed to register resolve telemetry", exc_info=True)
 
     def _resolve_with_materialization(
         self, request: wasm_api_pb2.ResolveProcessRequest
@@ -958,7 +987,8 @@ class ConfidenceProvider(AbstractProvider):
         """
         if self._resolver is None:
             return ""
-        return self._resolver.prometheus_snapshot()
+        with self._resolver_lock:
+            return self._resolver.prometheus_snapshot()
 
     @staticmethod
     def _map_resolve_reason(reason: types_pb2.ResolveReason) -> Reason:

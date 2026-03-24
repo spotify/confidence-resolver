@@ -4,9 +4,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.Struct;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveReason;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
@@ -277,20 +279,21 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
   private <T> ProviderEvaluation<T> getCastedEvaluation(
       String key, T defaultValue, EvaluationContext ctx, Function<Value, T> cast) {
+    final long startNanos = System.nanoTime();
     final Value wrappedDefaultValue;
     try {
       wrappedDefaultValue = new Value(defaultValue);
     } catch (InstantiationException e) {
-      // this is not going to happen because we only call the constructor with supported types
       throw new RuntimeException(e);
     }
 
     final ProviderEvaluation<Value> objectEvaluation =
-        getObjectEvaluation(key, wrappedDefaultValue, ctx);
+        getObjectEvaluationInternal(key, wrappedDefaultValue, ctx, startNanos);
 
     final T castedValue = cast.apply(objectEvaluation.getValue());
     if (castedValue == null) {
       log.warn("Cannot cast value '{}' to expected type", objectEvaluation.getValue().toString());
+      doRegisterResolve(ResolveReason.RESOLVE_REASON_TYPE_MISMATCH, startNanos);
       throw new TypeMismatchError(
           String.format("Cannot cast value '%s' to expected type", objectEvaluation.getValue()));
     }
@@ -355,6 +358,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   @Override
   public ProviderEvaluation<Value> getObjectEvaluation(
       String key, Value defaultValue, EvaluationContext ctx) {
+    return getObjectEvaluationInternal(key, defaultValue, ctx, System.nanoTime());
+  }
+
+  private ProviderEvaluation<Value> getObjectEvaluationInternal(
+      String key, Value defaultValue, EvaluationContext ctx, long startNanos) {
 
     final FlagPath flagPath;
     try {
@@ -365,7 +373,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     }
 
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
-    // resolve the flag by calling the resolver
     ResolveFlagsResponse resolveFlagResponse;
     try {
       final String requestFlagName = "flags/" + flagPath.getFlag();
@@ -394,6 +401,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
       if (resolveFlagResponse.getResolvedFlagsList().isEmpty()) {
         log.warn("No active flag '{}' was found", flagPath.getFlag());
+        doRegisterResolve(ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND, startNanos);
         throw new FlagNotFoundError(
             String.format("No active flag '%s' was found", flagPath.getFlag()));
       }
@@ -401,6 +409,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       final String responseFlagName = resolveFlagResponse.getResolvedFlags(0).getFlag();
       if (!requestFlagName.equals(responseFlagName)) {
         log.warn("Unexpected flag '{}' from remote", responseFlagName.replaceFirst("^flags/", ""));
+        doRegisterResolve(ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND, startNanos);
         throw new FlagNotFoundError(
             String.format(
                 "Unexpected flag '%s' from remote", responseFlagName.replaceFirst("^flags/", "")));
@@ -409,6 +418,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       final ResolvedFlag resolvedFlag = resolveFlagResponse.getResolvedFlags(0);
 
       if (resolvedFlag.getVariant().isEmpty()) {
+        doRegisterResolve(resolvedFlag.getReason(), startNanos);
         return ProviderEvaluation.<Value>builder()
             .value(defaultValue)
             .reason(
@@ -419,23 +429,48 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         final Value fullValue =
             OpenFeatureTypeMapper.from(resolvedFlag.getValue(), resolvedFlag.getFlagSchema());
 
-        // if a path is given, extract expected portion from the structured value
         Value value = OpenFeatureUtils.getValueForPath(flagPath.getPath(), fullValue);
 
         if (value.isNull()) {
           value = defaultValue;
         }
 
-        // regular resolve was successful
+        doRegisterResolve(resolvedFlag.getReason(), startNanos);
         return ProviderEvaluation.<Value>builder()
             .value(value)
             .reason(resolvedFlag.getReason().toString())
             .variant(resolvedFlag.getVariant())
             .build();
       }
+    } catch (CompletionException e) {
+      if (e.getCause() instanceof MaterializationNotSupportedException) {
+        log.warn(
+            "Flag '{}' requires materializations but no materialization store is configured. "
+                + "Enable it via LocalProviderConfig.builder().useRemoteMaterializationStore(true)",
+            flagPath.getFlag());
+        doRegisterResolve(ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED, startNanos);
+        return ProviderEvaluation.<Value>builder()
+            .value(defaultValue)
+            .reason(ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED.toString())
+            .build();
+      }
+      throw e;
     } catch (StatusRuntimeException e) {
       handleStatusRuntimeException(e);
       throw new GeneralError("Unknown error occurred when calling the provider backend");
+    }
+  }
+
+  private void doRegisterResolve(ResolveReason reason, long startNanos) {
+    long latencyUs = (System.nanoTime() - startNanos) / 1000;
+    try {
+      resolver.registerResolve(
+          RegisterResolveRequest.newBuilder()
+              .setReason(reason)
+              .setLatencyUs((int) Math.min(latencyUs, Integer.MAX_VALUE))
+              .build());
+    } catch (Exception e) {
+      log.warn("Failed to register resolve telemetry", e);
     }
   }
 

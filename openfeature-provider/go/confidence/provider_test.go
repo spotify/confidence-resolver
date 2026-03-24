@@ -503,6 +503,9 @@ func (m *mockResolverAPIForInit) PrometheusSnapshot() string {
 	return ""
 }
 
+func (m *mockResolverAPIForInit) RegisterResolve(request *wasm.RegisterResolveRequest) {
+}
+
 func (m *mockResolverAPIForInit) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
 	return nil
 }

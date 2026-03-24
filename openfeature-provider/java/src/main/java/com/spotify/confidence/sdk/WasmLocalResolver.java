@@ -14,6 +14,7 @@ import com.google.protobuf.Timestamp;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.LogMessage;
+import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
@@ -51,6 +52,7 @@ class WasmLocalResolver implements LocalResolver {
 
   // api
   private final ExportFunction wasmMsgGuestSetResolverState;
+  private final ExportFunction wasmMsgGuestRegisterResolve;
   private final ExportFunction wasmMsgBoundedFlushLogs;
   private final ExportFunction wasmMsgBoundedFlushAssign;
   private final ExportFunction wasmMsgGuestApplyFlags;
@@ -82,6 +84,7 @@ class WasmLocalResolver implements LocalResolver {
     wasmMsgAlloc = instance.export("wasm_msg_alloc");
     wasmMsgFree = instance.export("wasm_msg_free");
     wasmMsgGuestSetResolverState = instance.export("wasm_msg_guest_set_resolver_state");
+    wasmMsgGuestRegisterResolve = instance.export("wasm_msg_guest_register_resolve");
     wasmMsgBoundedFlushLogs = instance.export("wasm_msg_guest_bounded_flush_logs");
     wasmMsgBoundedFlushAssign = instance.export("wasm_msg_guest_bounded_flush_assign");
     wasmMsgGuestApplyFlags = instance.export("wasm_msg_guest_apply_flags");
@@ -139,6 +142,21 @@ class WasmLocalResolver implements LocalResolver {
       final int respPtr = (int) wasmMsgGuestResolveProcess.apply(reqPtr)[0];
       return CompletableFuture.completedFuture(
           consumeResponse(respPtr, ResolveProcessResponse::parseFrom));
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public void registerResolve(RegisterResolveRequest request) {
+    lock.lock();
+    try {
+      if (closed) {
+        return;
+      }
+      final int reqPtr = transferRequest(request);
+      final int respPtr = (int) wasmMsgGuestRegisterResolve.apply(reqPtr)[0];
+      consumeResponse(respPtr, Messages.Void::parseFrom);
     } finally {
       lock.unlock();
     }

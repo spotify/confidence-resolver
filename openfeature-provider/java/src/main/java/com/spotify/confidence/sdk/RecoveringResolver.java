@@ -2,6 +2,7 @@ package com.spotify.confidence.sdk;
 
 import com.dylibso.chicory.wasm.ChicoryException;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
@@ -91,6 +92,15 @@ class RecoveringResolver implements LocalResolver {
     } catch (ChicoryException e) {
       handleFailure("resolveProcess", e);
       throw e;
+    }
+  }
+
+  @Override
+  public void registerResolve(RegisterResolveRequest request) {
+    try {
+      current.get().registerResolve(request);
+    } catch (ChicoryException e) {
+      logger.warn("registerResolve failed ({}), ignoring", e.getMessage(), e);
     }
   }
 

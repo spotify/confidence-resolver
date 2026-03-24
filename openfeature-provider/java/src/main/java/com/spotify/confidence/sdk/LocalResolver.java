@@ -1,6 +1,7 @@
 package com.spotify.confidence.sdk;
 
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
@@ -33,6 +34,13 @@ interface LocalResolver {
    * @param request the apply flags request
    */
   void applyFlags(ApplyFlagsRequest request);
+
+  /**
+   * Registers a resolve evaluation with reason and latency for telemetry.
+   *
+   * @param request the register resolve request containing reason and latency
+   */
+  void registerResolve(RegisterResolveRequest request);
 
   /** Flushes all pending logs (resolve + assign). */
   void flushAllLogs();

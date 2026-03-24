@@ -4,12 +4,12 @@ use std::sync::LazyLock;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::Bytes;
 use confidence_resolver::assign_logger::AssignLogger;
-use confidence_resolver::proto::confidence::flags::resolver::v1::resolve_process_response;
 use confidence_resolver::telemetry::{Telemetry, TelemetrySnapshot};
 use prost::Message;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    resolve_process_request, LogMessage, ResolveProcessRequest, WriteFlagLogsRequest,
+    resolve_process_request, LogMessage, RegisterResolveRequest, ResolveProcessRequest,
+    WriteFlagLogsRequest,
 };
 use confidence_resolver::resolve_logger::ResolveLogger;
 use confidence_resolver::ResolveProcessState;
@@ -161,19 +161,13 @@ wasm_msg_guest! {
 
         let evaluation_context = resolve_request.evaluation_context.clone().unwrap_or_default();
         let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
-        let result = resolver.resolve_flags(request);
+        resolver.resolve_flags(request)
+    }
 
-        if let Ok(ResolveProcessResponse { result: Some(resolve_process_response::Result::Resolved(resolve_process_response::Resolved { response: Some(response), start_time: Some(start_time), ..}))}) = &result {
-            let end_time = WasmHost::current_time();
-            let total_nanos = 1_000_000_000 * (end_time.seconds - start_time.seconds) + (end_time.nanos - start_time.nanos) as i64;
-            let micro_duration = total_nanos / 1000;
-            TELEMETRY.record_latency_us(micro_duration.clamp(0, u32::MAX as i64) as u32);
-
-            for flag in &response.resolved_flags {
-                TELEMETRY.mark_resolve(flag.reason());
-            }
-        };
-        result
+    fn register_resolve(request: RegisterResolveRequest) -> WasmResult<Void> {
+        TELEMETRY.record_latency_us(request.latency_us);
+        TELEMETRY.mark_resolve(request.reason());
+        Ok(VOID)
     }
 
 
