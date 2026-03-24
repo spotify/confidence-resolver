@@ -100,7 +100,7 @@ class RecoveringResolver implements LocalResolver {
     try {
       current.get().registerResolve(request);
     } catch (ChicoryException e) {
-      handleFailure("registerResolve", e);
+      logger.warn("registerResolve failed ({}), ignoring", e.getMessage(), e);
     }
   }
 
