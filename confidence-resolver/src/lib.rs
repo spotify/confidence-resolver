@@ -437,8 +437,6 @@ pub struct ResolveProcessState {
     pub resolved_flags: Vec<AssignedFlag>,
     #[prost(message, repeated, tag = "3")]
     pub materializations_to_write: Vec<MaterializationRecord>,
-    #[prost(message, optional, tag = "4")]
-    pub start_time: Option<Timestamp>,
 }
 
 impl ResolveProcessRequest {
@@ -487,14 +485,12 @@ impl ResolveProcessResponse {
     pub fn resolved(
         response: ResolveFlagsResponse,
         to_write: Vec<MaterializationRecord>,
-        start_time: Option<Timestamp>,
     ) -> Self {
         ResolveProcessResponse {
             result: Some(resolve_process_response::Result::Resolved(
                 resolve_process_response::Resolved {
                     response: Some(response),
                     materializations_to_write: to_write,
-                    start_time,
                 },
             )),
         }
@@ -752,7 +748,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     resolve_request: Some(req),
                     resolved_flags: Vec::new(),
                     materializations_to_write: Vec::new(),
-                    start_time: Some(H::current_time()),
                 };
                 (state, MaterializationContext::discovery())
             }
@@ -764,7 +759,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     resolve_request: Some(req),
                     resolved_flags: Vec::new(),
                     materializations_to_write: Vec::new(),
-                    start_time: Some(H::current_time()),
                 };
                 (
                     state,
@@ -776,7 +770,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     resolve_request: Some(req),
                     resolved_flags: Vec::new(),
                     materializations_to_write: Vec::new(),
-                    start_time: Some(H::current_time()),
                 };
                 (state, MaterializationContext::unsupported())
             }
@@ -907,7 +900,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         Ok(ResolveProcessResponse::resolved(
             response,
             materialization_context.to_write,
-            state.start_time.take(),
         ))
     }
 

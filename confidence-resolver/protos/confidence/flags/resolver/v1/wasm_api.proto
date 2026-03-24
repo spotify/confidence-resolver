@@ -4,7 +4,6 @@ package confidence.flags.resolver.v1;
 
 import "confidence/flags/resolver/v1/api.proto";
 import "confidence/flags/resolver/v1/types.proto";
-import "google/protobuf/timestamp.proto";
 
 option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;
@@ -45,9 +44,7 @@ message ResolveProcessResponse {
   message Resolved {
     ResolveFlagsResponse response = 1;
     repeated MaterializationRecord materializations_to_write = 2;
-    // Internal: used by the WASM host to compute resolve latency.
-    // Not intended for external consumers.
-    google.protobuf.Timestamp start_time = 3;
+    reserved 3;
   }
 
   message Suspended {
