@@ -158,14 +158,16 @@ impl ConfidenceProvider {
         }
         let client = client_builder.build();
 
+        let sdk = provider_sdk();
         let state_fetcher = Arc::new(StateFetcher::new(
             client.clone(),
             options.client_secret.clone(),
-            Some(provider_sdk()),
+            Some(sdk.clone()),
         ));
         let log_manager = Arc::new(LogManager::new(
             client.clone(),
             options.client_secret.clone(),
+            sdk,
         ));
 
         // Create materialization store if configured
