@@ -25,7 +25,7 @@ class OpenFeatureLocalResolveProviderFlagLogsIT {
   void teardown() {
     // Clean up OpenFeature state
     try {
-      OpenFeatureAPI.getInstance().getProvider().shutdown();
+      OpenFeatureAPI.getInstance().shutdown();
     } catch (Exception ignored) {
     }
   }
