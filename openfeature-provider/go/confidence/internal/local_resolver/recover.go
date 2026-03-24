@@ -22,7 +22,7 @@ func NewRecoveringResolverFactory(inner LocalResolverFactory) *RecoveringResolve
 
 func (f *RecoveringResolverFactory) New() LocalResolver {
 	rr := &RecoveringResolver{
-		factory: f,
+		factory: f.LocalResolverFactory,
 	}
 	lr := f.LocalResolverFactory.New()
 	rr.current.Store(lr)
@@ -54,6 +54,9 @@ func (r *RecoveringResolver) get() LocalResolver {
 func (r *RecoveringResolver) startRecreate() {
 	go func() {
 		defer r.broken.Store(false)
+		defer func() {
+			recover() // factory.New() may panic if the runtime was already closed
+		}()
 		old := r.get()
 		newLR := r.factory.New()
 		if v := r.lastState.Load(); v != nil {
