@@ -92,8 +92,7 @@ func (r *RecoveringResolver) withRecover(opName string, setErr *error, fn func(L
 func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequest) (err error) {
 	r.withRecover("SetResolverState", &err, func(lr LocalResolver) {
 		err = lr.SetResolverState(request)
-		// Cache last successful state
-		if err != nil {
+		if err == nil {
 			r.lastState.Store(request)
 		}
 	})
