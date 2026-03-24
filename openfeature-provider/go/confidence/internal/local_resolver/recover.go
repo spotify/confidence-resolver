@@ -3,6 +3,7 @@ package local_resolver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -99,11 +100,17 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 	return
 }
 
-func (r *RecoveringResolver) RegisterResolve(request *wasm.RegisterResolveRequest) (err error) {
-	r.withRecover("RegisterResolve", &err, func(lr LocalResolver) {
-		err = lr.RegisterResolve(request)
-	})
-	return
+func (r *RecoveringResolver) RegisterResolve(request *wasm.RegisterResolveRequest) error {
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Warn("RegisterResolve panicked, ignoring", "error", rec)
+		}
+	}()
+	if r.broken.Load() {
+		return nil
+	}
+	lr := r.get()
+	return lr.RegisterResolve(request)
 }
 
 func (r *RecoveringResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) (err error) {
@@ -135,11 +142,16 @@ func (r *RecoveringResolver) FlushAssignLogs() (err error) {
 }
 
 func (r *RecoveringResolver) PrometheusSnapshot() string {
-	var text string
-	r.withRecover("PrometheusSnapshot", nil, func(lr LocalResolver) {
-		text = lr.PrometheusSnapshot()
-	})
-	return text
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Warn("PrometheusSnapshot panicked, ignoring", "error", rec)
+		}
+	}()
+	if r.broken.Load() {
+		return ""
+	}
+	lr := r.get()
+	return lr.PrometheusSnapshot()
 }
 
 func (r *RecoveringResolver) Close(ctx context.Context) error {

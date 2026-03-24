@@ -200,10 +200,8 @@ export class WasmResolver implements LocalResolver {
   registerResolve(request: RegisterResolveRequest): void {
     try {
       this.delegate.registerResolve(request);
-    } catch (error: unknown) {
-      if (error instanceof WebAssembly.RuntimeError) {
-        this.reloadInstance(error);
-      }
+    } catch {
+      // best-effort telemetry — don't reload the instance for this path
     }
   }
 

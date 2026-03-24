@@ -468,6 +468,117 @@ describe('SDK telemetry', () => {
   });
 });
 
+describe('registerResolve telemetry', () => {
+  const RESOLVE_REASON_MATCH = 1;
+
+  it('calls registerResolve with MATCH reason after successful resolve', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.resolveProcess.mockReturnValue({
+      resolved: {
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/test-flag',
+              variant: 'variant-a',
+              value: { enabled: true },
+              reason: RESOLVE_REASON_MATCH,
+              shouldApply: true,
+            },
+          ],
+          resolveToken: new Uint8Array(),
+          resolveId: 'resolve-123',
+        },
+        materializationsToWrite: [],
+      },
+    });
+
+    await provider.resolveBooleanEvaluation('test-flag.enabled', false, {
+      targetingKey: 'user-123',
+    });
+
+    expect(mockedWasmResolver.registerResolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: ResolveReason.RESOLVE_REASON_MATCH,
+        latencyUs: expect.any(Number),
+      }),
+    );
+  });
+
+  it('calls registerResolve with FLAG_NOT_FOUND for missing flags', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.resolveProcess.mockReturnValue({
+      resolved: {
+        response: {
+          resolvedFlags: [],
+          resolveToken: new Uint8Array(),
+          resolveId: 'resolve-456',
+        },
+        materializationsToWrite: [],
+      },
+    });
+
+    await provider.resolveBooleanEvaluation('missing-flag.enabled', false, {
+      targetingKey: 'user-123',
+    });
+
+    expect(mockedWasmResolver.registerResolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND,
+      }),
+    );
+  });
+
+  it('calls registerResolve with TYPE_MISMATCH for wrong type', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.resolveProcess.mockReturnValue({
+      resolved: {
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/test-flag',
+              variant: 'variant-a',
+              value: { enabled: 'not-a-boolean' },
+              reason: RESOLVE_REASON_MATCH,
+              shouldApply: true,
+            },
+          ],
+          resolveToken: new Uint8Array(),
+          resolveId: 'resolve-789',
+        },
+        materializationsToWrite: [],
+      },
+    });
+
+    await provider.resolveBooleanEvaluation('test-flag.enabled', false, {
+      targetingKey: 'user-123',
+    });
+
+    expect(mockedWasmResolver.registerResolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: ResolveReason.RESOLVE_REASON_TYPE_MISMATCH,
+      }),
+    );
+  });
+
+  it('does not call registerResolve when resolve itself fails', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.resolveProcess.mockImplementation(() => {
+      throw new Error('Resolver state not set');
+    });
+
+    const result = await provider.resolveBooleanEvaluation('test-flag.enabled', false, {
+      targetingKey: 'user-123',
+    });
+
+    expect(result.errorCode).toBeDefined();
+    expect(mockedWasmResolver.registerResolve).not.toHaveBeenCalled();
+  });
+});
+
 describe('getPrometheusMetrics', () => {
   it('calls prometheusSnapshot on the resolver and returns the result', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());

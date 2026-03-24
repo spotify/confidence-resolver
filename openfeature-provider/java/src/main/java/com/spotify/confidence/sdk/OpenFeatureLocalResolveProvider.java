@@ -457,7 +457,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               .setLatencyUs((int) Math.min(latencyUs, Integer.MAX_VALUE))
               .build());
     } catch (Exception e) {
-      log.debug("Failed to register resolve telemetry", e);
+      log.warn("Failed to register resolve telemetry", e);
     }
   }
 
