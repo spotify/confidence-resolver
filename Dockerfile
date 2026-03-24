@@ -115,23 +115,37 @@ RUN find . -type f -name "*.rs" -exec touch {} +
 ENV IN_DOCKER_BUILD=1
 
 # ==============================================================================
+# Build confidence-resolver (test + lint derive from this to reuse artifacts)
+# ==============================================================================
+FROM rust-test-base AS confidence-resolver.build
+WORKDIR /workspace/confidence-resolver
+RUN cargo build --release --lib
+
+# ==============================================================================
 # Test confidence-resolver
 # ==============================================================================
-FROM rust-test-base AS confidence-resolver.test
+FROM confidence-resolver.build AS confidence-resolver.test
 WORKDIR /workspace/confidence-resolver
 RUN make test
 
 # ==============================================================================
+# Build wasm-msg (test + lint derive from this to reuse artifacts)
+# ==============================================================================
+FROM rust-test-base AS wasm-msg.build
+WORKDIR /workspace/wasm-msg
+RUN cargo build --release --lib
+
+# ==============================================================================
 # Test wasm-msg (when tests exist)
 # ==============================================================================
-FROM rust-test-base AS wasm-msg.test
+FROM wasm-msg.build AS wasm-msg.test
 WORKDIR /workspace/wasm-msg
 RUN make test
 
 # ==============================================================================
 # Lint confidence-resolver
 # ==============================================================================
-FROM rust-test-base AS confidence-resolver.lint
+FROM confidence-resolver.build AS confidence-resolver.lint
 
 WORKDIR /workspace/confidence-resolver
 RUN make lint
@@ -139,7 +153,7 @@ RUN make lint
 # ==============================================================================
 # Lint wasm-msg
 # ==============================================================================
-FROM rust-test-base AS wasm-msg.lint
+FROM wasm-msg.build AS wasm-msg.lint
 
 WORKDIR /workspace/wasm-msg
 RUN make lint
@@ -215,7 +229,7 @@ RUN make build
 # ==============================================================================
 # Lint confidence-cloudflare-resolver (WASM target)
 # ==============================================================================
-FROM wasm-deps AS confidence-cloudflare-resolver.lint
+FROM confidence-cloudflare-resolver.build AS confidence-cloudflare-resolver.lint
 
 WORKDIR /workspace/confidence-cloudflare-resolver
 RUN make lint
@@ -416,25 +430,25 @@ RUN set -e; \
     echo "✅ WASM files are in sync"
 
 # ==============================================================================
+# Build OpenFeature Provider (Go) (test + lint derive from this)
+# ==============================================================================
+FROM openfeature-provider-go-base AS openfeature-provider-go.build
+
+RUN make build
+
+# ==============================================================================
 # Test OpenFeature Provider (Go)
 # ==============================================================================
-FROM openfeature-provider-go-base AS openfeature-provider-go.test
+FROM openfeature-provider-go.build AS openfeature-provider-go.test
 
 RUN make test
 
 # ==============================================================================
 # Lint OpenFeature Provider (Go)
 # ==============================================================================
-FROM openfeature-provider-go-base AS openfeature-provider-go.lint
+FROM openfeature-provider-go.build AS openfeature-provider-go.lint
 
 RUN make lint
-
-# ==============================================================================
-# Build OpenFeature Provider (Go)
-# ==============================================================================
-FROM openfeature-provider-go-base AS openfeature-provider-go.build
-
-RUN make build
 
 # ==============================================================================
 # OpenFeature Provider (Ruby) - Build and test
@@ -575,9 +589,17 @@ COPY --from=openfeature-provider-python.build /app/dist/*.whl /
 COPY --from=openfeature-provider-python.build /app/dist/*.tar.gz /
 
 # ==============================================================================
+# OpenFeature Provider (Rust) - Build (test + lint derive from this)
+# ==============================================================================
+FROM rust-test-base AS openfeature-provider-rust.build
+
+WORKDIR /workspace/openfeature-provider/rust
+RUN make build
+
+# ==============================================================================
 # OpenFeature Provider (Rust) - Test
 # ==============================================================================
-FROM rust-test-base AS openfeature-provider-rust.test
+FROM openfeature-provider-rust.build AS openfeature-provider-rust.test
 
 WORKDIR /workspace/openfeature-provider/rust
 RUN make test
@@ -585,7 +607,7 @@ RUN make test
 # ==============================================================================
 # OpenFeature Provider (Rust) - E2E Test
 # ==============================================================================
-FROM rust-test-base AS openfeature-provider-rust.test_e2e
+FROM openfeature-provider-rust.build AS openfeature-provider-rust.test_e2e
 
 WORKDIR /workspace/openfeature-provider/rust
 RUN make test-e2e
@@ -593,18 +615,10 @@ RUN make test-e2e
 # ==============================================================================
 # OpenFeature Provider (Rust) - Lint
 # ==============================================================================
-FROM rust-test-base AS openfeature-provider-rust.lint
+FROM openfeature-provider-rust.build AS openfeature-provider-rust.lint
 
 WORKDIR /workspace/openfeature-provider/rust
 RUN make lint
-
-# ==============================================================================
-# OpenFeature Provider (Rust) - Build
-# ==============================================================================
-FROM rust-test-base AS openfeature-provider-rust.build
-
-WORKDIR /workspace/openfeature-provider/rust
-RUN make build
 
 # ==============================================================================
 # Publish confidence-resolver to crates.io
@@ -662,9 +676,16 @@ COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ../../../wasm/con
 ENV IN_DOCKER_BUILD=1
 
 # ==============================================================================
+# Build OpenFeature Provider (Java) (test + lint derive from this)
+# ==============================================================================
+FROM openfeature-provider-java-base AS openfeature-provider-java.build
+
+RUN make build
+
+# ==============================================================================
 # Test OpenFeature Provider (Java)
 # ==============================================================================
-FROM openfeature-provider-java-base AS openfeature-provider-java.test
+FROM openfeature-provider-java.build AS openfeature-provider-java.test
 
 RUN make test
 
@@ -675,13 +696,6 @@ FROM openfeature-provider-java.test AS openfeature-provider-java.test_e2e
 
 # Run e2e tests with secrets mounted as .env.test file
 RUN make test-e2e
-
-# ==============================================================================
-# Build OpenFeature Provider (Java)
-# ==============================================================================
-FROM openfeature-provider-java-base AS openfeature-provider-java.build
-
-RUN make build
 
 # ==============================================================================
 # Publish OpenFeature Provider (Java) to Maven Central
