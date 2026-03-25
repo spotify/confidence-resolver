@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.13.1...openfeature-provider-java-v0.14.0) (2026-03-24)
+
+
+### Features
+
+* add register_resolve WASM export for SDK-side telemetry ([#354](https://github.com/spotify/confidence-resolver/issues/354)) ([31499bc](https://github.com/spotify/confidence-resolver/commit/31499bc911942ecd751b4a4a702f35ded41e9776))
+* local prometheus sdk metrics ([#322](https://github.com/spotify/confidence-resolver/issues/322)) ([8b18119](https://github.com/spotify/confidence-resolver/commit/8b18119eae449afbe4a0815e8aab5f82888a8621))
+
+
+### Bug Fixes
+
+* correct Java provider telemetry version path ([#340](https://github.com/spotify/confidence-resolver/issues/340)) ([6c55bcc](https://github.com/spotify/confidence-resolver/commit/6c55bcc589df1fe897cd66bf762d67cf48fd5e7d))
+* **java:** bump OpenFeature SDK to 1.20.2 for shutdown fix ([#350](https://github.com/spotify/confidence-resolver/issues/350)) ([2db93c7](https://github.com/spotify/confidence-resolver/commit/2db93c7b0f81e009fb166640e854faffc88efd9c))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.19 to 0.1.20
+
 ## [0.13.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.13.0...openfeature-provider-java-v0.13.1) (2026-03-12)
 
 

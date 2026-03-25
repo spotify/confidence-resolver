@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.5.1...openfeature-provider-python-v0.6.0) (2026-03-24)
+
+
+### Features
+
+* add register_resolve WASM export for SDK-side telemetry ([#354](https://github.com/spotify/confidence-resolver/issues/354)) ([31499bc](https://github.com/spotify/confidence-resolver/commit/31499bc911942ecd751b4a4a702f35ded41e9776))
+* local prometheus sdk metrics ([#322](https://github.com/spotify/confidence-resolver/issues/322)) ([8b18119](https://github.com/spotify/confidence-resolver/commit/8b18119eae449afbe4a0815e8aab5f82888a8621))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.19 to 0.1.20
+
 ## [0.5.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.5.0...openfeature-provider-python-v0.5.1) (2026-03-12)
 
 

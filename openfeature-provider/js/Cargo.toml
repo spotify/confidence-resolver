@@ -1,6 +1,6 @@
 [package]
 name = "openfeature-provider-js"
-version = "0.10.1"
+version = "0.11.0"
 edition = "2021"
 publish = false
 
@@ -17,5 +17,5 @@ path = "Cargo.toml"
 crate-type = []
 
 [dependencies]
-rust-guest = { path = "../../wasm/rust-guest", version = "0.1.19" }
+rust-guest = { path = "../../wasm/rust-guest", version = "0.1.20" }
 
