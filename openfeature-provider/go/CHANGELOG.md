@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.13.0...openfeature-provider/go/v0.13.1) (2026-03-26)
+
+
+### Bug Fixes
+
+* increase max batch resolve limit to 260 ([#358](https://github.com/spotify/confidence-resolver/issues/358)) ([1792089](https://github.com/spotify/confidence-resolver/commit/179208935a4ba74f9b6a9356bbc7fd299cfb5e23))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.20 to 0.1.21
+
 ## [0.13.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.12.0...openfeature-provider/go/v0.13.0) (2026-03-24)
 
 

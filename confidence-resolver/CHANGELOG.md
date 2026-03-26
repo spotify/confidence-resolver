@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.15.0...confidence_resolver-v0.15.1) (2026-03-26)
+
+
+### Bug Fixes
+
+* increase max batch resolve limit to 260 ([#358](https://github.com/spotify/confidence-resolver/issues/358)) ([1792089](https://github.com/spotify/confidence-resolver/commit/179208935a4ba74f9b6a9356bbc7fd299cfb5e23))
+
 ## [0.15.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.14.0...confidence_resolver-v0.15.0) (2026-03-24)
 
 
