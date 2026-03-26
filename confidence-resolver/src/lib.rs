@@ -5008,26 +5008,39 @@ mod tests {
 
     #[test]
     fn test_resolve_exceeding_max_flags_returns_error() {
-        let mut state = ResolverState::from_proto(
-            EXAMPLE_STATE.to_owned().try_into().unwrap(),
-            "confidence-demo-june",
-            None,
-        )
-        .unwrap();
-
-        // Grab an existing flag to use as a template
-        let template_flag = state.flags.values().next().unwrap().clone();
-        let client_name = template_flag.clients.first().unwrap().clone();
-
-        // Insert enough flags to exceed MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE
+        let mut flags = HashMap::new();
         let total_needed = MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE + 1;
-        state.flags.clear();
         for i in 0..total_needed {
-            let mut flag = template_flag.clone();
-            flag.name = format!("flags/generated-flag-{}", i);
-            flag.clients = vec![client_name.clone()];
-            state.flags.insert(flag.name.clone(), flag);
+            let flag_name = format!("flags/generated-flag-{}", i);
+            let flag: Flag = serde_json::from_value(serde_json::json!({
+                "name": flag_name,
+                "state": "ACTIVE",
+                "variants": [],
+                "clients": ["clients/test"],
+                "rules": []
+            }))
+            .unwrap();
+            flags.insert(flag.name.clone(), flag);
         }
+
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            SECRET.to_string(),
+            Client {
+                account: Account::new("accounts/test"),
+                client_name: "clients/test".to_string(),
+                client_credential_name: "clients/test/clientCredentials/test".to_string(),
+                environments: vec![],
+            },
+        );
+
+        let state = ResolverState {
+            secrets,
+            flags,
+            segments: HashMap::new(),
+            bitsets: HashMap::new(),
+            sdk: None,
+        };
 
         let context_json = r#"{"visitor_id": "some-visitor"}"#;
         let resolver: AccountResolver<'_, L> = state
