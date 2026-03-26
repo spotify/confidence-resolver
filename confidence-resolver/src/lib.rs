@@ -23,7 +23,7 @@ const BUCKETS: u64 = 1_000_000;
 const TARGETING_KEY: &str = "targeting_key";
 const NULL: Value = Value { kind: None };
 
-const MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE: usize = 200;
+const MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE: usize = 260;
 
 /// Seeds the thread-local random number generator.
 ///
@@ -5003,6 +5003,52 @@ mod tests {
             resolved_value.reason(),
             ResolveReason::NoSegmentMatch,
             "Partial bitset with no unit should NOT match (can't hash unit into bitset)"
+        );
+    }
+
+    #[test]
+    fn test_resolve_exceeding_max_flags_returns_error() {
+        let mut state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        // Grab an existing flag to use as a template
+        let template_flag = state.flags.values().next().unwrap().clone();
+        let client_name = template_flag.clients.first().unwrap().clone();
+
+        // Insert enough flags to exceed MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE
+        let total_needed = MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE + 1;
+        state.flags.clear();
+        for i in 0..total_needed {
+            let mut flag = template_flag.clone();
+            flag.name = format!("flags/generated-flag-{}", i);
+            flag.clients = vec![client_name.clone()];
+            state.flags.insert(flag.name.clone(), flag);
+        }
+
+        let context_json = r#"{"visitor_id": "some-visitor"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec![], // empty = resolve all
+            apply: false,
+            sdk: None,
+        };
+
+        let result = resolver.resolve_flags_no_materialization(&resolve_flag_req);
+        assert!(result.is_err(), "Should fail when exceeding max flags");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains(&MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE.to_string()),
+            "Error should mention the max limit, got: {}",
+            err
         );
     }
 }
