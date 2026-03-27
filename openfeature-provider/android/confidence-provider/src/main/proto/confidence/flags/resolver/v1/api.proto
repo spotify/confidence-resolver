@@ -1,0 +1,183 @@
+syntax = "proto3";
+
+package confidence.flags.resolver.v1;
+
+import "google/api/resource.proto";
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+import "confidence/api/annotations.proto";
+import "confidence/flags/types/v1/types.proto";
+import "confidence/flags/resolver/v1/types.proto";
+
+option java_package = "com.spotify.confidence.flags.resolver.v1";
+option java_multiple_files = true;
+option java_outer_classname = "ApiProto";
+
+// The service that allows a client to resolve a flag into a variant and its
+// corresponding value.
+service FlagResolverService {
+  option (confidence.api.service_name) = "Resolver";
+  option (confidence.api.hosts) = "resolver.eu.confidence.dev";
+  option (confidence.api.hosts) = "resolver.us.confidence.dev";
+
+  // Resolve multiple flags into variants and values. This method resolves
+  // all flags that are enabled for the given client, or a subset of them
+  // specified in the request.
+  // A flag is resolved by evaluating its rules in order, a rule matches if:
+  // 1) it is enabled, 2) the referred segment is active, and 3) the
+  // randomization unit is in the population indicated by the segment's
+  // targeting criteria and population allocation. The first rule that matches
+  // will assign a variant and value to the unit. Archived flags are not included.
+  rpc ResolveFlags(ResolveFlagsRequest) returns (ResolveFlagsResponse) {
+    option (google.api.http) = {
+      post: "/v1/flags:resolve"
+      body: "*"
+    };
+    option (confidence.api.resource_method).type = "flags.confidence.dev/Flag";
+  }
+
+  // Indicates that resolved values of a set of flags have been used. In many
+  // situations there is a delay between the moment a flag is resolved and
+  // when it is actually used in a client. This is often the case in mobile
+  // clients where you typically batch resolve all flags at startup, but then
+  // apply them later when the user interacts with a specific view. If the
+  // `apply` flag is set to false in a resolve, the flag assignment event is
+  // delayed until the flag is applied.
+  rpc ApplyFlags(ApplyFlagsRequest) returns (ApplyFlagsResponse) {
+    option (google.api.http) = {
+      post: "/v1/flags:apply"
+      body: "*"
+    };
+    option (confidence.api.resource_method).type = "flags.confidence.dev/Flag";
+  }
+}
+
+message ResolveFlagsRequest {
+  // If non-empty, the specific flags are resolved, otherwise all flags
+  // available to the client will be resolved.
+  repeated string flags = 1 [
+    (google.api.resource_reference).type = "flags.confidence.dev/Flag",
+    (google.api.field_behavior) = OPTIONAL
+  ];
+
+  // An object that contains data used in the flag resolve. For example,
+  // the targeting key e.g. the id of the randomization unit, other attributes
+  // like country or version that are used for targeting.
+  google.protobuf.Struct evaluation_context = 2 [
+    (google.api.field_behavior) = OPTIONAL
+  ];
+
+  // Credentials for the client. It is used to identify the client and find
+  // the flags that are available to it.
+  string client_secret = 3 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Determines whether the flags should be applied directly as part of the
+  // resolve, or delayed until `ApplyFlag` is called. A flag is typically
+  // applied when it is used, if this occurs much later than the resolve, then
+  // `apply` should likely be set to false.
+  bool apply = 4 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Information about the SDK used to initiate the request.
+  Sdk sdk = 5 [
+    (google.api.field_behavior) = OPTIONAL
+  ];
+}
+
+message ResolveFlagsResponse {
+  // The list of all flags that could be resolved. Note: if any flag was
+  // archived it will not be included in this list.
+  repeated ResolvedFlag resolved_flags = 1;
+
+  // An opaque token that is used when `apply` is set to false in `ResolveFlags`.
+  // When `apply` is set to false, the token must be passed to `ApplyFlags`.
+  bytes resolve_token = 2;
+
+  // Unique identifier for this particular resolve request.
+  string resolve_id = 3;
+}
+
+message ApplyFlagsRequest {
+  // The flags to apply and information about when they were applied.
+  repeated AppliedFlag flags = 1 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Credentials for the client.
+  string client_secret = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // An opaque token that was returned from `ResolveFlags`; it must be set.
+  bytes resolve_token = 3 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+
+  // The client time when the this request was sent, used for correcting
+  // clock skew from the client.
+  google.protobuf.Timestamp send_time = 4 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Information about the SDK used to initiate the request.
+  Sdk sdk = 5 [
+    (google.api.field_behavior) = OPTIONAL
+  ];
+}
+
+message ApplyFlagsResponse {
+
+}
+
+message AppliedFlag {
+  // The id of the flag that should be applied, has the format `flags/*`.
+  string flag = 1 [
+    (google.api.resource_reference).type = "flags.confidence.dev/Flag",
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  // The client time when the flag was applied.
+  google.protobuf.Timestamp apply_time = 2 [
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message ResolvedFlag {
+  // The id of the flag that as resolved.
+  string flag = 1 [
+    (google.api.resource_reference).type = "flags.confidence.dev/Flag"
+  ];
+
+  // The id of the resolved variant has the format `flags/abc/variants/xyz`.
+  string variant = 2 [
+    (google.api.resource_reference).type = "flags.confidence.dev/Variant"
+  ];
+
+  // The value corresponding to the variant. It will always be a json object,
+  // for example `{ "color": "red", "size": 12 }`.
+  google.protobuf.Struct value = 3;
+
+  // The schema of the value that was returned. For example:
+  // ```
+  // {
+  //    "schema": {
+  //      "color": { "stringSchema": {} },
+  //      "size": { "intSchema": {} }
+  //    }
+  // }
+  // ```
+  types.v1.FlagSchema.StructFlagSchema flag_schema = 4;
+
+  // The reason to why the flag could be resolved or not.
+  ResolveReason reason = 5;
+
+  // Determines whether the flag should be applied in the clients
+ bool should_apply = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
