@@ -2031,6 +2031,41 @@
           }
         }
       ]
+    },
+    "flags/mat-same-variant-flag": {
+      "name": "flags/mat-same-variant-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/mat-same-variant-flag/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": {
+            "readMaterialization": "materializations/mat1",
+            "writeMaterialization": "materializations/mat1"
+          },
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 500 }]
+              },
+              {
+                "assignmentId": "a2",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 500, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
     }
   },
   "segments": {
