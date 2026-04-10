@@ -23,7 +23,7 @@ const BUCKETS: u64 = 1_000_000;
 const TARGETING_KEY: &str = "targeting_key";
 const NULL: Value = Value { kind: None };
 
-const MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE: usize = 260;
+const MAX_NO_OF_FLAGS_TO_BATCH_RESOLVE: usize = 1000;
 
 /// Seeds the thread-local random number generator.
 ///
