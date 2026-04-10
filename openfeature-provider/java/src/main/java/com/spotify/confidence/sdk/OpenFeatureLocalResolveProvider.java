@@ -49,6 +49,38 @@ import org.slf4j.Logger;
  */
 @Experimental
 public class OpenFeatureLocalResolveProvider implements FeatureProvider {
+
+  // The shaded package prefix used by the maven-shade-plugin relocation rules.
+  private static final String SHADED_PREFIX = "com.spotify.confidence.sdk.shaded";
+
+  /**
+   * Suppress DEBUG-level logging from shaded gRPC/Netty internals.
+   *
+   * <p>gRPC logs {@link ClassNotFoundException} at DEBUG when probing for optional classes (e.g.
+   * {@code ContextStorageOverride}, {@code JndiResourceResolverFactory}). These are expected and
+   * handled gracefully, but produce alarming stack traces when DEBUG logging is enabled.
+   *
+   * <p>Since these packages are relocated to {@code com.spotify.confidence.sdk.shaded.*}, users
+   * cannot easily configure them in their logging framework. We set the JUL level to INFO to
+   * prevent this noise from reaching the application's logging pipeline via the JUL-to-SLF4J
+   * bridge.
+   *
+   * <p>This only affects the shaded logger hierarchy — the application's own {@code io.grpc}
+   * loggers are not impacted.
+   *
+   * <p>The field also serves as a strong reference to prevent the JUL {@link
+   * java.util.logging.Logger} from being garbage-collected (JUL uses weak references internally).
+   */
+  @SuppressWarnings("unused")
+  private static final java.util.logging.Logger SHADED_GRPC_LOGGER = initShadedGrpcLogging();
+
+  private static java.util.logging.Logger initShadedGrpcLogging() {
+    java.util.logging.Logger logger =
+        java.util.logging.Logger.getLogger(SHADED_PREFIX + ".io.grpc");
+    logger.setLevel(java.util.logging.Level.INFO);
+    return logger;
+  }
+
   private final String clientSecret;
   private static final Logger log =
       org.slf4j.LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
