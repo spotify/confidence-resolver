@@ -74,27 +74,11 @@ class WasmResolver:
         """Register host functions that can be called from WASM."""
 
         def current_time(ptr: int) -> int:
-            """Host function to return current timestamp."""
-            # Free the request allocated by the WASM guest
-            if ptr != 0:
-                self._wasm_msg_free(self._store, ptr)
-            try:
-                # Create timestamp from current time
-                now = datetime.now()
-                timestamp = Timestamp()
-                timestamp.FromDatetime(now)
-
-                # Create response wrapper with timestamp data
-                response = messages_pb2.Response()
-                response.data = timestamp.SerializeToString()
-
-                # Transfer response to WASM memory
-                return self._transfer(response.SerializeToString())
-            except Exception as e:
-                # Return error response
-                error_response = messages_pb2.Response()
-                error_response.error = str(e)
-                return self._transfer(error_response.SerializeToString())
+            self._consume_request(ptr)
+            now = datetime.now()
+            timestamp = Timestamp()
+            timestamp.FromDatetime(now)
+            return self._transfer_response_success(timestamp.SerializeToString())
 
         # Create function type: takes one i32 parameter, returns one i32
         func_type = FuncType([ValType.i32()], [ValType.i32()])
@@ -244,6 +228,27 @@ class WasmResolver:
         self._memory.write(self._store, data, ptr)
 
         return ptr
+
+    def _consume_request(self, addr: int) -> bytes:
+        """Consume a wasm-msg Request envelope from WASM memory (read + free)."""
+        if addr == 0:
+            return b""
+        data = self._consume(addr)
+        request = messages_pb2.Request()
+        request.ParseFromString(data)
+        return request.data
+
+    def _transfer_response_success(self, data: bytes) -> int:
+        """Wrap data in a wasm-msg Response and transfer to WASM memory."""
+        response = messages_pb2.Response()
+        response.data = data
+        return self._transfer(response.SerializeToString())
+
+    def _transfer_response_error(self, error: str) -> int:
+        """Wrap an error in a wasm-msg Response and transfer to WASM memory."""
+        response = messages_pb2.Response()
+        response.error = error
+        return self._transfer(response.SerializeToString())
 
     def _consume_response(
         self, addr: int, target: Optional[protobuf_message.Message]

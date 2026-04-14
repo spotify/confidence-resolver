@@ -2,15 +2,13 @@ package local_resolver
 
 import (
 	"context"
+	_ "embed"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
-	"time"
-
-	_ "embed"
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 
@@ -144,29 +142,34 @@ type WasmResolverFactory struct {
 
 var _ LocalResolverFactory = (*WasmResolverFactory)(nil)
 
+func consumeRequest(inst api.Module, ptr uint32) []byte {
+	if ptr == 0 {
+		return nil
+	}
+	data := consume(inst, ptr)
+	req := &wasm.Request{}
+	mustUnmarshal(data, req)
+	return req.GetData()
+}
+
+func transferResponseSuccess(inst api.Module, data []byte) uint32 {
+	resp := &wasm.Response{Result: &wasm.Response_Data{Data: data}}
+	return transfer(inst, mustMarshal(resp))
+}
+
+func transferResponseError(inst api.Module, errMsg string) uint32 {
+	resp := &wasm.Response{Result: &wasm.Response_Error{Error: errMsg}}
+	return transfer(inst, mustMarshal(resp))
+}
+
 func NewWasmResolverFactory(logSink LogSink) LocalResolverFactory {
 	ctx := context.Background()
 	runtime := wazero.NewRuntime(ctx)
 	_, err := runtime.NewHostModuleBuilder("wasm_msg").
 		NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, mod api.Module, ptr uint32) uint32 {
-			// Free the request allocated by the WASM guest
-			if ptr != 0 {
-				consume(mod, ptr)
-			}
-
-			// Return current timestamp
-			now := time.Now()
-			timestamp := timestamppb.New(now)
-
-			// Create response wrapper
-			response := &wasm.Response{
-				Result: &wasm.Response_Data{
-					Data: mustMarshal(timestamp),
-				},
-			}
-
-			return transfer(mod, mustMarshal(response))
+			consumeRequest(mod, ptr)
+			return transferResponseSuccess(mod, mustMarshal(timestamppb.Now()))
 		}).
 		Export("wasm_msg_host_current_time").
 		Instantiate(ctx)
