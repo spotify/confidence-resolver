@@ -59,12 +59,12 @@ export class UnsafeWasmResolver implements LocalResolver {
   constructor(module: WebAssembly.Module) {
     const imports = {
       wasm_msg: {
-        wasm_msg_host_current_time: () => {
+        wasm_msg_host_current_time: (requestPtr: number) => {
+          this.consumeRequest(requestPtr);
           const epochMs = performance.timeOrigin + performance.now();
           const seconds = Math.floor(epochMs / 1000);
           const nanos = Math.round((epochMs - seconds * 1000) * 1_000_000);
-          const ptr = this.transferRequest({ seconds, nanos }, Timestamp);
-          return ptr;
+          return this.transferResponseSuccess({ seconds, nanos }, Timestamp);
         },
       },
     };
@@ -119,6 +119,21 @@ export class UnsafeWasmResolver implements LocalResolver {
     const reqPtr = this.transferRequest({ instance }, PrometheusSnapshotRequest);
     const resPtr = this.exports.wasm_msg_guest_prometheus_snapshot(reqPtr);
     return this.consumeResponse(resPtr, PrometheusSnapshotResponse).text;
+  }
+
+  private consumeRequest(ptr: number): Uint8Array | undefined {
+    if (ptr === 0) return undefined;
+    const { data }: Request = this.consume(ptr, Request);
+    return data;
+  }
+
+  private transferResponseSuccess<T>(value: T, codec: Codec<T>): number {
+    const data = codec.encode(value).finish();
+    return this.transfer({ data }, Response);
+  }
+
+  private transferResponseError(error: string): number {
+    return this.transfer({ error }, Response);
   }
 
   private transferRequest<T>(value: T, codec: Codec<T>): number {
