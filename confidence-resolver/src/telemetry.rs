@@ -188,8 +188,13 @@ impl TelemetrySnapshot {
         } else {
             config.buckets_per_decade.clamp(1, 18) as usize
         };
+        // Ceiling division: emit at most bpd buckets per decade.
         // bpd is in 1..=18, so checked_div cannot return None.
-        let stride = 18usize.checked_div(bpd).unwrap_or(1);
+        let stride = 18usize
+            .saturating_add(bpd)
+            .saturating_sub(1)
+            .checked_div(bpd)
+            .unwrap_or(1);
 
         writeln!(
             w,
