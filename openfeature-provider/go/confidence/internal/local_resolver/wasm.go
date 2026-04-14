@@ -150,6 +150,11 @@ func NewWasmResolverFactory(logSink LogSink) LocalResolverFactory {
 	_, err := runtime.NewHostModuleBuilder("wasm_msg").
 		NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, mod api.Module, ptr uint32) uint32 {
+			// Free the request allocated by the WASM guest
+			if ptr != 0 {
+				consume(mod, ptr)
+			}
+
 			// Return current timestamp
 			now := time.Now()
 			timestamp := timestamppb.New(now)

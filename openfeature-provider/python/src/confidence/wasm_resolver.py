@@ -75,6 +75,9 @@ class WasmResolver:
 
         def current_time(ptr: int) -> int:
             """Host function to return current timestamp."""
+            # Free the request allocated by the WASM guest
+            if ptr != 0:
+                self._wasm_msg_free(self._store, ptr)
             try:
                 # Create timestamp from current time
                 now = datetime.now()

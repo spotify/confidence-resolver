@@ -162,6 +162,18 @@ class TestFlushAssigned:
 class TestMemoryManagement:
     """Test memory allocation and deallocation."""
 
+    @staticmethod
+    def _build_request(client_secret: str) -> wasm_api_pb2.ResolveProcessRequest:
+        resolve_request = api_pb2.ResolveFlagsRequest()
+        resolve_request.flags.append(TEST_FLAG_NAME)
+        resolve_request.client_secret = client_secret
+        evaluation_context = struct_pb2.Struct()
+        evaluation_context.fields["targeting_key"].string_value = "user-123"
+        resolve_request.evaluation_context.CopyFrom(evaluation_context)
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
+        return request
+
     def test_multiple_resolves_dont_leak_memory(
         self,
         wasm_bytes: bytes,
@@ -169,22 +181,33 @@ class TestMemoryManagement:
         test_account_id: str,
         test_client_secret: str,
     ) -> None:
-        """Multiple resolves don't cause memory issues."""
+        """WASM memory must not grow on repeated resolves.
+
+        Each resolve_flags call triggers a current_time() host call which
+        allocates a request in WASM memory. If the host doesn't free it,
+        memory leaks ~20 bytes per call and eventually forces memory.grow.
+        """
         resolver = WasmResolver(wasm_bytes)
         resolver.set_resolver_state(test_resolver_state, test_account_id)
+        request = self._build_request(test_client_secret)
 
-        for i in range(100):
-            resolve_request = api_pb2.ResolveFlagsRequest()
-            resolve_request.flags.append(TEST_FLAG_NAME)
-            resolve_request.client_secret = test_client_secret
-            evaluation_context = struct_pb2.Struct()
-            evaluation_context.fields["targeting_key"].string_value = f"user-{i}"
-            resolve_request.evaluation_context.CopyFrom(evaluation_context)
-
-            request = wasm_api_pb2.ResolveProcessRequest()
-            request.deferred_materializations.CopyFrom(resolve_request)
+        # Warm up to settle one-time allocations
+        for i in range(50_000):
             resolver.resolve_process(request)
+            if i % 1000 == 0:
+                resolver.flush_logs()
 
-        # Should complete without issues
-        logs = resolver.flush_logs()
-        assert isinstance(logs, bytes)
+        pages_before = resolver._memory.size(resolver._store)
+
+        for i in range(50_000):
+            resolver.resolve_process(request)
+            if i % 1000 == 0:
+                resolver.flush_logs()
+
+        pages_after = resolver._memory.size(resolver._store)
+
+        assert pages_after == pages_before, (
+            f"WASM memory grew from {pages_before} to {pages_after} pages "
+            f"({(pages_after - pages_before) * 65536} bytes leaked) — "
+            f"host function is not freeing guest request allocations"
+        )

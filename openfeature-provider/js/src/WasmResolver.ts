@@ -59,7 +59,11 @@ export class UnsafeWasmResolver implements LocalResolver {
   constructor(module: WebAssembly.Module) {
     const imports = {
       wasm_msg: {
-        wasm_msg_host_current_time: () => {
+        wasm_msg_host_current_time: (requestPtr: number) => {
+          // Free the request allocated by the WASM guest
+          if (requestPtr !== 0) {
+            this.free(requestPtr);
+          }
           const epochMs = performance.timeOrigin + performance.now();
           const seconds = Math.floor(epochMs / 1000);
           const nanos = Math.round((epochMs - seconds * 1000) * 1_000_000);
