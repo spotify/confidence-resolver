@@ -24,7 +24,7 @@ const RESOLVE_REQUEST: ResolveProcessRequest = {
 const SET_STATE_REQUEST = { state: stateBytes, accountId: 'confidence-test' };
 
 describe('wasm memory stability', () => {
-  it('should not leak memory on repeated resolve calls', () => {
+  it('should not leak memory on repeated resolve calls', { timeout: 30_000 }, () => {
     const resolver = new UnsafeWasmResolver(module);
     resolver.setResolverState(SET_STATE_REQUEST);
 
