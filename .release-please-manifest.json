@@ -3,10 +3,10 @@
   "confidence-cloudflare-resolver": "0.6.5",
   "wasm-msg": "0.2.1",
   "wasm/rust-guest": "0.1.21",
-  "openfeature-provider/java": "0.14.1",
-  "openfeature-provider/js": "0.11.1",
-  "openfeature-provider/go": "0.13.1",
+  "openfeature-provider/java": "0.14.2",
+  "openfeature-provider/js": "0.11.2",
+  "openfeature-provider/go": "0.13.2",
   "openfeature-provider/ruby": "0.1.3",
   "openfeature-provider/rust": "0.5.1",
-  "openfeature-provider/python": "0.6.1"
+  "openfeature-provider/python": "0.6.2"
 }
