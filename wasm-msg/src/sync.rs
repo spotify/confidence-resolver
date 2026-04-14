@@ -27,6 +27,9 @@ where
 {
     let input_ptr = message::transfer_request(request);
     let output_ptr = unsafe { host_func(input_ptr) };
+    // Free the request we allocated — the host has already read it.
+    // This mirrors call_sync_guest which frees its input via consume_request.
+    crate::memory::wasm_msg_free(input_ptr);
     if output_ptr.is_null() {
         return Err(String::from("Host function returned null pointer"));
     }

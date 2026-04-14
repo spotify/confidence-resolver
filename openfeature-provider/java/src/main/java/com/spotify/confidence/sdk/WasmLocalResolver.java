@@ -284,7 +284,9 @@ class WasmLocalResolver implements LocalResolver {
 
   private <T extends Message> T consumeRequest(int addr, ParserFn<T> codec) {
     try {
-      final Messages.Request request = Messages.Request.parseFrom(consume(addr));
+      // Read without freeing — the WASM guest frees its own request allocation
+      // in call_sync_host after the host function returns.
+      final Messages.Request request = Messages.Request.parseFrom(readBytes(addr));
       return codec.apply(request.getData().toByteArray());
     } catch (InvalidProtocolBufferException e) {
       throw new RuntimeException(e);
@@ -307,6 +309,12 @@ class WasmLocalResolver implements LocalResolver {
     final byte[] wrapperBytes =
         Messages.Response.newBuilder().setError(error).build().toByteArray();
     return transfer(wrapperBytes);
+  }
+
+  private byte[] readBytes(int addr) {
+    final Memory mem = instance.memory();
+    final int len = (int) (mem.readU32(addr - 4) - 4L);
+    return mem.readBytes(addr, len);
   }
 
   private byte[] consume(int addr) {
