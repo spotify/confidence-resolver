@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.11.1...openfeature-provider-js-v0.11.2) (2026-04-14)
+
+
+### Bug Fixes
+
+* free WASM guest request allocation in host functions ([#369](https://github.com/spotify/confidence-resolver/issues/369)) ([dd7ddac](https://github.com/spotify/confidence-resolver/commit/dd7ddac4e22e895c7b08b09064c9dc8bab54c716))
+
 ## [0.11.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.11.0...openfeature-provider-js-v0.11.1) (2026-03-26)
 
 
