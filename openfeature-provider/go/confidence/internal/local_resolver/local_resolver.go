@@ -24,7 +24,10 @@ type LocalResolver interface {
 	ApplyFlags(*resolver.ApplyFlagsRequest) error
 	FlushAllLogs() error
 	FlushAssignLogs() error
-	PrometheusSnapshot() string
+	// PrometheusSnapshot returns Prometheus/OpenMetrics text-format metrics.
+	// bucketsPerDecade controls histogram bucket density (1-18, 0 = default 18).
+	// openmetrics switches output to OpenMetrics text format.
+	PrometheusSnapshot(bucketsPerDecade uint32, openmetrics bool) string
 	Close(context.Context) error
 }
 

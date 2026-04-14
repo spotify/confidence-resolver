@@ -194,7 +194,11 @@ wasm_msg_guest! {
     }
 
     fn prometheus_snapshot(request: proto::PrometheusSnapshotRequest) -> WasmResult<proto::PrometheusSnapshotResponse> {
-        let text = TELEMETRY.snapshot().to_prometheus(&request.instance);
+        let config = confidence_resolver::telemetry::PrometheusConfig {
+            buckets_per_decade: request.buckets_per_decade,
+            openmetrics: request.openmetrics,
+        };
+        let text = TELEMETRY.snapshot().to_prometheus(&request.instance, &config);
         Ok(proto::PrometheusSnapshotResponse { text })
     }
 

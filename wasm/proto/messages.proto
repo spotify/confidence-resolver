@@ -41,6 +41,8 @@ message Response {
 
 message PrometheusSnapshotRequest {
     string instance = 1;
+    uint32 buckets_per_decade = 2;
+    bool openmetrics = 3;
 }
 
 message PrometheusSnapshotResponse {

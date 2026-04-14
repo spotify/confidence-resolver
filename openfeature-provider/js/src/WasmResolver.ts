@@ -116,7 +116,10 @@ export class UnsafeWasmResolver implements LocalResolver {
   }
 
   prometheusSnapshot(instance: string): string {
-    const reqPtr = this.transferRequest({ instance }, PrometheusSnapshotRequest);
+    const reqPtr = this.transferRequest(
+      { instance, bucketsPerDecade: 0, openmetrics: false },
+      PrometheusSnapshotRequest,
+    );
     const resPtr = this.exports.wasm_msg_guest_prometheus_snapshot(reqPtr);
     return this.consumeResponse(resPtr, PrometheusSnapshotResponse).text;
   }

@@ -499,7 +499,7 @@ func (m *mockResolverAPIForInit) FlushAssignLogs() error {
 	return nil
 }
 
-func (m *mockResolverAPIForInit) PrometheusSnapshot() string {
+func (m *mockResolverAPIForInit) PrometheusSnapshot(_ uint32, _ bool) string {
 	return ""
 }
 

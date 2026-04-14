@@ -27,7 +27,7 @@ func (m *mockResolver) RegisterResolve(*wasm.RegisterResolveRequest) {}
 func (m *mockResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error { return nil }
 func (m *mockResolver) FlushAllLogs() error                          { return nil }
 func (m *mockResolver) FlushAssignLogs() error                       { return nil }
-func (m *mockResolver) PrometheusSnapshot() string                   { return "" }
+func (m *mockResolver) PrometheusSnapshot(_ uint32, _ bool) string   { return "" }
 func (m *mockResolver) Close(context.Context) error                  { return nil }
 
 // mockFactory returns a panicking mockResolver on the first call and

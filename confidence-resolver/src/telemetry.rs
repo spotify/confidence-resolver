@@ -119,6 +119,28 @@ pub struct HistogramSnapshot {
     pub buckets: Vec<u64>,
 }
 
+/// Configuration for Prometheus text format rendering.
+pub struct PrometheusConfig {
+    /// Number of histogram buckets per decimal order of magnitude.
+    /// The internal histogram always stores 174 buckets (18 per decade).
+    /// This controls how many are emitted in the text output by striding.
+    /// Valid range: 1..=18. Values outside this range are clamped.
+    /// A value of 0 is treated as the default (18 — no striding).
+    pub buckets_per_decade: u32,
+    /// When true, emit OpenMetrics text format instead of Prometheus exposition format.
+    /// Differences: integer values rendered as floats, `# EOF` appended.
+    pub openmetrics: bool,
+}
+
+impl Default for PrometheusConfig {
+    fn default() -> Self {
+        PrometheusConfig {
+            buckets_per_decade: 18,
+            openmetrics: false,
+        }
+    }
+}
+
 impl TelemetrySnapshot {
     /// Format the snapshot as Prometheus exposition text.
     ///
@@ -126,70 +148,122 @@ impl TelemetrySnapshot {
     /// The histogram uses cumulative `le` buckets derived from the exponential
     /// bucket boundaries.
     ///
-    /// `instance` is included as an `instance="..."` label on every metric,
+    /// `resolver_id` is included as a `resolver_id="..."` label on every metric,
     /// allowing outputs from multiple WASM instances to be concatenated into
     /// a single scrape endpoint.
-    pub fn to_prometheus(&self, instance: &str) -> String {
+    pub fn to_prometheus(&self, resolver_id: &str, config: &PrometheusConfig) -> String {
         let mut out = String::new();
         // fmt::Write for String is infallible; ignore the Ok.
-        let _ = self.write_prometheus(&mut out, instance);
+        let _ = self.write_prometheus(&mut out, resolver_id, config);
         out
     }
 
-    fn write_prometheus(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
-        self.write_histogram(w, instance)?;
-        self.write_resolve_rates(w, instance)?;
-        self.write_memory(w, instance)
+    fn write_prometheus(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
+        self.write_histogram(w, resolver_id, config)?;
+        self.write_resolve_rates(w, resolver_id, config)?;
+        self.write_memory(w, resolver_id, config)?;
+        if config.openmetrics {
+            writeln!(w, "# EOF")?;
+        }
+        Ok(())
     }
 
-    fn write_histogram(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
+    fn write_histogram(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
         if self.latency.count == 0 {
             return Ok(());
         }
 
+        let bpd = if config.buckets_per_decade == 0 {
+            18usize
+        } else {
+            config.buckets_per_decade.clamp(1, 18) as usize
+        };
+        // bpd is in 1..=18, so checked_div cannot return None.
+        let stride = 18usize.checked_div(bpd).unwrap_or(1);
+
+        writeln!(
+            w,
+            "# HELP confidence_resolve_latency_microseconds Latency of flag resolve operations in microseconds."
+        )?;
         writeln!(
             w,
             "# TYPE confidence_resolve_latency_microseconds histogram"
         )?;
 
         let mut cumulative: u64 = 0;
+        // Track the next bucket index to emit (stride-1, stride*2-1, ...).
+        // Advance next_emit at every stride boundary regardless of data;
+        // only skip the actual write when cumulative is still zero.
+        let mut next_emit = stride.wrapping_sub(1);
+        // OpenMetrics requires integer values to be rendered as floats.
+        let suffix = if config.openmetrics { ".0" } else { "" };
         for (i, &count) in self.latency.buckets.iter().enumerate() {
             cumulative = cumulative.wrapping_add(count);
+            if i != next_emit {
+                continue;
+            }
+            next_emit = next_emit.saturating_add(stride);
             if cumulative == 0 {
                 continue;
             }
             let upper = ((i as f64 + 1.0) * LN_RATIO).exp();
             writeln!(
                 w,
-                "confidence_resolve_latency_microseconds_bucket{{instance=\"{instance}\",le=\"{upper:.6e}\"}} {cumulative}"
+                "confidence_resolve_latency_microseconds_bucket{{resolver_id=\"{resolver_id}\",le=\"{upper:.6e}\"}} {cumulative}{suffix}"
             )?;
         }
         writeln!(
             w,
-            "confidence_resolve_latency_microseconds_bucket{{instance=\"{instance}\",le=\"+Inf\"}} {}",
+            "confidence_resolve_latency_microseconds_bucket{{resolver_id=\"{resolver_id}\",le=\"+Inf\"}} {}{suffix}",
             self.latency.count
         )?;
         writeln!(
             w,
-            "confidence_resolve_latency_microseconds_sum{{instance=\"{instance}\"}} {}",
+            "confidence_resolve_latency_microseconds_sum{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
             self.latency.sum
         )?;
         writeln!(
             w,
-            "confidence_resolve_latency_microseconds_count{{instance=\"{instance}\"}} {}",
+            "confidence_resolve_latency_microseconds_count{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
             self.latency.count
         )?;
 
         Ok(())
     }
 
-    fn write_resolve_rates(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
+    fn write_resolve_rates(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
         let has_any = self.resolve_rates.iter().any(|&c| c > 0);
         if !has_any {
             return Ok(());
         }
 
-        writeln!(w, "# TYPE confidence_resolves_total counter")?;
+        let suffix = if config.openmetrics { ".0" } else { "" };
+        // OpenMetrics: TYPE/HELP use the base name; sample lines keep _total.
+        let type_name = if config.openmetrics {
+            "confidence_resolves"
+        } else {
+            "confidence_resolves_total"
+        };
+        writeln!(
+            w,
+            "# HELP {type_name} Total number of flag resolve operations."
+        )?;
+        writeln!(w, "# TYPE {type_name} counter")?;
         for (i, &count) in self.resolve_rates.iter().enumerate() {
             if count == 0 {
                 continue;
@@ -199,21 +273,31 @@ impl TelemetrySnapshot {
                 .unwrap_or("UNKNOWN");
             writeln!(
                 w,
-                "confidence_resolves_total{{instance=\"{instance}\",reason=\"{label}\"}} {count}"
+                "confidence_resolves_total{{resolver_id=\"{resolver_id}\",reason=\"{label}\"}} {count}{suffix}"
             )?;
         }
 
         Ok(())
     }
 
-    fn write_memory(&self, w: &mut dyn fmt::Write, instance: &str) -> fmt::Result {
+    fn write_memory(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
         if self.memory_bytes == 0 {
             return Ok(());
         }
+        let suffix = if config.openmetrics { ".0" } else { "" };
+        writeln!(
+            w,
+            "# HELP confidence_memory_bytes Current memory usage of the resolver in bytes."
+        )?;
         writeln!(w, "# TYPE confidence_memory_bytes gauge")?;
         writeln!(
             w,
-            "confidence_memory_bytes{{instance=\"{instance}\"}} {}",
+            "confidence_memory_bytes{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
             self.memory_bytes
         )
     }
@@ -633,7 +717,7 @@ mod tests {
     #[test]
     fn prometheus_empty_snapshot() {
         let snap = TelemetrySnapshot::default();
-        assert_eq!(snap.to_prometheus("w0"), "");
+        assert_eq!(snap.to_prometheus("w0", &PrometheusConfig::default()), "");
     }
 
     #[test]
@@ -645,25 +729,32 @@ mod tests {
         tel.mark_resolve(ResolveReason::Match);
         tel.mark_resolve(ResolveReason::NoSegmentMatch);
 
-        let prom = tel.snapshot().to_prometheus("w0");
+        let config = PrometheusConfig::default();
+        let prom = tel.snapshot().to_prometheus("w0", &config);
 
-        // Histogram header
+        // HELP and TYPE headers
+        assert!(prom.contains("# HELP confidence_resolve_latency_microseconds"));
         assert!(prom.contains("# TYPE confidence_resolve_latency_microseconds histogram"));
-        // Must have +Inf bucket with instance label
+        // Must have +Inf bucket with resolver_id label
         assert!(prom.contains(
-            r#"confidence_resolve_latency_microseconds_bucket{instance="w0",le="+Inf"} 2"#
+            r#"confidence_resolve_latency_microseconds_bucket{resolver_id="w0",le="+Inf"} 2"#
         ));
-        // Sum and count with instance label
-        assert!(prom.contains(r#"confidence_resolve_latency_microseconds_sum{instance="w0"} 600"#));
-        assert!(prom.contains(r#"confidence_resolve_latency_microseconds_count{instance="w0"} 2"#));
+        // Sum and count with resolver_id label
+        assert!(
+            prom.contains(r#"confidence_resolve_latency_microseconds_sum{resolver_id="w0"} 600"#)
+        );
+        assert!(
+            prom.contains(r#"confidence_resolve_latency_microseconds_count{resolver_id="w0"} 2"#)
+        );
 
-        // Counters with instance label
+        // Counters with resolver_id label
+        assert!(prom.contains("# HELP confidence_resolves_total"));
         assert!(prom.contains("# TYPE confidence_resolves_total counter"));
         assert!(prom.contains(
-            r#"confidence_resolves_total{instance="w0",reason="RESOLVE_REASON_MATCH"} 2"#
+            r#"confidence_resolves_total{resolver_id="w0",reason="RESOLVE_REASON_MATCH"} 2"#
         ));
         assert!(prom.contains(
-            r#"confidence_resolves_total{instance="w0",reason="RESOLVE_REASON_NO_SEGMENT_MATCH"} 1"#
+            r#"confidence_resolves_total{resolver_id="w0",reason="RESOLVE_REASON_NO_SEGMENT_MATCH"} 1"#
         ));
         // Zero-count reasons should be omitted
         assert!(!prom.contains("FLAG_ARCHIVED"));
@@ -676,7 +767,8 @@ mod tests {
         tel.record_latency_us(10);
         tel.record_latency_us(10_000);
 
-        let prom = tel.snapshot().to_prometheus("w0");
+        let config = PrometheusConfig::default();
+        let prom = tel.snapshot().to_prometheus("w0", &config);
 
         // Parse all le buckets and verify they are monotonically non-decreasing
         let bucket_counts: Vec<u64> = prom
@@ -702,11 +794,144 @@ mod tests {
         tel.mark_resolve(ResolveReason::Match);
 
         let snap = tel.snapshot();
-        let mut combined = snap.to_prometheus("w0");
-        combined.push_str(&snap.to_prometheus("w1"));
+        let config = PrometheusConfig::default();
+        let mut combined = snap.to_prometheus("w0", &config);
+        combined.push_str(&snap.to_prometheus("w1", &config));
 
-        // Both instances present
-        assert!(combined.contains(r#"instance="w0""#));
-        assert!(combined.contains(r#"instance="w1""#));
+        // Both resolver_ids present
+        assert!(combined.contains(r#"resolver_id="w0""#));
+        assert!(combined.contains(r#"resolver_id="w1""#));
+    }
+
+    #[test]
+    fn prometheus_bucket_striding() {
+        let tel = Telemetry::new();
+        tel.record_latency_us(100);
+        tel.record_latency_us(10_000);
+        tel.record_latency_us(1_000_000);
+
+        let snap = tel.snapshot();
+
+        // Default (18 per decade) — count all le= lines
+        let full = snap.to_prometheus(
+            "w0",
+            &PrometheusConfig {
+                buckets_per_decade: 18,
+                ..PrometheusConfig::default()
+            },
+        );
+        let full_count = full.lines().filter(|l| l.contains("le=\"")).count();
+
+        // 9 per decade — should produce roughly half the bucket lines
+        let half = snap.to_prometheus(
+            "w0",
+            &PrometheusConfig {
+                buckets_per_decade: 9,
+                ..PrometheusConfig::default()
+            },
+        );
+        let half_count = half.lines().filter(|l| l.contains("le=\"")).count();
+
+        // 6 per decade — should produce roughly a third
+        let third = snap.to_prometheus(
+            "w0",
+            &PrometheusConfig {
+                buckets_per_decade: 6,
+                ..PrometheusConfig::default()
+            },
+        );
+        let third_count = third.lines().filter(|l| l.contains("le=\"")).count();
+
+        assert!(
+            half_count < full_count,
+            "9 bpd ({half_count}) should produce fewer buckets than 18 bpd ({full_count})"
+        );
+        assert!(
+            third_count < half_count,
+            "6 bpd ({third_count}) should produce fewer buckets than 9 bpd ({half_count})"
+        );
+
+        // +Inf must always be present
+        assert!(half.contains(r#"le="+Inf""#));
+        assert!(third.contains(r#"le="+Inf""#));
+
+        // Cumulative correctness: last non-Inf bucket count should equal +Inf count
+        // (since all observations are within u32 range)
+        let inf_line = half.lines().find(|l| l.contains("+Inf")).unwrap();
+        let inf_count: u64 = inf_line.rsplit_once(' ').unwrap().1.parse().unwrap();
+        assert_eq!(inf_count, 3);
+    }
+
+    #[test]
+    fn openmetrics_parses_successfully() {
+        let tel = Telemetry::with_memory_provider(|| 1_048_576);
+        tel.record_latency_us(100);
+        tel.record_latency_us(500);
+        tel.mark_resolve(ResolveReason::Match);
+        tel.mark_resolve(ResolveReason::NoSegmentMatch);
+
+        let config = PrometheusConfig {
+            openmetrics: true,
+            ..PrometheusConfig::default()
+        };
+        let output = tel.snapshot().to_prometheus("w0", &config);
+
+        // Must end with # EOF
+        assert!(output.trim_end().ends_with("# EOF"));
+
+        // Must contain float-formatted values
+        assert!(output.contains(".0\n"));
+
+        // Must parse with a strict OpenMetrics parser
+        let result = openmetrics_parser::openmetrics::parse_openmetrics(&output);
+        assert!(
+            result.is_ok(),
+            "OpenMetrics parser rejected output: {:?}\n\nRaw:\n{output}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn openmetrics_with_bucket_striding() {
+        let tel = Telemetry::with_memory_provider(|| 1_048_576);
+        tel.record_latency_us(100);
+        tel.record_latency_us(10_000);
+        tel.mark_resolve(ResolveReason::Match);
+
+        let config = PrometheusConfig {
+            buckets_per_decade: 9,
+            openmetrics: true,
+        };
+        let output = tel.snapshot().to_prometheus("w0", &config);
+
+        let result = openmetrics_parser::openmetrics::parse_openmetrics(&output);
+        assert!(
+            result.is_ok(),
+            "OpenMetrics parser rejected strided output: {:?}\n\nRaw:\n{output}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn prometheus_bucket_stride_zero_means_default() {
+        let tel = Telemetry::new();
+        tel.record_latency_us(100);
+
+        let snap = tel.snapshot();
+        let default_out = snap.to_prometheus(
+            "w0",
+            &PrometheusConfig {
+                buckets_per_decade: 18,
+                ..PrometheusConfig::default()
+            },
+        );
+        let zero_out = snap.to_prometheus(
+            "w0",
+            &PrometheusConfig {
+                buckets_per_decade: 0,
+                ..PrometheusConfig::default()
+            },
+        );
+        assert_eq!(default_out, zero_out);
     }
 }

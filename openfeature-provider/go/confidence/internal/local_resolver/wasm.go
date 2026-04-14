@@ -85,9 +85,11 @@ func (r *WasmResolver) FlushAssignLogs() error {
 	return err
 }
 
-func (r *WasmResolver) PrometheusSnapshot() string {
+func (r *WasmResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics bool) string {
 	req := &wasm.PrometheusSnapshotRequest{
-		Instance: r.instanceID,
+		Instance:         r.instanceID,
+		BucketsPerDecade: bucketsPerDecade,
+		Openmetrics:      openmetrics,
 	}
 	resp := &wasm.PrometheusSnapshotResponse{}
 	if err := r.call("wasm_msg_guest_prometheus_snapshot", req, resp); err != nil {

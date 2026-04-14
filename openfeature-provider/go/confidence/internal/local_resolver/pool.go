@@ -123,12 +123,54 @@ func (s *PooledResolver) FlushAssignLogs() error {
 }
 
 // PrometheusSnapshot implements LocalResolver.
-func (s *PooledResolver) PrometheusSnapshot() string {
-	var b strings.Builder
+// Outputs from multiple pool instances are concatenated with duplicate
+// # TYPE and # HELP meta lines removed so the result is valid Prometheus
+// exposition text.
+func (s *PooledResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics bool) string {
+	var fragments []string
 	s.maintenance(func(lr LocalResolver) error {
-		b.WriteString(lr.PrometheusSnapshot())
+		text := lr.PrometheusSnapshot(bucketsPerDecade, openmetrics)
+		if text != "" {
+			fragments = append(fragments, text)
+		}
 		return nil
 	})
+	if len(fragments) <= 1 {
+		if len(fragments) == 1 {
+			return fragments[0]
+		}
+		return ""
+	}
+	return deduplicateMetaLines(fragments)
+}
+
+// deduplicateMetaLines merges multiple Prometheus/OpenMetrics text fragments,
+// keeping only the first occurrence of each # TYPE / # HELP line.
+// Any # EOF lines are stripped from fragments and a single # EOF is appended
+// at the end if one was present (required for OpenMetrics).
+func deduplicateMetaLines(fragments []string) string {
+	seen := make(map[string]bool)
+	hasEOF := false
+	var b strings.Builder
+	for _, frag := range fragments {
+		for _, line := range strings.Split(frag, "\n") {
+			if line == "# EOF" {
+				hasEOF = true
+				continue
+			}
+			if strings.HasPrefix(line, "# ") {
+				if seen[line] {
+					continue
+				}
+				seen[line] = true
+			}
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	if hasEOF {
+		b.WriteString("# EOF\n")
+	}
 	return b.String()
 }
 

@@ -353,17 +353,26 @@ func evaluate[T any](
 // SnapshotConfig holds options for GetPrometheusMetrics.
 //
 // Experimental: this API is subject to change.
-type SnapshotConfig struct{}
+type SnapshotConfig struct {
+	// BucketsPerDecade controls histogram bucket density in the output.
+	// The internal histogram always stores 18 buckets per decimal order
+	// of magnitude. This controls how many are emitted by striding.
+	// Valid range: 1-18. Zero means default (18 — all buckets).
+	BucketsPerDecade uint32
+	// OpenMetrics switches output to OpenMetrics text format.
+	// When false (default), Prometheus exposition format is used.
+	OpenMetrics bool
+}
 
 // GetPrometheusMetrics returns a Prometheus text-format metrics snapshot
 // aggregated from all pooled resolver instances.
 //
 // Experimental: this API is subject to change.
-func (p *LocalResolverProvider) GetPrometheusMetrics(_ SnapshotConfig) string {
+func (p *LocalResolverProvider) GetPrometheusMetrics(config SnapshotConfig) string {
 	if p.resolver == nil {
 		return ""
 	}
-	return p.resolver.PrometheusSnapshot()
+	return p.resolver.PrometheusSnapshot(config.BucketsPerDecade, config.OpenMetrics)
 }
 
 // Resolve resolves multiple flags for the given context. If flagNames is empty,
