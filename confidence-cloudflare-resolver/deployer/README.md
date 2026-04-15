@@ -29,13 +29,7 @@ A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-de
 
 ## Usage
 
-On the first deploy, create the required Cloudflare Queue:
-
-```bash
-CLOUDFLARE_API_TOKEN='your-cloudflare-api-token' npx wrangler queues create flag-logs-queue
-```
-
-Then run the deployer with your credentials:
+Run the deployer with your credentials:
 
 ```bash
 docker run -it \
@@ -44,11 +38,12 @@ docker run -it \
     ghcr.io/spotify/confidence-cloudflare-deployer:latest
 ```
 
-The deployer automatically detects:
+The deployer automatically:
 
-* **Cloudflare account ID** from your API token
-* **Resolver state** from Confidence CDN
-* **Existing deployment** to avoid unnecessary re-deploys
+* **Detects Cloudflare account ID** from your API token
+* **Creates the queue** (`flag-logs-queue`) if it doesn't exist
+* **Fetches resolver state** from Confidence CDN
+* **Skips deployment** if state hasn't changed (using ETags)
 
 > **Note:** The deployer does not poll for changes. Each run fetches the current state from Confidence, deploys the Worker if the state has changed, and then exits. To keep the Worker up to date, run the deployer on a schedule (for example, via a cron job) or trigger it when flag rules or targeting changes are made in Confidence.
 
@@ -62,7 +57,7 @@ The deployer automatically detects:
 | `RESOLVE_TOKEN_ENCRYPTION_KEY`       | AES-128 key (base64 encoded) used to encrypt resolve tokens when `apply=false`. Not needed since the resolver defaults `apply` to `true`          |
 | `FORCE_DEPLOY`                       | Force re-deploy regardless of state changes                                                                                                       |
 | `NO_DEPLOY`                          | Build only, skip deployment                                                                                                                       |
-| `WORKER_NAME_PREFIX`                 | Prefix for the worker name. If set, the worker deploys as `<prefix>-confidence-cloudflare-resolver` instead of `confidence-cloudflare-resolver`  |
+| `WORKER_NAME_PREFIX`                 | Prefix for worker and queue names. Deploys as `<prefix>-confidence-cloudflare-resolver` with queue `<prefix>-flag-logs-queue` (auto-created)     |
 
 ## Service Binding vs HTTP Calls
 
