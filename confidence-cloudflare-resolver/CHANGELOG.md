@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.6.5...confidence-cloudflare-resolver-v0.7.0) (2026-04-15)
+
+
+### Features
+
+* **cloudflare:** add WORKER_NAME_PREFIX for custom worker naming ([#375](https://github.com/spotify/confidence-resolver/issues/375)) ([98325ff](https://github.com/spotify/confidence-resolver/commit/98325ffd8c338d1ae12311ea792959433ee9e157))
+
 ## [0.6.5](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.6.4...confidence-cloudflare-resolver-v0.6.5) (2026-03-26)
 
 
