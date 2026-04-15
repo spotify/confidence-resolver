@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
@@ -741,11 +743,64 @@ func TestIntegration_GetPrometheusMetrics(t *testing.T) {
 		t.Fatal("GetPrometheusMetrics() returned empty string, expected metrics output")
 	}
 
-	if !strings.Contains(metrics, "confidence_resolve_latency") {
-		t.Errorf("Expected metrics to contain 'confidence_resolve_latency', got:\n%s", metrics)
+	t.Logf("Prometheus metrics output:\n%s", metrics)
+
+	// Parse with prometheus/common/expfmt — this is the library the customer uses.
+	// v0.67+ is stricter about duplicate # TYPE headers, which was the reported bug.
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, err := parser.TextToMetricFamilies(strings.NewReader(metrics))
+	if err != nil {
+		t.Fatalf("expfmt.TextParser failed to parse metrics output: %v\n\nRaw output:\n%s", err, metrics)
 	}
 
-	t.Logf("Prometheus metrics output:\n%s", metrics)
+	// Verify expected metric families were parsed
+	latencyFamily, ok := families["confidence_resolve_latency_microseconds"]
+	if !ok {
+		t.Fatal("Parsed output missing metric family 'confidence_resolve_latency_microseconds'")
+	}
+	if _, ok := families["confidence_resolves_total"]; !ok {
+		t.Fatal("Parsed output missing metric family 'confidence_resolves_total'")
+	}
+
+	// Verify resolver_id label is present and instance label is not
+	for _, m := range latencyFamily.GetMetric() {
+		hasResolverID := false
+		for _, lp := range m.GetLabel() {
+			if lp.GetName() == "resolver_id" {
+				hasResolverID = true
+			}
+			if lp.GetName() == "instance" {
+				t.Error("Metrics should not contain 'instance' label (renamed to resolver_id)")
+			}
+		}
+		if !hasResolverID {
+			t.Error("Expected 'resolver_id' label on latency metric")
+		}
+	}
+
+	// Verify # HELP text was parsed (expfmt populates Help field)
+	if latencyFamily.GetHelp() == "" {
+		t.Error("Expected HELP text for latency histogram")
+	}
+
+	// Verify BucketsPerDecade reduces output
+	fullMetrics := provider.GetPrometheusMetrics(SnapshotConfig{BucketsPerDecade: 18})
+	halfMetrics := provider.GetPrometheusMetrics(SnapshotConfig{BucketsPerDecade: 9})
+
+	// Both must also parse cleanly
+	if _, err := parser.TextToMetricFamilies(strings.NewReader(fullMetrics)); err != nil {
+		t.Fatalf("BucketsPerDecade=18 output failed to parse: %v", err)
+	}
+	if _, err := parser.TextToMetricFamilies(strings.NewReader(halfMetrics)); err != nil {
+		t.Fatalf("BucketsPerDecade=9 output failed to parse: %v", err)
+	}
+
+	fullBuckets := strings.Count(fullMetrics, `le="`)
+	halfBuckets := strings.Count(halfMetrics, `le="`)
+	if halfBuckets >= fullBuckets {
+		t.Errorf("BucketsPerDecade=9 (%d buckets) should produce fewer buckets than 18 (%d buckets)",
+			halfBuckets, fullBuckets)
+	}
 
 	// Cleanup
 	openfeature.Shutdown()

@@ -141,7 +141,7 @@ func (r *RecoveringResolver) FlushAssignLogs() (err error) {
 	return
 }
 
-func (r *RecoveringResolver) PrometheusSnapshot() string {
+func (r *RecoveringResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics bool) string {
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Warn("PrometheusSnapshot panicked, ignoring", "error", rec)
@@ -151,7 +151,7 @@ func (r *RecoveringResolver) PrometheusSnapshot() string {
 		return ""
 	}
 	lr := r.get()
-	return lr.PrometheusSnapshot()
+	return lr.PrometheusSnapshot(bucketsPerDecade, openmetrics)
 }
 
 func (r *RecoveringResolver) Close(ctx context.Context) error {
