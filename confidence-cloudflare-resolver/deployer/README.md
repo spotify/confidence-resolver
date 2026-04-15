@@ -35,6 +35,12 @@ On the first deploy, create the required Cloudflare Queue:
 CLOUDFLARE_API_TOKEN='your-cloudflare-api-token' npx wrangler queues create flag-logs-queue
 ```
 
+If using `WORKER_NAME_PREFIX`, create the prefixed queue instead:
+
+```bash
+CLOUDFLARE_API_TOKEN='your-cloudflare-api-token' npx wrangler queues create myprefix-flag-logs-queue
+```
+
 Then run the deployer with your credentials:
 
 ```bash
@@ -62,7 +68,7 @@ The deployer automatically detects:
 | `RESOLVE_TOKEN_ENCRYPTION_KEY`       | AES-128 key (base64 encoded) used to encrypt resolve tokens when `apply=false`. Not needed since the resolver defaults `apply` to `true`          |
 | `FORCE_DEPLOY`                       | Force re-deploy regardless of state changes                                                                                                       |
 | `NO_DEPLOY`                          | Build only, skip deployment                                                                                                                       |
-| `WORKER_NAME_PREFIX`                 | Prefix for the worker name. If set, the worker deploys as `<prefix>-confidence-cloudflare-resolver` instead of `confidence-cloudflare-resolver`  |
+| `WORKER_NAME_PREFIX`                 | Prefix for the worker and queue names. If set, deploys as `<prefix>-confidence-cloudflare-resolver` with queue `<prefix>-flag-logs-queue`        |
 
 ## Service Binding vs HTTP Calls
 

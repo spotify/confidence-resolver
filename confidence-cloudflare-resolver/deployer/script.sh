@@ -254,10 +254,16 @@ else
     echo "⚠️ CLOUDFLARE_ACCOUNT_ID environment variable is not set. This is required if the CloudFlare API token is of type Account, while User tokens with the correct permissions don't need this env variable set"
 fi
 
-# Update worker name in wrangler.toml if using prefix
+# Update worker name and queue name in wrangler.toml if using prefix
 if [ -n "$WORKER_NAME_PREFIX" ]; then
+    QUEUE_NAME="${WORKER_NAME_PREFIX}-flag-logs-queue"
     sed -i.tmp "s/^name = .*/name = \"$WORKER_NAME\"/" wrangler.toml
+    # Update queue name in both producer and consumer sections
+    sed -i.tmp "s/queue = \"flag-logs-queue\"/queue = \"$QUEUE_NAME\"/g" wrangler.toml
     echo "✅ Updated worker name to \"$WORKER_NAME\" in wrangler.toml"
+    echo "✅ Updated queue name to \"$QUEUE_NAME\" in wrangler.toml"
+else
+    QUEUE_NAME="flag-logs-queue"
 fi
 
 # Prepare ALLOWED_ORIGIN for TOML (escape quotes and backslashes)
