@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.7.0...confidence-cloudflare-resolver-v0.8.0) (2026-04-15)
+
+
+### Features
+
+* **cloudflare:** auto-create queue and prefix queue names ([#377](https://github.com/spotify/confidence-resolver/issues/377)) ([a6ca89e](https://github.com/spotify/confidence-resolver/commit/a6ca89e722992da883d555d0907cd9ee53eb075a))
+
 ## [0.7.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.6.5...confidence-cloudflare-resolver-v0.7.0) (2026-04-15)
 
 
