@@ -13,6 +13,7 @@ CONFIDENCE_RESOLVER_STATE_URL=${CONFIDENCE_RESOLVER_STATE_URL:=}
 CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
 NO_DEPLOY=${NO_DEPLOY:=}
 FORCE_DEPLOY=${FORCE_DEPLOY:=}
+WORKER_NAME_PREFIX=${WORKER_NAME_PREFIX:=}
 
 # CDN base URL for fetching resolver state
 CDN_BASE_URL="https://confidence-resolver-state-cdn.spotifycdn.com"
@@ -70,8 +71,13 @@ if test -z "$CONFIDENCE_RESOLVER_STATE_URL"; then
     echo "📦 Using CDN URL for state: ${CDN_BASE_URL}/<sha256>"
 fi
 
-# Worker name from wrangler.toml
-WORKER_NAME="confidence-cloudflare-resolver"
+# Worker name - prepend prefix if provided
+if [ -n "$WORKER_NAME_PREFIX" ]; then
+    WORKER_NAME="${WORKER_NAME_PREFIX}-confidence-cloudflare-resolver"
+    echo "🏷️ Using prefixed worker name: $WORKER_NAME"
+else
+    WORKER_NAME="confidence-cloudflare-resolver"
+fi
 
 # Auto-detect Cloudflare resolver URL from workers subdomain
 CLOUDFLARE_RESOLVER_URL=""
@@ -246,6 +252,12 @@ if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
     mv "$tmpfile" wrangler.toml
 else
     echo "⚠️ CLOUDFLARE_ACCOUNT_ID environment variable is not set. This is required if the CloudFlare API token is of type Account, while User tokens with the correct permissions don't need this env variable set"
+fi
+
+# Update worker name in wrangler.toml if using prefix
+if [ -n "$WORKER_NAME_PREFIX" ]; then
+    sed -i.tmp "s/^name = .*/name = \"$WORKER_NAME\"/" wrangler.toml
+    echo "✅ Updated worker name to \"$WORKER_NAME\" in wrangler.toml"
 fi
 
 # Prepare ALLOWED_ORIGIN for TOML (escape quotes and backslashes)

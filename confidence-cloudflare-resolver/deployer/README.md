@@ -62,6 +62,7 @@ The deployer automatically detects:
 | `RESOLVE_TOKEN_ENCRYPTION_KEY`       | AES-128 key (base64 encoded) used to encrypt resolve tokens when `apply=false`. Not needed since the resolver defaults `apply` to `true`          |
 | `FORCE_DEPLOY`                       | Force re-deploy regardless of state changes                                                                                                       |
 | `NO_DEPLOY`                          | Build only, skip deployment                                                                                                                       |
+| `WORKER_NAME_PREFIX`                 | Prefix for the worker name. If set, the worker deploys as `<prefix>-confidence-cloudflare-resolver` instead of `confidence-cloudflare-resolver`  |
 
 ## Service Binding vs HTTP Calls
 
