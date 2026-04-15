@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.15.1...confidence_resolver-v0.16.0) (2026-04-15)
+
+
+### Features
+
+* improve Prometheus metrics API ([#371](https://github.com/spotify/confidence-resolver/issues/371)) ([efb8c16](https://github.com/spotify/confidence-resolver/commit/efb8c16a4ca9659c60e4f69611c80d3addb4e3fa))
+
 ## [0.15.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.15.0...confidence_resolver-v0.15.1) (2026-03-26)
 
 

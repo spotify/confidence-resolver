@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.8.0...confidence-cloudflare-resolver-v0.8.1) (2026-04-15)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.15.1 to 0.16.0
+
 ## [0.8.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.7.0...confidence-cloudflare-resolver-v0.8.0) (2026-04-15)
 
 
