@@ -1,6 +1,6 @@
 [package]
 name = "confidence-cloudflare-resolver"
-version = "0.6.5"
+version = "0.7.0"
 edition = "2021"
 authors = []
 # Remove this line if you want to be able to publish this crate as open source on crates.io.
