@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.13.2...openfeature-provider/go/v0.14.0) (2026-04-15)
+
+
+### Features
+
+* improve Prometheus metrics API ([#371](https://github.com/spotify/confidence-resolver/issues/371)) ([efb8c16](https://github.com/spotify/confidence-resolver/commit/efb8c16a4ca9659c60e4f69611c80d3addb4e3fa))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.21 to 0.1.22
+
 ## [0.13.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.13.1...openfeature-provider/go/v0.13.2) (2026-04-14)
 
 
