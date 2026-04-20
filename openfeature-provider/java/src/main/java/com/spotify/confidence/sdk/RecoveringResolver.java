@@ -1,5 +1,6 @@
 package com.spotify.confidence.sdk;
 
+import com.dylibso.chicory.runtime.ChicoryInterruptedException;
 import com.dylibso.chicory.wasm.ChicoryException;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
@@ -64,6 +65,10 @@ class RecoveringResolver implements LocalResolver {
   }
 
   private void handleFailure(String opName, ChicoryException e) {
+    if (e instanceof ChicoryInterruptedException) {
+      logger.debug("Resolver interrupted during {}, not recreating", opName);
+      throw e;
+    }
     if (broken.compareAndSet(false, true)) {
       logger.warn(
           "Resolver failed during {} ({}), starting background recreation",
