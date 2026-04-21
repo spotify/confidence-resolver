@@ -84,7 +84,14 @@ class PooledResolver implements LocalResolver {
 
   @Override
   public void close() {
-    maintenance(LocalResolver::close);
+    maintenance(
+        lr -> {
+          try {
+            lr.close();
+          } catch (RuntimeException e) {
+            logger.error("Failed to close resolver", e);
+          }
+        });
   }
 
   @Override
@@ -131,8 +138,6 @@ class PooledResolver implements LocalResolver {
       slot.rwLock.writeLock().lock();
       try {
         fn.accept(slot.resolver);
-      } catch (RuntimeException e) {
-        logger.error("Maintenance operation failed on slot {}", i, e);
       } finally {
         slot.rwLock.writeLock().unlock();
       }

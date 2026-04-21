@@ -203,8 +203,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     assignLogExecutor.scheduleAtFixedRate(
         () -> {
-          if (initialized) {
-            resolver.flushAssignLogs();
+          try {
+            if (initialized) {
+              resolver.flushAssignLogs();
+            }
+          } catch (RuntimeException e) {
+            log.error("Failed to flush assign logs", e);
           }
         },
         ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
@@ -225,24 +229,28 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     flagsFetcherExecutor.schedule(
         () -> {
-          stateProvider.reload();
-          resolverStateProtobuf.set(stateProvider.provide());
-          accountIdRef.set(stateProvider.accountId());
+          try {
+            stateProvider.reload();
+            resolverStateProtobuf.set(stateProvider.provide());
+            accountIdRef.set(stateProvider.accountId());
 
-          if (!accountIdRef.get().isEmpty()) {
-            if (!initialized) {
-              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
-              initialized = true;
-              this.state.set(ProviderState.READY);
-              log.info("Provider recovered and is now READY");
-            } else {
-              // State refresh + full log flush
-              resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
-              resolver.flushAllLogs();
+            if (!accountIdRef.get().isEmpty()) {
+              if (!initialized) {
+                resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
+                initialized = true;
+                this.state.set(ProviderState.READY);
+                log.info("Provider recovered and is now READY");
+              } else {
+                // State refresh + full log flush
+                resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
+                resolver.flushAllLogs();
+              }
             }
+          } catch (RuntimeException e) {
+            log.error("State refresh failed", e);
+          } finally {
+            scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
           }
-
-          scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
         },
         delaySeconds,
         TimeUnit.SECONDS);
