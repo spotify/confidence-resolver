@@ -1059,7 +1059,17 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         continue;
                     }
                 }
-                Err(_) => return Ok(resolved_value.error(ResolveReason::TargetingKeyError)),
+                Err(_) => {
+                    if rule.targeting_key_selector.is_empty() {
+                        // Blank selector + invalid targeting_key value: treat as
+                        // absent. Rules that need a unit for bucketing skip; full
+                        // rollouts still match (mirrors Java's behaviour of only
+                        // validating the key when the rule explicitly requests it).
+                        None
+                    } else {
+                        return Ok(resolved_value.error(ResolveReason::TargetingKeyError));
+                    }
+                }
             };
 
             let Some(spec) = &rule.assignment_spec else {
