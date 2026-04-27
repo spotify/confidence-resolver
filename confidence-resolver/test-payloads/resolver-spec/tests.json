@@ -3575,18 +3575,6 @@
           }
         ],
         "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [
-          {
-            "flag": "flags/catch-all-100pct-flag",
-            "reason": "RESOLVE_REASON_TARGETING_KEY_ERROR",
-            "variant": "",
-            "value": null,
-            "shouldApply": false
-          }
-        ],
-        "expectError": null
       }
     }
   },

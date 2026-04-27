@@ -1059,7 +1059,22 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         continue;
                     }
                 }
-                Err(_) => return Ok(resolved_value.error(ResolveReason::TargetingKeyError)),
+                Err(_) => {
+                    // Mirror Java: only skip targeting_key validation when the
+                    // rule has a blank selector AND is a 100% rollout — i.e. no
+                    // code path downstream needs the key. Non-blank selectors
+                    // always validate; partial rollouts need the key to bucket.
+                    let is_full_rollout = rule
+                        .assignment_spec
+                        .as_ref()
+                        .map(has_only_one_full_variant)
+                        .unwrap_or(false);
+                    if rule.targeting_key_selector.is_empty() && is_full_rollout {
+                        None
+                    } else {
+                        return Ok(resolved_value.error(ResolveReason::TargetingKeyError));
+                    }
+                }
             };
 
             let Some(spec) = &rule.assignment_spec else {
