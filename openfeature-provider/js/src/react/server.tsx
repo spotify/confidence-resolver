@@ -105,8 +105,14 @@ export async function ConfidenceProvider({
     }
   }
 
+  // The resolve token is sensitive (it carries the full evaluation context and
+  // resolved variants) and the client never reads it — strip it before serializing
+  // the bundle into the RSC payload. The server action above keeps the original
+  // bundle in its closure, which Next.js 14+ encrypts.
+  const clientBundle: FlagBundle = { ...bundle, resolveToken: '' };
+
   return (
-    <ConfidenceClientProvider bundle={bundle} apply={applyFlag}>
+    <ConfidenceClientProvider bundle={clientBundle} apply={applyFlag}>
       {children}
     </ConfidenceClientProvider>
   );

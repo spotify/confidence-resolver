@@ -149,6 +149,39 @@ describe('ConfidenceProvider', () => {
     });
   });
 
+  describe('resolve token is not exposed to client', () => {
+    it('strips resolveToken from the bundle passed to ConfidenceClientProvider', async () => {
+      const mockProvider = createMockConfidenceProvider();
+      await OpenFeature.setProviderAndWait(mockProvider);
+
+      const result = await ConfidenceProvider({
+        context: { targetingKey: 'user-123' },
+        children: <div>Test</div>,
+      });
+
+      // The bundle prop ships to the browser via the RSC payload — make sure
+      // the resolve token (which carries the full evaluation context and the
+      // resolved variants) does not.
+      const clientProps = (result as React.ReactElement<{ bundle: { resolveToken: string } }>).props;
+      expect(clientProps.bundle.resolveToken).toBe('');
+    });
+
+    it('still applies flags using the original resolve token via the server action closure', async () => {
+      const mockProvider = createMockConfidenceProvider();
+      await OpenFeature.setProviderAndWait(mockProvider);
+
+      const result = await ConfidenceProvider({
+        context: { targetingKey: 'user-123' },
+        children: <div>Test</div>,
+      });
+
+      const clientProps = (result as React.ReactElement<{ apply: (flagName: string) => Promise<void> }>).props;
+      await clientProps.apply('test-flag');
+
+      expect(mockProvider.applyFlag).toHaveBeenCalledWith('test-token', 'test-flag');
+    });
+  });
+
   describe('named providers', () => {
     it('uses named provider when providerName is specified', async () => {
       const defaultProvider = createMockConfidenceProvider();
