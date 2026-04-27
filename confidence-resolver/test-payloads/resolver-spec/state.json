@@ -509,6 +509,32 @@
         }
       ]
     },
+    "flags/self-ref-segment-flag": {
+      "name": "flags/self-ref-segment-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/self-ref-segment-flag/rules/rule1",
+          "segment": "segments/self-referencing",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "flags/fallthrough-flag": {
       "name": "flags/fallthrough-flag",
       "state": "ACTIVE",
@@ -2240,6 +2266,20 @@
         "expression": { "ref": "c1" }
       }
     },
+    "segments/self-referencing": {
+      "name": "segments/self-referencing",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "segment": {
+              "segment": "segments/self-referencing"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
     "segments/any-set-inner": {
       "name": "segments/any-set-inner",
       "state": "OK",
@@ -2696,6 +2736,7 @@
     "segments/nested-parent": "ALL",
     "segments/circular-a": "ALL",
     "segments/circular-b": "ALL",
+    "segments/self-referencing": "ALL",
     "segments/any-set-inner": "ALL",
     "segments/any-starts-with-inner": "ALL",
     "segments/any-ends-with-inner": "ALL",

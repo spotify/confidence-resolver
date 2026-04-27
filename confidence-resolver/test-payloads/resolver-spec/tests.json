@@ -717,6 +717,32 @@
     }
   },
   {
+    "name": "self_referencing_segment",
+    "resolveRequest": {
+      "flags": ["flags/self-ref-segment-flag"],
+      "evaluationContext": { "targeting_key": "user1", "country": "SE" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/self-ref-segment-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      },
+      "rust": {
+        "resolvedFlags": [],
+        "expectError": "InternalError"
+      }
+    }
+  },
+  {
     "name": "fallthrough_then_match",
     "resolveRequest": {
       "flags": [
