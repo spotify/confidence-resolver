@@ -89,6 +89,7 @@ describe('ConfidenceServerProvider E2E tests', () => {
 
     // The flag has a running experiment with a sticky assignment. The intake is paused but we should still get the sticky assignment.
     // If this test breaks it could mean that the experiment was removed or that the bigtable materialization was cleaned out.
+    // To restore: open the experiment in the Confidence UI and resume the intake, then run this test once (the resolve re-seeds the sticky materialization for 'test-a'), then pause the intake again.
     expect(result.value).toBe(99.99);
     expect(result.variant).toBe('flags/web-sdk-e2e-flag/variants/sticky');
     expect(result.reason).toBe('MATCH');
