@@ -62,7 +62,11 @@ func (r *WasmResolver) RegisterResolve(request *wasm.RegisterResolveRequest) {
 }
 
 func (r *WasmResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
-	return r.call("wasm_msg_guest_apply_flags", request, nil)
+	if err := r.call("wasm_msg_guest_apply_flags", request, nil); err != nil {
+		// Apply is best-effort logging — surface the failure but don't propagate.
+		slog.Warn("Failed to apply flags", "error", err)
+	}
+	return nil
 }
 
 func (r *WasmResolver) FlushAllLogs() error {

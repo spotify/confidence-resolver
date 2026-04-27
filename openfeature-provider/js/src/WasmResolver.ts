@@ -266,8 +266,10 @@ export class WasmResolver implements LocalResolver {
     } catch (error: unknown) {
       if (error instanceof WebAssembly.RuntimeError) {
         this.reloadInstance(error);
+      } else {
+        // Apply is best-effort logging — surface the failure but don't propagate.
+        logger.warn('Failed to apply flags:', error);
       }
-      throw error;
     }
   }
 

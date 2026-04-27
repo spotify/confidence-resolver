@@ -171,7 +171,12 @@ class WasmLocalResolver implements LocalResolver {
       }
       final int reqPtr = transferRequest(request);
       final int respPtr = (int) wasmMsgGuestApplyFlags.apply(reqPtr)[0];
-      consumeResponse(respPtr, ApplyFlagsResponse::parseFrom);
+      try {
+        consumeResponse(respPtr, ApplyFlagsResponse::parseFrom);
+      } catch (RuntimeException e) {
+        // Apply is best-effort logging — surface the failure but don't propagate.
+        logger.warn("Failed to apply flags: {}", e.getMessage());
+      }
     } finally {
       lock.unlock();
     }
