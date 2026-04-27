@@ -427,6 +427,8 @@ for _, f := range resp.ResolvedFlags {
 
 When `apply` is `false`, the response contains a `ResolveToken`. Pass it to `ApplyFlags` later to record exposure events — useful when you resolve flags on the server but only want to log exposure once the client actually renders the experience.
 
+> **⚠️ The `ResolveToken` is not encrypted.** It contains the full evaluation context and the resolved variant for each flag. If that data is sensitive, encrypt the token before it leaves your backend and decrypt it before passing it to `ApplyFlags`. See the [Integration Guide: Deferred Apply and Resolve Token Security](../INTEGRATION_GUIDE.md#deferred-apply-and-resolve-token-security).
+
 ```go
 // 1. Resolve without applying
 resp, err := provider.Resolve(ctx, evalCtx, []string{"checkout-flow"}, false)

@@ -96,6 +96,17 @@ export function FeatureButton() {
 }
 ```
 
+## Resolve Token Security
+
+`ConfidenceProvider` resolves flags on the server with `apply=false` and returns a bundle that includes a **resolve token** (used at apply time to record exposure). The token contains the full evaluation context (targeting key and any attributes you passed in) and the resolved variant for each flag, and **it is not encrypted by this provider**.
+
+In the React/Next.js flow this provider handles that for you:
+
+- The resolve token is **stripped from the bundle** before it is serialized to the browser, so it never appears in the RSC payload.
+- The `expose()` server action keeps the original token in its closure on the server. Next.js 14+ [encrypts variables captured in server-action closures](https://nextjs.org/blog/security-nextjs-server-components-actions#closures), so the token also isn't exposed via the action reference.
+
+If you call `provider.resolve(..., apply=false)` directly (outside the React integration) and pass the token through your own transport, the security note still applies — see the [Integration Guide: Deferred Apply and Resolve Token Security](../INTEGRATION_GUIDE.md#deferred-apply-and-resolve-token-security).
+
 ## Server vs Client: Understanding Exposure
 
 **Exposure** is the event that tells Confidence a user was shown a particular flag variant. This is critical for accurate experiment analysis.
