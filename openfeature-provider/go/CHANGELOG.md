@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.14.0...openfeature-provider/go/v0.14.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **resolver:** skip targeting_key validation when rule has blank selector ([#383](https://github.com/spotify/confidence-resolver/issues/383)) ([6cee589](https://github.com/spotify/confidence-resolver/commit/6cee5899c3d7ab0f5857395d718c50b56a94d683))
+* surface apply_flags errors instead of swallowing ([#386](https://github.com/spotify/confidence-resolver/issues/386)) ([7785f9f](https://github.com/spotify/confidence-resolver/commit/7785f9ff116c8151daa70b9fbaab9e66d8e88794))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.22 to 0.1.23
+
 ## [0.14.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.13.2...openfeature-provider/go/v0.14.0) (2026-04-15)
 
 

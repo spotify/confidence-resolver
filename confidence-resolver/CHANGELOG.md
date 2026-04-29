@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.16.0...confidence_resolver-v0.16.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **resolver:** skip targeting_key validation when rule has blank selector ([#383](https://github.com/spotify/confidence-resolver/issues/383)) ([6cee589](https://github.com/spotify/confidence-resolver/commit/6cee5899c3d7ab0f5857395d718c50b56a94d683))
+
 ## [0.16.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.15.1...confidence_resolver-v0.16.0) (2026-04-15)
 
 
