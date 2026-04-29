@@ -1,5 +1,77 @@
 # Changelog
 
+## [0.15.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.14.1...openfeature-provider/go/v0.15.0) (2026-04-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* customizable transport hooks ([#184](https://github.com/spotify/confidence-resolver/issues/184))
+* migrate to cdn state fetch, publish logs using client secret ([#166](https://github.com/spotify/confidence-resolver/issues/166))
+* **go:** connection factory replaces server addr options ([#128](https://github.com/spotify/confidence-resolver/issues/128))
+* **go:** correct module structure to match declared module path ([#106](https://github.com/spotify/confidence-resolver/issues/106))
+
+### Features
+
+* add go provider ([#100](https://github.com/spotify/confidence-resolver/issues/100)) ([5c0895b](https://github.com/spotify/confidence-resolver/commit/5c0895bd35edd7daf436be5a64b5a40ba3eb7dab))
+* add register_resolve WASM export for SDK-side telemetry ([#354](https://github.com/spotify/confidence-resolver/issues/354)) ([31499bc](https://github.com/spotify/confidence-resolver/commit/31499bc911942ecd751b4a4a702f35ded41e9776))
+* add remote materialization store for Go ([#203](https://github.com/spotify/confidence-resolver/issues/203)) ([d700af2](https://github.com/spotify/confidence-resolver/commit/d700af218eddc0db9b5f5edac1e211ce6fb1ffbf))
+* add resolver_version field to TelemetryData ([#346](https://github.com/spotify/confidence-resolver/issues/346)) ([10ab1c6](https://github.com/spotify/confidence-resolver/commit/10ab1c657cb830dc36f433d1dca0af73beecaa27))
+* add support for materialization stores ([#200](https://github.com/spotify/confidence-resolver/issues/200)) ([0f2ef79](https://github.com/spotify/confidence-resolver/commit/0f2ef79944b72e3ef06fc1bcc06848ff093402fc))
+* add support for materialized segment targeting criteria ([#201](https://github.com/spotify/confidence-resolver/issues/201)) ([cdcfc86](https://github.com/spotify/confidence-resolver/commit/cdcfc8629400a268b3e3fe124ae0fbce8967182e))
+* configurable gateway ([#236](https://github.com/spotify/confidence-resolver/issues/236)) ([aba6cbd](https://github.com/spotify/confidence-resolver/commit/aba6cbd65361db95a3b0391eee53e7c7e3cad717))
+* customizable transport hooks ([#184](https://github.com/spotify/confidence-resolver/issues/184)) ([899b06d](https://github.com/spotify/confidence-resolver/commit/899b06dec64820d3662b1827769dc8779437d81a))
+* **go:** accept different intervals for state and logging ([#245](https://github.com/spotify/confidence-resolver/issues/245)) ([e1e64ec](https://github.com/spotify/confidence-resolver/commit/e1e64ecd6bd596afeb1f6f0c3ad3a603d3c8c0e5))
+* **go:** add configurable WASM resolver pool size ([#280](https://github.com/spotify/confidence-resolver/issues/280)) ([da054c7](https://github.com/spotify/confidence-resolver/commit/da054c7639afb378dd1b3b27653c176539a83442))
+* **go:** add Resolve and ApplyFlags API to provider ([#321](https://github.com/spotify/confidence-resolver/issues/321)) ([11f10da](https://github.com/spotify/confidence-resolver/commit/11f10da6fdfae93d3da0e658caff7369382f989e))
+* **go:** connection factory replaces server addr options ([#128](https://github.com/spotify/confidence-resolver/issues/128)) ([cd955a2](https://github.com/spotify/confidence-resolver/commit/cd955a22917c3572446cdc55491b1cd8b304763a))
+* **go:** support structs as default value ([#247](https://github.com/spotify/confidence-resolver/issues/247)) ([639d6c7](https://github.com/spotify/confidence-resolver/commit/639d6c781172e57d47a82b3d901d28e02365c436))
+* improve Prometheus metrics API ([#371](https://github.com/spotify/confidence-resolver/issues/371)) ([efb8c16](https://github.com/spotify/confidence-resolver/commit/efb8c16a4ca9659c60e4f69611c80d3addb4e3fa))
+* local prometheus sdk metrics ([#322](https://github.com/spotify/confidence-resolver/issues/322)) ([8b18119](https://github.com/spotify/confidence-resolver/commit/8b18119eae449afbe4a0815e8aab5f82888a8621))
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+* migrate to cdn state fetch, publish logs using client secret ([#166](https://github.com/spotify/confidence-resolver/issues/166)) ([6c8d959](https://github.com/spotify/confidence-resolver/commit/6c8d959f124faa419c1ace103d8832457248eb26))
+* **openfeature-provider/go:** add slog-based logging ([#134](https://github.com/spotify/confidence-resolver/issues/134)) ([10362d9](https://github.com/spotify/confidence-resolver/commit/10362d9d6d80f25e63e12ba8c6257eb7e996a2c2))
+* Request per second in TelemetryData ([#150](https://github.com/spotify/confidence-resolver/issues/150)) ([b91669d](https://github.com/spotify/confidence-resolver/commit/b91669d75caa0971ab71d0589634ab039dae6081))
+* **rust:** resolve full rollout rules when targeting key is missing ([#325](https://github.com/spotify/confidence-resolver/issues/325)) ([c9e4cb0](https://github.com/spotify/confidence-resolver/commit/c9e4cb00320d9fb13a1353d28942ed230fc7dcc5))
+* size limited flush api  ([#149](https://github.com/spotify/confidence-resolver/issues/149)) ([6ac60d6](https://github.com/spotify/confidence-resolver/commit/6ac60d6195421c9355941e4201993b521c831fcd))
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+* **wasm:** add wasm API to apply previously resolved flags ([#235](https://github.com/spotify/confidence-resolver/issues/235)) ([79048f6](https://github.com/spotify/confidence-resolver/commit/79048f63a8c771eb98ecf478cab0b654aa745374))
+
+
+### Bug Fixes
+
+* align the providers to do state fetching every 30 sec ([#180](https://github.com/spotify/confidence-resolver/issues/180)) ([6b537db](https://github.com/spotify/confidence-resolver/commit/6b537dbb51a587a7c09c3a285833a236cf5c51f9))
+* cap sampled schema count in resolve logging  ([#260](https://github.com/spotify/confidence-resolver/issues/260)) ([e84b724](https://github.com/spotify/confidence-resolver/commit/e84b7248f4b7ce9231902376ed56f3cb7b524f58))
+* free WASM guest request allocation in host functions ([#369](https://github.com/spotify/confidence-resolver/issues/369)) ([dd7ddac](https://github.com/spotify/confidence-resolver/commit/dd7ddac4e22e895c7b08b09064c9dc8bab54c716))
+* **go:** Better error messaging for sticky rules ([#110](https://github.com/spotify/confidence-resolver/issues/110)) ([31a6893](https://github.com/spotify/confidence-resolver/commit/31a6893bb83c36abc2f8386912dcf316ee454e5a))
+* **go:** correct module structure to match declared module path ([#106](https://github.com/spotify/confidence-resolver/issues/106)) ([c2eb597](https://github.com/spotify/confidence-resolver/commit/c2eb597d1c696bd1fac4459866b258ce852dbf9a))
+* **go:** Fail hard on empty AccoundId ([#194](https://github.com/spotify/confidence-resolver/issues/194)) ([b5c90f7](https://github.com/spotify/confidence-resolver/commit/b5c90f7c0033f9e238331de725f5ce6dca77271f))
+* **go:** implement StateHandler for proper shutdown ([#109](https://github.com/spotify/confidence-resolver/issues/109)) ([6041e45](https://github.com/spotify/confidence-resolver/commit/6041e455c80ef24e9ac50c4881ce17ff40bee871))
+* **go:** Improve logs slightly ([#188](https://github.com/spotify/confidence-resolver/issues/188)) ([c013feb](https://github.com/spotify/confidence-resolver/commit/c013feb6086274b1c06d59cda85a8c5acf533609))
+* increase max batch resolve limit to 260 ([#358](https://github.com/spotify/confidence-resolver/issues/358)) ([1792089](https://github.com/spotify/confidence-resolver/commit/179208935a4ba74f9b6a9356bbc7fd299cfb5e23))
+* **java,go:** fix flaky flag log tests due to background flush race ([#310](https://github.com/spotify/confidence-resolver/issues/310)) ([f1ec5c6](https://github.com/spotify/confidence-resolver/commit/f1ec5c621760505c5bddc0cca14073bc18dc8374))
+* **openfeature-provider/go:** move initialize work to provider.init ([#142](https://github.com/spotify/confidence-resolver/issues/142)) ([e1ef08a](https://github.com/spotify/confidence-resolver/commit/e1ef08a992fb980449ea267c7855eae396fe9e7e))
+* **openfeature/go:** fix openfeature reason mapping ([#121](https://github.com/spotify/confidence-resolver/issues/121)) ([c0334c5](https://github.com/spotify/confidence-resolver/commit/c0334c518af5eb294e8583b46e333864a1796507))
+* pass the sdk with the state to get it into telemetry ([#332](https://github.com/spotify/confidence-resolver/issues/332)) ([1f22c5f](https://github.com/spotify/confidence-resolver/commit/1f22c5fa38c4e8a7d56ea4616db94f9b991d41ab))
+* prevent panic in Go RecoveringResolver from inconsistent atomic store ([#356](https://github.com/spotify/confidence-resolver/issues/356)) ([1cddec1](https://github.com/spotify/confidence-resolver/commit/1cddec11295993b7f087bd6703bc701cde8e8d06))
+* **resolver:** add environment-based rule filtering ([#287](https://github.com/spotify/confidence-resolver/issues/287)) ([694b057](https://github.com/spotify/confidence-resolver/commit/694b05771c5f6465ed906af1d0f2389503a6b97b))
+* **resolver:** skip targeting_key validation when rule has blank selector ([#383](https://github.com/spotify/confidence-resolver/issues/383)) ([6cee589](https://github.com/spotify/confidence-resolver/commit/6cee5899c3d7ab0f5857395d718c50b56a94d683))
+* **rust:** replace semver crate with custom version parser ([#312](https://github.com/spotify/confidence-resolver/issues/312)) ([88f2f7a](https://github.com/spotify/confidence-resolver/commit/88f2f7aff995f584c8924361df91476c83908f39))
+* Skip rule if unrecognized ([#289](https://github.com/spotify/confidence-resolver/issues/289)) ([ea7a9fc](https://github.com/spotify/confidence-resolver/commit/ea7a9fc0c93235b1d8ee66ce4d52827c3516f87d))
+* surface apply_flags errors instead of swallowing ([#386](https://github.com/spotify/confidence-resolver/issues/386)) ([7785f9f](https://github.com/spotify/confidence-resolver/commit/7785f9ff116c8151daa70b9fbaab9e66d8e88794))
+* update new test provider to include client secret ([#177](https://github.com/spotify/confidence-resolver/issues/177)) ([d281edf](https://github.com/spotify/confidence-resolver/commit/d281edf823235ddc9e2d86b0a25cf08f46d76a00))
+
+
+### Performance Improvements
+
+* **java,go:** lower default WASM pool size ([#320](https://github.com/spotify/confidence-resolver/issues/320)) ([08bf1bc](https://github.com/spotify/confidence-resolver/commit/08bf1bc43da8f8e0defe7be4b44fb5e3749d621a))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.23 to 0.1.24
+
 ## [0.14.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.14.0...openfeature-provider/go/v0.14.1) (2026-04-28)
 
 

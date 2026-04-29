@@ -1,5 +1,72 @@
 # Changelog
 
+## [0.15.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.4...openfeature-provider-java-v0.15.0) (2026-04-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **java:** move provider to com.spotify.confidence.sdk package ([#215](https://github.com/spotify/confidence-resolver/issues/215))
+* java materialization interface rework ([#170](https://github.com/spotify/confidence-resolver/issues/170))
+* migrate to cdn state fetch, publish logs using client secret ([#166](https://github.com/spotify/confidence-resolver/issues/166))
+
+### Features
+
+* [release-please] Java Provider support ([#68](https://github.com/spotify/confidence-resolver/issues/68)) ([9478533](https://github.com/spotify/confidence-resolver/commit/9478533960bf02e86d4ed1aab7ac1edd5034c3fb))
+* Add Java OpenFeature provider ([#58](https://github.com/spotify/confidence-resolver/issues/58)) ([1bba814](https://github.com/spotify/confidence-resolver/commit/1bba8145be547bce4f704585feef5f41d8dbc8bd))
+* add register_resolve WASM export for SDK-side telemetry ([#354](https://github.com/spotify/confidence-resolver/issues/354)) ([31499bc](https://github.com/spotify/confidence-resolver/commit/31499bc911942ecd751b4a4a702f35ded41e9776))
+* **java:** add FlagResolverService for HTTP integration ([#274](https://github.com/spotify/confidence-resolver/issues/274)) ([ead98ac](https://github.com/spotify/confidence-resolver/commit/ead98ac69d35a10a3c8729c1d30dd713be88fe3e))
+* **java:** shade gRPC/protobuf to avoid version conflicts ([#217](https://github.com/spotify/confidence-resolver/issues/217)) ([7abdec8](https://github.com/spotify/confidence-resolver/commit/7abdec85ae26e9642850501579338ac4a4255a26))
+* local prometheus sdk metrics ([#322](https://github.com/spotify/confidence-resolver/issues/322)) ([8b18119](https://github.com/spotify/confidence-resolver/commit/8b18119eae449afbe4a0815e8aab5f82888a8621))
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+* migrate to cdn state fetch, publish logs using client secret ([#166](https://github.com/spotify/confidence-resolver/issues/166)) ([6c8d959](https://github.com/spotify/confidence-resolver/commit/6c8d959f124faa419c1ace103d8832457248eb26))
+* **openfeature-provider/java:** connectionfactory for testing ([#147](https://github.com/spotify/confidence-resolver/issues/147)) ([e1ca77e](https://github.com/spotify/confidence-resolver/commit/e1ca77efc26cbd8cfc6f822e691b385328bf8f53))
+* **openfeature-provider/java:** make java provider init as in the OF spec ([#151](https://github.com/spotify/confidence-resolver/issues/151)) ([1adf48e](https://github.com/spotify/confidence-resolver/commit/1adf48eea2c70ad94d85c8e803e5c81ab439c02b))
+* Request per second in TelemetryData ([#150](https://github.com/spotify/confidence-resolver/issues/150)) ([b91669d](https://github.com/spotify/confidence-resolver/commit/b91669d75caa0971ab71d0589634ab039dae6081))
+* send java sdk info in resolve request ([#160](https://github.com/spotify/confidence-resolver/issues/160)) ([8e10327](https://github.com/spotify/confidence-resolver/commit/8e103271886624187246ae86d8a78f74121a2f33))
+* set the nr of wasm instances with an env var ([#158](https://github.com/spotify/confidence-resolver/issues/158)) ([8ba8900](https://github.com/spotify/confidence-resolver/commit/8ba8900e5717931a3132a2f916889ef6a74a80a7))
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+* WARN logs for errors in evaluations ([#192](https://github.com/spotify/confidence-resolver/issues/192)) ([7a9f157](https://github.com/spotify/confidence-resolver/commit/7a9f1571639e24ea366e643b5b966b1de6fe06bf))
+
+
+### Bug Fixes
+
+* align the providers to do state fetching every 30 sec ([#180](https://github.com/spotify/confidence-resolver/issues/180)) ([6b537db](https://github.com/spotify/confidence-resolver/commit/6b537dbb51a587a7c09c3a285833a236cf5c51f9))
+* correct Java provider telemetry version path ([#340](https://github.com/spotify/confidence-resolver/issues/340)) ([6c55bcc](https://github.com/spotify/confidence-resolver/commit/6c55bcc589df1fe897cd66bf762d67cf48fd5e7d))
+* **deps-dev:** bump commons-lang3 from 3.17.0 to 3.18.0 in /openfeature-provider/java ([#89](https://github.com/spotify/confidence-resolver/issues/89)) ([7db65a6](https://github.com/spotify/confidence-resolver/commit/7db65a662374d2aab01c77f243082c482113981e))
+* formatting ([#189](https://github.com/spotify/confidence-resolver/issues/189)) ([b88849a](https://github.com/spotify/confidence-resolver/commit/b88849aa804f80ab014e6b94ef84569556efa7a3))
+* free WASM guest request allocation in host functions ([#369](https://github.com/spotify/confidence-resolver/issues/369)) ([dd7ddac](https://github.com/spotify/confidence-resolver/commit/dd7ddac4e22e895c7b08b09064c9dc8bab54c716))
+* java refactoring and cleanups ([#74](https://github.com/spotify/confidence-resolver/issues/74)) ([700881e](https://github.com/spotify/confidence-resolver/commit/700881ef9605e950607a40984664decf33dc8643))
+* java shutdown sequence fixing ([#167](https://github.com/spotify/confidence-resolver/issues/167)) ([17dfa47](https://github.com/spotify/confidence-resolver/commit/17dfa476d39c974053ea888e0d75d39be4f4e12b))
+* **java,go:** fix flaky flag log tests due to background flush race ([#310](https://github.com/spotify/confidence-resolver/issues/310)) ([f1ec5c6](https://github.com/spotify/confidence-resolver/commit/f1ec5c621760505c5bddc0cca14073bc18dc8374))
+* **java:** bump OpenFeature SDK to 1.20.2 for shutdown fix ([#350](https://github.com/spotify/confidence-resolver/issues/350)) ([2db93c7](https://github.com/spotify/confidence-resolver/commit/2db93c7b0f81e009fb166640e854faffc88efd9c))
+* **java:** don't recreate WASM instance on thread interruption ([#381](https://github.com/spotify/confidence-resolver/issues/381)) ([4b0d22d](https://github.com/spotify/confidence-resolver/commit/4b0d22db389f070e8e9f89cc4c1b680179422a32))
+* **java:** exclude .proto files from JAR ([#276](https://github.com/spotify/confidence-resolver/issues/276)) ([93d3f95](https://github.com/spotify/confidence-resolver/commit/93d3f95e548c25c480cd957e0a6d2e28c1f13f2f))
+* **java:** handle CDN failures gracefully during initialization ([#222](https://github.com/spotify/confidence-resolver/issues/222)) ([841354d](https://github.com/spotify/confidence-resolver/commit/841354d64396a2d36ed6a9ac0f620ab9d07690d7))
+* **java:** reload state before creating the initial Resolver ([#104](https://github.com/spotify/confidence-resolver/issues/104)) ([93581bd](https://github.com/spotify/confidence-resolver/commit/93581bd65f5775b9f188a1c9962153428cc76bdc))
+* **java:** use writeLock for close/flush to prevent concurrent WASM access ([#303](https://github.com/spotify/confidence-resolver/issues/303)) ([6bcc320](https://github.com/spotify/confidence-resolver/commit/6bcc3205d38ac02d6e886862827c8deab6d5f455))
+* **openfeature/java:** update readme and fix release please update ([#120](https://github.com/spotify/confidence-resolver/issues/120)) ([7e78391](https://github.com/spotify/confidence-resolver/commit/7e7839143ba7f77007bac554006bc36dade172a3))
+* pass the sdk with the state to get it into telemetry ([#332](https://github.com/spotify/confidence-resolver/issues/332)) ([1f22c5f](https://github.com/spotify/confidence-resolver/commit/1f22c5fa38c4e8a7d56ea4616db94f9b991d41ab))
+* surface apply_flags errors instead of swallowing ([#386](https://github.com/spotify/confidence-resolver/issues/386)) ([7785f9f](https://github.com/spotify/confidence-resolver/commit/7785f9ff116c8151daa70b9fbaab9e66d8e88794))
+
+
+### Performance Improvements
+
+* **java,go:** lower default WASM pool size ([#320](https://github.com/spotify/confidence-resolver/issues/320)) ([08bf1bc](https://github.com/spotify/confidence-resolver/commit/08bf1bc43da8f8e0defe7be4b44fb5e3749d621a))
+* **java:** combine AOT compilation, shared module, and bounded flush ([#284](https://github.com/spotify/confidence-resolver/issues/284)) ([78b7423](https://github.com/spotify/confidence-resolver/commit/78b74236e1d725bd3ae33a6e3bdf83265ea84043))
+
+
+### Code Refactoring
+
+* java materialization interface rework ([#170](https://github.com/spotify/confidence-resolver/issues/170)) ([fa6955a](https://github.com/spotify/confidence-resolver/commit/fa6955a94b41be8fc0292c9c8bbf76aac6bcd852))
+* **java:** move provider to com.spotify.confidence.sdk package ([#215](https://github.com/spotify/confidence-resolver/issues/215)) ([d4c53f2](https://github.com/spotify/confidence-resolver/commit/d4c53f26ebbe21de71ebdc37cf03dec803aea7bc))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.23 to 0.1.24
+
 ## [0.14.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.3...openfeature-provider-java-v0.14.4) (2026-04-28)
 
 

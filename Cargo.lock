@@ -256,7 +256,7 @@ dependencies = [
 
 [[package]]
 name = "confidence-cloudflare-resolver"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "confidence_resolver"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "arc-swap",
  "bitvec",
@@ -1221,28 +1221,28 @@ dependencies = [
 
 [[package]]
 name = "openfeature-provider-go"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-java"
-version = "0.14.4"
+version = "0.15.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-js"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-python"
-version = "0.6.4"
+version = "0.7.0"
 dependencies = [
  "rust-guest",
 ]
@@ -1899,7 +1899,7 @@ dependencies = [
 
 [[package]]
 name = "rust-guest"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -2194,7 +2194,7 @@ dependencies = [
 
 [[package]]
 name = "spotify-confidence-openfeature-provider-local"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "arc-swap",
  "async-trait",

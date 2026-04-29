@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.17.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.16.1...confidence_resolver-v0.17.0) (2026-04-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* migrate to cdn state fetch, publish logs using client secret ([#166](https://github.com/spotify/confidence-resolver/issues/166))
+
+### Features
+
+* Add Java OpenFeature provider ([#58](https://github.com/spotify/confidence-resolver/issues/58)) ([1bba814](https://github.com/spotify/confidence-resolver/commit/1bba8145be547bce4f704585feef5f41d8dbc8bd))
+* add Readmes and publishing steps ([#230](https://github.com/spotify/confidence-resolver/issues/230)) ([f40f9aa](https://github.com/spotify/confidence-resolver/commit/f40f9aa8b35c03bfb0e4fda7c68c4dab569581b4))
+* add register_resolve WASM export for SDK-side telemetry ([#354](https://github.com/spotify/confidence-resolver/issues/354)) ([31499bc](https://github.com/spotify/confidence-resolver/commit/31499bc911942ecd751b4a4a702f35ded41e9776))
+* add resolver_version field to TelemetryData ([#346](https://github.com/spotify/confidence-resolver/issues/346)) ([10ab1c6](https://github.com/spotify/confidence-resolver/commit/10ab1c657cb830dc36f433d1dca0af73beecaa27))
+* add support for materialized segment targeting criteria ([#201](https://github.com/spotify/confidence-resolver/issues/201)) ([cdcfc86](https://github.com/spotify/confidence-resolver/commit/cdcfc8629400a268b3e3fe124ae0fbce8967182e))
+* error handling to avoid panics ([2a645a8](https://github.com/spotify/confidence-resolver/commit/2a645a87415bfce30af048498e068952b18ceb5e))
+* Faster deploy image executions ([#10](https://github.com/spotify/confidence-resolver/issues/10)) ([d945331](https://github.com/spotify/confidence-resolver/commit/d9453317e9e40575e43d67558ef902a4bc62ee41))
+* improve Prometheus metrics API ([#371](https://github.com/spotify/confidence-resolver/issues/371)) ([efb8c16](https://github.com/spotify/confidence-resolver/commit/efb8c16a4ca9659c60e4f69611c80d3addb4e3fa))
+* js local resolver ([#32](https://github.com/spotify/confidence-resolver/issues/32)) ([58893d6](https://github.com/spotify/confidence-resolver/commit/58893d6610b56b5aa6a6250db9e9bb1af506497f))
+* local prometheus sdk metrics ([#322](https://github.com/spotify/confidence-resolver/issues/322)) ([8b18119](https://github.com/spotify/confidence-resolver/commit/8b18119eae449afbe4a0815e8aab5f82888a8621))
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+* migrate to cdn state fetch, publish logs using client secret ([#166](https://github.com/spotify/confidence-resolver/issues/166)) ([6c8d959](https://github.com/spotify/confidence-resolver/commit/6c8d959f124faa419c1ace103d8832457248eb26))
+* Request per second in TelemetryData ([#150](https://github.com/spotify/confidence-resolver/issues/150)) ([b91669d](https://github.com/spotify/confidence-resolver/commit/b91669d75caa0971ab71d0589634ab039dae6081))
+* **rust:** resolve full rollout rules when targeting key is missing ([#325](https://github.com/spotify/confidence-resolver/issues/325)) ([c9e4cb0](https://github.com/spotify/confidence-resolver/commit/c9e4cb00320d9fb13a1353d28942ed230fc7dcc5))
+* send java sdk info in resolve request ([#160](https://github.com/spotify/confidence-resolver/issues/160)) ([8e10327](https://github.com/spotify/confidence-resolver/commit/8e103271886624187246ae86d8a78f74121a2f33))
+* send js sdk info in resolve request ([#161](https://github.com/spotify/confidence-resolver/issues/161)) ([5cbc7d9](https://github.com/spotify/confidence-resolver/commit/5cbc7d9e2ada26c52298d74faaba50ec6cb4c3e7))
+* size limited flush api  ([#149](https://github.com/spotify/confidence-resolver/issues/149)) ([6ac60d6](https://github.com/spotify/confidence-resolver/commit/6ac60d6195421c9355941e4201993b521c831fcd))
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+* Support non-fractional Integers as targeting key ([#17](https://github.com/spotify/confidence-resolver/issues/17)) ([554f442](https://github.com/spotify/confidence-resolver/commit/554f442551e3ef8213a52cca266054ae5da0511e))
+* update sticky ([#38](https://github.com/spotify/confidence-resolver/issues/38)) ([41a42d2](https://github.com/spotify/confidence-resolver/commit/41a42d2917401de7389dcc37719b16de1e30199c))
+* **wasm:** add wasm API to apply previously resolved flags ([#235](https://github.com/spotify/confidence-resolver/issues/235)) ([79048f6](https://github.com/spotify/confidence-resolver/commit/79048f63a8c771eb98ecf478cab0b654aa745374))
+
+
+### Bug Fixes
+
+* cap sampled schema count in resolve logging  ([#260](https://github.com/spotify/confidence-resolver/issues/260)) ([e84b724](https://github.com/spotify/confidence-resolver/commit/e84b7248f4b7ce9231902376ed56f3cb7b524f58))
+* fix materialization default ([#59](https://github.com/spotify/confidence-resolver/issues/59)) ([bdece6c](https://github.com/spotify/confidence-resolver/commit/bdece6c5a4d53d6284056b6daaf9e8d17481db84))
+* fix queue waiting ([#57](https://github.com/spotify/confidence-resolver/issues/57)) ([b0da391](https://github.com/spotify/confidence-resolver/commit/b0da3916f3179ab31ecea8196d106b303b5589d6))
+* handle arithmetic panics ([#45](https://github.com/spotify/confidence-resolver/issues/45)) ([83912c9](https://github.com/spotify/confidence-resolver/commit/83912c9d93665b01a4cc1e9cd8e520fd94f2e21a))
+* handle arithmetic panics ([#45](https://github.com/spotify/confidence-resolver/issues/45)) ([6713c28](https://github.com/spotify/confidence-resolver/commit/6713c28196b351db9ba22eb87ca7b83ef4a25ff3))
+* increase max batch resolve limit to 260 ([#358](https://github.com/spotify/confidence-resolver/issues/358)) ([1792089](https://github.com/spotify/confidence-resolver/commit/179208935a4ba74f9b6a9356bbc7fd299cfb5e23))
+* pass the sdk with the state to get it into telemetry ([#332](https://github.com/spotify/confidence-resolver/issues/332)) ([1f22c5f](https://github.com/spotify/confidence-resolver/commit/1f22c5fa38c4e8a7d56ea4616db94f9b991d41ab))
+* **resolver:** add environment-based rule filtering ([#287](https://github.com/spotify/confidence-resolver/issues/287)) ([694b057](https://github.com/spotify/confidence-resolver/commit/694b05771c5f6465ed906af1d0f2389503a6b97b))
+* **resolver:** skip targeting_key validation when rule has blank selector ([#383](https://github.com/spotify/confidence-resolver/issues/383)) ([6cee589](https://github.com/spotify/confidence-resolver/commit/6cee5899c3d7ab0f5857395d718c50b56a94d683))
+* return false out of range ([#47](https://github.com/spotify/confidence-resolver/issues/47)) ([0a91568](https://github.com/spotify/confidence-resolver/commit/0a915688d115df760692879c5e93f62c54a09d56))
+* **rust:** replace semver crate with custom version parser ([#312](https://github.com/spotify/confidence-resolver/issues/312)) ([88f2f7a](https://github.com/spotify/confidence-resolver/commit/88f2f7aff995f584c8924361df91476c83908f39))
+* Skip rule if unrecognized ([#289](https://github.com/spotify/confidence-resolver/issues/289)) ([ea7a9fc](https://github.com/spotify/confidence-resolver/commit/ea7a9fc0c93235b1d8ee66ce4d52827c3516f87d))
+* various memory issues ([#35](https://github.com/spotify/confidence-resolver/issues/35)) ([13c53fc](https://github.com/spotify/confidence-resolver/commit/13c53fcc5c1a51c90d51c47adb574316866c9b5b))
+* wasm profile and small fixes ([#7](https://github.com/spotify/confidence-resolver/issues/7)) ([fae928b](https://github.com/spotify/confidence-resolver/commit/fae928b6c5d0923e4c82f2f4ae9b10bf0608beff))
+
 ## [0.16.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.16.0...confidence_resolver-v0.16.1) (2026-04-28)
 
 

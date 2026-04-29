@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.13.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.12.1...openfeature-provider-js-v0.13.0) (2026-04-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* migrate to cdn state fetch, publish logs using client secret ([#166](https://github.com/spotify/confidence-resolver/issues/166))
+
+### Features
+
+* add register_resolve WASM export for SDK-side telemetry ([#354](https://github.com/spotify/confidence-resolver/issues/354)) ([31499bc](https://github.com/spotify/confidence-resolver/commit/31499bc911942ecd751b4a4a702f35ded41e9776))
+* add resolver_version field to TelemetryData ([#346](https://github.com/spotify/confidence-resolver/issues/346)) ([10ab1c6](https://github.com/spotify/confidence-resolver/commit/10ab1c657cb830dc36f433d1dca0af73beecaa27))
+* improve Prometheus metrics API ([#371](https://github.com/spotify/confidence-resolver/issues/371)) ([efb8c16](https://github.com/spotify/confidence-resolver/commit/efb8c16a4ca9659c60e4f69611c80d3addb4e3fa))
+* inlined WASM for improved portability ([#243](https://github.com/spotify/confidence-resolver/issues/243)) ([8d86283](https://github.com/spotify/confidence-resolver/commit/8d862837244ffd9099bfeb56b42e203212e73a96))
+* js local resolver ([#32](https://github.com/spotify/confidence-resolver/issues/32)) ([58893d6](https://github.com/spotify/confidence-resolver/commit/58893d6610b56b5aa6a6250db9e9bb1af506497f))
+* **js:** add React support with useFlag and useFlagDetails hooks ([#246](https://github.com/spotify/confidence-resolver/issues/246)) ([d579a4c](https://github.com/spotify/confidence-resolver/commit/d579a4c8fe493ee3a92539203f21d1c03758c58e))
+* **js:** add stateUpdateInterval option for configurable state polling ([#224](https://github.com/spotify/confidence-resolver/issues/224)) ([5687847](https://github.com/spotify/confidence-resolver/commit/56878478d3d508870ac0f3172f897c8728e8a85d))
+* **js:** add sticky assignment support through remote resolver fallback ([#48](https://github.com/spotify/confidence-resolver/issues/48)) ([baeff3e](https://github.com/spotify/confidence-resolver/commit/baeff3ec39a084615012d961997949748285ac57))
+* **js:** flush assigned when reaching limit ([#145](https://github.com/spotify/confidence-resolver/issues/145)) ([09293ad](https://github.com/spotify/confidence-resolver/commit/09293adc5800f477620905f28539ad45d6a40997))
+* local prometheus sdk metrics ([#322](https://github.com/spotify/confidence-resolver/issues/322)) ([8b18119](https://github.com/spotify/confidence-resolver/commit/8b18119eae449afbe4a0815e8aab5f82888a8621))
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+* migrate to cdn state fetch, publish logs using client secret ([#166](https://github.com/spotify/confidence-resolver/issues/166)) ([6c8d959](https://github.com/spotify/confidence-resolver/commit/6c8d959f124faa419c1ace103d8832457248eb26))
+* pluggable materialization ([#211](https://github.com/spotify/confidence-resolver/issues/211)) ([96aea72](https://github.com/spotify/confidence-resolver/commit/96aea72a2dce2e02fdfa4374e4fa245f0efc177b))
+* send js sdk info in resolve request ([#161](https://github.com/spotify/confidence-resolver/issues/161)) ([5cbc7d9](https://github.com/spotify/confidence-resolver/commit/5cbc7d9e2ada26c52298d74faaba50ec6cb4c3e7))
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+* WARN logs for errors in evaluations ([#192](https://github.com/spotify/confidence-resolver/issues/192)) ([7a9f157](https://github.com/spotify/confidence-resolver/commit/7a9f1571639e24ea366e643b5b966b1de6fe06bf))
+* **wasm:** add wasm API to apply previously resolved flags ([#235](https://github.com/spotify/confidence-resolver/issues/235)) ([79048f6](https://github.com/spotify/confidence-resolver/commit/79048f63a8c771eb98ecf478cab0b654aa745374))
+
+
+### Bug Fixes
+
+* free WASM guest request allocation in host functions ([#369](https://github.com/spotify/confidence-resolver/issues/369)) ([dd7ddac](https://github.com/spotify/confidence-resolver/commit/dd7ddac4e22e895c7b08b09064c9dc8bab54c716))
+* handle panics ([#76](https://github.com/spotify/confidence-resolver/issues/76)) ([1ea86ea](https://github.com/spotify/confidence-resolver/commit/1ea86eaa3e64aea5a64086534fe94a155828ef80))
+* **js:** correct current time ([#67](https://github.com/spotify/confidence-resolver/issues/67)) ([260f5e3](https://github.com/spotify/confidence-resolver/commit/260f5e3c937dad99e09db1795c6036f0647514c7))
+* **js:** handle missing debug package under nextjs ([#219](https://github.com/spotify/confidence-resolver/issues/219)) ([c4d49fc](https://github.com/spotify/confidence-resolver/commit/c4d49fc6486931e902848f11245c2a4d02af98ff))
+* **js:** increase state fetch stall timeout to 1s ([#293](https://github.com/spotify/confidence-resolver/issues/293)) ([f95da45](https://github.com/spotify/confidence-resolver/commit/f95da455ef338b3e43604f4a2d76d008c9e63496))
+* **js:** strip resolveToken from RSC client bundle ([#388](https://github.com/spotify/confidence-resolver/issues/388)) ([f202f56](https://github.com/spotify/confidence-resolver/commit/f202f56f119faf791f26e0011c30ace259939f5e))
+* pass the sdk with the state to get it into telemetry ([#332](https://github.com/spotify/confidence-resolver/issues/332)) ([1f22c5f](https://github.com/spotify/confidence-resolver/commit/1f22c5fa38c4e8a7d56ea4616db94f9b991d41ab))
+* prevent split bundle ([#212](https://github.com/spotify/confidence-resolver/issues/212)) ([80cfd0d](https://github.com/spotify/confidence-resolver/commit/80cfd0d0128af4c65b1ae50539f2b1d0d959c02e))
+* surface apply_flags errors instead of swallowing ([#386](https://github.com/spotify/confidence-resolver/issues/386)) ([7785f9f](https://github.com/spotify/confidence-resolver/commit/7785f9ff116c8151daa70b9fbaab9e66d8e88794))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.23 to 0.1.24
+
 ## [0.12.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.12.0...openfeature-provider-js-v0.12.1) (2026-04-28)
 
 

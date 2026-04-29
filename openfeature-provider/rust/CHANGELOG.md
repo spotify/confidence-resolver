@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.5.3...openfeature-provider/rust-v0.6.0) (2026-04-29)
+
+
+### Features
+
+* add Readmes and publishing steps ([#230](https://github.com/spotify/confidence-resolver/issues/230)) ([f40f9aa](https://github.com/spotify/confidence-resolver/commit/f40f9aa8b35c03bfb0e4fda7c68c4dab569581b4))
+* add register_resolve WASM export for SDK-side telemetry ([#354](https://github.com/spotify/confidence-resolver/issues/354)) ([31499bc](https://github.com/spotify/confidence-resolver/commit/31499bc911942ecd751b4a4a702f35ded41e9776))
+* add rust provider ([#223](https://github.com/spotify/confidence-resolver/issues/223)) ([9eefb80](https://github.com/spotify/confidence-resolver/commit/9eefb80bbca5272019c41801bd1387955adc468d))
+* configurable gateway ([#236](https://github.com/spotify/confidence-resolver/issues/236)) ([aba6cbd](https://github.com/spotify/confidence-resolver/commit/aba6cbd65361db95a3b0391eee53e7c7e3cad717))
+* metrics in telemetry data ([#266](https://github.com/spotify/confidence-resolver/issues/266)) ([965eff6](https://github.com/spotify/confidence-resolver/commit/965eff60b6c0377336e6e86624a78f6f3a859f73))
+* Support for startsWith and endsWith ([#283](https://github.com/spotify/confidence-resolver/issues/283)) ([661c4ef](https://github.com/spotify/confidence-resolver/commit/661c4ef53b5d907bf079e632135723c2af7af0b9))
+
+
+### Bug Fixes
+
+* pass the sdk with the state to get it into telemetry ([#332](https://github.com/spotify/confidence-resolver/issues/332)) ([1f22c5f](https://github.com/spotify/confidence-resolver/commit/1f22c5fa38c4e8a7d56ea4616db94f9b991d41ab))
+* **rust:** include proto files in cargo publish tarball ([#318](https://github.com/spotify/confidence-resolver/issues/318)) ([437502d](https://github.com/spotify/confidence-resolver/commit/437502d02e06f27413a5270b923ac2db032de7c6))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.16.1 to 0.17.0
+
 ## [0.5.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.5.2...openfeature-provider/rust-v0.5.3) (2026-04-28)
 
 
