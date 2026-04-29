@@ -36,12 +36,6 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Debug - Log Release Please outputs
-        run: |
-          echo "=== Release Please Outputs ==="
-          echo "All outputs (JSON):"
-          echo '${{ toJSON(steps.releasemanifest.outputs) }}'
-          
   publish-cloudflare-deployer-image:
     needs: release
     if: ${{ needs.release.outputs.cloudflare_resolver_release_created == 'true' }}
