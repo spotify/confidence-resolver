@@ -1,20 +1,5 @@
 # Changelog
 
-## [0.12.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.12.0...openfeature-provider-js-v0.12.1) (2026-04-28)
-
-
-### Bug Fixes
-
-* **js:** strip resolveToken from RSC client bundle ([#388](https://github.com/spotify/confidence-resolver/issues/388)) ([f202f56](https://github.com/spotify/confidence-resolver/commit/f202f56f119faf791f26e0011c30ace259939f5e))
-* surface apply_flags errors instead of swallowing ([#386](https://github.com/spotify/confidence-resolver/issues/386)) ([7785f9f](https://github.com/spotify/confidence-resolver/commit/7785f9ff116c8151daa70b9fbaab9e66d8e88794))
-
-
-### Dependencies
-
-* The following workspace dependencies were updated
-  * dependencies
-    * rust-guest bumped from 0.1.22 to 0.1.23
-
 ## [0.12.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.11.2...openfeature-provider-js-v0.12.0) (2026-04-15)
 
 

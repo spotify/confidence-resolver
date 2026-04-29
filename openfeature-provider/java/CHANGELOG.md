@@ -1,20 +1,5 @@
 # Changelog
 
-## [0.14.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.3...openfeature-provider-java-v0.14.4) (2026-04-28)
-
-
-### Bug Fixes
-
-* **java:** don't recreate WASM instance on thread interruption ([#381](https://github.com/spotify/confidence-resolver/issues/381)) ([4b0d22d](https://github.com/spotify/confidence-resolver/commit/4b0d22db389f070e8e9f89cc4c1b680179422a32))
-* surface apply_flags errors instead of swallowing ([#386](https://github.com/spotify/confidence-resolver/issues/386)) ([7785f9f](https://github.com/spotify/confidence-resolver/commit/7785f9ff116c8151daa70b9fbaab9e66d8e88794))
-
-
-### Dependencies
-
-* The following workspace dependencies were updated
-  * dependencies
-    * rust-guest bumped from 0.1.22 to 0.1.23
-
 ## [0.14.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.2...openfeature-provider-java-v0.14.3) (2026-04-15)
 
 
