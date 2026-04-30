@@ -15,6 +15,7 @@ For language-specific installation and quick start instructions, see your provid
 1. [Getting Your Credentials](#getting-your-credentials)
 2. [Error Handling](#error-handling)
 3. [Sticky Assignments](#sticky-assignments)
+4. [Deferred Apply and Resolve Token Security](#deferred-apply-and-resolve-token-security)
 
 ---
 
@@ -153,6 +154,33 @@ Some providers support custom storage backends to eliminate network calls for st
 ### Deep Dive
 
 For technical details on how sticky assignments work at the protocol level, including flowcharts, behavior matrices, and configuration patterns, see the [Sticky Assignments Technical Guide](../STICKY_ASSIGNMENTS.md).
+
+---
+
+## Deferred Apply and Resolve Token Security
+
+Currently supported in the **Go**, **JavaScript**, and **Java** providers.
+
+When you resolve flags with `apply=false`, the response includes a **resolve token** that you later pass to the apply call to record exposure. This pattern is useful when resolution happens earlier than exposure — for example, resolving on the server but only logging exposure once the client actually renders the experience (see the JS [React integration](js/README-REACT.md) for a typical RSC flow).
+
+### What the resolve token contains
+
+The resolve token is **not encrypted**. It is a serialized payload that includes, among other things:
+
+- The full evaluation context used during resolution (targeting key and any attributes you passed in)
+- Which variant each flag was resolved to
+
+### Recommendation
+
+If any of that data is sensitive (PII in the evaluation context, variant assignments you don't want exposed to end users), do not let the raw token leave your backend. Encrypt the token at the trust boundary and decrypt it again before handing it back to the provider's apply call:
+
+```
+backend ──[ resolve(apply=false) ]──► resolve token (plaintext)
+backend ──[ encrypt ]──► opaque token ──► client / storage / queue
+client ──► opaque token ──► backend ──[ decrypt ]──► resolve token ──► provider.applyFlag(...)
+```
+
+The provider only needs to see the original token at apply time — anything you wrap around it in transit is up to you.
 
 ---
 
