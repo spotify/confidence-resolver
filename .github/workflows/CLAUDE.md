@@ -32,4 +32,4 @@ On `confidence-cloudflare-resolver` release, the deployer Docker image is built 
 
 ## PR Lint (`lint-pr-name.yaml`)
 
-PR titles must follow **conventional commits** (`feat:`, `fix:`, `chore:`, etc.). Enforced via `amannn/action-semantic-pull-request@v5`. Posts a sticky comment on the PR explaining the error if validation fails.
+PR titles must follow **conventional commits** (`feat:`, `fix:`, `chore:`, etc.). Enforced via `amannn/action-semantic-pull-request@v6`. Posts a sticky comment on the PR explaining the error if validation fails.
