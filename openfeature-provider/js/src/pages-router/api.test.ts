@@ -76,6 +76,20 @@ describe('applyHandler', () => {
     expect(status()).toBe(400);
   });
 
+  it('skips applyFlag and returns 204 when the opened token is empty (error bundle)', async () => {
+    const applyFlag = vi.fn();
+    OpenFeature.setProvider({
+      metadata: { name: 'ConfidenceServerProviderLocal' },
+      applyFlag,
+    } as never);
+    const sealed = sealResolveToken(''); // FlagBundle.error() ships resolveToken: ''
+    const handler = applyHandler();
+    const { req, res, status } = makeReqRes('POST', { resolveToken: sealed, flagName: 'my-flag' });
+    await handler(req, res);
+    expect(applyFlag).not.toHaveBeenCalled();
+    expect(status()).toBe(204);
+  });
+
   it('calls applyFlag on success and returns 204', async () => {
     const applyFlag = vi.fn();
     OpenFeature.setProvider({

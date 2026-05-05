@@ -45,6 +45,13 @@ export function applyHandler(opts: ApplyHandlerOptions = {}): NextApiHandler {
       return;
     }
 
+    // Error bundles carry an empty resolveToken (see FlagBundle.error); skip
+    // applyFlag in that case to match the App Router's `!bundle.errorCode` gate.
+    if (!openedToken) {
+      res.status(204).end();
+      return;
+    }
+
     provider.applyFlag(openedToken, body.flagName);
     res.status(204).end();
   };

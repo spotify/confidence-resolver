@@ -8,8 +8,9 @@ import { useCallback, type ReactNode } from 'react';
 // this via the package's `./react-client` exports entry and dedupes it against
 // any other usage of react-client in the same app.
 import { ConfidenceClientProvider } from '@spotify-confidence/openfeature-server-provider-local/react-client';
-import { DEFAULT_APPLY_PATH } from './constants';
 import type { ConfidencePageProps } from './types';
+
+const DEFAULT_APPLY_PATH = '/api/confidence/apply';
 
 export type { ConfidencePageProps } from './types';
 
@@ -40,12 +41,26 @@ export function ConfidencePagesProvider({
   const apply = useCallback(
     async (flagName: string) => {
       if (!resolveToken) return;
-      await fetch(apiPath, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ resolveToken, flagName }),
-        keepalive: true,
-      });
+      try {
+        const res = await fetch(apiPath, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ resolveToken, flagName }),
+          keepalive: true,
+        });
+        if (!res.ok && process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[Confidence] apply failed: ${res.status} ${res.statusText}. ` +
+              `Mount applyHandler at ${apiPath} and ensure a ConfidenceServerProviderLocal is registered.`,
+          );
+        }
+      } catch (err) {
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.warn('[Confidence] apply request failed:', err);
+        }
+      }
     },
     [resolveToken, apiPath],
   );
