@@ -37,20 +37,24 @@ yarn add @spotify-confidence/openfeature-server-provider-local react
 
 ### 1. Set up the provider (server-side)
 
-Create a file to initialize the OpenFeature provider:
+Use Next.js's [`instrumentation.ts`](https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation) hook to register the provider once at server startup:
 
 ```ts
-// lib/confidence.ts
-import { OpenFeature } from '@openfeature/server-sdk';
-import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local';
+// instrumentation.ts (at the project root, or in src/ if you use a src folder)
+export async function register() {
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
-const provider = createConfidenceServerProvider({
-  flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
-});
+  const { OpenFeature } = await import('@openfeature/server-sdk');
+  const { createConfidenceServerProvider } = await import('@spotify-confidence/openfeature-server-provider-local');
 
-// Initialize once at startup
-await OpenFeature.setProviderAndWait(provider);
+  const provider = createConfidenceServerProvider({
+    flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+  });
+  await OpenFeature.setProviderAndWait(provider);
+}
 ```
+
+`register` runs once when a Next.js server instance boots and is awaited before requests are served. It does not run during `next build`, so it's safe to perform network setup here.
 
 ### 2. Wrap your app with ConfidenceProvider
 
@@ -59,7 +63,6 @@ In your layout or page (Server Component):
 ```tsx
 // app/layout.tsx
 import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provider-local/react-server';
-import './lib/confidence'; // Initialize provider
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Get user context from session, cookies, etc.
@@ -386,6 +389,100 @@ export default async function Page() {
   return showNewLayout ? <NewLayout /> : <OldLayout />;
 }
 ```
+
+## Next.js Pages Router
+
+When using the Pages Router, three subexports under `./pages-router/*` cover the equivalent of the App Router integration above. The client hooks (`useFlag`, `useFlagDetails`) are the same — only the server plumbing differs.
+
+- **`pages-router/server`** — `withConfidence`, a `getServerSideProps` decorator that resolves the flag bundle for the request and merges it into `pageProps`.
+- **`pages-router/client`** — `<ConfidencePagesProvider>`, which reads the bundle from `pageProps` and exposes it to the `useFlag` / `useFlagDetails` hooks (re-used as-is from `react-client`).
+- **`pages-router/api`** — `applyHandler`, the `/api/confidence/apply` POST handler the client uses to log exposure when a flag is read.
+
+Provider registration is router-agnostic: use the same [`instrumentation.ts`](#1-set-up-the-provider-server-side) setup shown for the App Router.
+
+### 1. Resolve flags in `getServerSideProps`
+
+`withConfidence` wraps your `getServerSideProps`, resolves the flag bundle for the request without firing exposure, and merges it into `pageProps.confidence`. You hand it an `EvaluationContext` (or a function that builds one from the request) and optionally a list of flag keys to scope the resolution.
+
+If your page already has its own `getServerSideProps`, pass it as the second argument:
+
+```tsx
+// pages/index.tsx
+import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-client';
+import { withConfidence } from '@spotify-confidence/openfeature-server-provider-local/pages-router/server';
+
+export const getServerSideProps = withConfidence(
+  {
+    context: ({ req }) => ({ targetingKey: req.cookies.uid ?? 'anon' }),
+    flags: ['my-feature'], // optional — defaults to all flags
+  },
+  async () => {
+    const data = await fetchSomeData();
+    return { props: { data } };
+  },
+);
+
+export default function Home({ data }: { data: SomeData }) {
+  const enabled = useFlag('my-feature.enabled', false);
+  return enabled ? <Feature data={data} /> : null;
+}
+```
+
+For pages with no other data fetching, omit the second argument:
+
+```tsx
+export const getServerSideProps = withConfidence({
+  context: ({ req }) => ({ targetingKey: req.cookies.uid ?? 'anon' }),
+});
+```
+
+### 2. Wrap your tree with `<ConfidencePagesProvider>`
+
+Any component that calls `useFlag` / `useFlagDetails` must sit under a `<ConfidencePagesProvider>`. The simplest placement is `_app.tsx`, which covers every page in one spot — but the wrapper works anywhere in the tree, so per-page wrapping is also fine if you'd rather not touch `_app.tsx`.
+
+```tsx
+// pages/_app.tsx
+import type { AppProps } from 'next/app';
+import { ConfidencePagesProvider } from '@spotify-confidence/openfeature-server-provider-local/pages-router/client';
+
+export default function App({ Component, pageProps }: AppProps) {
+  const { confidence, ...rest } = pageProps;
+  return (
+    <ConfidencePagesProvider confidence={confidence}>
+      <Component {...rest} />
+    </ConfidencePagesProvider>
+  );
+}
+```
+
+Pages whose `getServerSideProps` doesn't use `withConfidence` simply have no `confidence` key on `pageProps`; the wrapper short-circuits and any `useFlag` calls in their tree fall back to default values.
+
+### 3. Mount the apply API route
+
+When a flag is read on the client (e.g. `useFlag` firing on mount), the wrapper POSTs `{ resolveToken, flagName }` to the apply route, which opens the sealed token and logs exposure server-side. Mount the handler at `/api/confidence/apply`:
+
+```ts
+// pages/api/confidence/apply.ts
+import { applyHandler } from '@spotify-confidence/openfeature-server-provider-local/pages-router/api';
+export default applyHandler();
+```
+
+If you need to mount it elsewhere, pass the same path to `<ConfidencePagesProvider apiPath="...">`.
+
+### Resolve token security
+
+In the App Router, the resolve token stays in the encrypted closure of a server action. The Pages Router has no equivalent, so the lib **seals the token with AES-256-GCM** before it ever reaches the browser. Set a server-only key:
+
+```bash
+CONFIDENCE_TOKEN_KEY=$(openssl rand -hex 32)
+```
+
+The client only ever sees the sealed value; the apply API route opens it server-side.
+
+### What's not in this integration
+
+- No equivalent to `getFlag` / `getFlagDetails` server functions — call `OpenFeature.getClient().getXxxValue(...)` directly inside `getServerSideProps` if you need eager-exposure server-only resolution.
+- No `getStaticProps` support: flag resolution is per-request and depends on evaluation context.
 
 ## Troubleshooting
 
