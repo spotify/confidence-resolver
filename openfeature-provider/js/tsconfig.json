@@ -7,7 +7,14 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    // Map the package self-reference in src/pages-router/client.tsx to source,
+    // so `tsc --noEmit` doesn't depend on a built `dist/`. Bundler/runtime
+    // resolution is unaffected and still goes through package.json#exports.
+    // Add a new entry here for each additional self-referenced export.
+    "paths": {
+      "@spotify-confidence/openfeature-server-provider-local/react-client": ["./src/react/client.tsx"]
+    }
   },
   "include": ["src/**/*"]
 }

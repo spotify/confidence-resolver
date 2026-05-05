@@ -63,4 +63,31 @@ export default defineConfig([
     platform: 'neutral',
     ...reactBase,
   },
+  // Pages Router: server-side helpers (withConfidence, resolveConfidence)
+  {
+    entry: { 'pages-router/server': './src/pages-router/server.ts' },
+    platform: 'neutral',
+    ...reactBase,
+    external: [...(reactBase.external || []), 'next', /^node:/],
+  },
+  // Pages Router: client wrapper used in _app.tsx. Externalize the
+  // package self-reference to react-client so we don't bundle a second copy
+  // of ConfidenceContext (which would silently break useFlag/useFlagDetails).
+  {
+    entry: { 'pages-router/client': './src/pages-router/client.tsx' },
+    platform: 'neutral',
+    ...reactBase,
+    external: [
+      ...(reactBase.external || []),
+      'next',
+      '@spotify-confidence/openfeature-server-provider-local/react-client',
+    ],
+  },
+  // Pages Router: applyHandler factory for the API route
+  {
+    entry: { 'pages-router/api': './src/pages-router/api.ts' },
+    platform: 'neutral',
+    ...reactBase,
+    external: [...(reactBase.external || []), 'next', /^node:/],
+  },
 ]);
