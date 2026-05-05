@@ -473,22 +473,22 @@ fn run_spec_test(state: &ResolverState, test_case: &SpecTestCase) {
                 });
             match token.resolve_token {
                 Some(flags_resolver::resolve_token::ResolveToken::TokenV1(token_v1)) => {
-                    let assigned = token_v1.assignments.get(&expected_flag.flag).unwrap_or_else(|| {
-                        panic!(
-                            "[{}] Flag '{}' not found in resolve token assignments",
-                            test_case.name, expected_flag.flag,
-                        )
-                    });
+                    let assigned = token_v1
+                        .assignments
+                        .get(&expected_flag.flag)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "[{}] Flag '{}' not found in resolve token assignments",
+                                test_case.name, expected_flag.flag,
+                            )
+                        });
                     assert_eq!(
                         &assigned.assignment_id, expected_assignment_id,
                         "[{}] assignmentId mismatch for flag '{}'",
                         test_case.name, expected_flag.flag,
                     );
                 }
-                _ => panic!(
-                    "[{}] Expected TokenV1 in resolve token",
-                    test_case.name,
-                ),
+                _ => panic!("[{}] Expected TokenV1 in resolve token", test_case.name,),
             }
         }
     }
