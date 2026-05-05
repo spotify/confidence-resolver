@@ -402,25 +402,22 @@ Provider registration is router-agnostic: use the same [`instrumentation.ts`](#1
 
 ### 1. Resolve flags in `getServerSideProps`
 
-`withConfidence` wraps your `getServerSideProps`, resolves the flag bundle for the request without firing exposure, and merges it into `pageProps.confidence`. You hand it an `EvaluationContext` (or a function that builds one from the request) and optionally a list of flag keys to scope the resolution.
-
-If your page already has its own `getServerSideProps`, pass it as the second argument:
+`withConfidence` wraps a single `getServerSideProps`-shaped function that does your data fetching **and** returns the evaluation context to use for flag resolution (and optionally a `flags` allow-list). The decorator resolves the bundle without firing exposure, seals the resolve token, and merges it into `pageProps.confidence`.
 
 ```tsx
 // pages/index.tsx
 import { useFlag } from '@spotify-confidence/openfeature-server-provider-local/react-client';
 import { withConfidence } from '@spotify-confidence/openfeature-server-provider-local/pages-router/server';
 
-export const getServerSideProps = withConfidence(
-  {
-    context: ({ req }) => ({ targetingKey: req.cookies.uid ?? 'anon' }),
+export const getServerSideProps = withConfidence(async ({ req }) => {
+  const visitorId = req.cookies.uid ?? 'anon';
+  const data = await fetchSomeData();
+  return {
+    props: { data },
+    context: { visitor_id: visitorId },
     flags: ['my-feature'], // optional — defaults to all flags
-  },
-  async () => {
-    const data = await fetchSomeData();
-    return { props: { data } };
-  },
-);
+  };
+});
 
 export default function Home({ data }: { data: SomeData }) {
   const enabled = useFlag('my-feature.enabled', false);
@@ -428,12 +425,13 @@ export default function Home({ data }: { data: SomeData }) {
 }
 ```
 
-For pages with no other data fetching, omit the second argument:
+Returning `{ redirect }` or `{ notFound }` short-circuits before flag resolution, just like a normal `getServerSideProps`. For pages without their own data fetching, the body collapses to a single return:
 
 ```tsx
-export const getServerSideProps = withConfidence({
-  context: ({ req }) => ({ targetingKey: req.cookies.uid ?? 'anon' }),
-});
+export const getServerSideProps = withConfidence(async ({ req }) => ({
+  props: {},
+  context: { visitor_id: req.cookies.uid ?? 'anon' },
+}));
 ```
 
 ### 2. Wrap your tree with `<ConfidencePagesProvider>`
