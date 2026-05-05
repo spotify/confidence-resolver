@@ -336,23 +336,26 @@ FROM openfeature-provider-js-base AS openfeature-provider-js.build
 
 RUN make build
 
-# Verify no bundle splitting occurred
+# Verify no bundle splitting occurred. rolldown's default chunkFileNames is
+# `[name]-[hash].js` (8+ alphanumeric hash), so any .js whose basename ends in
+# `-<hash>.js` is an auto-split chunk. Entry outputs are dot-separated
+# (`index.inlined.js`) or path-nested (`pages-router/api.js`), so they don't
+# match this pattern.
 RUN set -e; \
     echo "Verifying no bundle splitting in JS artifacts..."; \
-    UNEXPECTED_FILES=$(find dist -name '*.js' ! -name 'index.node.js' ! -name 'index.inlined.js' ! -name 'index.fetch.js' ! -name 'server.js' ! -name 'client.js' | head -10); \
-    if [ -n "$UNEXPECTED_FILES" ]; then \
+    SPLIT_CHUNKS=$(find dist -type f -name '*.js' | grep -E -- '-[A-Za-z0-9]{8,}\.js$' || true); \
+    if [ -n "$SPLIT_CHUNKS" ]; then \
       echo ""; \
       echo "❌ ERROR: Bundle splitting detected!"; \
       echo ""; \
-      echo "Found unexpected JavaScript files in dist/:"; \
-      echo "$UNEXPECTED_FILES"; \
+      echo "Found auto-split chunks in dist/ (filenames matching <name>-<hash>.js):"; \
+      echo "$SPLIT_CHUNKS"; \
       echo ""; \
-      echo "Only expected entry point files should be present."; \
-      echo "Check tsdown.config.ts configuration to prevent code splitting."; \
+      echo "Each public entry should be a self-contained bundle. Check tsdown.config.ts."; \
       echo ""; \
       exit 1; \
     fi; \
-    echo "✅ No bundle splitting detected - only expected files present"
+    echo "✅ No bundle splitting detected"
 
 # ==============================================================================
 # Pack OpenFeature Provider (JS) - Create tarball for publishing
