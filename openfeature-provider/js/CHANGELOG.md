@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.12.1...openfeature-provider-js-v0.13.0) (2026-05-05)
+
+
+### Features
+
+* **js:** Next.js Pages Router support ([#393](https://github.com/spotify/confidence-resolver/issues/393)) ([8efd0ae](https://github.com/spotify/confidence-resolver/commit/8efd0aee9581edaddd531bc15ba63e741e598eff))
+
 ## [0.12.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.12.0...openfeature-provider-js-v0.12.1) (2026-04-28)
 
 
