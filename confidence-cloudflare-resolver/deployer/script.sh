@@ -14,6 +14,12 @@ CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
 NO_DEPLOY=${NO_DEPLOY:=}
 FORCE_DEPLOY=${FORCE_DEPLOY:=}
 WORKER_NAME_PREFIX=${WORKER_NAME_PREFIX:=}
+WRANGLER_CONFIG_APPEND_FILE=${WRANGLER_CONFIG_APPEND_FILE:=}
+WRANGLER_DEPLOY_ARGS=${WRANGLER_DEPLOY_ARGS:=}
+WRANGLER_DEPLOY_ARGS_FILE=${WRANGLER_DEPLOY_ARGS_FILE:=}
+WRANGLER_DEPLOY_TAG=${WRANGLER_DEPLOY_TAG:=}
+WRANGLER_DEPLOY_MESSAGE=${WRANGLER_DEPLOY_MESSAGE:=}
+INITIAL_WORKDIR="$(pwd)"
 
 # CDN base URL for fetching resolver state
 CDN_BASE_URL="https://confidence-resolver-state-cdn.spotifycdn.com"
@@ -106,7 +112,6 @@ mkdir -p data
 RESPONSE_FILE="data/resolver_state_current.pb"
 ETAG_TOML=""
 ALLOWED_ORIGIN_TOML=""
-VERSION_TOML=""
 CLIENT_SECRET_TOML=""
 
 EXTRA_HEADER=()
@@ -226,6 +231,74 @@ check_file() {
     fi
 }
 
+resolve_input_path() {
+    local input_path="$1"
+
+    case "$input_path" in
+        /*) printf '%s\n' "$input_path" ;;
+        *) printf '%s/%s\n' "$INITIAL_WORKDIR" "$input_path" ;;
+    esac
+}
+
+validate_wrangler_config_append() {
+    local source_name="$1"
+    local content="$2"
+
+    while IFS= read -r line; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        if [ -z "$line" ] || [[ "$line" == \#* ]]; then
+            continue
+        fi
+        if [[ "$line" == \[* ]]; then
+            return
+        fi
+        echo "❌ ${source_name} must start with a TOML table header such as [[tail_consumers]] or [observability.logs]" >&2
+        echo "   Top-level keys cannot be appended safely after existing tables in wrangler.toml." >&2
+        exit 1
+    done <<< "$content"
+}
+
+append_wrangler_config() {
+    local source_name="$1"
+    local content="$2"
+
+    if [ -z "$content" ]; then
+        return
+    fi
+
+    validate_wrangler_config_append "$source_name" "$content"
+
+    {
+        printf '\n'
+        printf '# Appended by confidence-cloudflare-deployer from %s\n' "$source_name"
+        printf '%s\n' "$content"
+    } >> wrangler.toml
+
+    echo "✅ Appended Wrangler config from ${source_name}"
+}
+
+add_wrangler_deploy_args_from_lines() {
+    local source_name="$1"
+    local content="$2"
+
+    if [ -z "$content" ]; then
+        return
+    fi
+
+    local count=0
+    while IFS= read -r arg; do
+        if [ -n "$arg" ]; then
+            WRANGLER_DEPLOY_ARGS_ARRAY+=("$arg")
+            count=$((count + 1))
+        fi
+    done <<< "$content"
+
+    if [ "$count" -gt 0 ]; then
+        echo "✅ Added ${count} Wrangler deploy arg(s) from ${source_name}"
+    fi
+}
+
 # Verify all required files
 check_file "data/resolver_state_current.pb"
 # Note: encryption_key may be empty, so we just check it exists
@@ -307,11 +380,6 @@ if [ -n "$CONFIDENCE_RESOLVER_ALLOWED_ORIGIN" ]; then
     ALLOWED_ORIGIN_TOML=$(printf '%s' "$CONFIDENCE_RESOLVER_ALLOWED_ORIGIN" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
 fi
 
-# Prepare RESOLVER_VERSION for TOML
-if [ -n "$DEPLOYER_VERSION" ]; then
-    VERSION_TOML=$(printf '%s' "$DEPLOYER_VERSION" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
-fi
-
 # Prepare CONFIDENCE_CLIENT_SECRET for TOML (escape quotes and backslashes)
 if [ -n "$CONFIDENCE_CLIENT_SECRET" ]; then
     CLIENT_SECRET_TOML=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
@@ -352,6 +420,15 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     fi
 fi
 
+if [ -n "$WRANGLER_CONFIG_APPEND_FILE" ]; then
+    WRANGLER_CONFIG_APPEND_FILE_PATH=$(resolve_input_path "$WRANGLER_CONFIG_APPEND_FILE")
+    if [ ! -f "$WRANGLER_CONFIG_APPEND_FILE_PATH" ]; then
+        echo "❌ WRANGLER_CONFIG_APPEND_FILE does not exist: $WRANGLER_CONFIG_APPEND_FILE_PATH" >&2
+        exit 1
+    fi
+    append_wrangler_config "WRANGLER_CONFIG_APPEND_FILE" "$(cat "$WRANGLER_CONFIG_APPEND_FILE_PATH")"
+fi
+
 # Build the worker after state is downloaded
 export CARGO_TARGET_DIR=/workspace/target
 export PATH="/usr/local/cargo/bin:$PATH"
@@ -367,14 +444,41 @@ echo "🔧 Checking wasm-bindgen..."
 which wasm-bindgen || echo "wasm-bindgen not in PATH"
 wasm-bindgen --version || echo "wasm-bindgen version check failed"
 echo "🔧 PATH: $PATH"
-echo "🔧 CARGO_HOME: $CARGO_HOME"
-ls -la /usr/local/cargo/bin/ | grep wasm || echo "no wasm tools in cargo bin"
+echo "🔧 CARGO_HOME: ${CARGO_HOME:-}"
+wasm_tools=(/usr/local/cargo/bin/*wasm*)
+if [ -e "${wasm_tools[0]}" ]; then
+    printf '%s\n' "${wasm_tools[@]}"
+else
+    echo "no wasm tools in cargo bin"
+fi
 
 RUSTFLAGS='--cfg getrandom_backend="wasm_js"' worker-build --release
 
+WRANGLER_DEPLOY_ARGS_ARRAY=()
+if [ -n "$WRANGLER_DEPLOY_TAG" ]; then
+    WRANGLER_DEPLOY_ARGS_ARRAY+=(--tag "$WRANGLER_DEPLOY_TAG")
+    echo "✅ Using Wrangler deploy tag"
+fi
+
+if [ -n "$WRANGLER_DEPLOY_MESSAGE" ]; then
+    WRANGLER_DEPLOY_ARGS_ARRAY+=(--message "$WRANGLER_DEPLOY_MESSAGE")
+    echo "✅ Using Wrangler deploy message"
+fi
+
+if [ -n "$WRANGLER_DEPLOY_ARGS_FILE" ]; then
+    WRANGLER_DEPLOY_ARGS_FILE_PATH=$(resolve_input_path "$WRANGLER_DEPLOY_ARGS_FILE")
+    if [ ! -f "$WRANGLER_DEPLOY_ARGS_FILE_PATH" ]; then
+        echo "❌ WRANGLER_DEPLOY_ARGS_FILE does not exist: $WRANGLER_DEPLOY_ARGS_FILE_PATH" >&2
+        exit 1
+    fi
+    add_wrangler_deploy_args_from_lines "WRANGLER_DEPLOY_ARGS_FILE" "$(cat "$WRANGLER_DEPLOY_ARGS_FILE_PATH")"
+fi
+
+add_wrangler_deploy_args_from_lines "WRANGLER_DEPLOY_ARGS" "$WRANGLER_DEPLOY_ARGS"
+
 # only deploy if NO_DEPLOY is not set
 if test -z "$NO_DEPLOY"; then
-     wrangler deploy
+     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"
 else
      echo "NO_DEPLOY is set, skipping deploy"
 fi
