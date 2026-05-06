@@ -58,6 +58,57 @@ The deployer automatically:
 | `FORCE_DEPLOY`                       | Force re-deploy regardless of state changes                                                                                                       |
 | `NO_DEPLOY`                          | Build only, skip deployment                                                                                                                       |
 | `WORKER_NAME_PREFIX`                 | Prefix for worker and queue names. Deploys as `<prefix>-confidence-cloudflare-resolver` with queue `<prefix>-flag-logs-queue` (auto-created)     |
+| `WRANGLER_CONFIG_APPEND_FILE`        | Path to a file containing TOML to append to the generated `wrangler.toml`                                                                          |
+| `WRANGLER_DEPLOY_TAG`                | Value passed to `wrangler deploy --tag`                                                                                                           |
+| `WRANGLER_DEPLOY_MESSAGE`            | Value passed to `wrangler deploy --message`                                                                                                       |
+| `WRANGLER_DEPLOY_ARGS`               | Additional newline-separated arguments passed to `wrangler deploy`                                                                                |
+| `WRANGLER_DEPLOY_ARGS_FILE`          | Path to a file containing additional `wrangler deploy` arguments, one argument per line                                                           |
+
+### Extending Wrangler Configuration
+
+Use `WRANGLER_CONFIG_APPEND_FILE` when your Cloudflare account needs configuration that is not managed by the deployer, such as observability destinations or tail consumers.
+
+Example:
+
+`wrangler-extra.toml`
+
+```toml
+[[tail_consumers]]
+service = "my-tail-worker"
+
+[observability.logs]
+enabled = true
+destinations = ["otel-gateway-logs"]
+head_sampling_rate = 1.0
+```
+
+```bash
+docker run -it \
+    -v "$PWD/wrangler-extra.toml:/tmp/wrangler-extra.toml:ro" \
+    -e CLOUDFLARE_API_TOKEN='your-cloudflare-api-token' \
+    -e CONFIDENCE_CLIENT_SECRET='your-confidence-client-secret' \
+    -e WRANGLER_CONFIG_APPEND_FILE='/tmp/wrangler-extra.toml' \
+    -e WRANGLER_DEPLOY_TAG='production-2026-05-05' \
+    -e WRANGLER_DEPLOY_MESSAGE='Deploy resolver state with tail worker logs' \
+    ghcr.io/spotify/confidence-cloudflare-deployer:latest
+```
+
+The snippet is appended after the deployer has written its generated settings. To avoid top-level keys being parsed inside an existing table, the first non-comment line must be a TOML table header such as `[[tail_consumers]]` or `[observability.logs]`.
+
+### Extending Wrangler Deploy
+
+Use `WRANGLER_DEPLOY_TAG` and `WRANGLER_DEPLOY_MESSAGE` to label the deployed Worker version and deployment in Cloudflare.
+
+```bash
+docker run -it \
+    -e CLOUDFLARE_API_TOKEN='your-cloudflare-api-token' \
+    -e CONFIDENCE_CLIENT_SECRET='your-confidence-client-secret' \
+    -e WRANGLER_DEPLOY_TAG='production-2026-05-05' \
+    -e WRANGLER_DEPLOY_MESSAGE='Update embedded resolver state' \
+    ghcr.io/spotify/confidence-cloudflare-deployer:latest
+```
+
+For less common Wrangler deploy flags, use `WRANGLER_DEPLOY_ARGS` or `WRANGLER_DEPLOY_ARGS_FILE` with one argument per line. Prefer `WRANGLER_DEPLOY_TAG` and `WRANGLER_DEPLOY_MESSAGE` for tags and messages so values may contain spaces safely.
 
 ## Service Binding vs HTTP Calls
 
