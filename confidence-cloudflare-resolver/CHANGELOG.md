@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.8.2...confidence-cloudflare-resolver-v0.9.0) (2026-05-06)
+
+
+### Features
+
+* **cloudflare:** add Wrangler extension hooks to deployer ([#395](https://github.com/spotify/confidence-resolver/issues/395)) ([15d136d](https://github.com/spotify/confidence-resolver/commit/15d136d181eca02f5fa87cd1017b5bdc300760e7))
+
 ## [0.8.2](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.8.1...confidence-cloudflare-resolver-v0.8.2) (2026-04-28)
 
 
