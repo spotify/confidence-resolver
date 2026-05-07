@@ -2,10 +2,12 @@ use confidence_resolver::{
     assign_logger::AssignLogger,
     flag_logger,
     proto::{confidence, google::Struct},
+    telemetry::{Telemetry, TelemetrySnapshot},
     FlagToApply, Host, ResolvedValue, ResolverState,
 };
 use worker::*;
 
+use arc_swap::ArcSwap;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use bytes::Bytes;
@@ -14,13 +16,27 @@ use serde_json::from_slice;
 use serde_json::json;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
-use confidence_resolver::proto::confidence::flags::resolver::v1::ResolveProcessRequest;
+use confidence_resolver::proto::confidence::flags::resolver::v1::{ResolveProcessRequest, ResolveReason};
 
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<H>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
+static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(Telemetry::new);
+static LAST_FLUSHED: LazyLock<ArcSwap<TelemetrySnapshot>> =
+    LazyLock::new(|| ArcSwap::from_pointee(TelemetrySnapshot::default()));
 
 use confidence_resolver::Client;
 use once_cell::sync::Lazy;
+use std::cell::RefCell;
+
+/// Per-request resolve metrics captured in the hot path, recorded in wait_until.
+struct ResolveMetrics {
+    elapsed_us: u32,
+    reasons: Vec<ResolveReason>,
+}
+
+thread_local! {
+    static PENDING_METRICS: RefCell<Vec<ResolveMetrics>> = const { RefCell::new(Vec::new()) };
+}
 
 /// SetResolverStateRequest message from the CDN.
 /// This matches the protobuf message format returned by the CDN.
@@ -141,6 +157,18 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     let router = Router::new();
 
     let response = router
+        .get_async("/metrics", |_req, ctx| {
+            async move {
+                let text = match ctx.env.kv("METRICS_KV") {
+                    Ok(kv) => kv.get("prometheus").text().await.unwrap_or(None),
+                    Err(_) => None,
+                };
+                let body = text.unwrap_or_default();
+                let headers = Headers::new();
+                headers.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")?;
+                Ok(Response::ok(body)?.with_headers(headers))
+            }
+        })
         // GET endpoint to expose the current deployment state etag and resolver version
         .get_async("/v1/state:etag", |_req, _ctx| {
             let allowed_origin = allowed_origin_env.clone();
@@ -180,6 +208,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             .evaluation_context
                             .clone()
                             .unwrap_or_default();
+                        let start = js_sys::Date::now();
                         match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
@@ -192,23 +221,56 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     );
                                 match resolver.resolve_flags(process_request) {
                                     Ok(process_response) => {
+                                        let elapsed_us = ((js_sys::Date::now() - start) * 1000.0) as u32;
                                         match process_response.into_resolved() {
                                             Some((response, _writes)) => {
+                                                let reasons: Vec<ResolveReason> = response
+                                                    .resolved_flags
+                                                    .iter()
+                                                    .map(|f| f.reason())
+                                                    .collect();
+                                                PENDING_METRICS.with(|m| {
+                                                    m.borrow_mut().push(ResolveMetrics { elapsed_us, reasons });
+                                                });
                                                 Response::from_json(&response)?
                                                     .with_cors_headers(&allowed_origin)
                                             }
-                                            None => Response::error(
-                                                "Unexpected suspended response",
-                                                500,
-                                            )?
-                                            .with_cors_headers(&allowed_origin),
+                                            None => {
+                                                PENDING_METRICS.with(|m| {
+                                                    m.borrow_mut().push(ResolveMetrics {
+                                                        elapsed_us,
+                                                        reasons: vec![ResolveReason::Error],
+                                                    });
+                                                });
+                                                Response::error(
+                                                    "Unexpected suspended response",
+                                                    500,
+                                                )?
+                                                .with_cors_headers(&allowed_origin)
+                                            }
                                         }
                                     }
-                                    Err(msg) => Response::error(msg, 500)?
-                                        .with_cors_headers(&allowed_origin),
+                                    Err(msg) => {
+                                        let elapsed_us = ((js_sys::Date::now() - start) * 1000.0) as u32;
+                                        PENDING_METRICS.with(|m| {
+                                            m.borrow_mut().push(ResolveMetrics {
+                                                elapsed_us,
+                                                reasons: vec![ResolveReason::Error],
+                                            });
+                                        });
+                                        Response::error(msg, 500)?
+                                            .with_cors_headers(&allowed_origin)
+                                    }
                                 }
                             }
                             Err(msg) => {
+                                let elapsed_us = ((js_sys::Date::now() - start) * 1000.0) as u32;
+                                PENDING_METRICS.with(|m| {
+                                    m.borrow_mut().push(ResolveMetrics {
+                                        elapsed_us,
+                                        reasons: vec![ResolveReason::Error],
+                                    });
+                                });
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                             }
                         }
@@ -249,8 +311,18 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .run(req, env)
         .await;
 
-    // Use ctx.waitUntil to run logging after response is returned
+    // Use ctx.waitUntil to run logging and telemetry after response is returned
     ctx.wait_until(async move {
+        // Record pending resolve metrics into the telemetry counters
+        PENDING_METRICS.with(|m| {
+            for metrics in m.borrow_mut().drain(..) {
+                TELEMETRY.record_latency_us(metrics.elapsed_us);
+                for reason in metrics.reasons {
+                    TELEMETRY.mark_resolve(reason);
+                }
+            }
+        });
+
         let aggregated: confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest
             = checkpoint();
         if let Ok(converted) = serde_json::to_string(&aggregated) {
@@ -283,6 +355,12 @@ pub async fn consume_flag_logs_queue(
                 client_resolve_info: v.client_resolve_info,
             })
             .collect();
+
+        // Accumulate telemetry deltas into KV-backed cumulative snapshot for /metrics
+        if let Ok(kv) = env.kv("METRICS_KV") {
+            let _ = update_prometheus_kv(&kv, &logs).await;
+        }
+
         let req = flag_logger::aggregate_batch(logs);
         send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
     }
@@ -292,8 +370,39 @@ pub async fn consume_flag_logs_queue(
 
 fn checkpoint() -> WriteFlagLogsRequest {
     let mut req = RESOLVE_LOGGER.checkpoint();
+    req.telemetry_data = Some(TELEMETRY.delta_snapshot(&LAST_FLUSHED));
     ASSIGN_LOGGER.checkpoint_fill(&mut req);
     req
+}
+
+/// Accumulate telemetry deltas from all isolates into a cumulative
+/// `TelemetrySnapshot` stored in KV, then write its Prometheus text
+/// representation for the /metrics endpoint.
+async fn update_prometheus_kv(kv: &kv::KvStore, logs: &[WriteFlagLogsRequest]) {
+    let mut cumulative = match kv.get("snapshot").text().await {
+        Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
+        _ => TelemetrySnapshot::default(),
+    };
+
+    for log in logs {
+        if let Some(td) = &log.telemetry_data {
+            cumulative.accumulate_delta(td);
+        }
+    }
+
+    let prom_text = cumulative.to_prometheus(
+        "cf-resolver",
+        &confidence_resolver::telemetry::PrometheusConfig::default(),
+    );
+
+    let _ = kv
+        .put("snapshot", serde_json::to_string(&cumulative).unwrap_or_default())
+        .map(|b| b.execute())
+        .ok();
+    let _ = kv
+        .put("prometheus", prom_text)
+        .map(|b| b.execute())
+        .ok();
 }
 
 async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {

@@ -106,6 +106,7 @@ impl Histogram {
 /// Used for delta computation between flushes and as the future intermediate
 /// representation for Prometheus text format serialization.
 #[derive(Clone, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct TelemetrySnapshot {
     pub latency: HistogramSnapshot,
     pub resolve_rates: Vec<u64>,
@@ -113,6 +114,7 @@ pub struct TelemetrySnapshot {
 }
 
 #[derive(Clone, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct HistogramSnapshot {
     pub sum: u64,
     pub count: u64,
@@ -142,6 +144,41 @@ impl Default for PrometheusConfig {
 }
 
 impl TelemetrySnapshot {
+    /// Accumulate a `TelemetryData` delta into this cumulative snapshot.
+    ///
+    /// Expands compressed `BucketSpan`s back into the flat bucket array and
+    /// adds all counters. Gauge fields (memory_bytes) are replaced with the
+    /// latest value.
+    pub fn accumulate_delta(&mut self, td: &pb::TelemetryData) {
+        if let Some(latency) = &td.resolve_latency {
+            self.latency.sum = self.latency.sum.wrapping_add(latency.sum as u64);
+            self.latency.count = self.latency.count.wrapping_add(latency.count as u64);
+
+            // Expand BucketSpans into flat bucket array
+            for span in &latency.buckets {
+                for (i, &count) in span.counts.iter().enumerate() {
+                    let idx = span.offset as usize + i;
+                    if idx >= self.latency.buckets.len() {
+                        self.latency.buckets.resize(idx + 1, 0);
+                    }
+                    self.latency.buckets[idx] = self.latency.buckets[idx].wrapping_add(count as u64);
+                }
+            }
+        }
+
+        for rate in &td.resolve_rate {
+            let idx = rate.reason as usize;
+            if idx >= self.resolve_rates.len() {
+                self.resolve_rates.resize(idx + 1, 0);
+            }
+            self.resolve_rates[idx] = self.resolve_rates[idx].wrapping_add(rate.count as u64);
+        }
+
+        if td.memory_bytes > 0 {
+            self.memory_bytes = td.memory_bytes;
+        }
+    }
+
     /// Format the snapshot as Prometheus exposition text.
     ///
     /// All values are cumulative counters, matching what Prometheus expects.
