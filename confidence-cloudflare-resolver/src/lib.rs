@@ -158,6 +158,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
     let response = router
         .get_async("/metrics", |_req, ctx| {
+            let allowed_origin = allowed_origin_env.clone();
             async move {
                 let text = match ctx.env.kv("METRICS_KV") {
                     Ok(kv) => kv.get("prometheus").text().await.unwrap_or(None),
@@ -166,7 +167,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                 let body = text.unwrap_or_default();
                 let headers = Headers::new();
                 headers.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")?;
-                Ok(Response::ok(body)?.with_headers(headers))
+                Response::ok(body)?.with_headers(headers).with_cors_headers(&allowed_origin)
             }
         })
         // GET endpoint to expose the current deployment state etag and resolver version
@@ -378,6 +379,9 @@ fn checkpoint() -> WriteFlagLogsRequest {
 /// Accumulate telemetry deltas from all isolates into a cumulative
 /// `TelemetrySnapshot` stored in KV, then write its Prometheus text
 /// representation for the /metrics endpoint.
+///
+/// Note: concurrent queue consumer invocations can race on KV read-modify-write.
+/// Acceptable for metrics — at worst one batch's deltas are lost, not cumulative state.
 async fn update_prometheus_kv(kv: &kv::KvStore, logs: &[WriteFlagLogsRequest]) {
     let mut cumulative = match kv.get("snapshot").text().await {
         Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
@@ -395,14 +399,12 @@ async fn update_prometheus_kv(kv: &kv::KvStore, logs: &[WriteFlagLogsRequest]) {
         &confidence_resolver::telemetry::PrometheusConfig::default(),
     );
 
-    let _ = kv
-        .put("snapshot", serde_json::to_string(&cumulative).unwrap_or_default())
-        .map(|b| b.execute())
-        .ok();
-    let _ = kv
-        .put("prometheus", prom_text)
-        .map(|b| b.execute())
-        .ok();
+    if let Ok(builder) = kv.put("snapshot", serde_json::to_string(&cumulative).unwrap_or_default()) {
+        let _ = builder.execute().await;
+    }
+    if let Ok(builder) = kv.put("prometheus", prom_text) {
+        let _ = builder.execute().await;
+    }
 }
 
 async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {

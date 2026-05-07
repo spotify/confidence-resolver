@@ -156,8 +156,15 @@ impl TelemetrySnapshot {
 
             // Expand BucketSpans into flat bucket array
             for span in &latency.buckets {
+                let base = match usize::try_from(span.offset) {
+                    Ok(b) if b < BUCKET_COUNT => b,
+                    _ => continue, // skip malformed span
+                };
                 for (i, &count) in span.counts.iter().enumerate() {
-                    let idx = span.offset as usize + i;
+                    let idx = base.saturating_add(i);
+                    if idx >= BUCKET_COUNT {
+                        break;
+                    }
                     if idx >= self.latency.buckets.len() {
                         self.latency.buckets.resize(idx + 1, 0);
                     }
@@ -975,5 +982,98 @@ mod tests {
             },
         );
         assert_eq!(default_out, zero_out);
+    }
+
+    #[test]
+    fn accumulate_delta_basic() {
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            resolve_latency: Some(pb::ResolveLatency {
+                sum: 500,
+                count: 2,
+                buckets: vec![pb::BucketSpan {
+                    offset: 5,
+                    counts: vec![1, 1],
+                }],
+                ln_ratio: LN_RATIO,
+            }),
+            resolve_rate: vec![pb::ResolveRate {
+                reason: ResolveReason::Match as i32,
+                count: 3,
+            }],
+            memory_bytes: 4096,
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.latency.sum, 500);
+        assert_eq!(snap.latency.count, 2);
+        assert_eq!(snap.latency.buckets[5], 1);
+        assert_eq!(snap.latency.buckets[6], 1);
+        assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 3);
+        assert_eq!(snap.memory_bytes, 4096);
+
+        // Second delta accumulates counters, replaces gauge
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.latency.sum, 1000);
+        assert_eq!(snap.latency.count, 4);
+        assert_eq!(snap.latency.buckets[5], 2);
+        assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 6);
+        assert_eq!(snap.memory_bytes, 4096);
+    }
+
+    #[test]
+    fn accumulate_delta_negative_offset_skipped() {
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            resolve_latency: Some(pb::ResolveLatency {
+                sum: 100,
+                count: 1,
+                buckets: vec![
+                    pb::BucketSpan {
+                        offset: -1,
+                        counts: vec![99],
+                    },
+                    pb::BucketSpan {
+                        offset: 3,
+                        counts: vec![1],
+                    },
+                ],
+                ln_ratio: LN_RATIO,
+            }),
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        // Negative offset span skipped, valid span applied
+        assert_eq!(snap.latency.count, 1);
+        assert_eq!(snap.latency.buckets.get(3).copied().unwrap_or(0), 1);
+        // Bucket from negative offset should not exist
+        let total: u64 = snap.latency.buckets.iter().sum();
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn accumulate_delta_oversized_offset_skipped() {
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            resolve_latency: Some(pb::ResolveLatency {
+                sum: 100,
+                count: 1,
+                buckets: vec![pb::BucketSpan {
+                    offset: BUCKET_COUNT as i32 + 10,
+                    counts: vec![1],
+                }],
+                ln_ratio: LN_RATIO,
+            }),
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        // Oversized offset span skipped, sum/count still accumulated
+        assert_eq!(snap.latency.count, 1);
+        assert_eq!(snap.latency.sum, 100);
+        let total: u64 = snap.latency.buckets.iter().sum();
+        assert_eq!(total, 0);
     }
 }
