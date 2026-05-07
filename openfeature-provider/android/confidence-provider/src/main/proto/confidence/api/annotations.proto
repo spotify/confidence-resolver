@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package confidence.api;
+
+import "google/protobuf/descriptor.proto";
+
+option java_multiple_files = true;
+option java_outer_classname = "ApiAnnotationsProto";
+option java_package = "com.spotify.confidence.api";
+
+message Resource {
+  string type = 1;
+}
+
+// Rate limit specification that is applied on global rates per account
+message RateLimitSpec {
+  int32 rps_limit = 1;
+}
+
+extend google.protobuf.MethodOptions {
+  Resource resource_method = 4399226;
+  RateLimitSpec rate_limit = 4399227;
+}
+
+extend google.protobuf.ServiceOptions {
+  string service_name = 4399229;
+  repeated string hosts = 4399228;
+  RateLimitSpec service_rate_limit = 4399230;
+}
+
+message ValidationSpec {
+  string regex = 1;
+}
+
+extend google.protobuf.FieldOptions {
+  ValidationSpec validation = 4324223;
+}
