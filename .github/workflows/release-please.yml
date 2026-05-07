@@ -6,6 +6,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      force_cloudflare_deploy:
+        description: 'Force publish the cloudflare deployer image (use when release tag was created but publish job was skipped)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,7 +44,7 @@ jobs:
 
   publish-cloudflare-deployer-image:
     needs: release
-    if: ${{ needs.release.outputs.cloudflare_resolver_release_created == 'true' }}
+    if: ${{ needs.release.outputs.cloudflare_resolver_release_created == 'true' || inputs.force_cloudflare_deploy == true }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
