@@ -149,6 +149,7 @@ impl TelemetrySnapshot {
     /// Expands compressed `BucketSpan`s back into the flat bucket array and
     /// adds all counters. Gauge fields (memory_bytes) are replaced with the
     /// latest value.
+    #[allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
     pub fn accumulate_delta(&mut self, td: &pb::TelemetryData) {
         if let Some(latency) = &td.resolve_latency {
             self.latency.sum = self.latency.sum.wrapping_add(latency.sum as u64);
@@ -166,8 +167,9 @@ impl TelemetrySnapshot {
                         break;
                     }
                     if idx >= self.latency.buckets.len() {
-                        self.latency.buckets.resize(idx + 1, 0);
+                        self.latency.buckets.resize(idx.saturating_add(1), 0);
                     }
+                    // Safety: idx < BUCKET_COUNT and we just resized to at least idx+1
                     self.latency.buckets[idx] = self.latency.buckets[idx].wrapping_add(count as u64);
                 }
             }
@@ -176,8 +178,9 @@ impl TelemetrySnapshot {
         for rate in &td.resolve_rate {
             let idx = rate.reason as usize;
             if idx >= self.resolve_rates.len() {
-                self.resolve_rates.resize(idx + 1, 0);
+                self.resolve_rates.resize(idx.saturating_add(1), 0);
             }
+            // Safety: we just resized to at least idx+1
             self.resolve_rates[idx] = self.resolve_rates[idx].wrapping_add(rate.count as u64);
         }
 
