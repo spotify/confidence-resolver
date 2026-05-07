@@ -170,7 +170,8 @@ impl TelemetrySnapshot {
                         self.latency.buckets.resize(idx.saturating_add(1), 0);
                     }
                     // Safety: idx < BUCKET_COUNT and we just resized to at least idx+1
-                    self.latency.buckets[idx] = self.latency.buckets[idx].wrapping_add(count as u64);
+                    self.latency.buckets[idx] =
+                        self.latency.buckets[idx].wrapping_add(count as u64);
                 }
             }
         }
