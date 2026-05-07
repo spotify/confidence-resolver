@@ -24,6 +24,7 @@
       "initial-version": "0.1.0"
     },
     "wasm/rust-guest": {
+      "path": "wasm/rust-guest",
       "release-type": "rust",
       "changelog-path": "CHANGELOG.md",
       "initial-version": "0.1.0"
