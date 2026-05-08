@@ -15,7 +15,7 @@ queue = "flag-logs-queue"
 binding = "flag_logs_queue"
 
 # KV namespace for /metrics endpoint is created and injected by the deployer.
-# See deployer/script.sh for auto-creation of the METRICS_KV binding.
+# See deployer/script.sh for auto-creation of the CONFIDENCE_METRICS_KV binding.
 
 [vars]
 CONFIDENCE_CLIENT_SECRET = "SECRET"

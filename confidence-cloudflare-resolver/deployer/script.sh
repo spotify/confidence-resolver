@@ -409,10 +409,10 @@ if [ -n "$KV_NAMESPACE_ID" ]; then
     cat >> wrangler.toml <<EOF
 
 [[kv_namespaces]]
-binding = "METRICS_KV"
+binding = "CONFIDENCE_METRICS_KV"
 id = "$KV_NAMESPACE_ID"
 EOF
-    echo "✅ Added METRICS_KV binding to wrangler.toml"
+    echo "✅ Added CONFIDENCE_METRICS_KV binding to wrangler.toml"
 fi
 
 # Update worker name and queue name in wrangler.toml if using prefix

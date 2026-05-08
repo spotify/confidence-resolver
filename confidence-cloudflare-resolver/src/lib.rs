@@ -28,6 +28,16 @@ use confidence_resolver::Client;
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 
+/// High-resolution timestamp in milliseconds via `performance.now()`.
+fn performance_now() -> f64 {
+    js_sys::Reflect::get(&js_sys::global(), &"performance".into())
+        .ok()
+        .and_then(|p| js_sys::Reflect::get(&p, &"now".into()).ok())
+        .and_then(|f| js_sys::Function::from(f).call0(&js_sys::global()).ok())
+        .and_then(|v| v.as_f64())
+        .unwrap_or_else(|| js_sys::Date::now())
+}
+
 /// Per-request resolve metrics captured in the hot path, recorded in wait_until.
 struct ResolveMetrics {
     elapsed_us: u32,
@@ -160,7 +170,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .get_async("/metrics", |_req, ctx| {
             let allowed_origin = allowed_origin_env.clone();
             async move {
-                let text = match ctx.env.kv("METRICS_KV") {
+                let text = match ctx.env.kv("CONFIDENCE_METRICS_KV") {
                     Ok(kv) => kv.get("prometheus").text().await.unwrap_or(None),
                     Err(_) => None,
                 };
@@ -209,7 +219,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             .evaluation_context
                             .clone()
                             .unwrap_or_default();
-                        let start = js_sys::Date::now();
+                        let start = performance_now();
                         match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
@@ -222,7 +232,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     );
                                 match resolver.resolve_flags(process_request) {
                                     Ok(process_response) => {
-                                        let elapsed_us = ((js_sys::Date::now() - start) * 1000.0) as u32;
+                                        let elapsed_us = ((performance_now() - start) * 1000.0) as u32;
                                         match process_response.into_resolved() {
                                             Some((response, _writes)) => {
                                                 let reasons: Vec<ResolveReason> = response
@@ -252,7 +262,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                         }
                                     }
                                     Err(msg) => {
-                                        let elapsed_us = ((js_sys::Date::now() - start) * 1000.0) as u32;
+                                        let elapsed_us = ((performance_now() - start) * 1000.0) as u32;
                                         PENDING_METRICS.with(|m| {
                                             m.borrow_mut().push(ResolveMetrics {
                                                 elapsed_us,
@@ -265,7 +275,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 }
                             }
                             Err(msg) => {
-                                let elapsed_us = ((js_sys::Date::now() - start) * 1000.0) as u32;
+                                let elapsed_us = ((performance_now() - start) * 1000.0) as u32;
                                 PENDING_METRICS.with(|m| {
                                     m.borrow_mut().push(ResolveMetrics {
                                         elapsed_us,
@@ -358,7 +368,7 @@ pub async fn consume_flag_logs_queue(
             .collect();
 
         // Accumulate telemetry deltas into KV-backed cumulative snapshot for /metrics
-        if let Ok(kv) = env.kv("METRICS_KV") {
+        if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
             let _ = update_prometheus_kv(&kv, &logs).await;
         }
 
