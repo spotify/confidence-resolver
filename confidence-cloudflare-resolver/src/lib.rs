@@ -29,6 +29,8 @@ use once_cell::sync::Lazy;
 use std::cell::RefCell;
 
 /// High-resolution timestamp in milliseconds via `performance.now()`.
+/// Uses `js_sys::global()` + cast because `web_sys::window()` is `None` in
+/// Workers and there is no `web_sys::worker_global_scope()` accessor.
 fn performance_now() -> f64 {
     use js_sys::wasm_bindgen::JsCast;
     js_sys::global()
