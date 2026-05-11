@@ -442,7 +442,9 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     sed -i.tmp '/^RESOLVER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^DEPLOYER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" '
+    sed -i.tmp '/^CLOUDFLARE_API_TOKEN *= *.*$/d' wrangler.toml || true
+    sed -i.tmp '/^CLOUDFLARE_ACCOUNT_ID *= *.*$/d' wrangler.toml || true
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v cf_token="${CLOUDFLARE_API_TOKEN}" -v cf_account="${CLOUDFLARE_ACCOUNT_ID}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -451,6 +453,8 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (etag != "") print "RESOLVER_STATE_ETAG = \"" etag "\""
                 if (version != "") print "DEPLOYER_VERSION = \"" version "\""
                 if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
+                if (cf_token != "") print "CLOUDFLARE_API_TOKEN = \"" cf_token "\""
+                if (cf_account != "") print "CLOUDFLARE_ACCOUNT_ID = \"" cf_account "\""
                 inserted=1
             }
         }

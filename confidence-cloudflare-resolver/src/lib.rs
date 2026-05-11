@@ -28,20 +28,11 @@ use confidence_resolver::Client;
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 
-/// High-resolution timestamp in milliseconds via `performance.now()`.
-/// Uses `js_sys::global()` + cast because `web_sys::window()` is `None` in
-/// Workers and there is no `web_sys::worker_global_scope()` accessor.
-fn performance_now() -> f64 {
-    use js_sys::wasm_bindgen::JsCast;
-    js_sys::global()
-        .unchecked_into::<web_sys::WorkerGlobalScope>()
-        .performance()
-        .map_or_else(|| js_sys::Date::now(), |p| p.now())
-}
-
 /// Per-request resolve metrics captured in the hot path, recorded in wait_until.
+/// Note: CF Workers freeze all timer APIs during sync CPU work (Spectre mitigation),
+/// so we cannot measure resolve latency internally. CPU time is sourced from
+/// Cloudflare's analytics API in the queue consumer instead.
 struct ResolveMetrics {
-    elapsed_us: u32,
     reasons: Vec<ResolveReason>,
 }
 
@@ -220,7 +211,6 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             .evaluation_context
                             .clone()
                             .unwrap_or_default();
-                        let start = performance_now();
                         match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
@@ -233,7 +223,6 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     );
                                 match resolver.resolve_flags(process_request) {
                                     Ok(process_response) => {
-                                        let elapsed_us = ((performance_now() - start) * 1000.0) as u32;
                                         match process_response.into_resolved() {
                                             Some((response, _writes)) => {
                                                 let reasons: Vec<ResolveReason> = response
@@ -242,7 +231,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                                     .map(|f| f.reason())
                                                     .collect();
                                                 PENDING_METRICS.with(|m| {
-                                                    m.borrow_mut().push(ResolveMetrics { elapsed_us, reasons });
+                                                    m.borrow_mut().push(ResolveMetrics { reasons });
                                                 });
                                                 Response::from_json(&response)?
                                                     .with_cors_headers(&allowed_origin)
@@ -250,7 +239,6 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                             None => {
                                                 PENDING_METRICS.with(|m| {
                                                     m.borrow_mut().push(ResolveMetrics {
-                                                        elapsed_us,
                                                         reasons: vec![ResolveReason::Error],
                                                     });
                                                 });
@@ -263,10 +251,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                         }
                                     }
                                     Err(msg) => {
-                                        let elapsed_us = ((performance_now() - start) * 1000.0) as u32;
                                         PENDING_METRICS.with(|m| {
                                             m.borrow_mut().push(ResolveMetrics {
-                                                elapsed_us,
                                                 reasons: vec![ResolveReason::Error],
                                             });
                                         });
@@ -276,10 +262,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 }
                             }
                             Err(msg) => {
-                                let elapsed_us = ((performance_now() - start) * 1000.0) as u32;
                                 PENDING_METRICS.with(|m| {
                                     m.borrow_mut().push(ResolveMetrics {
-                                        elapsed_us,
                                         reasons: vec![ResolveReason::Error],
                                     });
                                 });
@@ -323,12 +307,13 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .run(req, env)
         .await;
 
-    // Use ctx.waitUntil to run logging and telemetry after response is returned
+    // Use ctx.waitUntil to run logging and telemetry after response is returned.
+    // Note: resolve latency cannot be measured inside Workers (timer APIs are
+    // frozen during sync CPU work). CPU time is sourced from Cloudflare's
+    // analytics API in the queue consumer instead.
     ctx.wait_until(async move {
-        // Record pending resolve metrics into the telemetry counters
         PENDING_METRICS.with(|m| {
             for metrics in m.borrow_mut().drain(..) {
-                TELEMETRY.record_latency_us(metrics.elapsed_us);
                 for reason in metrics.reasons {
                     TELEMETRY.mark_resolve(reason);
                 }
@@ -373,6 +358,20 @@ pub async fn consume_flag_logs_queue(
             let _ = update_prometheus_kv(&kv, &logs).await;
         }
 
+        // Fetch real CPU time from CF analytics API and append to Prometheus KV
+        let cf_token = env.var("CLOUDFLARE_API_TOKEN").ok().map(|v| v.to_string());
+        let cf_account = env.var("CLOUDFLARE_ACCOUNT_ID").ok().map(|v| v.to_string());
+        let cf_script = env
+            .var("CF_SCRIPT_NAME")
+            .ok()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "confidence-cloudflare-resolver".to_string());
+        if let (Some(token), Some(account)) = (cf_token, cf_account) {
+            if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
+                let _ = update_cpu_time_kv(&kv, &token, &account, &cf_script).await;
+            }
+        }
+
         let req = flag_logger::aggregate_batch(logs);
         send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
     }
@@ -402,6 +401,151 @@ async fn update_prometheus_kv(kv: &kv::KvStore, logs: &[WriteFlagLogsRequest]) {
     for log in logs {
         if let Some(td) = &log.telemetry_data {
             cumulative.accumulate_delta(td);
+        }
+    }
+
+    let prom_text = cumulative.to_prometheus(
+        "cf-resolver",
+        &confidence_resolver::telemetry::PrometheusConfig::default(),
+    );
+
+    if let Ok(builder) = kv.put("snapshot", serde_json::to_string(&cumulative).unwrap_or_default()) {
+        let _ = builder.execute().await;
+    }
+    if let Ok(builder) = kv.put("prometheus", prom_text) {
+        let _ = builder.execute().await;
+    }
+}
+
+/// Query Cloudflare's analytics GraphQL API for Worker CPU time and write
+/// the percentiles as Prometheus gauge metrics to KV.
+/// Return an ISO-8601 timestamp `seconds_ago` in the past.
+fn since_iso8601(seconds_ago: u64) -> String {
+    let now_ms = js_sys::Date::now() as u64;
+    let then_ms = now_ms.saturating_sub(seconds_ago.saturating_mul(1000));
+    let d = js_sys::Date::new_0();
+    d.set_time(then_ms as f64);
+    // Use Date.toISOString() for proper formatting
+    d.to_iso_string().into()
+}
+
+/// Query recent CPU time from Cloudflare analytics and update the cumulative
+/// `TelemetrySnapshot` in KV so the Prometheus output uses the same metric
+/// names as all other providers (`confidence_resolve_latency_microseconds`).
+///
+/// Since CF Workers freeze timers during sync CPU work, we can't measure
+/// latency internally. Instead, we use CF's own analytics (p50 × requests)
+/// as an approximation for the histogram's `_sum` and `_count`.
+///
+/// To avoid double-counting, we store the last queried timestamp in KV
+/// (`cpu_time_cursor`) and only process data points newer than that.
+async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script: &str) {
+    // Read cursor: the last datetime we processed
+    let cursor = match kv.get("cpu_time_cursor").text().await {
+        Ok(Some(c)) if !c.is_empty() => c,
+        _ => since_iso8601(300), // bootstrap: last 5 minutes
+    };
+
+    let gql = format!(
+        "{{ viewer {{ accounts(filter: {{accountTag: \"{account}\"}}) {{ workersInvocationsAdaptive(limit: 50, filter: {{scriptName: \"{script}\", datetime_gt: \"{cursor}\"}}, orderBy: [datetime_ASC]) {{ dimensions {{ datetime }} quantiles {{ cpuTimeP25 cpuTimeP50 cpuTimeP75 cpuTimeP90 cpuTimeP99 }} sum {{ requests }} }} }} }} }}"
+    );
+    let query = serde_json::to_string(&json!({ "query": gql })).unwrap_or_default();
+
+    let url = "https://api.cloudflare.com/client/v4/graphql";
+    let mut init = RequestInit::new();
+    let headers = Headers::new();
+    let _ = headers.set("Authorization", &format!("Bearer {token}"));
+    let _ = headers.set("Content-Type", "application/json");
+    init.with_headers(headers);
+    init.with_method(Method::Post);
+    init.with_body(Some(query.into()));
+
+    let Ok(request) = Request::new_with_init(url, &init) else { return };
+    let Ok(mut resp) = Fetch::Request(request).send().await else { return };
+    let Ok(body) = resp.text().await else { return };
+    let Ok(data) = serde_json::from_str::<serde_json::Value>(&body) else { return };
+
+    let Some(entries) = data
+        .pointer("/data/viewer/accounts/0/workersInvocationsAdaptive")
+        .and_then(|v| v.as_array())
+    else { return };
+
+    if entries.is_empty() { return }
+
+    // Aggregate only NEW data points (after cursor)
+    let mut total_requests: u64 = 0;
+    let mut weighted_sum: u64 = 0;
+    let mut bucket_adds: Vec<(u64, u64)> = Vec::new(); // (μs_value, count)
+    let mut latest_datetime = String::new();
+
+    for entry in entries {
+        let reqs = entry.pointer("/sum/requests").and_then(|v| v.as_u64()).unwrap_or(0);
+        if reqs == 0 { continue }
+        let q = entry.pointer("/quantiles");
+        let p25 = q.and_then(|q| q.get("cpuTimeP25")).and_then(|v| v.as_u64()).unwrap_or(0);
+        let p50 = q.and_then(|q| q.get("cpuTimeP50")).and_then(|v| v.as_u64()).unwrap_or(0);
+        let p75 = q.and_then(|q| q.get("cpuTimeP75")).and_then(|v| v.as_u64()).unwrap_or(0);
+        let p90 = q.and_then(|q| q.get("cpuTimeP90")).and_then(|v| v.as_u64()).unwrap_or(0);
+        let p99 = q.and_then(|q| q.get("cpuTimeP99")).and_then(|v| v.as_u64()).unwrap_or(0);
+
+        // Distribute requests across percentile bands into synthetic observations.
+        // Each band gets its share of requests placed at the percentile value.
+        // Bands: [0-25%], (25-50%], (50-75%], (75-90%], (90-99%], (99-100%]
+        // Fractions: 0.25, 0.25, 0.25, 0.15, 0.09, 0.01
+        let bands: &[(f64, u64)] = &[
+            (0.25, p25), (0.25, p50), (0.25, p75), (0.15, p90), (0.09, p99), (0.01, p99),
+        ];
+        let mut assigned: u64 = 0;
+        for (i, &(frac, value)) in bands.iter().enumerate() {
+            let count = if i == bands.len() - 1 {
+                reqs.saturating_sub(assigned)
+            } else {
+                (reqs as f64 * frac).round() as u64
+            };
+            if count > 0 && value > 0 {
+                bucket_adds.push((value, count));
+                weighted_sum = weighted_sum.saturating_add(value.saturating_mul(count));
+            }
+            assigned = assigned.saturating_add(count);
+        }
+        total_requests = total_requests.saturating_add(reqs);
+
+        if let Some(dt) = entry.pointer("/dimensions/datetime").and_then(|v| v.as_str()) {
+            if dt > latest_datetime.as_str() {
+                latest_datetime = dt.to_string();
+            }
+        }
+    }
+
+    if total_requests == 0 || latest_datetime.is_empty() { return }
+
+    // Update cursor to latest processed timestamp
+    if let Ok(builder) = kv.put("cpu_time_cursor", &latest_datetime) {
+        let _ = builder.execute().await;
+    }
+
+    // Update the cumulative snapshot with histogram buckets, sum, and count
+    let mut cumulative = match kv.get("snapshot").text().await {
+        Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
+        _ => TelemetrySnapshot::default(),
+    };
+
+    cumulative.latency.sum = cumulative.latency.sum.saturating_add(weighted_sum);
+    cumulative.latency.count = cumulative.latency.count.saturating_add(total_requests);
+
+    // Place observations into exponential histogram buckets (same as other providers)
+    let ln_ratio: f64 = core::f64::consts::LN_10 / 18.0;
+    for (us_value, count) in bucket_adds {
+        let idx = if us_value == 0 {
+            0
+        } else {
+            ((us_value as f64).ln() / ln_ratio).floor() as usize
+        };
+        if idx >= cumulative.latency.buckets.len() {
+            cumulative.latency.buckets.resize(idx.saturating_add(1), 0);
+        }
+        if let Some(b) = cumulative.latency.buckets.get_mut(idx) {
+            *b = b.saturating_add(count);
         }
     }
 
