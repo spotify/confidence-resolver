@@ -488,28 +488,33 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
         let p90 = q.and_then(|q| q.get("cpuTimeP90")).and_then(|v| v.as_u64()).unwrap_or(0);
         let p99 = q.and_then(|q| q.get("cpuTimeP99")).and_then(|v| v.as_u64()).unwrap_or(0);
 
-        // Distribute requests across percentile bands into synthetic histogram
-        // observations. Each band's requests are placed at the band's percentile
-        // value for bucket distribution.
-        //
-        // Bands: [0-25%], (25-50%], (50-75%], (75-90%], (90-99%], (99-100%]
-        // Use floor() to avoid over-counting; remainder goes to last band.
-        let bands: &[(f64, u64)] = &[
-            (0.25, p25), (0.25, p50), (0.25, p75), (0.15, p90), (0.09, p99), (0.01, p99),
-        ];
-        let mut remaining = reqs;
-        for (i, &(frac, value)) in bands.iter().enumerate() {
-            let count = if i == bands.len() - 1 {
-                remaining
-            } else {
-                let c = (reqs as f64 * frac) as u64; // floor
-                c.min(remaining)
-            };
-            remaining = remaining.saturating_sub(count);
-            if count > 0 && value > 0 {
-                bucket_adds.push((value, count));
-                weighted_sum = weighted_sum.saturating_add(value.saturating_mul(count));
-                total_observations = total_observations.saturating_add(count);
+        // Distribute requests into histogram buckets using CF percentiles.
+        // For single-request data points all percentiles are identical, so
+        // we just place 1 observation at p50. For multi-request points we
+        // spread across bands: [0-25%] p25, (25-50%] p50, (50-75%] p75,
+        // (75-90%] p90, (90-99%] p99, (99-100%] p99.
+        if reqs == 1 {
+            bucket_adds.push((p50, 1));
+            weighted_sum = weighted_sum.saturating_add(p50);
+            total_observations = total_observations.saturating_add(1);
+        } else {
+            let bands: &[(f64, u64)] = &[
+                (0.25, p25), (0.25, p50), (0.25, p75), (0.15, p90), (0.09, p99), (0.01, p99),
+            ];
+            let mut remaining = reqs;
+            for (i, &(frac, value)) in bands.iter().enumerate() {
+                let count = if i == bands.len() - 1 {
+                    remaining
+                } else {
+                    let c = (reqs as f64 * frac) as u64;
+                    c.min(remaining)
+                };
+                remaining = remaining.saturating_sub(count);
+                if count > 0 && value > 0 {
+                    bucket_adds.push((value, count));
+                    weighted_sum = weighted_sum.saturating_add(value.saturating_mul(count));
+                    total_observations = total_observations.saturating_add(count);
+                }
             }
         }
 
