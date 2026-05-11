@@ -473,7 +473,7 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
     if entries.is_empty() { return }
 
     // Aggregate only NEW data points (after cursor)
-    let mut total_requests: u64 = 0;
+    let mut total_observations: u64 = 0;
     let mut weighted_sum: u64 = 0;
     let mut bucket_adds: Vec<(u64, u64)> = Vec::new(); // (μs_value, count)
     let mut latest_datetime = String::new();
@@ -488,27 +488,30 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
         let p90 = q.and_then(|q| q.get("cpuTimeP90")).and_then(|v| v.as_u64()).unwrap_or(0);
         let p99 = q.and_then(|q| q.get("cpuTimeP99")).and_then(|v| v.as_u64()).unwrap_or(0);
 
-        // Distribute requests across percentile bands into synthetic observations.
-        // Each band gets its share of requests placed at the percentile value.
+        // Distribute requests across percentile bands into synthetic histogram
+        // observations. Each band's requests are placed at the band's percentile
+        // value for bucket distribution.
+        //
         // Bands: [0-25%], (25-50%], (50-75%], (75-90%], (90-99%], (99-100%]
-        // Fractions: 0.25, 0.25, 0.25, 0.15, 0.09, 0.01
+        // Use floor() to avoid over-counting; remainder goes to last band.
         let bands: &[(f64, u64)] = &[
             (0.25, p25), (0.25, p50), (0.25, p75), (0.15, p90), (0.09, p99), (0.01, p99),
         ];
-        let mut assigned: u64 = 0;
+        let mut remaining = reqs;
         for (i, &(frac, value)) in bands.iter().enumerate() {
             let count = if i == bands.len() - 1 {
-                reqs.saturating_sub(assigned)
+                remaining
             } else {
-                (reqs as f64 * frac).round() as u64
+                let c = (reqs as f64 * frac) as u64; // floor
+                c.min(remaining)
             };
+            remaining = remaining.saturating_sub(count);
             if count > 0 && value > 0 {
                 bucket_adds.push((value, count));
                 weighted_sum = weighted_sum.saturating_add(value.saturating_mul(count));
+                total_observations = total_observations.saturating_add(count);
             }
-            assigned = assigned.saturating_add(count);
         }
-        total_requests = total_requests.saturating_add(reqs);
 
         if let Some(dt) = entry.pointer("/dimensions/datetime").and_then(|v| v.as_str()) {
             if dt > latest_datetime.as_str() {
@@ -517,7 +520,7 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
         }
     }
 
-    if total_requests == 0 || latest_datetime.is_empty() { return }
+    if total_observations == 0 || latest_datetime.is_empty() { return }
 
     // Update cursor to latest processed timestamp
     if let Ok(builder) = kv.put("cpu_time_cursor", &latest_datetime) {
@@ -531,7 +534,7 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
     };
 
     cumulative.latency.sum = cumulative.latency.sum.saturating_add(weighted_sum);
-    cumulative.latency.count = cumulative.latency.count.saturating_add(total_requests);
+    cumulative.latency.count = cumulative.latency.count.saturating_add(total_observations);
 
     // Place observations into exponential histogram buckets (same as other providers)
     let ln_ratio: f64 = core::f64::consts::LN_10 / 18.0;
