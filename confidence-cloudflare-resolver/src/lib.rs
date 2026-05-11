@@ -30,12 +30,11 @@ use std::cell::RefCell;
 
 /// High-resolution timestamp in milliseconds via `performance.now()`.
 fn performance_now() -> f64 {
-    js_sys::Reflect::get(&js_sys::global(), &"performance".into())
-        .ok()
-        .and_then(|p| js_sys::Reflect::get(&p, &"now".into()).ok())
-        .and_then(|f| js_sys::Function::from(f).call0(&js_sys::global()).ok())
-        .and_then(|v| v.as_f64())
-        .unwrap_or_else(js_sys::Date::now)
+    use js_sys::wasm_bindgen::JsCast;
+    js_sys::global()
+        .unchecked_into::<web_sys::WorkerGlobalScope>()
+        .performance()
+        .map_or_else(|| js_sys::Date::now(), |p| p.now())
 }
 
 /// Per-request resolve metrics captured in the hot path, recorded in wait_until.
