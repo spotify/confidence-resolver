@@ -8,7 +8,8 @@ import org.junit.jupiter.api.Test;
 
 class ResolveTokenSealerTest {
 
-  private final ResolveTokenSealer sealer = ResolveTokenSealer.create("test-key-do-not-use-in-prod");
+  private final ResolveTokenSealer sealer =
+      ResolveTokenSealer.create("test-key-do-not-use-in-prod");
 
   @Test
   void roundTripsATypicalResolveToken() {
@@ -35,8 +36,7 @@ class ResolveTokenSealerTest {
     byte[] sealed = sealer.seal("something".getBytes(StandardCharsets.UTF_8));
     sealed[sealed.length - 1] ^= 0x01;
     byte[] tampered = sealed;
-    assertThatThrownBy(() -> sealer.open(tampered))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> sealer.open(tampered)).isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -50,7 +50,6 @@ class ResolveTokenSealerTest {
   void rejectsHandleSealedWithDifferentKey() {
     byte[] sealed = sealer.seal("payload".getBytes(StandardCharsets.UTF_8));
     ResolveTokenSealer other = ResolveTokenSealer.create("a-different-key");
-    assertThatThrownBy(() -> other.open(sealed))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> other.open(sealed)).isInstanceOf(IllegalArgumentException.class);
   }
 }
