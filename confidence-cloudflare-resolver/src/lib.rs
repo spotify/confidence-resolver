@@ -440,21 +440,19 @@ fn since_iso8601(seconds_ago: u64) -> String {
 /// To avoid double-counting, we store the last queried timestamp in KV
 /// (`cpu_time_cursor`) and only process data points newer than that.
 async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script: &str) {
-    // Rate-limit: skip if less than 10 seconds since last fetch
-    let now_ms = js_sys::Date::now() as u64;
-    if let Ok(Some(last)) = kv.get("cpu_time_last_fetch_ms").text().await {
-        if let Ok(last_ms) = last.parse::<u64>() {
-            if now_ms.saturating_sub(last_ms) < 10_000 {
-                return;
-            }
-        }
-    }
-
-    // Read cursor: the last datetime we processed
+    // Read cursor: the last datetime we processed (also serves as rate-limit)
     let cursor = match kv.get("cpu_time_cursor").text().await {
         Ok(Some(c)) if !c.is_empty() => c,
         _ => since_iso8601(300), // bootstrap: last 5 minutes
     };
+
+    // Rate-limit: skip if cursor is less than 10 seconds old.
+    // Cursor is an ISO-8601 datetime from CF analytics; parse via JS Date.
+    let cursor_ms = js_sys::Date::parse(&cursor);
+    let now_ms = js_sys::Date::now();
+    if (now_ms - cursor_ms) < 10_000.0 {
+        return;
+    }
 
     let gql = format!(
         "{{ viewer {{ accounts(filter: {{accountTag: \"{account}\"}}) {{ workersInvocationsAdaptive(limit: 50, filter: {{scriptName: \"{script}\", datetime_gt: \"{cursor}\"}}, orderBy: [datetime_ASC]) {{ dimensions {{ datetime }} quantiles {{ cpuTimeP25 cpuTimeP50 cpuTimeP75 cpuTimeP90 cpuTimeP99 }} sum {{ requests }} }} }} }} }}"
@@ -539,10 +537,6 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
 
     // Update cursor to latest processed timestamp
     if let Ok(builder) = kv.put("cpu_time_cursor", &latest_datetime) {
-        let _ = builder.execute().await;
-    }
-    // Record fetch timestamp for rate-limiting
-    if let Ok(builder) = kv.put("cpu_time_last_fetch_ms", now_ms.to_string()) {
         let _ = builder.execute().await;
     }
 
