@@ -33,11 +33,9 @@ use once_cell::sync::Lazy;
 use std::cell::RefCell;
 
 /// Per-request resolve metrics captured in the hot path, recorded in wait_until.
-/// Note: CF Workers freeze all timer APIs during sync CPU work (Spectre mitigation),
-/// so we cannot measure resolve latency internally. CPU time is sourced from
-/// Cloudflare's analytics API in the queue consumer instead.
 struct ResolveMetrics {
     reasons: Vec<ResolveReason>,
+    elapsed_us: u64,
 }
 
 thread_local! {
@@ -216,7 +214,12 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             .evaluation_context
                             .clone()
                             .unwrap_or_default();
-                        match state.get_resolver::<H>(
+
+                        // Start timer before resolve. CF Workers freeze timers
+                        // during sync CPU, but scheduler.wait(0) unfreezes them.
+                        let t0 = js_sys::Date::now();
+
+                        let (reasons, resp) = match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
                             &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
@@ -235,46 +238,57 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                                     .iter()
                                                     .map(|f| f.reason())
                                                     .collect();
-                                                PENDING_METRICS.with(|m| {
-                                                    m.borrow_mut().push(ResolveMetrics { reasons });
-                                                });
-                                                Response::from_json(&response)?
-                                                    .with_cors_headers(&allowed_origin)
+                                                (reasons, Response::from_json(&response)?
+                                                    .with_cors_headers(&allowed_origin))
                                             }
                                             None => {
-                                                PENDING_METRICS.with(|m| {
-                                                    m.borrow_mut().push(ResolveMetrics {
-                                                        reasons: vec![ResolveReason::Error],
-                                                    });
-                                                });
+                                                (vec![ResolveReason::Error],
                                                 Response::error(
                                                     "Unexpected suspended response",
                                                     500,
                                                 )?
-                                                .with_cors_headers(&allowed_origin)
+                                                .with_cors_headers(&allowed_origin))
                                             }
                                         }
                                     }
                                     Err(msg) => {
-                                        PENDING_METRICS.with(|m| {
-                                            m.borrow_mut().push(ResolveMetrics {
-                                                reasons: vec![ResolveReason::Error],
-                                            });
-                                        });
+                                        (vec![ResolveReason::Error],
                                         Response::error(msg, 500)?
-                                            .with_cors_headers(&allowed_origin)
+                                            .with_cors_headers(&allowed_origin))
                                     }
                                 }
                             }
                             Err(msg) => {
-                                PENDING_METRICS.with(|m| {
-                                    m.borrow_mut().push(ResolveMetrics {
-                                        reasons: vec![ResolveReason::Error],
-                                    });
-                                });
-                                Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
+                                (vec![ResolveReason::Error],
+                                Response::error(msg, 500)?.with_cors_headers(&allowed_origin))
+                            }
+                        };
+
+                        // Unfreeze timer: scheduler.wait(0) yields to the
+                        // runtime with zero delay, advancing the clock.
+                        {
+                            let scheduler = js_sys::Reflect::get(
+                                &js_sys::global(), &wasm_bindgen::JsValue::from_str("scheduler")
+                            ).unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                            if !scheduler.is_undefined() {
+                                let wait = js_sys::Reflect::get(
+                                    &scheduler, &wasm_bindgen::JsValue::from_str("wait")
+                                ).unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                                if let Ok(promise) = js_sys::Function::from(wait)
+                                    .call1(&scheduler, &wasm_bindgen::JsValue::from(0))
+                                {
+                                    let _ = wasm_bindgen_futures::JsFuture::from(
+                                        js_sys::Promise::from(promise)
+                                    ).await;
+                                }
                             }
                         }
+                        let elapsed_us = ((js_sys::Date::now() - t0) * 1000.0).max(0.0) as u64;
+
+                        PENDING_METRICS.with(|m| {
+                            m.borrow_mut().push(ResolveMetrics { reasons, elapsed_us });
+                        });
+                        resp
                     }
                     "flags:apply" => {
                         let body_bytes: Vec<u8> = req.bytes().await?;
@@ -313,12 +327,12 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .await;
 
     // Use ctx.waitUntil to run logging and telemetry after response is returned.
-    // Note: resolve latency cannot be measured inside Workers (timer APIs are
-    // frozen during sync CPU work). CPU time is sourced from Cloudflare's
-    // analytics API in the queue consumer instead.
     ctx.wait_until(async move {
         PENDING_METRICS.with(|m| {
             for metrics in m.borrow_mut().drain(..) {
+                if metrics.elapsed_us > 0 {
+                    TELEMETRY.record_latency_us(metrics.elapsed_us.min(u32::MAX as u64) as u32);
+                }
                 for reason in metrics.reasons {
                     TELEMETRY.mark_resolve(reason);
                 }
