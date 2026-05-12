@@ -435,9 +435,26 @@ async fn update_metrics_kv(
     }
 
     // 3. Fetch and accumulate CF analytics CPU time (if credentials available)
+    // Count total resolves in this batch for estimated latency fallback.
+    let batch_resolves: u64 = logs.iter()
+        .filter_map(|l| l.telemetry_data.as_ref())
+        .flat_map(|td| td.resolve_rate.iter())
+        .map(|r| r.count as u64)
+        .sum();
+
     let cf_latency = match (token, account) {
         (Some(t), Some(a)) => {
-            apply_cpu_time_to_snapshot(&mut cumulative, kv, t, a, script).await
+            let fresh = apply_cpu_time_to_snapshot(&mut cumulative, kv, t, a, script).await;
+            match fresh {
+                Some(td) => Some(td),
+                // No fresh CF analytics — use cached percentiles to estimate
+                // latency from the batch's resolve count so the backend always
+                // gets latency data and the Grafana graph stays continuous.
+                None if batch_resolves > 0 => {
+                    estimate_latency_from_cache(kv, batch_resolves).await
+                }
+                _ => None,
+            }
         }
         _ => None,
     };
@@ -490,10 +507,11 @@ async fn apply_cpu_time_to_snapshot(
         _ => since_iso8601(300), // bootstrap: last 5 minutes
     };
 
-    // Rate-limit: skip if cursor is less than 10 seconds old.
+    // Rate-limit: skip if cursor is less than 60 seconds old.
+    // CF analytics has ~30s-2min lag, so querying more often just wastes API calls.
     let cursor_ms = js_sys::Date::parse(&cursor);
     let now_ms = js_sys::Date::now();
-    if (now_ms - cursor_ms) < 10_000.0 {
+    if (now_ms - cursor_ms) < 60_000.0 {
         return None;
     }
 
@@ -530,6 +548,11 @@ async fn apply_cpu_time_to_snapshot(
     let mut weighted_sum: u64 = 0;
     let mut bucket_adds: Vec<(usize, u64)> = Vec::new(); // (bucket_idx, count)
     let mut latest_datetime = String::new();
+    let mut avg_p25: u64 = 0;
+    let mut avg_p50: u64 = 0;
+    let mut avg_p75: u64 = 0;
+    let mut avg_p90: u64 = 0;
+    let mut avg_p99: u64 = 0;
 
     for entry in entries {
         let reqs = entry.pointer("/sum/requests").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -540,6 +563,11 @@ async fn apply_cpu_time_to_snapshot(
         let p75 = q.and_then(|q| q.get("cpuTimeP75")).and_then(|v| v.as_u64()).unwrap_or(0);
         let p90 = q.and_then(|q| q.get("cpuTimeP90")).and_then(|v| v.as_u64()).unwrap_or(0);
         let p99 = q.and_then(|q| q.get("cpuTimeP99")).and_then(|v| v.as_u64()).unwrap_or(0);
+        avg_p25 = avg_p25.saturating_add(p25);
+        avg_p50 = avg_p50.saturating_add(p50);
+        avg_p75 = avg_p75.saturating_add(p75);
+        avg_p90 = avg_p90.saturating_add(p90);
+        avg_p99 = avg_p99.saturating_add(p99);
 
         // Helper: compute bucket index capped at BUCKET_COUNT - 1
         let bucket_idx = |us_value: u64| -> usize {
@@ -592,6 +620,20 @@ async fn apply_cpu_time_to_snapshot(
         let _ = builder.execute().await;
     }
 
+    // Cache the latest averaged percentiles for use when rate-limited.
+    // Average across all entries to get representative percentile values.
+    let num_entries = entries.len().max(1) as u64;
+    let cached = serde_json::to_string(&json!({
+        "p25": avg_p25 / num_entries,
+        "p50": avg_p50 / num_entries,
+        "p75": avg_p75 / num_entries,
+        "p90": avg_p90 / num_entries,
+        "p99": avg_p99 / num_entries,
+    })).unwrap_or_default();
+    if let Ok(builder) = kv.put("cf_percentiles", cached) {
+        let _ = builder.execute().await;
+    }
+
     // Apply to the cumulative snapshot (already read by caller)
     cumulative.latency.sum = cumulative.latency.sum.saturating_add(weighted_sum);
     cumulative.latency.count = cumulative.latency.count.saturating_add(total_observations);
@@ -637,6 +679,82 @@ async fn apply_cpu_time_to_snapshot(
         resolve_latency: Some(ResolveLatency {
             sum: weighted_sum.min(u32::MAX as u64) as u32,
             count: total_observations.min(u32::MAX as u64) as u32,
+            buckets: spans,
+            ln_ratio,
+        }),
+        ..Default::default()
+    })
+}
+
+/// Construct estimated latency from cached CF percentiles and a known resolve count.
+/// Used when the CF analytics rate-limit fires so the backend always gets latency data.
+async fn estimate_latency_from_cache(kv: &kv::KvStore, resolve_count: u64) -> Option<TelemetryData> {
+    let text = kv.get("cf_percentiles").text().await.ok()??;
+    let cached: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let p25 = cached.get("p25").and_then(|v| v.as_u64()).unwrap_or(0);
+    let p50 = cached.get("p50").and_then(|v| v.as_u64()).unwrap_or(0);
+    let p75 = cached.get("p75").and_then(|v| v.as_u64()).unwrap_or(0);
+    let p90 = cached.get("p90").and_then(|v| v.as_u64()).unwrap_or(0);
+    let p99 = cached.get("p99").and_then(|v| v.as_u64()).unwrap_or(0);
+    if p50 == 0 { return None }
+
+    let ln_ratio: f64 = core::f64::consts::LN_10 / 18.0;
+    let max_idx = BUCKET_COUNT - 1;
+    let bucket_idx = |us: u64| -> usize {
+        let idx = if us == 0 { 0 } else { ((us as f64).ln() / ln_ratio).floor() as usize };
+        idx.min(max_idx)
+    };
+
+    // Distribute resolve_count across percentile bands (same shape as fresh data)
+    let bands: &[(f64, u64)] = &[
+        (0.25, p25), (0.25, p50), (0.25, p75), (0.15, p90), (0.09, p99), (0.01, p99),
+    ];
+    let mut weighted_sum: u64 = 0;
+    let mut total: u64 = 0;
+    let mut flat: Vec<u32> = vec![0; max_idx + 1];
+    let mut remaining = resolve_count;
+
+    for (i, &(frac, value)) in bands.iter().enumerate() {
+        let count = if i == bands.len() - 1 {
+            remaining
+        } else {
+            let c = (resolve_count as f64 * frac) as u64;
+            c.min(remaining)
+        };
+        remaining = remaining.saturating_sub(count);
+        if count > 0 && value > 0 {
+            let idx = bucket_idx(value);
+            if let Some(b) = flat.get_mut(idx) {
+                *b = b.saturating_add(count as u32);
+            }
+            weighted_sum = weighted_sum.saturating_add(value.saturating_mul(count));
+            total = total.saturating_add(count);
+        }
+    }
+
+    if total == 0 { return None }
+
+    // Compress into BucketSpans
+    let mut spans: Vec<BucketSpan> = Vec::new();
+    let mut current: Option<(i32, Vec<u32>)> = None;
+    for (i, &v) in flat.iter().enumerate() {
+        if v > 0 {
+            match &mut current {
+                Some((_, counts)) => counts.push(v),
+                None => current = Some((i as i32, vec![v])),
+            }
+        } else if let Some((offset, counts)) = current.take() {
+            spans.push(BucketSpan { offset, counts });
+        }
+    }
+    if let Some((offset, counts)) = current {
+        spans.push(BucketSpan { offset, counts });
+    }
+
+    Some(TelemetryData {
+        resolve_latency: Some(ResolveLatency {
+            sum: weighted_sum.min(u32::MAX as u64) as u32,
+            count: total.min(u32::MAX as u64) as u32,
             buckets: spans,
             ln_ratio,
         }),
