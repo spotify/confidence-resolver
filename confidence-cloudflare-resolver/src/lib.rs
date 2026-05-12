@@ -17,6 +17,10 @@ use serde_json::json;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
 use confidence_resolver::proto::confidence::flags::resolver::v1::{ResolveProcessRequest, ResolveReason};
+use confidence_resolver::proto::confidence::flags::resolver::v1::{
+    TelemetryData,
+    telemetry_data::{BucketSpan, ResolveLatency},
+};
 
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<H>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
@@ -358,21 +362,37 @@ pub async fn consume_flag_logs_queue(
             let _ = update_prometheus_kv(&kv, &logs).await;
         }
 
-        // Fetch real CPU time from CF analytics API and append to Prometheus KV
-        let cf_token = env.var("CLOUDFLARE_API_TOKEN").ok().map(|v| v.to_string());
-        let cf_account = env.var("CLOUDFLARE_ACCOUNT_ID").ok().map(|v| v.to_string());
-        let cf_script = env
-            .var("CF_SCRIPT_NAME")
-            .ok()
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "confidence-cloudflare-resolver".to_string());
-        if let (Some(token), Some(account)) = (cf_token, cf_account) {
-            if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-                let _ = update_cpu_time_kv(&kv, &token, &account, &cf_script).await;
+        // Fetch real CPU time from CF analytics API and append to Prometheus KV.
+        // Returns a TelemetryData delta when new latency data is available.
+        let cf_latency = {
+            let cf_token = env.var("CLOUDFLARE_API_TOKEN").ok().map(|v| v.to_string());
+            let cf_account = env.var("CLOUDFLARE_ACCOUNT_ID").ok().map(|v| v.to_string());
+            let cf_script = env
+                .var("CF_SCRIPT_NAME")
+                .ok()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "confidence-cloudflare-resolver".to_string());
+            match (cf_token, cf_account) {
+                (Some(token), Some(account)) => match env.kv("CONFIDENCE_METRICS_KV") {
+                    Ok(kv) => update_cpu_time_kv(&kv, &token, &account, &cf_script).await,
+                    Err(_) => None,
+                },
+                _ => None,
+            }
+        };
+
+        let mut req = flag_logger::aggregate_batch(logs);
+        // Inject CF analytics latency into the telemetry sent to the backend
+        if let Some(latency_td) = cf_latency {
+            match &mut req.telemetry_data {
+                Some(td) => {
+                    td.resolve_latency = latency_td.resolve_latency;
+                }
+                None => {
+                    req.telemetry_data = Some(latency_td);
+                }
             }
         }
-
-        let req = flag_logger::aggregate_batch(logs);
         send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
     }
 
@@ -439,7 +459,7 @@ fn since_iso8601(seconds_ago: u64) -> String {
 ///
 /// To avoid double-counting, we store the last queried timestamp in KV
 /// (`cpu_time_cursor`) and only process data points newer than that.
-async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script: &str) {
+async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script: &str) -> Option<TelemetryData> {
     // Read cursor: the last datetime we processed (also serves as rate-limit)
     let cursor = match kv.get("cpu_time_cursor").text().await {
         Ok(Some(c)) if !c.is_empty() => c,
@@ -451,7 +471,7 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
     let cursor_ms = js_sys::Date::parse(&cursor);
     let now_ms = js_sys::Date::now();
     if (now_ms - cursor_ms) < 10_000.0 {
-        return;
+        return None;
     }
 
     let gql = format!(
@@ -468,17 +488,17 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
     init.with_method(Method::Post);
     init.with_body(Some(query.into()));
 
-    let Ok(request) = Request::new_with_init(url, &init) else { return };
-    let Ok(mut resp) = Fetch::Request(request).send().await else { return };
-    let Ok(body) = resp.text().await else { return };
-    let Ok(data) = serde_json::from_str::<serde_json::Value>(&body) else { return };
+    let Ok(request) = Request::new_with_init(url, &init) else { return None };
+    let Ok(mut resp) = Fetch::Request(request).send().await else { return None };
+    let Ok(body) = resp.text().await else { return None };
+    let Ok(data) = serde_json::from_str::<serde_json::Value>(&body) else { return None };
 
     let Some(entries) = data
         .pointer("/data/viewer/accounts/0/workersInvocationsAdaptive")
         .and_then(|v| v.as_array())
-    else { return };
+    else { return None };
 
-    if entries.is_empty() { return }
+    if entries.is_empty() { return None }
 
     // Aggregate only NEW data points (after cursor)
     let mut total_observations: u64 = 0;
@@ -533,7 +553,7 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
         }
     }
 
-    if total_observations == 0 || latest_datetime.is_empty() { return }
+    if total_observations == 0 || latest_datetime.is_empty() { return None }
 
     // Update cursor to latest processed timestamp
     if let Ok(builder) = kv.put("cpu_time_cursor", &latest_datetime) {
@@ -551,7 +571,7 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
 
     // Place observations into exponential histogram buckets (same as other providers)
     let ln_ratio: f64 = core::f64::consts::LN_10 / 18.0;
-    for (us_value, count) in bucket_adds {
+    for &(us_value, count) in &bucket_adds {
         let idx = if us_value == 0 {
             0
         } else {
@@ -576,6 +596,45 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
     if let Ok(builder) = kv.put("prometheus", prom_text) {
         let _ = builder.execute().await;
     }
+
+    // Build BucketSpans for the TelemetryData delta sent to the backend.
+    let spans = {
+        let mut flat: Vec<u32> = Vec::new();
+        for &(us_value, count) in &bucket_adds {
+            let idx = if us_value == 0 { 0 } else {
+                ((us_value as f64).ln() / ln_ratio).floor() as usize
+            };
+            if idx >= flat.len() { flat.resize(idx + 1, 0); }
+            if let Some(b) = flat.get_mut(idx) { *b = b.saturating_add(count as u32); }
+        }
+        // Compress into BucketSpans (contiguous non-zero runs)
+        let mut spans: Vec<BucketSpan> = Vec::new();
+        let mut current: Option<(i32, Vec<u32>)> = None;
+        for (i, &v) in flat.iter().enumerate() {
+            if v > 0 {
+                match &mut current {
+                    Some((_, counts)) => counts.push(v),
+                    None => current = Some((i as i32, vec![v])),
+                }
+            } else if let Some((offset, counts)) = current.take() {
+                spans.push(BucketSpan { offset, counts });
+            }
+        }
+        if let Some((offset, counts)) = current {
+            spans.push(BucketSpan { offset, counts });
+        }
+        spans
+    };
+
+    Some(TelemetryData {
+        resolve_latency: Some(ResolveLatency {
+            sum: weighted_sum as u32,
+            count: total_observations as u32,
+            buckets: spans,
+            ln_ratio,
+        }),
+        ..Default::default()
+    })
 }
 
 async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {
