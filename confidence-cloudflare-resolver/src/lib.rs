@@ -31,12 +31,17 @@ use std::cell::RefCell;
 /// Per-request resolve metrics captured in the hot path, recorded in wait_until.
 struct ResolveMetrics {
     reasons: Vec<ResolveReason>,
-    elapsed_us: u64,
+    /// `Some(μs)` when scheduler.wait(0) unfroze the timer, `None` if the
+    /// scheduler API was unavailable (latency not recorded, resolve unaffected).
+    elapsed_us: Option<u32>,
 }
 
 thread_local! {
     static PENDING_METRICS: RefCell<Vec<ResolveMetrics>> = const { RefCell::new(Vec::new()) };
 }
+
+/// Prometheus exposition format content type (version 0.0.4).
+const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
 /// SetResolverStateRequest message from the CDN.
 /// This matches the protobuf message format returned by the CDN.
@@ -157,16 +162,26 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     let router = Router::new();
 
     let response = router
-        .get_async("/metrics", |_req, ctx| {
+        .get_async("/metrics", |req, ctx| {
             let allowed_origin = allowed_origin_env.clone();
             async move {
+                // Require client secret — metrics are not public.
+                if let Some(expected) = CONFIDENCE_CLIENT_SECRET.get() {
+                    let authorized = req.headers().get("Authorization").ok().flatten()
+                        .map(|v| v.strip_prefix("ClientSecret ").unwrap_or("") == expected.as_str())
+                        .unwrap_or(false);
+                    if !authorized {
+                        return Response::error("Unauthorized", 401)?
+                            .with_cors_headers(&allowed_origin);
+                    }
+                }
                 let text = match ctx.env.kv("CONFIDENCE_METRICS_KV") {
                     Ok(kv) => kv.get("prometheus").text().await.unwrap_or(None),
                     Err(_) => None,
                 };
                 let body = text.unwrap_or_default();
                 let headers = Headers::new();
-                headers.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")?;
+                headers.set("Content-Type", PROMETHEUS_CONTENT_TYPE)?;
                 headers.set("Cache-Control", "no-store")?;
                 Response::ok(body)?.with_headers(headers).with_cors_headers(&allowed_origin)
             }
@@ -262,7 +277,10 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
                         // Unfreeze timer: scheduler.wait(0) yields to the
                         // runtime with zero delay, advancing the clock.
-                        {
+                        // If CF removes or changes the scheduler API, all
+                        // lookups fall through gracefully: elapsed_us is None,
+                        // the resolve still succeeds, we just lose latency data.
+                        let elapsed_us = {
                             let scheduler = js_sys::Reflect::get(
                                 &js_sys::global(), &wasm_bindgen::JsValue::from_str("scheduler")
                             ).unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
@@ -277,9 +295,11 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                         js_sys::Promise::from(promise)
                                     ).await;
                                 }
+                                Some(((js_sys::Date::now() - t0) * 1000.0).max(0.0) as u32)
+                            } else {
+                                None
                             }
-                        }
-                        let elapsed_us = ((js_sys::Date::now() - t0) * 1000.0).max(0.0) as u64;
+                        };
 
                         PENDING_METRICS.with(|m| {
                             m.borrow_mut().push(ResolveMetrics { reasons, elapsed_us });
@@ -326,8 +346,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     ctx.wait_until(async move {
         PENDING_METRICS.with(|m| {
             for metrics in m.borrow_mut().drain(..) {
-                if metrics.elapsed_us > 0 {
-                    TELEMETRY.record_latency_us(metrics.elapsed_us.min(u32::MAX as u64) as u32);
+                if let Some(us) = metrics.elapsed_us {
+                    TELEMETRY.record_latency_us(us);
                 }
                 for reason in metrics.reasons {
                     TELEMETRY.mark_resolve(reason);
