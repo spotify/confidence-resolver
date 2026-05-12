@@ -408,6 +408,7 @@ fn checkpoint() -> WriteFlagLogsRequest {
         )),
         version: env!("CARGO_PKG_VERSION").to_string(),
     });
+    td.resolver_version = env!("CARGO_PKG_VERSION").to_string();
     req.telemetry_data = Some(td);
     ASSIGN_LOGGER.checkpoint_fill(&mut req);
     req
