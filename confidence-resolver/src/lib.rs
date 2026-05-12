@@ -274,7 +274,6 @@ pub trait Host {
 
     fn log_assign(
         resolve_id: &str,
-        evaluation_context: &Struct,
         assigned_flags: &[FlagToApply],
         client: &Client,
         sdk: &Option<flags_resolver::Sdk>,
@@ -857,7 +856,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
             H::log_assign(
                 &resolve_id,
-                &self.evaluation_context.context,
                 flags_to_apply.as_slice(),
                 self.client,
                 &self.state.sdk,
@@ -865,7 +863,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         } else {
             let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
                 resolve_id: resolve_id.clone(),
-                evaluation_context: Some(self.evaluation_context.context.clone()),
+                evaluation_context: Some(Struct::default()),
                 ..Default::default()
             };
             for assigned_flag in &flags_to_assign {
@@ -934,10 +932,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         };
 
         let assignments = resolve_token.assignments;
-        let evaluation_context = resolve_token
-            .evaluation_context
-            .as_ref()
-            .ok_or("missing evaluation context")?;
 
         // ensure that all flags are present before we start sending events
         let mut assigned_flags: Vec<FlagToApply> = Vec::with_capacity(request.flags.len());
@@ -960,7 +954,6 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
         H::log_assign(
             &resolve_token.resolve_id,
-            evaluation_context,
             assigned_flags.as_slice(),
             self.client,
             &self.state.sdk,
@@ -1740,7 +1733,6 @@ mod tests {
 
         fn log_assign(
             _resolve_id: &str,
-            _evaluation_context: &Struct,
             _assigned_flag: &[FlagToApply],
             _client: &Client,
             _sdk: &Option<Sdk>,
@@ -2140,7 +2132,6 @@ mod tests {
 
             fn log_assign(
                 resolve_id: &str,
-                _evaluation_context: &Struct,
                 assigned_flag: &[FlagToApply],
                 _client: &Client,
                 _sdk: &Option<Sdk>,
@@ -2267,7 +2258,6 @@ mod tests {
         struct AssignLogEntry {
             resolve_id: String,
             flag: String,
-            evaluation_context: Struct,
         }
 
         struct TestLogger {
@@ -2286,7 +2276,6 @@ mod tests {
 
             fn log_assign(
                 resolve_id: &str,
-                evaluation_context: &Struct,
                 assigned_flag: &[FlagToApply],
                 _client: &Client,
                 _sdk: &Option<Sdk>,
@@ -2299,7 +2288,6 @@ mod tests {
                     logs.push(AssignLogEntry {
                         resolve_id: resolve_id.to_string(),
                         flag: f.assigned_flag.flag.clone(),
-                        evaluation_context: evaluation_context.clone(),
                     });
                 });
             }
@@ -2411,19 +2399,6 @@ mod tests {
         assert_eq!(
             log_entry.resolve_id, response.resolve_id,
             "Log should contain the resolve_id from the original resolve"
-        );
-
-        // Verify that the evaluation context used in apply_flags logging matches the original resolve
-        // The context should contain the visitor_id that was used during resolve
-        let visitor_id_value = log_entry
-            .evaluation_context
-            .fields
-            .get("visitor_id")
-            .expect("evaluation_context should contain visitor_id");
-        assert_eq!(
-            visitor_id_value.kind,
-            Some(Kind::StringValue("tutorial_visitor".to_string())),
-            "evaluation_context should contain the original visitor_id from resolve"
         );
     }
 

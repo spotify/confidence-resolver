@@ -93,12 +93,11 @@ impl Host for WasmHost {
 
     fn log_assign(
         resolve_id: &str,
-        evaluation_context: &Struct,
         assigned_flags: &[FlagToApply],
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client, sdk);
+        ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
     }
 
     fn encrypt_resolve_token(token_data: &[u8], _encryption_key: &[u8]) -> Result<Vec<u8>, String> {
