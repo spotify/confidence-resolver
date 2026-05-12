@@ -146,7 +146,7 @@ Metrics are accumulated in a KV namespace (`CONFIDENCE_METRICS_KV`) created auto
 
 ### Backend telemetry
 
-Resolve rates and latency are also sent to the Confidence backend via `WriteFlagLogsRequest`, appearing on the shared Grafana dashboard alongside other providers.
+Resolve rates and latency are always sent to the Confidence backend via `WriteFlagLogsRequest`, regardless of the `DISABLE_METRICS` setting. This data appears on the shared Grafana dashboard alongside other providers. The `/metrics` endpoint and KV store are only needed for direct Prometheus scraping — backend telemetry flows through the queue consumer independently.
 
 ## Limitations
 
