@@ -2,7 +2,7 @@ use confidence_resolver::{
     assign_logger::AssignLogger,
     flag_logger,
     proto::{confidence, google::Struct},
-    telemetry::{Telemetry, TelemetrySnapshot, BUCKET_COUNT},
+    telemetry::{Telemetry, TelemetrySnapshot},
     FlagToApply, Host, ResolvedValue, ResolverState,
 };
 use worker::*;
@@ -17,10 +17,7 @@ use serde_json::json;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
 use confidence_resolver::proto::confidence::flags::resolver::v1::{ResolveProcessRequest, ResolveReason};
-use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    TelemetryData,
-    telemetry_data::{BucketSpan, ResolveLatency},
-};
+
 
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<H>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
@@ -372,33 +369,12 @@ pub async fn consume_flag_logs_queue(
             })
             .collect();
 
-        // Unified KV update: accumulate telemetry deltas + CF analytics in one
-        // read-modify-write cycle to avoid the second write clobbering the first.
-        let cf_latency = if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-            let cf_token = env.secret("CLOUDFLARE_API_TOKEN").ok().map(|v| v.to_string());
-            let cf_account = env.var("CLOUDFLARE_ACCOUNT_ID").ok().map(|v| v.to_string());
-            let cf_script = env
-                .var("CF_SCRIPT_NAME")
-                .ok()
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "confidence-cloudflare-resolver".to_string());
-            update_metrics_kv(&kv, &logs, cf_token.as_deref(), cf_account.as_deref(), &cf_script).await
-        } else {
-            None
-        };
-
-        let mut req = flag_logger::aggregate_batch(logs);
-        // Inject CF analytics latency into the telemetry sent to the backend
-        if let Some(latency_td) = cf_latency {
-            match &mut req.telemetry_data {
-                Some(td) => {
-                    td.resolve_latency = latency_td.resolve_latency;
-                }
-                None => {
-                    req.telemetry_data = Some(latency_td);
-                }
-            }
+        // Accumulate telemetry deltas into KV-backed cumulative snapshot for /metrics.
+        if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
+            update_prometheus_kv(&kv, &logs).await;
         }
+
+        let req = flag_logger::aggregate_batch(logs);
         send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
     }
 
@@ -420,60 +396,24 @@ fn checkpoint() -> WriteFlagLogsRequest {
     req
 }
 
-/// Unified metrics update: accumulate telemetry deltas from the queue batch
-/// AND CF analytics CPU time in a single KV read-modify-write cycle.
-///
-/// Returns `Option<TelemetryData>` — the CF latency delta to inject into the
-/// `WriteFlagLogsRequest` sent to the backend. `None` if no new latency data.
+/// Accumulate telemetry deltas from all isolates into a cumulative
+/// `TelemetrySnapshot` stored in KV, then write its Prometheus text
+/// representation for the /metrics endpoint.
 ///
 /// Note: concurrent queue consumer invocations can race on KV read-modify-write.
 /// Acceptable for metrics — at worst one batch's deltas are lost, not cumulative state.
-async fn update_metrics_kv(
-    kv: &kv::KvStore,
-    logs: &[WriteFlagLogsRequest],
-    token: Option<&str>,
-    account: Option<&str>,
-    script: &str,
-) -> Option<TelemetryData> {
-    // 1. Read cumulative snapshot once
+async fn update_prometheus_kv(kv: &kv::KvStore, logs: &[WriteFlagLogsRequest]) {
     let mut cumulative = match kv.get("snapshot").text().await {
         Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
         _ => TelemetrySnapshot::default(),
     };
 
-    // 2. Accumulate telemetry deltas from queue batch
     for log in logs {
         if let Some(td) = &log.telemetry_data {
             cumulative.accumulate_delta(td);
         }
     }
 
-    // 3. Fetch and accumulate CF analytics CPU time (if credentials available)
-    // Count total resolves in this batch for estimated latency fallback.
-    let batch_resolves: u64 = logs.iter()
-        .filter_map(|l| l.telemetry_data.as_ref())
-        .flat_map(|td| td.resolve_rate.iter())
-        .map(|r| r.count as u64)
-        .sum();
-
-    let cf_latency = match (token, account) {
-        (Some(t), Some(a)) => {
-            let fresh = apply_cpu_time_to_snapshot(&mut cumulative, kv, t, a, script).await;
-            match fresh {
-                Some(td) => Some(td),
-                // No fresh CF analytics — use cached percentiles to estimate
-                // latency from the batch's resolve count so the backend always
-                // gets latency data and the Grafana graph stays continuous.
-                None if batch_resolves > 0 => {
-                    estimate_latency_from_cache(kv, batch_resolves).await
-                }
-                _ => None,
-            }
-        }
-        _ => None,
-    };
-
-    // 4. Write snapshot and prometheus text once
     let prom_text = cumulative.to_prometheus(
         "cf-resolver",
         &confidence_resolver::telemetry::PrometheusConfig::default(),
@@ -485,295 +425,6 @@ async fn update_metrics_kv(
     if let Ok(builder) = kv.put("prometheus", prom_text) {
         let _ = builder.execute().await;
     }
-
-    cf_latency
-}
-
-/// Return an ISO-8601 timestamp `seconds_ago` in the past.
-fn since_iso8601(seconds_ago: u64) -> String {
-    let now_ms = js_sys::Date::now() as u64;
-    let then_ms = now_ms.saturating_sub(seconds_ago.saturating_mul(1000));
-    let d = js_sys::Date::new_0();
-    d.set_time(then_ms as f64);
-    d.to_iso_string().into()
-}
-
-/// Query recent CPU time from Cloudflare analytics and apply it to the
-/// cumulative snapshot in place. Returns the latency delta as `TelemetryData`
-/// for the backend.
-///
-/// Since CF Workers freeze timers during sync CPU work (Spectre mitigation),
-/// we can't measure latency internally. Instead, we use CF's own analytics
-/// (percentiles × requests) as an approximation for the histogram.
-///
-/// To avoid double-counting, we store the last queried timestamp in KV
-/// (`cpu_time_cursor`) and only process data points newer than that.
-async fn apply_cpu_time_to_snapshot(
-    cumulative: &mut TelemetrySnapshot,
-    kv: &kv::KvStore,
-    token: &str,
-    account: &str,
-    script: &str,
-) -> Option<TelemetryData> {
-    // Read cursor: the last datetime we processed (also serves as rate-limit)
-    let cursor = match kv.get("cpu_time_cursor").text().await {
-        Ok(Some(c)) if !c.is_empty() => c,
-        _ => since_iso8601(300), // bootstrap: last 5 minutes
-    };
-
-    // Rate-limit: skip if cursor is less than 60 seconds old.
-    // CF analytics has ~30s-2min lag, so querying more often just wastes API calls.
-    let cursor_ms = js_sys::Date::parse(&cursor);
-    let now_ms = js_sys::Date::now();
-    if (now_ms - cursor_ms) < 60_000.0 {
-        return None;
-    }
-
-    let gql = format!(
-        "{{ viewer {{ accounts(filter: {{accountTag: \"{account}\"}}) {{ workersInvocationsAdaptive(limit: 50, filter: {{scriptName: \"{script}\", datetime_gt: \"{cursor}\"}}, orderBy: [datetime_ASC]) {{ dimensions {{ datetime }} quantiles {{ cpuTimeP25 cpuTimeP50 cpuTimeP75 cpuTimeP90 cpuTimeP99 }} sum {{ requests }} }} }} }} }}"
-    );
-    let query = serde_json::to_string(&json!({ "query": gql })).unwrap_or_default();
-
-    let url = "https://api.cloudflare.com/client/v4/graphql";
-    let mut init = RequestInit::new();
-    let headers = Headers::new();
-    let _ = headers.set("Authorization", &format!("Bearer {token}"));
-    let _ = headers.set("Content-Type", "application/json");
-    init.with_headers(headers);
-    init.with_method(Method::Post);
-    init.with_body(Some(query.into()));
-
-    let Ok(request) = Request::new_with_init(url, &init) else { return None };
-    let Ok(mut resp) = Fetch::Request(request).send().await else { return None };
-    let Ok(body) = resp.text().await else { return None };
-    let Ok(data) = serde_json::from_str::<serde_json::Value>(&body) else { return None };
-
-    let Some(entries) = data
-        .pointer("/data/viewer/accounts/0/workersInvocationsAdaptive")
-        .and_then(|v| v.as_array())
-    else { return None };
-
-    if entries.is_empty() { return None }
-
-    let ln_ratio: f64 = core::f64::consts::LN_10 / 18.0;
-    let max_idx = BUCKET_COUNT - 1;
-
-    let mut total_observations: u64 = 0;
-    let mut weighted_sum: u64 = 0;
-    let mut bucket_adds: Vec<(usize, u64)> = Vec::new(); // (bucket_idx, count)
-    let mut latest_datetime = String::new();
-    let mut avg_p25: u64 = 0;
-    let mut avg_p50: u64 = 0;
-    let mut avg_p75: u64 = 0;
-    let mut avg_p90: u64 = 0;
-    let mut avg_p99: u64 = 0;
-
-    for entry in entries {
-        let reqs = entry.pointer("/sum/requests").and_then(|v| v.as_u64()).unwrap_or(0);
-        if reqs == 0 { continue }
-        let q = entry.pointer("/quantiles");
-        let p25 = q.and_then(|q| q.get("cpuTimeP25")).and_then(|v| v.as_u64()).unwrap_or(0);
-        let p50 = q.and_then(|q| q.get("cpuTimeP50")).and_then(|v| v.as_u64()).unwrap_or(0);
-        let p75 = q.and_then(|q| q.get("cpuTimeP75")).and_then(|v| v.as_u64()).unwrap_or(0);
-        let p90 = q.and_then(|q| q.get("cpuTimeP90")).and_then(|v| v.as_u64()).unwrap_or(0);
-        let p99 = q.and_then(|q| q.get("cpuTimeP99")).and_then(|v| v.as_u64()).unwrap_or(0);
-        avg_p25 = avg_p25.saturating_add(p25);
-        avg_p50 = avg_p50.saturating_add(p50);
-        avg_p75 = avg_p75.saturating_add(p75);
-        avg_p90 = avg_p90.saturating_add(p90);
-        avg_p99 = avg_p99.saturating_add(p99);
-
-        // Helper: compute bucket index capped at BUCKET_COUNT - 1
-        let bucket_idx = |us_value: u64| -> usize {
-            let idx = if us_value == 0 { 0 }
-                else { ((us_value as f64).ln() / ln_ratio).floor() as usize };
-            idx.min(max_idx)
-        };
-
-        // Distribute requests into histogram buckets using CF percentiles.
-        // For single-request data points all percentiles are identical, so
-        // we just place 1 observation at p50. For multi-request points we
-        // spread across bands: [0-25%] p25, (25-50%] p50, (50-75%] p75,
-        // (75-90%] p90, (90-99%] p99, (99-100%] p99.
-        if reqs == 1 {
-            bucket_adds.push((bucket_idx(p50), 1));
-            weighted_sum = weighted_sum.saturating_add(p50);
-            total_observations = total_observations.saturating_add(1);
-        } else {
-            let bands: &[(f64, u64)] = &[
-                (0.25, p25), (0.25, p50), (0.25, p75), (0.15, p90), (0.09, p99), (0.01, p99),
-            ];
-            let mut remaining = reqs;
-            for (i, &(frac, value)) in bands.iter().enumerate() {
-                let count = if i == bands.len() - 1 {
-                    remaining
-                } else {
-                    let c = (reqs as f64 * frac) as u64;
-                    c.min(remaining)
-                };
-                remaining = remaining.saturating_sub(count);
-                if count > 0 && value > 0 {
-                    bucket_adds.push((bucket_idx(value), count));
-                    weighted_sum = weighted_sum.saturating_add(value.saturating_mul(count));
-                    total_observations = total_observations.saturating_add(count);
-                }
-            }
-        }
-
-        if let Some(dt) = entry.pointer("/dimensions/datetime").and_then(|v| v.as_str()) {
-            if dt > latest_datetime.as_str() {
-                latest_datetime = dt.to_string();
-            }
-        }
-    }
-
-    if total_observations == 0 || latest_datetime.is_empty() { return None }
-
-    // Update cursor to latest processed timestamp
-    if let Ok(builder) = kv.put("cpu_time_cursor", &latest_datetime) {
-        let _ = builder.execute().await;
-    }
-
-    // Cache the latest averaged percentiles for use when rate-limited.
-    // Average across all entries to get representative percentile values.
-    let num_entries = entries.len().max(1) as u64;
-    let cached = serde_json::to_string(&json!({
-        "p25": avg_p25 / num_entries,
-        "p50": avg_p50 / num_entries,
-        "p75": avg_p75 / num_entries,
-        "p90": avg_p90 / num_entries,
-        "p99": avg_p99 / num_entries,
-    })).unwrap_or_default();
-    if let Ok(builder) = kv.put("cf_percentiles", cached) {
-        let _ = builder.execute().await;
-    }
-
-    // Apply to the cumulative snapshot (already read by caller)
-    cumulative.latency.sum = cumulative.latency.sum.saturating_add(weighted_sum);
-    cumulative.latency.count = cumulative.latency.count.saturating_add(total_observations);
-
-    for &(idx, count) in &bucket_adds {
-        if idx >= cumulative.latency.buckets.len() {
-            cumulative.latency.buckets.resize(idx.saturating_add(1), 0);
-        }
-        if let Some(b) = cumulative.latency.buckets.get_mut(idx) {
-            *b = b.saturating_add(count);
-        }
-    }
-
-    // Build BucketSpans for the TelemetryData delta sent to the backend.
-    let spans = {
-        let mut flat: Vec<u32> = vec![0; max_idx + 1];
-        for &(idx, count) in &bucket_adds {
-            if let Some(b) = flat.get_mut(idx) {
-                *b = b.saturating_add(count as u32);
-            }
-        }
-        // Compress into BucketSpans (contiguous non-zero runs)
-        let mut spans: Vec<BucketSpan> = Vec::new();
-        let mut current: Option<(i32, Vec<u32>)> = None;
-        for (i, &v) in flat.iter().enumerate() {
-            if v > 0 {
-                match &mut current {
-                    Some((_, counts)) => counts.push(v),
-                    None => current = Some((i as i32, vec![v])),
-                }
-            } else if let Some((offset, counts)) = current.take() {
-                spans.push(BucketSpan { offset, counts });
-            }
-        }
-        if let Some((offset, counts)) = current {
-            spans.push(BucketSpan { offset, counts });
-        }
-        spans
-    };
-
-    // Proto field is uint32; clamp to avoid silent wraparound on high-traffic windows
-    Some(TelemetryData {
-        resolve_latency: Some(ResolveLatency {
-            sum: weighted_sum.min(u32::MAX as u64) as u32,
-            count: total_observations.min(u32::MAX as u64) as u32,
-            buckets: spans,
-            ln_ratio,
-        }),
-        ..Default::default()
-    })
-}
-
-/// Construct estimated latency from cached CF percentiles and a known resolve count.
-/// Used when the CF analytics rate-limit fires so the backend always gets latency data.
-async fn estimate_latency_from_cache(kv: &kv::KvStore, resolve_count: u64) -> Option<TelemetryData> {
-    let text = kv.get("cf_percentiles").text().await.ok()??;
-    let cached: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let p25 = cached.get("p25").and_then(|v| v.as_u64()).unwrap_or(0);
-    let p50 = cached.get("p50").and_then(|v| v.as_u64()).unwrap_or(0);
-    let p75 = cached.get("p75").and_then(|v| v.as_u64()).unwrap_or(0);
-    let p90 = cached.get("p90").and_then(|v| v.as_u64()).unwrap_or(0);
-    let p99 = cached.get("p99").and_then(|v| v.as_u64()).unwrap_or(0);
-    if p50 == 0 { return None }
-
-    let ln_ratio: f64 = core::f64::consts::LN_10 / 18.0;
-    let max_idx = BUCKET_COUNT - 1;
-    let bucket_idx = |us: u64| -> usize {
-        let idx = if us == 0 { 0 } else { ((us as f64).ln() / ln_ratio).floor() as usize };
-        idx.min(max_idx)
-    };
-
-    // Distribute resolve_count across percentile bands (same shape as fresh data)
-    let bands: &[(f64, u64)] = &[
-        (0.25, p25), (0.25, p50), (0.25, p75), (0.15, p90), (0.09, p99), (0.01, p99),
-    ];
-    let mut weighted_sum: u64 = 0;
-    let mut total: u64 = 0;
-    let mut flat: Vec<u32> = vec![0; max_idx + 1];
-    let mut remaining = resolve_count;
-
-    for (i, &(frac, value)) in bands.iter().enumerate() {
-        let count = if i == bands.len() - 1 {
-            remaining
-        } else {
-            let c = (resolve_count as f64 * frac) as u64;
-            c.min(remaining)
-        };
-        remaining = remaining.saturating_sub(count);
-        if count > 0 && value > 0 {
-            let idx = bucket_idx(value);
-            if let Some(b) = flat.get_mut(idx) {
-                *b = b.saturating_add(count as u32);
-            }
-            weighted_sum = weighted_sum.saturating_add(value.saturating_mul(count));
-            total = total.saturating_add(count);
-        }
-    }
-
-    if total == 0 { return None }
-
-    // Compress into BucketSpans
-    let mut spans: Vec<BucketSpan> = Vec::new();
-    let mut current: Option<(i32, Vec<u32>)> = None;
-    for (i, &v) in flat.iter().enumerate() {
-        if v > 0 {
-            match &mut current {
-                Some((_, counts)) => counts.push(v),
-                None => current = Some((i as i32, vec![v])),
-            }
-        } else if let Some((offset, counts)) = current.take() {
-            spans.push(BucketSpan { offset, counts });
-        }
-    }
-    if let Some((offset, counts)) = current {
-        spans.push(BucketSpan { offset, counts });
-    }
-
-    Some(TelemetryData {
-        resolve_latency: Some(ResolveLatency {
-            sum: weighted_sum.min(u32::MAX as u64) as u32,
-            count: total.min(u32::MAX as u64) as u32,
-            buckets: spans,
-            ln_ratio,
-        }),
-        ..Default::default()
-    })
 }
 
 async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {
