@@ -142,7 +142,7 @@ Returns Prometheus exposition format with:
 - `confidence_resolve_latency_microseconds` — histogram (sum, count, cumulative `le` buckets)
 - `confidence_resolves_total` — counter by resolve reason
 
-Metrics are accumulated in a KV namespace (`CONFIDENCE_METRICS_KV`) created automatically by the deployer. Set `DISABLE_METRICS` to skip KV creation and disable the endpoint when Prometheus scraping is not needed.
+Metrics are accumulated in a [KV namespace](https://developers.cloudflare.com/kv/platform/pricing/) (`CONFIDENCE_METRICS_KV`) created automatically by the deployer. Set `DISABLE_METRICS` to skip KV creation and disable the endpoint when Prometheus scraping is not needed.
 
 ### Backend telemetry
 
