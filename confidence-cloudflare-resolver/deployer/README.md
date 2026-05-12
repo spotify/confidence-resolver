@@ -63,6 +63,7 @@ The deployer automatically:
 | `WRANGLER_DEPLOY_MESSAGE`            | Value passed to `wrangler deploy --message`                                                                                                       |
 | `WRANGLER_DEPLOY_ARGS`               | Additional newline-separated arguments passed to `wrangler deploy`                                                                                |
 | `WRANGLER_DEPLOY_ARGS_FILE`          | Path to a file containing additional `wrangler deploy` arguments, one argument per line                                                           |
+| `DISABLE_METRICS`                    | Skip KV namespace creation and disable the `/metrics` endpoint. Reduces resource usage when Prometheus scraping is not needed                     |
 
 ### Extending Wrangler Configuration
 
@@ -119,6 +120,33 @@ When integrating with the Cloudflare resolver, you have two options:
 **HTTP calls**: Standard HTTP requests to the resolver endpoint. Use this approach when calling from external services or client applications.
 
 For more details on integration, including code examples using the [`@spotify-confidence/sdk`](https://github.com/spotify/confidence-sdk-js), see the [Confidence documentation](https://confidence.spotify.com/docs/sdks/edge/cloudflare#cloudflare-workers).
+
+## Telemetry & Metrics
+
+The resolver collects telemetry and exposes a Prometheus-compatible `/metrics` endpoint using the same metric names as all other Confidence providers (`confidence_resolve_latency_microseconds`, `confidence_resolves_total`), enabling shared Grafana dashboards.
+
+### How latency is measured
+
+Cloudflare Workers freeze `Date.now()` and `performance.now()` during synchronous CPU work (Spectre mitigation). The resolver uses `scheduler.wait(0)` — a zero-delay yield to the runtime — to unfreeze the clock after each resolve. This provides 1ms resolution with no measurable overhead. Grafana's `histogram_quantile()` interpolates between histogram buckets to produce sub-millisecond reporting.
+
+### `/metrics` endpoint
+
+Requires authentication:
+
+```bash
+curl -H "Authorization: ClientSecret <your-client-secret>" \
+  https://<worker>.workers.dev/metrics
+```
+
+Returns Prometheus exposition format with:
+- `confidence_resolve_latency_microseconds` — histogram (sum, count, cumulative `le` buckets)
+- `confidence_resolves_total` — counter by resolve reason
+
+Metrics are accumulated in a KV namespace (`CONFIDENCE_METRICS_KV`) created automatically by the deployer. Set `DISABLE_METRICS` to skip KV creation and disable the endpoint when Prometheus scraping is not needed.
+
+### Backend telemetry
+
+Resolve rates and latency are also sent to the Confidence backend via `WriteFlagLogsRequest`, appearing on the shared Grafana dashboard alongside other providers.
 
 ## Limitations
 

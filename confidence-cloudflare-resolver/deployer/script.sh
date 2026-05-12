@@ -373,6 +373,12 @@ else
     KV_NAMESPACE_TITLE="resolver-metrics"
 fi
 
+DISABLE_METRICS=${DISABLE_METRICS:=}
+if [ -n "$DISABLE_METRICS" ]; then
+    echo "ℹ️ DISABLE_METRICS is set; skipping KV namespace creation and /metrics endpoint"
+    KV_NAMESPACE_ID=""
+else
+
 echo "🔍 Checking if KV namespace '$KV_NAMESPACE_TITLE' exists..."
 KV_LIST=$(curl -sS -w "%{http_code}" \
     -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
@@ -414,6 +420,8 @@ id = "$KV_NAMESPACE_ID"
 EOF
     echo "✅ Added CONFIDENCE_METRICS_KV binding to wrangler.toml"
 fi
+
+fi  # end DISABLE_METRICS check
 
 # Update worker name and queue name in wrangler.toml if using prefix
 if [ -n "$WORKER_NAME_PREFIX" ]; then
