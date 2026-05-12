@@ -442,9 +442,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     sed -i.tmp '/^RESOLVER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^DEPLOYER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
-    sed -i.tmp '/^CLOUDFLARE_ACCOUNT_ID *= *.*$/d' wrangler.toml || true
-    sed -i.tmp '/^CF_SCRIPT_NAME *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v cf_account="${CLOUDFLARE_ACCOUNT_ID}" -v cf_script="${WORKER_NAME}" '
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -453,8 +451,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (etag != "") print "RESOLVER_STATE_ETAG = \"" etag "\""
                 if (version != "") print "DEPLOYER_VERSION = \"" version "\""
                 if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
-                if (cf_account != "") print "CLOUDFLARE_ACCOUNT_ID = \"" cf_account "\""
-                if (cf_script != "") print "CF_SCRIPT_NAME = \"" cf_script "\""
                 inserted=1
             }
         }
@@ -533,13 +529,6 @@ add_wrangler_deploy_args_from_lines "WRANGLER_DEPLOY_ARGS" "$WRANGLER_DEPLOY_ARG
 if test -z "$NO_DEPLOY"; then
      wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"
 
-     # Set CLOUDFLARE_API_TOKEN as an encrypted secret (not a plaintext var)
-     if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-         echo "🔒 Setting CLOUDFLARE_API_TOKEN as encrypted Worker secret..."
-         echo "$CLOUDFLARE_API_TOKEN" | wrangler secret put CLOUDFLARE_API_TOKEN 2>/dev/null \
-             && echo "✅ CLOUDFLARE_API_TOKEN set as encrypted secret" \
-             || echo "⚠️ Failed to set CLOUDFLARE_API_TOKEN secret (non-fatal)"
-     fi
 else
      echo "NO_DEPLOY is set, skipping deploy"
 fi
