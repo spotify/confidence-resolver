@@ -20,6 +20,7 @@ message Sdk {
 enum SdkId {
   SDK_ID_UNSPECIFIED = 0;
   SDK_ID_JS_LOCAL_SERVER_PROVIDER = 22;
+  SDK_ID_CLOUDFLARE_RESOLVER = 25;
 }
 
 message TelemetryData {

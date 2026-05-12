@@ -401,7 +401,14 @@ pub async fn consume_flag_logs_queue(
 
 fn checkpoint() -> WriteFlagLogsRequest {
     let mut req = RESOLVE_LOGGER.checkpoint();
-    req.telemetry_data = Some(TELEMETRY.delta_snapshot(&LAST_FLUSHED));
+    let mut td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
+    td.sdk = Some(confidence::flags::resolver::v1::Sdk {
+        sdk: Some(confidence::flags::resolver::v1::sdk::Sdk::Id(
+            confidence::flags::resolver::v1::SdkId::CloudflareResolver as i32,
+        )),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    });
+    req.telemetry_data = Some(td);
     ASSIGN_LOGGER.checkpoint_fill(&mut req);
     req
 }
