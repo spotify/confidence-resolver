@@ -24,7 +24,7 @@ const LN_RATIO: f64 = core::f64::consts::LN_10 / 18.0;
 /// Number of buckets needed to cover the full u32 range: ceil(ln(2^32) / LN_RATIO) + 1.
 /// With LN_RATIO ≈ 0.128 this is 174 buckets (~1.4KB), so we always allocate for
 /// the entire u32 space — no clamping needed on the client side.
-const BUCKET_COUNT: usize = 174;
+pub const BUCKET_COUNT: usize = 174;
 
 /// Lock-free exponential histogram for positive integer observations.
 ///

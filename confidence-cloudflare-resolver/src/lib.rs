@@ -2,7 +2,7 @@ use confidence_resolver::{
     assign_logger::AssignLogger,
     flag_logger,
     proto::{confidence, google::Struct},
-    telemetry::{Telemetry, TelemetrySnapshot},
+    telemetry::{Telemetry, TelemetrySnapshot, BUCKET_COUNT},
     FlagToApply, Host, ResolvedValue, ResolverState,
 };
 use worker::*;
@@ -173,6 +173,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                 let body = text.unwrap_or_default();
                 let headers = Headers::new();
                 headers.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")?;
+                headers.set("Cache-Control", "no-store")?;
                 Response::ok(body)?.with_headers(headers).with_cors_headers(&allowed_origin)
             }
         })
@@ -357,28 +358,19 @@ pub async fn consume_flag_logs_queue(
             })
             .collect();
 
-        // Accumulate telemetry deltas into KV-backed cumulative snapshot for /metrics
-        if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-            let _ = update_prometheus_kv(&kv, &logs).await;
-        }
-
-        // Fetch real CPU time from CF analytics API and append to Prometheus KV.
-        // Returns a TelemetryData delta when new latency data is available.
-        let cf_latency = {
-            let cf_token = env.var("CLOUDFLARE_API_TOKEN").ok().map(|v| v.to_string());
+        // Unified KV update: accumulate telemetry deltas + CF analytics in one
+        // read-modify-write cycle to avoid the second write clobbering the first.
+        let cf_latency = if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
+            let cf_token = env.secret("CLOUDFLARE_API_TOKEN").ok().map(|v| v.to_string());
             let cf_account = env.var("CLOUDFLARE_ACCOUNT_ID").ok().map(|v| v.to_string());
             let cf_script = env
                 .var("CF_SCRIPT_NAME")
                 .ok()
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "confidence-cloudflare-resolver".to_string());
-            match (cf_token, cf_account) {
-                (Some(token), Some(account)) => match env.kv("CONFIDENCE_METRICS_KV") {
-                    Ok(kv) => update_cpu_time_kv(&kv, &token, &account, &cf_script).await,
-                    Err(_) => None,
-                },
-                _ => None,
-            }
+            update_metrics_kv(&kv, &logs, cf_token.as_deref(), cf_account.as_deref(), &cf_script).await
+        } else {
+            None
         };
 
         let mut req = flag_logger::aggregate_batch(logs);
@@ -414,24 +406,43 @@ fn checkpoint() -> WriteFlagLogsRequest {
     req
 }
 
-/// Accumulate telemetry deltas from all isolates into a cumulative
-/// `TelemetrySnapshot` stored in KV, then write its Prometheus text
-/// representation for the /metrics endpoint.
+/// Unified metrics update: accumulate telemetry deltas from the queue batch
+/// AND CF analytics CPU time in a single KV read-modify-write cycle.
+///
+/// Returns `Option<TelemetryData>` — the CF latency delta to inject into the
+/// `WriteFlagLogsRequest` sent to the backend. `None` if no new latency data.
 ///
 /// Note: concurrent queue consumer invocations can race on KV read-modify-write.
 /// Acceptable for metrics — at worst one batch's deltas are lost, not cumulative state.
-async fn update_prometheus_kv(kv: &kv::KvStore, logs: &[WriteFlagLogsRequest]) {
+async fn update_metrics_kv(
+    kv: &kv::KvStore,
+    logs: &[WriteFlagLogsRequest],
+    token: Option<&str>,
+    account: Option<&str>,
+    script: &str,
+) -> Option<TelemetryData> {
+    // 1. Read cumulative snapshot once
     let mut cumulative = match kv.get("snapshot").text().await {
         Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
         _ => TelemetrySnapshot::default(),
     };
 
+    // 2. Accumulate telemetry deltas from queue batch
     for log in logs {
         if let Some(td) = &log.telemetry_data {
             cumulative.accumulate_delta(td);
         }
     }
 
+    // 3. Fetch and accumulate CF analytics CPU time (if credentials available)
+    let cf_latency = match (token, account) {
+        (Some(t), Some(a)) => {
+            apply_cpu_time_to_snapshot(&mut cumulative, kv, t, a, script).await
+        }
+        _ => None,
+    };
+
+    // 4. Write snapshot and prometheus text once
     let prom_text = cumulative.to_prometheus(
         "cf-resolver",
         &confidence_resolver::telemetry::PrometheusConfig::default(),
@@ -443,31 +454,36 @@ async fn update_prometheus_kv(kv: &kv::KvStore, logs: &[WriteFlagLogsRequest]) {
     if let Ok(builder) = kv.put("prometheus", prom_text) {
         let _ = builder.execute().await;
     }
+
+    cf_latency
 }
 
-/// Query Cloudflare's analytics GraphQL API for Worker CPU time and write
-/// the percentiles as Prometheus gauge metrics to KV.
 /// Return an ISO-8601 timestamp `seconds_ago` in the past.
 fn since_iso8601(seconds_ago: u64) -> String {
     let now_ms = js_sys::Date::now() as u64;
     let then_ms = now_ms.saturating_sub(seconds_ago.saturating_mul(1000));
     let d = js_sys::Date::new_0();
     d.set_time(then_ms as f64);
-    // Use Date.toISOString() for proper formatting
     d.to_iso_string().into()
 }
 
-/// Query recent CPU time from Cloudflare analytics and update the cumulative
-/// `TelemetrySnapshot` in KV so the Prometheus output uses the same metric
-/// names as all other providers (`confidence_resolve_latency_microseconds`).
+/// Query recent CPU time from Cloudflare analytics and apply it to the
+/// cumulative snapshot in place. Returns the latency delta as `TelemetryData`
+/// for the backend.
 ///
-/// Since CF Workers freeze timers during sync CPU work, we can't measure
-/// latency internally. Instead, we use CF's own analytics (p50 × requests)
-/// as an approximation for the histogram's `_sum` and `_count`.
+/// Since CF Workers freeze timers during sync CPU work (Spectre mitigation),
+/// we can't measure latency internally. Instead, we use CF's own analytics
+/// (percentiles × requests) as an approximation for the histogram.
 ///
 /// To avoid double-counting, we store the last queried timestamp in KV
 /// (`cpu_time_cursor`) and only process data points newer than that.
-async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script: &str) -> Option<TelemetryData> {
+async fn apply_cpu_time_to_snapshot(
+    cumulative: &mut TelemetrySnapshot,
+    kv: &kv::KvStore,
+    token: &str,
+    account: &str,
+    script: &str,
+) -> Option<TelemetryData> {
     // Read cursor: the last datetime we processed (also serves as rate-limit)
     let cursor = match kv.get("cpu_time_cursor").text().await {
         Ok(Some(c)) if !c.is_empty() => c,
@@ -475,7 +491,6 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
     };
 
     // Rate-limit: skip if cursor is less than 10 seconds old.
-    // Cursor is an ISO-8601 datetime from CF analytics; parse via JS Date.
     let cursor_ms = js_sys::Date::parse(&cursor);
     let now_ms = js_sys::Date::now();
     if (now_ms - cursor_ms) < 10_000.0 {
@@ -508,10 +523,12 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
 
     if entries.is_empty() { return None }
 
-    // Aggregate only NEW data points (after cursor)
+    let ln_ratio: f64 = core::f64::consts::LN_10 / 18.0;
+    let max_idx = BUCKET_COUNT - 1;
+
     let mut total_observations: u64 = 0;
     let mut weighted_sum: u64 = 0;
-    let mut bucket_adds: Vec<(u64, u64)> = Vec::new(); // (μs_value, count)
+    let mut bucket_adds: Vec<(usize, u64)> = Vec::new(); // (bucket_idx, count)
     let mut latest_datetime = String::new();
 
     for entry in entries {
@@ -524,13 +541,20 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
         let p90 = q.and_then(|q| q.get("cpuTimeP90")).and_then(|v| v.as_u64()).unwrap_or(0);
         let p99 = q.and_then(|q| q.get("cpuTimeP99")).and_then(|v| v.as_u64()).unwrap_or(0);
 
+        // Helper: compute bucket index capped at BUCKET_COUNT - 1
+        let bucket_idx = |us_value: u64| -> usize {
+            let idx = if us_value == 0 { 0 }
+                else { ((us_value as f64).ln() / ln_ratio).floor() as usize };
+            idx.min(max_idx)
+        };
+
         // Distribute requests into histogram buckets using CF percentiles.
         // For single-request data points all percentiles are identical, so
         // we just place 1 observation at p50. For multi-request points we
         // spread across bands: [0-25%] p25, (25-50%] p50, (50-75%] p75,
         // (75-90%] p90, (90-99%] p99, (99-100%] p99.
         if reqs == 1 {
-            bucket_adds.push((p50, 1));
+            bucket_adds.push((bucket_idx(p50), 1));
             weighted_sum = weighted_sum.saturating_add(p50);
             total_observations = total_observations.saturating_add(1);
         } else {
@@ -547,7 +571,7 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
                 };
                 remaining = remaining.saturating_sub(count);
                 if count > 0 && value > 0 {
-                    bucket_adds.push((value, count));
+                    bucket_adds.push((bucket_idx(value), count));
                     weighted_sum = weighted_sum.saturating_add(value.saturating_mul(count));
                     total_observations = total_observations.saturating_add(count);
                 }
@@ -568,23 +592,11 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
         let _ = builder.execute().await;
     }
 
-    // Update the cumulative snapshot with histogram buckets, sum, and count
-    let mut cumulative = match kv.get("snapshot").text().await {
-        Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
-        _ => TelemetrySnapshot::default(),
-    };
-
+    // Apply to the cumulative snapshot (already read by caller)
     cumulative.latency.sum = cumulative.latency.sum.saturating_add(weighted_sum);
     cumulative.latency.count = cumulative.latency.count.saturating_add(total_observations);
 
-    // Place observations into exponential histogram buckets (same as other providers)
-    let ln_ratio: f64 = core::f64::consts::LN_10 / 18.0;
-    for &(us_value, count) in &bucket_adds {
-        let idx = if us_value == 0 {
-            0
-        } else {
-            ((us_value as f64).ln() / ln_ratio).floor() as usize
-        };
+    for &(idx, count) in &bucket_adds {
         if idx >= cumulative.latency.buckets.len() {
             cumulative.latency.buckets.resize(idx.saturating_add(1), 0);
         }
@@ -593,27 +605,13 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
         }
     }
 
-    let prom_text = cumulative.to_prometheus(
-        "cf-resolver",
-        &confidence_resolver::telemetry::PrometheusConfig::default(),
-    );
-
-    if let Ok(builder) = kv.put("snapshot", serde_json::to_string(&cumulative).unwrap_or_default()) {
-        let _ = builder.execute().await;
-    }
-    if let Ok(builder) = kv.put("prometheus", prom_text) {
-        let _ = builder.execute().await;
-    }
-
     // Build BucketSpans for the TelemetryData delta sent to the backend.
     let spans = {
-        let mut flat: Vec<u32> = Vec::new();
-        for &(us_value, count) in &bucket_adds {
-            let idx = if us_value == 0 { 0 } else {
-                ((us_value as f64).ln() / ln_ratio).floor() as usize
-            };
-            if idx >= flat.len() { flat.resize(idx + 1, 0); }
-            if let Some(b) = flat.get_mut(idx) { *b = b.saturating_add(count as u32); }
+        let mut flat: Vec<u32> = vec![0; max_idx + 1];
+        for &(idx, count) in &bucket_adds {
+            if let Some(b) = flat.get_mut(idx) {
+                *b = b.saturating_add(count as u32);
+            }
         }
         // Compress into BucketSpans (contiguous non-zero runs)
         let mut spans: Vec<BucketSpan> = Vec::new();
@@ -634,10 +632,11 @@ async fn update_cpu_time_kv(kv: &kv::KvStore, token: &str, account: &str, script
         spans
     };
 
+    // Proto field is uint32; clamp to avoid silent wraparound on high-traffic windows
     Some(TelemetryData {
         resolve_latency: Some(ResolveLatency {
-            sum: weighted_sum as u32,
-            count: total_observations as u32,
+            sum: weighted_sum.min(u32::MAX as u64) as u32,
+            count: total_observations.min(u32::MAX as u64) as u32,
             buckets: spans,
             ln_ratio,
         }),
