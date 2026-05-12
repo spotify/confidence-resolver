@@ -1,10 +1,12 @@
 package com.spotify.confidence.sdk;
 
+import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
+import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
 import dev.openfeature.sdk.EvaluationContext;
 import dev.openfeature.sdk.ImmutableContext;
 import dev.openfeature.sdk.MutableContext;
@@ -34,7 +36,8 @@ import org.slf4j.LoggerFactory;
  *     new OpenFeatureLocalResolveProvider("client-secret");
  * OpenFeatureAPI.getInstance().setProviderAndWait(provider);
  *
- * // Create service with optional context decoration
+ * // Create service with token sealing and optional context decoration
+ * ResolveTokenSealer sealer = ResolveTokenSealer.create(System.getenv("CONFIDENCE_TOKEN_KEY"));
  * FlagResolverService flagResolver = new FlagResolverService(provider,
  *     ContextDecorator.sync((ctx, req) -> {
  *         // Set targeting key from auth middleware header
@@ -43,7 +46,8 @@ import org.slf4j.LoggerFactory;
  *             return ctx.merge(new ImmutableContext(userIds.get(0)));
  *         }
  *         return ctx;
- *     }));
+ *     }),
+ *     sealer);
  *
  * // Register endpoints
  * app.post("/v1/flags:resolve", ctx -> {
@@ -74,14 +78,15 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
 
   private final OpenFeatureLocalResolveProvider provider;
   private final ContextDecorator<R> contextDecorator;
+  private final ResolveTokenSealer tokenSealer;
 
   /**
-   * Creates a new FlagResolverService with no context decoration.
+   * Creates a new FlagResolverService with no context decoration or token sealing.
    *
    * @param provider the local resolve provider to use for flag resolution
    */
   public FlagResolverService(OpenFeatureLocalResolveProvider provider) {
-    this(provider, ContextDecorator.sync((ctx, req) -> ctx));
+    this(provider, ContextDecorator.sync((ctx, req) -> ctx), null);
   }
 
   /**
@@ -92,8 +97,39 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
    */
   public FlagResolverService(
       OpenFeatureLocalResolveProvider provider, ContextDecorator<R> contextDecorator) {
+    this(provider, contextDecorator, null);
+  }
+
+  /**
+   * Creates a new FlagResolverService with token sealing.
+   *
+   * <p>When a sealer is provided, the {@code resolve_token} in resolve responses is encrypted
+   * (AES-256-GCM) so clients only see an opaque handle. The token is decrypted transparently when
+   * it comes back via apply. This prevents clients from inspecting the raw resolve token which
+   * carries the evaluation context and resolved variants.
+   *
+   * @param provider the local resolve provider to use for flag resolution
+   * @param tokenSealer sealer for encrypting resolve tokens sent to clients
+   */
+  public FlagResolverService(
+      OpenFeatureLocalResolveProvider provider, ResolveTokenSealer tokenSealer) {
+    this(provider, ContextDecorator.sync((ctx, req) -> ctx), tokenSealer);
+  }
+
+  /**
+   * Creates a new FlagResolverService with context decoration and token sealing.
+   *
+   * @param provider the local resolve provider to use for flag resolution
+   * @param contextDecorator decorator to add additional context from requests
+   * @param tokenSealer sealer for encrypting resolve tokens (may be {@code null} to disable)
+   */
+  public FlagResolverService(
+      OpenFeatureLocalResolveProvider provider,
+      ContextDecorator<R> contextDecorator,
+      ResolveTokenSealer tokenSealer) {
     this.provider = provider;
     this.contextDecorator = contextDecorator;
+    this.tokenSealer = tokenSealer;
   }
 
   /**
@@ -151,7 +187,8 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
                   .thenApply(
                       response -> {
                         try {
-                          final String jsonResponse = JSON_PRINTER.print(response);
+                          final var sealed = sealResolveToken(response);
+                          final String jsonResponse = JSON_PRINTER.print(sealed);
                           return ConfidenceHttpResponse.ok(jsonResponse);
                         } catch (InvalidProtocolBufferException e) {
                           log.warn("Invalid response format", e);
@@ -194,8 +231,8 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
       final ApplyFlagsRequest.Builder applyRequestBuilder = ApplyFlagsRequest.newBuilder();
       JSON_PARSER.merge(requestBody, applyRequestBuilder);
 
-      // Build the apply request - the resolve token is already in the protobuf
-      final ApplyFlagsRequest applyRequest = applyRequestBuilder.build();
+      // Open sealed token if a sealer is configured, then build the final request
+      final ApplyFlagsRequest applyRequest = openResolveToken(applyRequestBuilder).build();
 
       // Apply each flag
       provider.applyFlags(applyRequest);
@@ -205,6 +242,9 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
 
     } catch (InvalidProtocolBufferException e) {
       log.warn("Invalid request format", e);
+      return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(400));
+    } catch (IllegalArgumentException e) {
+      log.warn("Invalid resolve token", e);
       return CompletableFuture.completedFuture(ConfidenceHttpResponse.error(400));
     } catch (Exception e) {
       log.error("Error applying flags", e);
@@ -273,6 +313,22 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
         .getFieldsMap()
         .forEach((key, value) -> map.put(key, protoValueToOpenFeatureValue(value)));
     return new MutableStructure(map);
+  }
+
+  private ResolveFlagsResponse sealResolveToken(ResolveFlagsResponse response) {
+    if (tokenSealer == null || response.getResolveToken().isEmpty()) {
+      return response;
+    }
+    byte[] sealed = tokenSealer.seal(response.getResolveToken().toByteArray());
+    return response.toBuilder().setResolveToken(ByteString.copyFrom(sealed)).build();
+  }
+
+  private ApplyFlagsRequest.Builder openResolveToken(ApplyFlagsRequest.Builder builder) {
+    if (tokenSealer == null || builder.getResolveToken().isEmpty()) {
+      return builder;
+    }
+    byte[] opened = tokenSealer.open(builder.getResolveToken().toByteArray());
+    return builder.setResolveToken(ByteString.copyFrom(opened));
   }
 
   private static boolean isJsonContentType(ConfidenceHttpRequest request) {
