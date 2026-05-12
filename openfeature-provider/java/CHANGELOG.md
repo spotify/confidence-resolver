@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.5](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.4...openfeature-provider-java-v0.14.5) (2026-05-12)
+
+
+### Bug Fixes
+
+* **java:** skip wasm setResolverState when flag state is unchanged ([#404](https://github.com/spotify/confidence-resolver/issues/404)) ([b10d1ec](https://github.com/spotify/confidence-resolver/commit/b10d1eca246966fd2ebace3f6755740fd13e5ef9))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.23 to 0.2.0
+
 ## [0.14.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.3...openfeature-provider-java-v0.14.4) (2026-04-28)
 
 

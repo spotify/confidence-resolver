@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.14.1...openfeature-provider/go/v0.14.2) (2026-05-12)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.1.23 to 0.2.0
+
 ## [0.14.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.14.0...openfeature-provider/go/v0.14.1) (2026-04-28)
 
 
