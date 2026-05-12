@@ -52,11 +52,10 @@ impl Host for NativeHost {
 
     fn log_assign(
         resolve_id: &str,
-        evaluation_context: &Struct,
         assigned_flags: &[FlagToApply],
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        ASSIGN_LOGGER.log_assigns(resolve_id, evaluation_context, assigned_flags, client, sdk);
+        ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
     }
 }

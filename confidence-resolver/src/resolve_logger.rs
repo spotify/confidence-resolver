@@ -339,7 +339,6 @@ mod tests {
 
         fn log_assign(
             _resolve_id: &str,
-            _evaluation_context: &Struct,
             _assigned_flags: &[crate::FlagToApply],
             _client: &Client,
             _sdk: &Option<crate::flags_resolver::Sdk>,

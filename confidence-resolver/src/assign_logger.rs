@@ -38,7 +38,6 @@ impl AssignLogger {
     pub fn log_assigns(
         &self,
         resolve_id: &str,
-        _evaluation_context: &crate::proto::google::Struct,
         assigned_flags: &[FlagToApply],
         client: &crate::Client,
         sdk: &Option<crate::flags_resolver::Sdk>,

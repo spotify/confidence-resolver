@@ -28,7 +28,6 @@ impl Host for L {
 
     fn log_assign(
         _resolve_id: &str,
-        _evaluation_context: &Struct,
         _assigned_flag: &[FlagToApply],
         _client: &Client,
         _sdk: &Option<flags_resolver::Sdk>,
