@@ -123,11 +123,11 @@ For more details on integration, including code examples using the [`@spotify-co
 
 ## Telemetry & Metrics
 
-The resolver collects telemetry and exposes a Prometheus-compatible `/metrics` endpoint using the same metric names as all other Confidence providers (`confidence_resolve_latency_microseconds`, `confidence_resolves_total`), enabling shared Grafana dashboards.
+The resolver collects telemetry and exposes a Prometheus-compatible `/metrics` endpoint using the same metric names as all other Confidence providers (`confidence_resolve_latency_microseconds`, `confidence_resolves_total`).
 
 ### How latency is measured
 
-Cloudflare Workers freeze `Date.now()` and `performance.now()` during synchronous CPU work (Spectre mitigation). The resolver uses `scheduler.wait(0)` — a zero-delay yield to the runtime — to unfreeze the clock after each resolve. This provides 1ms resolution with no measurable overhead. Grafana's `histogram_quantile()` interpolates between histogram buckets to produce sub-millisecond reporting.
+Cloudflare Workers freeze `Date.now()` and `performance.now()` during synchronous CPU work (Spectre mitigation). The resolver uses `scheduler.wait(0)` — a zero-delay yield to the runtime — to unfreeze the clock after each resolve. This provides 1ms resolution with no measurable overhead.
 
 ### `/metrics` endpoint
 
@@ -146,7 +146,7 @@ Metrics are accumulated in a KV namespace (`CONFIDENCE_METRICS_KV`) created auto
 
 ### Backend telemetry
 
-Resolve rates and latency are always sent to the Confidence backend via `WriteFlagLogsRequest`, regardless of the `DISABLE_METRICS` setting. This data appears on the shared Grafana dashboard alongside other providers. The `/metrics` endpoint and KV store are only needed for direct Prometheus scraping — backend telemetry flows through the queue consumer independently.
+Resolve rates and latency are always sent to the Confidence backend via `WriteFlagLogsRequest`, regardless of the `DISABLE_METRICS` setting. The `/metrics` endpoint and KV store are only needed for direct Prometheus scraping — backend telemetry flows through the queue consumer independently.
 
 ## Limitations
 
