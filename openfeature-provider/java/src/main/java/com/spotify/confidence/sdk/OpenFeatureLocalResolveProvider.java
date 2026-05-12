@@ -65,6 +65,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
   private volatile boolean initialized = false;
+  private volatile byte[] lastStateBytes = null;
   private static final Sdk SDK =
       Sdk.newBuilder().setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER).setVersion(Version.VERSION).build();
 
@@ -237,12 +238,19 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             if (!accountIdRef.get().isEmpty()) {
               if (!initialized) {
                 resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
+                lastStateBytes = resolverStateProtobuf.get();
                 initialized = true;
                 this.state.set(ProviderState.READY);
                 log.info("Provider recovered and is now READY");
               } else {
-                // State refresh + full log flush
-                resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
+                // Only push state into the wasm instances when it actually changed — the wasm
+                // execution inside setResolverState is expensive (runs across all pool slots).
+                final byte[] newState = resolverStateProtobuf.get();
+                if (!java.util.Arrays.equals(newState, lastStateBytes)) {
+                  resolver.setResolverState(newState, accountIdRef.get(), SDK);
+                  lastStateBytes = newState;
+                }
+                // Always flush logs regardless of state change.
                 resolver.flushAllLogs();
               }
             }
