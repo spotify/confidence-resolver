@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.5.3...openfeature-provider/rust-v0.5.4) (2026-05-13)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.16.1 to 0.17.0
+
 ## [0.5.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.5.2...openfeature-provider/rust-v0.5.3) (2026-04-28)
 
 

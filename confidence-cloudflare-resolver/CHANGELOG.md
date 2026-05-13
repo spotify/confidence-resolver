@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.9.0...confidence-cloudflare-resolver-v0.10.0) (2026-05-13)
+
+
+### Features
+
+* **cloudflare:** add telemetry collection and /metrics endpoint ([#400](https://github.com/spotify/confidence-resolver/issues/400)) ([be1c889](https://github.com/spotify/confidence-resolver/commit/be1c88917543121204c74360386c4056105a2ba3))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.16.1 to 0.17.0
+
 ## [0.9.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.8.2...confidence-cloudflare-resolver-v0.9.0) (2026-05-06)
 
 
