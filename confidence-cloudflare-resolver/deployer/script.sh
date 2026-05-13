@@ -373,9 +373,9 @@ else
     KV_NAMESPACE_TITLE="resolver-metrics"
 fi
 
-DISABLE_METRICS=${DISABLE_METRICS:=}
-if [ -n "$DISABLE_METRICS" ]; then
-    echo "ℹ️ DISABLE_METRICS is set; skipping KV namespace creation and /metrics endpoint"
+ENABLE_METRICS=${ENABLE_METRICS:=}
+if [ -z "$ENABLE_METRICS" ]; then
+    echo "ℹ️ ENABLE_METRICS not set; skipping KV namespace creation (/metrics endpoint disabled)"
     KV_NAMESPACE_ID=""
 else
 
@@ -421,7 +421,7 @@ EOF
     echo "✅ Added CONFIDENCE_METRICS_KV binding to wrangler.toml"
 fi
 
-fi  # end DISABLE_METRICS check
+fi  # end ENABLE_METRICS check
 
 # Update worker name and queue name in wrangler.toml if using prefix
 if [ -n "$WORKER_NAME_PREFIX" ]; then
