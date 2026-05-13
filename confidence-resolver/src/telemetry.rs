@@ -508,6 +508,46 @@ impl Default for Telemetry {
     }
 }
 
+pub fn build_request_telemetry(
+    latency_us: Option<u32>,
+    reasons: &[ResolveReason],
+) -> pb::TelemetryData {
+    let resolve_latency = latency_us.map(|us| {
+        let idx = if us == 0 {
+            0
+        } else {
+            let k = ((us as f64).ln() / LN_RATIO).floor() as usize;
+            k.min(BUCKET_COUNT.saturating_sub(1))
+        };
+        pb::ResolveLatency {
+            sum: us,
+            count: 1,
+            buckets: vec![pb::BucketSpan {
+                offset: idx as i32,
+                counts: vec![1],
+            }],
+            ln_ratio: LN_RATIO,
+        }
+    });
+
+    let mut reason_counts: Vec<pb::ResolveRate> = Vec::new();
+    for reason in reasons {
+        let r = *reason as i32;
+        if let Some(entry) = reason_counts.iter_mut().find(|e| e.reason == r) {
+            entry.count = entry.count.saturating_add(1);
+        } else {
+            reason_counts.push(pb::ResolveRate { count: 1, reason: r });
+        }
+    }
+
+    pb::TelemetryData {
+        resolve_latency,
+        resolve_rate: reason_counts,
+        resolver_version: crate::version::VERSION.to_string(),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

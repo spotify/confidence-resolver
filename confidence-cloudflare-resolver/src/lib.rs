@@ -1,47 +1,27 @@
 use confidence_resolver::{
-    assign_logger::AssignLogger,
-    flag_logger,
+    assign_logger, flag_logger,
     proto::{confidence, google::Struct},
-    telemetry::{Telemetry, TelemetrySnapshot},
+    resolve_logger,
+    telemetry::{self, TelemetrySnapshot},
     FlagToApply, Host, ResolvedValue, ResolverState,
 };
 use worker::*;
 
-use arc_swap::ArcSwap;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use bytes::Bytes;
 use prost::Message;
 use serde_json::from_slice;
 use serde_json::json;
+use std::cell::RefCell;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
-use confidence_resolver::proto::confidence::flags::resolver::v1::{ResolveProcessRequest, ResolveReason};
-
-static RESOLVE_LOGGER: LazyLock<ResolveLogger<H>> = LazyLock::new(ResolveLogger::new);
-static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
-static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(Telemetry::new);
-static LAST_FLUSHED: LazyLock<ArcSwap<TelemetrySnapshot>> =
-    LazyLock::new(|| ArcSwap::from_pointee(TelemetrySnapshot::default()));
+use confidence_resolver::proto::confidence::flags::resolver::v1::{
+    ResolveProcessRequest, ResolveReason,
+};
 
 use confidence_resolver::Client;
 use once_cell::sync::Lazy;
-use std::cell::RefCell;
-
-/// Per-request resolve metrics captured in the hot path, recorded in wait_until.
-struct ResolveMetrics {
-    reasons: Vec<ResolveReason>,
-    /// `Some(μs)` when scheduler.wait(0) unfroze the timer, `None` if the
-    /// scheduler API was unavailable (latency not recorded, resolve unaffected).
-    elapsed_us: Option<u32>,
-}
-
-thread_local! {
-    static PENDING_METRICS: RefCell<Vec<ResolveMetrics>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Prometheus exposition format content type (version 0.0.4).
-const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
 /// SetResolverStateRequest message from the CDN.
 /// This matches the protobuf message format returned by the CDN.
@@ -59,8 +39,14 @@ const ENCRYPTION_KEY_BASE64: &str = include_str!("../../data/encryption_key");
 
 use confidence::flags::resolver::v1::Sdk;
 use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
-use confidence_resolver::resolve_logger::ResolveLogger;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::OnceLock;
+
+thread_local! {
+    static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = RefCell::new(None);
+}
+
+/// Prometheus exposition format content type (version 0.0.4).
+const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
 static FLAGS_LOGS_QUEUE: OnceLock<Queue> = OnceLock::new();
 
@@ -92,18 +78,22 @@ struct H {}
 
 impl Host for H {
     fn log_resolve(
-        resolve_id: &str,
+        _resolve_id: &str,
         evaluation_context: &Struct,
         values: &[ResolvedValue<'_>],
         client: &Client,
     ) {
-        RESOLVE_LOGGER.log_resolve(
-            resolve_id,
-            evaluation_context,
-            client.client_credential_name.as_str(),
-            values,
-            client,
-        );
+        FLAG_LOG.with(|f| {
+            if let Some(req) = f.borrow_mut().as_mut() {
+                let (flag_infos, client_info) = resolve_logger::build_resolve_log(
+                    evaluation_context,
+                    client.client_credential_name.as_str(),
+                    values,
+                );
+                req.flag_resolve_info.extend(flag_infos);
+                req.client_resolve_info.push(client_info);
+            }
+        });
     }
 
     fn log_assign(
@@ -112,7 +102,17 @@ impl Host for H {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
+        FLAG_LOG.with(|f| {
+            if let Some(req) = f.borrow_mut().as_mut() {
+                req.flag_assigned
+                    .push(assign_logger::build_flag_assigned(
+                        resolve_id,
+                        assigned_flags,
+                        client,
+                        sdk,
+                    ));
+            }
+        });
     }
 }
 
@@ -121,6 +121,15 @@ fn set_client_secret(env: &Env) {
         let _ = CONFIDENCE_CLIENT_SECRET.set(var.to_string());
     } else {
         console_log!("no confidence client secret provided");
+    }
+}
+
+fn sdk_info() -> Sdk {
+    Sdk {
+        sdk: Some(confidence::flags::resolver::v1::sdk::Sdk::Id(
+            confidence::flags::resolver::v1::SdkId::CloudflareResolver as i32,
+        )),
+        version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
 
@@ -157,6 +166,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     if req.method() == Method::Options {
         return Response::ok("")?.with_cors_headers(&allowed_origin_env);
     }
+
+    FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
 
     let state = &RESOLVER_STATE;
     let router = Router::new();
@@ -301,9 +312,14 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         };
 
-                        PENDING_METRICS.with(|m| {
-                            m.borrow_mut().push(ResolveMetrics { reasons, elapsed_us });
+                        let mut td = telemetry::build_request_telemetry(elapsed_us, &reasons);
+                        td.sdk = Some(sdk_info());
+                        FLAG_LOG.with(|f| {
+                            if let Some(req) = f.borrow_mut().as_mut() {
+                                req.telemetry_data = Some(td);
+                            }
                         });
+
                         resp
                     }
                     "flags:apply" => {
@@ -343,23 +359,13 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .await;
 
     // Use ctx.waitUntil to run logging and telemetry after response is returned.
+    let flag_log = FLAG_LOG.with(|f| f.borrow_mut().take());
     ctx.wait_until(async move {
-        PENDING_METRICS.with(|m| {
-            for metrics in m.borrow_mut().drain(..) {
-                if let Some(us) = metrics.elapsed_us {
-                    TELEMETRY.record_latency_us(us);
+        if let Some(req) = flag_log {
+            if let Ok(json) = serde_json::to_string(&req) {
+                if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
+                    let _ = queue.send(json).await;
                 }
-                for reason in metrics.reasons {
-                    TELEMETRY.mark_resolve(reason);
-                }
-            }
-        });
-
-        let aggregated: confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest
-            = checkpoint();
-        if let Ok(converted) = serde_json::to_string(&aggregated) {
-            if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
-                let _ = queue.send(converted).await;
             }
         }
     });
@@ -379,40 +385,20 @@ pub async fn consume_flag_logs_queue(
         let logs: Vec<WriteFlagLogsRequest> = messages
             .iter()
             .map(|m| m.body().clone())
-            .map(|s| serde_json::from_str::<confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest>(s.as_str()).unwrap())
-            .map(|v| WriteFlagLogsRequest {
-                telemetry_data: v.telemetry_data,
-                flag_resolve_info: v.flag_resolve_info,
-                flag_assigned: v.flag_assigned,
-                client_resolve_info: v.client_resolve_info,
-            })
+            .map(|s| serde_json::from_str::<WriteFlagLogsRequest>(s.as_str()).unwrap())
             .collect();
+
+        let req = flag_logger::aggregate_batch(logs);
 
         // Accumulate telemetry deltas into KV-backed cumulative snapshot for /metrics.
         if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-            update_prometheus_kv(&kv, &logs).await;
+            update_prometheus_kv(&kv, &req).await;
         }
 
-        let req = flag_logger::aggregate_batch(logs);
         send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
     }
 
     Ok(())
-}
-
-fn checkpoint() -> WriteFlagLogsRequest {
-    let mut req = RESOLVE_LOGGER.checkpoint();
-    let mut td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
-    td.sdk = Some(confidence::flags::resolver::v1::Sdk {
-        sdk: Some(confidence::flags::resolver::v1::sdk::Sdk::Id(
-            confidence::flags::resolver::v1::SdkId::CloudflareResolver as i32,
-        )),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-    });
-    td.resolver_version = env!("CARGO_PKG_VERSION").to_string();
-    req.telemetry_data = Some(td);
-    ASSIGN_LOGGER.checkpoint_fill(&mut req);
-    req
 }
 
 /// Accumulate telemetry deltas from all isolates into a cumulative
@@ -421,16 +407,14 @@ fn checkpoint() -> WriteFlagLogsRequest {
 ///
 /// Note: concurrent queue consumer invocations can race on KV read-modify-write.
 /// Acceptable for metrics — at worst one batch's deltas are lost, not cumulative state.
-async fn update_prometheus_kv(kv: &kv::KvStore, logs: &[WriteFlagLogsRequest]) {
+async fn update_prometheus_kv(kv: &kv::KvStore, req: &WriteFlagLogsRequest) {
     let mut cumulative = match kv.get("snapshot").text().await {
         Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
         _ => TelemetrySnapshot::default(),
     };
 
-    for log in logs {
-        if let Some(td) = &log.telemetry_data {
-            cumulative.accumulate_delta(td);
-        }
+    if let Some(td) = &req.telemetry_data {
+        cumulative.accumulate_delta(td);
     }
 
     let prom_text = cumulative.to_prometheus(

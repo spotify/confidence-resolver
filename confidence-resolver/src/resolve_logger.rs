@@ -145,6 +145,76 @@ impl<H: Host> ResolveLogger<H> {
     }
 }
 
+pub fn build_resolve_log(
+    evaluation_context: &pb::Struct,
+    client_credential: &str,
+    values: &[crate::ResolvedValue<'_>],
+) -> (Vec<pb::FlagResolveInfo>, pb::ClientResolveInfo) {
+    let schema = SchemaFromEvaluationContext::get_schema(evaluation_context);
+    let client_info = pb::ClientResolveInfo {
+        client: extract_client(client_credential),
+        client_credential: client_credential.to_string(),
+        schema: vec![to_pb_schema_instance(&schema)],
+    };
+
+    let flag_infos = values
+        .iter()
+        .map(|value| {
+            let af = &value.inner;
+            let mut variant_resolve_info = Vec::new();
+            let mut rule_resolve_info: Vec<pb::flag_resolve_info::RuleResolveInfo> = Vec::new();
+
+            for fallthrough in &af.fallthrough_assignments {
+                rule_resolve_info.push(pb::flag_resolve_info::RuleResolveInfo {
+                    rule: fallthrough.rule.clone(),
+                    count: 1,
+                    assignment_resolve_info: vec![
+                        pb::flag_resolve_info::AssignmentResolveInfo {
+                            assignment_id: fallthrough.assignment_id.clone(),
+                            count: 1,
+                        },
+                    ],
+                });
+            }
+
+            if !af.rule.is_empty() {
+                let variant_key = if af.variant.is_empty() {
+                    String::new()
+                } else {
+                    af.variant.clone()
+                };
+                variant_resolve_info.push(pb::flag_resolve_info::VariantResolveInfo {
+                    variant: variant_key,
+                    count: 1,
+                });
+                rule_resolve_info.push(pb::flag_resolve_info::RuleResolveInfo {
+                    rule: af.rule.clone(),
+                    count: 1,
+                    assignment_resolve_info: vec![
+                        pb::flag_resolve_info::AssignmentResolveInfo {
+                            assignment_id: af.assignment_id.clone(),
+                            count: 1,
+                        },
+                    ],
+                });
+            } else {
+                variant_resolve_info.push(pb::flag_resolve_info::VariantResolveInfo {
+                    variant: String::new(),
+                    count: 1,
+                });
+            }
+
+            pb::FlagResolveInfo {
+                flag: af.flag.clone(),
+                variant_resolve_info,
+                rule_resolve_info,
+            }
+        })
+        .collect();
+
+    (flag_infos, client_info)
+}
+
 #[derive(Debug, Default)]
 struct RuleResolveInfo {
     count: AtomicU32,
