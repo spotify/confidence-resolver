@@ -42,12 +42,8 @@ impl AssignLogger {
         client: &crate::Client,
         sdk: &Option<crate::flags_resolver::Sdk>,
     ) {
-        self.assigned.push(build_flag_assigned(
-            resolve_id,
-            assigned_flags,
-            client,
-            sdk,
-        ));
+        self.assigned
+            .push(build_flag_assigned(resolve_id, assigned_flags, client, sdk));
     }
 
     pub fn checkpoint(&self) -> WriteFlagLogsRequest {

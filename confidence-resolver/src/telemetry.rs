@@ -536,7 +536,10 @@ pub fn build_request_telemetry(
         if let Some(entry) = reason_counts.iter_mut().find(|e| e.reason == r) {
             entry.count = entry.count.saturating_add(1);
         } else {
-            reason_counts.push(pb::ResolveRate { count: 1, reason: r });
+            reason_counts.push(pb::ResolveRate {
+                count: 1,
+                reason: r,
+            });
         }
     }
 

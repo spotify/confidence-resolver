@@ -168,12 +168,10 @@ pub fn build_resolve_log(
                 rule_resolve_info.push(pb::flag_resolve_info::RuleResolveInfo {
                     rule: fallthrough.rule.clone(),
                     count: 1,
-                    assignment_resolve_info: vec![
-                        pb::flag_resolve_info::AssignmentResolveInfo {
-                            assignment_id: fallthrough.assignment_id.clone(),
-                            count: 1,
-                        },
-                    ],
+                    assignment_resolve_info: vec![pb::flag_resolve_info::AssignmentResolveInfo {
+                        assignment_id: fallthrough.assignment_id.clone(),
+                        count: 1,
+                    }],
                 });
             }
 
@@ -190,12 +188,10 @@ pub fn build_resolve_log(
                 rule_resolve_info.push(pb::flag_resolve_info::RuleResolveInfo {
                     rule: af.rule.clone(),
                     count: 1,
-                    assignment_resolve_info: vec![
-                        pb::flag_resolve_info::AssignmentResolveInfo {
-                            assignment_id: af.assignment_id.clone(),
-                            count: 1,
-                        },
-                    ],
+                    assignment_resolve_info: vec![pb::flag_resolve_info::AssignmentResolveInfo {
+                        assignment_id: af.assignment_id.clone(),
+                        count: 1,
+                    }],
                 });
             } else {
                 variant_resolve_info.push(pb::flag_resolve_info::VariantResolveInfo {

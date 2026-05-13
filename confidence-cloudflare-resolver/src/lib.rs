@@ -42,7 +42,7 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRe
 use std::sync::OnceLock;
 
 thread_local! {
-    static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = RefCell::new(None);
+    static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
 }
 
 /// Prometheus exposition format content type (version 0.0.4).
