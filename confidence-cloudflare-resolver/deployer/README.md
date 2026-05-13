@@ -63,6 +63,7 @@ The deployer automatically:
 | `WRANGLER_DEPLOY_MESSAGE`            | Value passed to `wrangler deploy --message`                                                                                                       |
 | `WRANGLER_DEPLOY_ARGS`               | Additional newline-separated arguments passed to `wrangler deploy`                                                                                |
 | `WRANGLER_DEPLOY_ARGS_FILE`          | Path to a file containing additional `wrangler deploy` arguments, one argument per line                                                           |
+| `ENABLE_METRICS`                     | Set to create a KV namespace and enable the `/metrics` Prometheus endpoint. Requires a [KV store](https://developers.cloudflare.com/kv/platform/pricing/) |
 
 ### Extending Wrangler Configuration
 
@@ -119,6 +120,33 @@ When integrating with the Cloudflare resolver, you have two options:
 **HTTP calls**: Standard HTTP requests to the resolver endpoint. Use this approach when calling from external services or client applications.
 
 For more details on integration, including code examples using the [`@spotify-confidence/sdk`](https://github.com/spotify/confidence-sdk-js), see the [Confidence documentation](https://confidence.spotify.com/docs/sdks/edge/cloudflare#cloudflare-workers).
+
+## Telemetry & Metrics
+
+The resolver collects telemetry and exposes a Prometheus-compatible `/metrics` endpoint using the same metric names as all other Confidence providers (`confidence_resolve_latency_microseconds`, `confidence_resolves_total`).
+
+### How latency is measured
+
+Cloudflare Workers freeze `Date.now()` and `performance.now()` during synchronous CPU work (Spectre mitigation). The resolver uses `scheduler.wait(0)` — a zero-delay yield to the runtime — to unfreeze the clock after each resolve. This provides 1ms resolution with no measurable overhead.
+
+### `/metrics` endpoint
+
+Requires authentication:
+
+```bash
+curl -H "Authorization: ClientSecret <your-client-secret>" \
+  https://<worker>.workers.dev/metrics
+```
+
+Returns Prometheus exposition format with:
+- `confidence_resolve_latency_microseconds` — histogram (sum, count, cumulative `le` buckets)
+- `confidence_resolves_total` — counter by resolve reason
+
+Metrics are accumulated in a [KV namespace](https://developers.cloudflare.com/kv/platform/pricing/) (`CONFIDENCE_METRICS_KV`). Set `ENABLE_METRICS` to have the deployer create the KV namespace and bind it to the Worker. Without it, the `/metrics` endpoint returns empty and no KV writes occur.
+
+### Backend telemetry
+
+Resolve rates and latency are always sent to the Confidence backend via `WriteFlagLogsRequest`, regardless of the `ENABLE_METRICS` setting. The `/metrics` endpoint and KV store are only needed for direct Prometheus scraping — backend telemetry flows through the queue consumer independently.
 
 ## Limitations
 

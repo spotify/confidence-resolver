@@ -42,6 +42,7 @@ message Sdk {
 // receives and passes through Sdk messages from the main confidence-resolver.
 enum SdkId {
   SDK_ID_UNSPECIFIED = 0;
+  SDK_ID_CLOUDFLARE_RESOLVER = 25;
 }
 
 message ResolvedValue {

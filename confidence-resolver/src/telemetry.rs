@@ -106,6 +106,7 @@ impl Histogram {
 /// Used for delta computation between flushes and as the future intermediate
 /// representation for Prometheus text format serialization.
 #[derive(Clone, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct TelemetrySnapshot {
     pub latency: HistogramSnapshot,
     pub resolve_rates: Vec<u64>,
@@ -113,6 +114,7 @@ pub struct TelemetrySnapshot {
 }
 
 #[derive(Clone, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct HistogramSnapshot {
     pub sum: u64,
     pub count: u64,
@@ -142,6 +144,52 @@ impl Default for PrometheusConfig {
 }
 
 impl TelemetrySnapshot {
+    /// Accumulate a `TelemetryData` delta into this cumulative snapshot.
+    ///
+    /// Expands compressed `BucketSpan`s back into the flat bucket array and
+    /// adds all counters. Gauge fields (memory_bytes) are replaced with the
+    /// latest value.
+    #[allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
+    pub fn accumulate_delta(&mut self, td: &pb::TelemetryData) {
+        if let Some(latency) = &td.resolve_latency {
+            self.latency.sum = self.latency.sum.wrapping_add(latency.sum as u64);
+            self.latency.count = self.latency.count.wrapping_add(latency.count as u64);
+
+            // Expand BucketSpans into flat bucket array
+            for span in &latency.buckets {
+                let base = match usize::try_from(span.offset) {
+                    Ok(b) if b < BUCKET_COUNT => b,
+                    _ => continue, // skip malformed span
+                };
+                for (i, &count) in span.counts.iter().enumerate() {
+                    let idx = base.saturating_add(i);
+                    if idx >= BUCKET_COUNT {
+                        break;
+                    }
+                    if idx >= self.latency.buckets.len() {
+                        self.latency.buckets.resize(idx.saturating_add(1), 0);
+                    }
+                    // Safety: idx < BUCKET_COUNT and we just resized to at least idx+1
+                    self.latency.buckets[idx] =
+                        self.latency.buckets[idx].wrapping_add(count as u64);
+                }
+            }
+        }
+
+        for rate in &td.resolve_rate {
+            let idx = rate.reason as usize;
+            if idx >= self.resolve_rates.len() {
+                self.resolve_rates.resize(idx.saturating_add(1), 0);
+            }
+            // Safety: we just resized to at least idx+1
+            self.resolve_rates[idx] = self.resolve_rates[idx].wrapping_add(rate.count as u64);
+        }
+
+        if td.memory_bytes > 0 {
+            self.memory_bytes = td.memory_bytes;
+        }
+    }
+
     /// Format the snapshot as Prometheus exposition text.
     ///
     /// All values are cumulative counters, matching what Prometheus expects.
@@ -457,6 +505,49 @@ impl Telemetry {
 impl Default for Telemetry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub fn build_request_telemetry(
+    latency_us: Option<u32>,
+    reasons: &[ResolveReason],
+) -> pb::TelemetryData {
+    let resolve_latency = latency_us.map(|us| {
+        let idx = if us == 0 {
+            0
+        } else {
+            let k = ((us as f64).ln() / LN_RATIO).floor() as usize;
+            k.min(BUCKET_COUNT.saturating_sub(1))
+        };
+        pb::ResolveLatency {
+            sum: us,
+            count: 1,
+            buckets: vec![pb::BucketSpan {
+                offset: idx as i32,
+                counts: vec![1],
+            }],
+            ln_ratio: LN_RATIO,
+        }
+    });
+
+    let mut reason_counts: Vec<pb::ResolveRate> = Vec::new();
+    for reason in reasons {
+        let r = *reason as i32;
+        if let Some(entry) = reason_counts.iter_mut().find(|e| e.reason == r) {
+            entry.count = entry.count.saturating_add(1);
+        } else {
+            reason_counts.push(pb::ResolveRate {
+                count: 1,
+                reason: r,
+            });
+        }
+    }
+
+    pb::TelemetryData {
+        resolve_latency,
+        resolve_rate: reason_counts,
+        resolver_version: crate::version::VERSION.to_string(),
+        ..Default::default()
     }
 }
 
@@ -938,5 +1029,98 @@ mod tests {
             },
         );
         assert_eq!(default_out, zero_out);
+    }
+
+    #[test]
+    fn accumulate_delta_basic() {
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            resolve_latency: Some(pb::ResolveLatency {
+                sum: 500,
+                count: 2,
+                buckets: vec![pb::BucketSpan {
+                    offset: 5,
+                    counts: vec![1, 1],
+                }],
+                ln_ratio: LN_RATIO,
+            }),
+            resolve_rate: vec![pb::ResolveRate {
+                reason: ResolveReason::Match as i32,
+                count: 3,
+            }],
+            memory_bytes: 4096,
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.latency.sum, 500);
+        assert_eq!(snap.latency.count, 2);
+        assert_eq!(snap.latency.buckets[5], 1);
+        assert_eq!(snap.latency.buckets[6], 1);
+        assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 3);
+        assert_eq!(snap.memory_bytes, 4096);
+
+        // Second delta accumulates counters, replaces gauge
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.latency.sum, 1000);
+        assert_eq!(snap.latency.count, 4);
+        assert_eq!(snap.latency.buckets[5], 2);
+        assert_eq!(snap.resolve_rates[ResolveReason::Match as usize], 6);
+        assert_eq!(snap.memory_bytes, 4096);
+    }
+
+    #[test]
+    fn accumulate_delta_negative_offset_skipped() {
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            resolve_latency: Some(pb::ResolveLatency {
+                sum: 100,
+                count: 1,
+                buckets: vec![
+                    pb::BucketSpan {
+                        offset: -1,
+                        counts: vec![99],
+                    },
+                    pb::BucketSpan {
+                        offset: 3,
+                        counts: vec![1],
+                    },
+                ],
+                ln_ratio: LN_RATIO,
+            }),
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        // Negative offset span skipped, valid span applied
+        assert_eq!(snap.latency.count, 1);
+        assert_eq!(snap.latency.buckets.get(3).copied().unwrap_or(0), 1);
+        // Bucket from negative offset should not exist
+        let total: u64 = snap.latency.buckets.iter().sum();
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn accumulate_delta_oversized_offset_skipped() {
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            resolve_latency: Some(pb::ResolveLatency {
+                sum: 100,
+                count: 1,
+                buckets: vec![pb::BucketSpan {
+                    offset: BUCKET_COUNT as i32 + 10,
+                    counts: vec![1],
+                }],
+                ln_ratio: LN_RATIO,
+            }),
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        // Oversized offset span skipped, sum/count still accumulated
+        assert_eq!(snap.latency.count, 1);
+        assert_eq!(snap.latency.sum, 100);
+        let total: u64 = snap.latency.buckets.iter().sum();
+        assert_eq!(total, 0);
     }
 }

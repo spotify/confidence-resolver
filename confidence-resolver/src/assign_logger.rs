@@ -42,61 +42,8 @@ impl AssignLogger {
         client: &crate::Client,
         sdk: &Option<crate::flags_resolver::Sdk>,
     ) {
-        let client_info = Some(pb::ClientInfo {
-            client: client.client_name.to_string(),
-            client_credential: client.client_credential_name.to_string(),
-            sdk: sdk.clone(),
-        });
-        let flags = assigned_flags
-            .iter()
-            .map(
-                |FlagToApply {
-                     assigned_flag: f,
-                     skew_adjusted_applied_time,
-                 }| {
-                    let assignment = if !f.variant.is_empty() {
-                        let assignment_info = pb::AssignmentInfo {
-                            segment: f.segment.clone(),
-                            variant: f.variant.clone(),
-                        };
-                        Some(pb::Assignment::AssignmentInfo(assignment_info))
-                    } else {
-                        let default_reason: pb::DefaultAssignmentReason =
-                            match pb::ResolveReason::try_from(f.reason) {
-                                Ok(pb::ResolveReason::NoSegmentMatch) => {
-                                    pb::DefaultAssignmentReason::NoSegmentMatch
-                                }
-                                Ok(pb::ResolveReason::NoTreatmentMatch) => {
-                                    pb::DefaultAssignmentReason::NoTreatmentMatch
-                                }
-                                Ok(pb::ResolveReason::FlagArchived) => {
-                                    pb::DefaultAssignmentReason::FlagArchived
-                                }
-                                _ => pb::DefaultAssignmentReason::Unspecified,
-                            };
-                        Some(pb::Assignment::DefaultAssignment(pb::DefaultAssignment {
-                            reason: default_reason.into(),
-                        }))
-                    };
-                    pb::AppliedFlag {
-                        flag: f.flag.clone(),
-                        targeting_key: f.targeting_key.clone(),
-                        targeting_key_selector: f.targeting_key_selector.clone(),
-                        assignment_id: f.assignment_id.clone(),
-                        rule: f.rule.clone(),
-                        fallthrough_assignments: f.fallthrough_assignments.clone(),
-                        apply_time: Some(skew_adjusted_applied_time.clone()),
-                        assignment,
-                    }
-                },
-            )
-            .collect();
-
-        self.assigned.push(pb::FlagAssigned {
-            resolve_id: resolve_id.to_string(),
-            client_info,
-            flags,
-        });
+        self.assigned
+            .push(build_flag_assigned(resolve_id, assigned_flags, client, sdk));
     }
 
     pub fn checkpoint(&self) -> WriteFlagLogsRequest {
@@ -161,6 +108,69 @@ impl AssignLogger {
         // the extra one is for the proto type and field id
         len.saturating_add(length_delimiter_len(len))
             .saturating_add(1)
+    }
+}
+
+pub fn build_flag_assigned(
+    resolve_id: &str,
+    assigned_flags: &[FlagToApply],
+    client: &crate::Client,
+    sdk: &Option<crate::flags_resolver::Sdk>,
+) -> pb::FlagAssigned {
+    let client_info = Some(pb::ClientInfo {
+        client: client.client_name.to_string(),
+        client_credential: client.client_credential_name.to_string(),
+        sdk: sdk.clone(),
+    });
+    let flags = assigned_flags
+        .iter()
+        .map(
+            |FlagToApply {
+                 assigned_flag: f,
+                 skew_adjusted_applied_time,
+             }| {
+                let assignment = if !f.variant.is_empty() {
+                    let assignment_info = pb::AssignmentInfo {
+                        segment: f.segment.clone(),
+                        variant: f.variant.clone(),
+                    };
+                    Some(pb::Assignment::AssignmentInfo(assignment_info))
+                } else {
+                    let default_reason: pb::DefaultAssignmentReason =
+                        match pb::ResolveReason::try_from(f.reason) {
+                            Ok(pb::ResolveReason::NoSegmentMatch) => {
+                                pb::DefaultAssignmentReason::NoSegmentMatch
+                            }
+                            Ok(pb::ResolveReason::NoTreatmentMatch) => {
+                                pb::DefaultAssignmentReason::NoTreatmentMatch
+                            }
+                            Ok(pb::ResolveReason::FlagArchived) => {
+                                pb::DefaultAssignmentReason::FlagArchived
+                            }
+                            _ => pb::DefaultAssignmentReason::Unspecified,
+                        };
+                    Some(pb::Assignment::DefaultAssignment(pb::DefaultAssignment {
+                        reason: default_reason.into(),
+                    }))
+                };
+                pb::AppliedFlag {
+                    flag: f.flag.clone(),
+                    targeting_key: f.targeting_key.clone(),
+                    targeting_key_selector: f.targeting_key_selector.clone(),
+                    assignment_id: f.assignment_id.clone(),
+                    rule: f.rule.clone(),
+                    fallthrough_assignments: f.fallthrough_assignments.clone(),
+                    apply_time: Some(skew_adjusted_applied_time.clone()),
+                    assignment,
+                }
+            },
+        )
+        .collect();
+
+    pb::FlagAssigned {
+        resolve_id: resolve_id.to_string(),
+        client_info,
+        flags,
     }
 }
 

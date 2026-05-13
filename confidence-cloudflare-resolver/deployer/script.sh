@@ -366,6 +366,63 @@ else
     echo "⚠️ Could not check queue status (HTTP $QUEUE_STATUS)"
 fi
 
+# Create KV namespace for /metrics endpoint if it doesn't exist
+if [ -n "$WORKER_NAME_PREFIX" ]; then
+    KV_NAMESPACE_TITLE="${WORKER_NAME_PREFIX}-resolver-metrics"
+else
+    KV_NAMESPACE_TITLE="resolver-metrics"
+fi
+
+ENABLE_METRICS=${ENABLE_METRICS:=}
+if [ -z "$ENABLE_METRICS" ]; then
+    echo "ℹ️ ENABLE_METRICS not set; skipping KV namespace creation (/metrics endpoint disabled)"
+    KV_NAMESPACE_ID=""
+else
+
+echo "🔍 Checking if KV namespace '$KV_NAMESPACE_TITLE' exists..."
+KV_LIST=$(curl -sS -w "%{http_code}" \
+    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+    "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces?per_page=100")
+KV_LIST_STATUS="${KV_LIST: -3}"
+KV_LIST_BODY="${KV_LIST%???}"
+
+KV_NAMESPACE_ID=""
+if [ "$KV_LIST_STATUS" = "200" ]; then
+    KV_NAMESPACE_ID=$(printf "%s" "$KV_LIST_BODY" | jq -r ".result[] | select(.title == \"${KV_NAMESPACE_TITLE}\") | .id" 2>/dev/null || true)
+fi
+
+if [ -z "$KV_NAMESPACE_ID" ]; then
+    echo "📦 KV namespace '$KV_NAMESPACE_TITLE' not found, creating..."
+    KV_CREATE_RESP=$(curl -sS -w "%{http_code}" -X POST \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"title\": \"${KV_NAMESPACE_TITLE}\"}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces")
+    KV_CREATE_STATUS="${KV_CREATE_RESP: -3}"
+    KV_CREATE_BODY="${KV_CREATE_RESP%???}"
+    if [ "$KV_CREATE_STATUS" = "200" ] || [ "$KV_CREATE_STATUS" = "201" ]; then
+        KV_NAMESPACE_ID=$(printf "%s" "$KV_CREATE_BODY" | jq -r '.result.id')
+        echo "✅ KV namespace '$KV_NAMESPACE_TITLE' created (id: $KV_NAMESPACE_ID)"
+    else
+        echo "⚠️ Failed to create KV namespace (HTTP $KV_CREATE_STATUS), /metrics will be unavailable"
+    fi
+else
+    echo "✅ KV namespace '$KV_NAMESPACE_TITLE' already exists (id: $KV_NAMESPACE_ID)"
+fi
+
+# Append KV binding to wrangler.toml if namespace was created
+if [ -n "$KV_NAMESPACE_ID" ]; then
+    cat >> wrangler.toml <<EOF
+
+[[kv_namespaces]]
+binding = "CONFIDENCE_METRICS_KV"
+id = "$KV_NAMESPACE_ID"
+EOF
+    echo "✅ Added CONFIDENCE_METRICS_KV binding to wrangler.toml"
+fi
+
+fi  # end ENABLE_METRICS check
+
 # Update worker name and queue name in wrangler.toml if using prefix
 if [ -n "$WORKER_NAME_PREFIX" ]; then
     sed -i.tmp "s/^name = .*/name = \"$WORKER_NAME\"/" wrangler.toml
@@ -479,6 +536,7 @@ add_wrangler_deploy_args_from_lines "WRANGLER_DEPLOY_ARGS" "$WRANGLER_DEPLOY_ARG
 # only deploy if NO_DEPLOY is not set
 if test -z "$NO_DEPLOY"; then
      wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"
+
 else
      echo "NO_DEPLOY is set, skipping deploy"
 fi

@@ -4,6 +4,7 @@ use crate::proto::confidence::flags::admin::v1::flag_resolve_info::{
 };
 use crate::proto::confidence::flags::admin::v1::{ClientResolveInfo, FlagResolveInfo};
 use crate::proto::confidence::flags::resolver::v1::events::FlagAssigned;
+use crate::proto::confidence::flags::resolver::v1::telemetry_data::ResolveRate;
 use crate::proto::confidence::flags::resolver::v1::{TelemetryData, WriteFlagLogsRequest};
 use std::collections::{HashMap, HashSet};
 
@@ -14,12 +15,14 @@ pub fn aggregate_batch(message_batch: Vec<WriteFlagLogsRequest>) -> WriteFlagLog
     let mut flag_resolve_map: HashMap<String, VariantRuleResolveInfo> = HashMap::new();
     let mut flag_assigned: Vec<FlagAssigned> = vec![];
     let mut first_sdk: Option<crate::proto::confidence::flags::resolver::v1::Sdk> = None;
+    let mut agg_telemetry: Option<TelemetryData> = None;
 
     for flag_logs_message in message_batch {
         if let Some(td) = &flag_logs_message.telemetry_data {
             if first_sdk.is_none() && td.sdk.is_some() {
                 first_sdk = td.sdk.clone();
             }
+            agg_telemetry = Some(merge_telemetry(agg_telemetry.take(), td));
         }
 
         for c in &flag_logs_message.client_resolve_info {
@@ -98,10 +101,20 @@ pub fn aggregate_batch(message_batch: Vec<WriteFlagLogsRequest>) -> WriteFlagLog
         })
     }
 
-    let telemetry_data = first_sdk.map(|sdk| TelemetryData {
-        sdk: Some(sdk),
-        ..Default::default()
-    });
+    // Attach SDK info to the aggregated telemetry
+    let telemetry_data = match (agg_telemetry, first_sdk) {
+        (Some(mut td), sdk) => {
+            if td.sdk.is_none() {
+                td.sdk = sdk;
+            }
+            Some(td)
+        }
+        (None, Some(sdk)) => Some(TelemetryData {
+            sdk: Some(sdk),
+            ..Default::default()
+        }),
+        (None, None) => None,
+    };
 
     WriteFlagLogsRequest {
         telemetry_data,
@@ -109,6 +122,53 @@ pub fn aggregate_batch(message_batch: Vec<WriteFlagLogsRequest>) -> WriteFlagLog
         flag_resolve_info,
         client_resolve_info,
     }
+}
+
+/// Merge a telemetry delta into an accumulator.
+/// Both are deltas, so counters are summed and gauges take the latest non-zero value.
+fn merge_telemetry(acc: Option<TelemetryData>, delta: &TelemetryData) -> TelemetryData {
+    let mut acc = acc.unwrap_or_default();
+
+    // Merge resolve latency
+    match (&mut acc.resolve_latency, &delta.resolve_latency) {
+        (Some(a), Some(d)) => {
+            a.sum = a.sum.wrapping_add(d.sum);
+            a.count = a.count.wrapping_add(d.count);
+            a.buckets.extend(d.buckets.iter().cloned());
+            if a.ln_ratio == 0.0 {
+                a.ln_ratio = d.ln_ratio;
+            }
+        }
+        (None, Some(d)) => {
+            acc.resolve_latency = Some(d.clone());
+        }
+        _ => {}
+    }
+
+    // Merge resolve rates by reason
+    for dr in &delta.resolve_rate {
+        if let Some(ar) = acc.resolve_rate.iter_mut().find(|r| r.reason == dr.reason) {
+            ar.count = ar.count.wrapping_add(dr.count);
+        } else {
+            acc.resolve_rate.push(ResolveRate {
+                count: dr.count,
+                reason: dr.reason,
+            });
+        }
+    }
+
+    // Gauges: take latest non-zero
+    if let Some(sa) = &delta.state_age {
+        acc.state_age = Some(sa.clone());
+    }
+    if delta.memory_bytes > 0 {
+        acc.memory_bytes = delta.memory_bytes;
+    }
+    if !delta.resolver_version.is_empty() {
+        acc.resolver_version = delta.resolver_version.clone();
+    }
+
+    acc
 }
 
 struct SchemaItem {
