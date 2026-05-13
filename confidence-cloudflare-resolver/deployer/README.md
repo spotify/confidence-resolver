@@ -146,7 +146,7 @@ Metrics are accumulated in a [KV namespace](https://developers.cloudflare.com/kv
 
 ### Backend telemetry
 
-Resolve rates and latency are always sent to the Confidence backend via `WriteFlagLogsRequest`, regardless of the `DISABLE_METRICS` setting. The `/metrics` endpoint and KV store are only needed for direct Prometheus scraping — backend telemetry flows through the queue consumer independently.
+Resolve rates and latency are always sent to the Confidence backend via `WriteFlagLogsRequest`, regardless of the `ENABLE_METRICS` setting. The `/metrics` endpoint and KV store are only needed for direct Prometheus scraping — backend telemetry flows through the queue consumer independently.
 
 ## Limitations
 
