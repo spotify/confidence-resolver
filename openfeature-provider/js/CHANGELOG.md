@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.13.1...openfeature-provider-js-v0.14.0) (2026-05-13)
+
+
+### Features
+
+* **cloudflare:** add telemetry collection and /metrics endpoint ([#400](https://github.com/spotify/confidence-resolver/issues/400)) ([be1c889](https://github.com/spotify/confidence-resolver/commit/be1c88917543121204c74360386c4056105a2ba3))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.0 to 0.2.1
+
 ## [0.13.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.13.0...openfeature-provider-js-v0.13.1) (2026-05-12)
 
 
