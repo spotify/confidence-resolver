@@ -1,0 +1,21 @@
+[package]
+name = "unit-local-server"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Local HTTP server that serves per-unit ResolverState slices for the unit-local resolver experiment."
+
+[[bin]]
+name = "unit-local-server"
+path = "src/main.rs"
+
+[dependencies]
+confidence_resolver = { path = "../confidence-resolver", default-features = false, features = ["std"] }
+prost = "0.12"
+axum = { version = "0.7" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

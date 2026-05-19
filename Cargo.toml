@@ -6,6 +6,7 @@ members = [
     "wasm/rust-guest",
     "confidence-resolver",
     "confidence-cloudflare-resolver",
+    "unit-local-server",
     "openfeature-provider/java",
     "openfeature-provider/js",
     "openfeature-provider/go",
@@ -19,7 +20,8 @@ default-members = [
     "wasm-msg",
     "wasm/rust-guest",
     "confidence-resolver",
-    "confidence-cloudflare-resolver"
+    "confidence-cloudflare-resolver",
+    "unit-local-server"
 ]
 [profile.wasm]
 inherits = "release"
