@@ -45,6 +45,7 @@ isocountry = "0.3.2"
 [dev-dependencies]
 openmetrics-parser = "0.4.4"
 regex = "1.10.2"
+bytes = { version = "1.4.0", default-features = false }
 
 [build-dependencies]
 prost-build = "0.12"

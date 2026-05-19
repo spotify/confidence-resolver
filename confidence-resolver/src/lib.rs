@@ -49,6 +49,7 @@ mod gzip;
 pub mod proto;
 pub mod resolve_logger;
 mod schema_util;
+pub mod slicer;
 pub mod telemetry;
 mod value;
 mod version;
@@ -1491,7 +1492,7 @@ fn list_wrapper(value: &targeting::value::Value) -> targeting::ListValue {
 /// Returns true if the assignment spec has exactly one assignment with a single
 /// bucket range covering [0, bucket_count). Mirrors the Java resolver's
 /// `hasOnlyOneFullVariant`. No hash-based bucketing is needed in this case.
-fn has_only_one_full_variant(spec: &rule::AssignmentSpec) -> bool {
+pub(crate) fn has_only_one_full_variant(spec: &rule::AssignmentSpec) -> bool {
     if spec.assignments.len() != 1 {
         return false;
     }
