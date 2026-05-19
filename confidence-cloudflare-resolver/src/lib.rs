@@ -14,6 +14,7 @@ use prost::Message;
 use serde_json::from_slice;
 use serde_json::json;
 use std::cell::RefCell;
+use wasm_bindgen::JsCast;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
@@ -167,8 +168,6 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         return Response::ok("")?.with_cors_headers(&allowed_origin_env);
     }
 
-    FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
-
     let state = &RESOLVER_STATE;
     let router = Router::new();
 
@@ -218,6 +217,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                 let path = ctx.param("path").unwrap();
                 match path.as_str() {
                     "flags:resolve" => {
+                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let mut resolver_request: ResolveFlagsRequest =
                             match from_slice(&body_bytes) {
@@ -286,11 +286,6 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         };
 
-                        // Unfreeze timer: scheduler.wait(0) yields to the
-                        // runtime with zero delay, advancing the clock.
-                        // If CF removes or changes the scheduler API, all
-                        // lookups fall through gracefully: elapsed_us is None,
-                        // the resolve still succeeds, we just lose latency data.
                         let elapsed_us = {
                             let scheduler = js_sys::Reflect::get(
                                 &js_sys::global(), &wasm_bindgen::JsValue::from_str("scheduler")
@@ -299,12 +294,12 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 let wait = js_sys::Reflect::get(
                                     &scheduler, &wasm_bindgen::JsValue::from_str("wait")
                                 ).unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
-                                if let Ok(promise) = js_sys::Function::from(wait)
-                                    .call1(&scheduler, &wasm_bindgen::JsValue::from(0))
-                                {
-                                    let _ = wasm_bindgen_futures::JsFuture::from(
-                                        js_sys::Promise::from(promise)
-                                    ).await;
+                                if let Ok(func) = wait.dyn_into::<js_sys::Function>() {
+                                    if let Ok(ret) = func.call1(&scheduler, &wasm_bindgen::JsValue::from(0)) {
+                                        if let Ok(promise) = ret.dyn_into::<js_sys::Promise>() {
+                                            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                                        }
+                                    }
                                 }
                                 Some(((js_sys::Date::now() - t0) * 1000.0).max(0.0) as u32)
                             } else {
@@ -323,6 +318,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         resp
                     }
                     "flags:apply" => {
+                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let apply_flag_req: ApplyFlagsRequest = match from_slice(&body_bytes) {
                             Ok(req) => req,
