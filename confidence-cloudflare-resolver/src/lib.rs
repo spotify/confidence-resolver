@@ -217,7 +217,6 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                 let path = ctx.param("path").unwrap();
                 match path.as_str() {
                     "flags:resolve" => {
-                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let mut resolver_request: ResolveFlagsRequest =
                             match from_slice(&body_bytes) {
@@ -230,16 +229,18 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     .with_cors_headers(&allowed_origin);
                                 }
                             };
-                        // Default apply to true for Cloudflare resolver
                         resolver_request.apply = true;
                         let evaluation_context = resolver_request
                             .evaluation_context
                             .clone()
                             .unwrap_or_default();
 
-                        // Start timer before resolve. CF Workers freeze timers
-                        // during sync CPU, but scheduler.wait(0) unfreezes them.
                         let t0 = js_sys::Date::now();
+
+                        // FLAG_LOG is set right before the synchronous resolve
+                        // and taken right after — no await points in between,
+                        // so concurrent async requests cannot interleave.
+                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
 
                         let (reasons, resp) = match state.get_resolver::<H>(
                             &resolver_request.client_secret,
@@ -286,6 +287,12 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         };
 
+                        // Take into a local immediately — everything above
+                        // is synchronous, so no other request could interleave.
+                        let mut request_log = FLAG_LOG.with(|f| f.borrow_mut().take());
+
+                        // scheduler.wait(0) yields to the runtime; safe because
+                        // request_log is a local, not in the thread_local.
                         let elapsed_us = {
                             let scheduler = js_sys::Reflect::get(
                                 &js_sys::global(), &wasm_bindgen::JsValue::from_str("scheduler")
@@ -307,18 +314,19 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         };
 
-                        let mut td = telemetry::build_request_telemetry(elapsed_us, &reasons);
-                        td.sdk = Some(sdk_info());
-                        FLAG_LOG.with(|f| {
-                            if let Some(req) = f.borrow_mut().as_mut() {
-                                req.telemetry_data = Some(td);
-                            }
-                        });
+                        if let Some(ref mut req) = request_log {
+                            let mut td = telemetry::build_request_telemetry(elapsed_us, &reasons);
+                            td.sdk = Some(sdk_info());
+                            req.telemetry_data = Some(td);
+                        }
+
+                        // Put back for wait_until — no await between here
+                        // and handler return, so no interleaving possible.
+                        FLAG_LOG.with(|f| *f.borrow_mut() = request_log);
 
                         resp
                     }
                     "flags:apply" => {
-                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let apply_flag_req: ApplyFlagsRequest = match from_slice(&body_bytes) {
                             Ok(req) => req,
@@ -330,6 +338,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 .with_cors_headers(&allowed_origin);
                             }
                         };
+
+                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
 
                         match state.get_resolver::<H>(
                             &apply_flag_req.client_secret,
