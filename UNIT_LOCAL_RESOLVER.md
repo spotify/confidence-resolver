@@ -1,6 +1,6 @@
 # Unit-Local Resolver (RFC / proposal)
 
-**Status:** draft for discussion · **Owner:** Fabrizio Demaria · **Date:** May 2026
+**Status:** draft for discussion — prototype validated end-to-end on iOS simulator · **Owner:** Fabrizio Demaria · **Date:** May 2026
 
 A hybrid between the online Java resolver (`epx-flags-resolver`) and the
 fully-local WASM resolver (`confidence-resolver`), for clients that operate
@@ -13,7 +13,12 @@ For a fixed `user_id`, the WASM resolver can be served a **per-user state
 slice** that omits the population bitsets (which dominate state size). A
 prototype slicer rewrites a full `ResolverState` into a slice that the
 **unmodified resolver** accepts — on the bundled fixture, **~2% of original
-size** (246 KB → ~5 KB) with bit-identical resolve results.
+size** (246 KB → ~5 KB) with bit-identical resolve results. The full
+loop — Rust slice server, Swift package wrapping the WASM resolver via
+**WasmKit**, and a modified
+[`spotify/confidence-sdk-swift`](https://github.com/spotify/confidence-sdk-swift)
+running on the iOS simulator — has also been demonstrated end-to-end (see
+[Branches and code references](#branches-and-code-references)).
 
 ## Problem
 
@@ -80,6 +85,61 @@ defensive consistency check that aborts on multi-selector accounts; with
 the SDK API in §B item 5, that check is no longer load-bearing — see open
 question #5.
 
+### End-to-end validation on iOS
+
+Beyond the slicer parity test, the full loop is now wired up locally
+across two `unit-local` branches (see
+[Branches and code references](#branches-and-code-references)):
+
+- **Slice server** (`unit-local-server/`, Rust + axum) — exposes
+  `/v1/account-config` and `/v1/resolver-state/{stateHash}/{unit}` from a
+  bundled fixture by invoking `slicer::slice_for_unit` per request.
+- **Swift package** (`openfeature-provider/swift/`) — wraps
+  `confidence_resolver.wasm` via **WasmKit** (pure-Swift WASM runtime,
+  iOS 16+), ports the `wasm-msg` allocator + protobuf envelopes to
+  Swift, exposes a typed `LocalResolver` plus a `SliceClient`.
+- **SDK glue** — `LocalConfidenceResolveClient` in
+  [`spotify/confidence-sdk-swift`](https://github.com/spotify/confidence-sdk-swift/tree/unit-local):
+  a Swift `actor` implementing the SDK's existing
+  `ConfidenceResolveClient` protocol against the local resolver. Refetches
+  the slice on randomization-unit changes; converts
+  `ConfidenceStruct` ↔ `Google_Protobuf_Struct` for both context and
+  resolved values.
+- **Demo app** — `ConfidenceDemoApp` rewritten to a single SwiftUI screen
+  that bootstraps the local resolver against `http://127.0.0.1:8787`.
+  On the iPhone 17 simulator, `fallthrough-test-1.enabled` resolves to
+  `true` with reason `match`; slice on the wire for `user_42` is
+  **4,935 / 245,717 B ≈ 2%**, matching the parity test.
+
+A few concrete findings beyond what the slicer-only prototype could show:
+
+- **SDK surface change is genuinely tiny.** One new file (~200 LoC) plus
+  one public builder method (`Confidence.Builder.withLocalResolver(_:)`).
+  The SDK's flag cache, evaluation, apply scheduling, and OpenFeature
+  paths are untouched. The existing `ConfidenceResolveClient` protocol —
+  a single async method — is the entire integration point, which is
+  strong evidence the swap is additive rather than invasive.
+- **Platform cost is real.** WasmKit lifts the SDK's minimum to **iOS 16
+  / macOS 14**. Apple has no first-party iOS WASM runtime today; WasmKit
+  is the only credible pure-Swift, SPM-friendly option found. Wasmer /
+  Wasmtime have no iOS targets.
+- **Apply path is the unfinished bit.** The SDK's default `FlagApplier`
+  keeps POSTing to the live backend in local mode; resolves succeed
+  regardless because apply is fire-and-forget, but a productionised
+  unit-local mode needs the apply path pointed at the slice service or a
+  local sink (see open question #6).
+- **Generated protos are bulky on iOS.** ~3.9 kLOC of SwiftProtobuf
+  bindings, plus a naming collision between two `types.proto` files in
+  different proto packages worked around with
+  `FileNaming=PathToUnderscores`. Java/Go don't have this because their
+  codegen is package-aware. A real build should generate at build time
+  rather than vendor.
+- **Swift 6 concurrency turned out to be a non-issue.** An NSLock
+  approach got compiler-flagged; converting to an `actor` was a one-line
+  change and the existing `async` protocol requirement satisfied
+  without any nonisolated wrappers. The local resolver's concurrency
+  semantics are arguably cleaner than the remote one's.
+
 ## What it would take to ship this
 
 Two new pieces, plus the existing slicer: a server endpoint that serves
@@ -99,7 +159,12 @@ admin state changes.
 
 ### B. Client: WASM-enabled iOS SDK
 
-The current Swift SDK is an online provider; unit-local mode requires:
+The current Swift SDK is an online provider; unit-local mode requires
+the following. Items 1–4 have been prototyped on the
+[`unit-local` branch](https://github.com/spotify/confidence-sdk-swift/tree/unit-local)
+and exercised end-to-end on the simulator (see
+[End-to-end validation on iOS](#end-to-end-validation-on-ios) above);
+items 5–6 remain design-stage.
 
 1. **WASM runtime** — embed e.g. **WasmKit** (pure Swift, Apple-backed).
 2. **WASM binary distribution** — bundle in SDK release; rely on
@@ -220,12 +285,43 @@ Android would follow the same pattern with Chicory or similar.
    path that reports back to the backend, and the backend writes the
    materialization server-side as it does today.
 
+   *Surfaced during E2E*: the SDK's default `FlagApplier` still POSTs to
+   the live backend even in local mode (resolves succeed regardless
+   because apply is fire-and-forget, but a steady stream of network
+   errors goes silently into the void). Productionising unit-local mode
+   needs the apply path pointed at the slice service — or a local sink
+   plus periodic flush — rather than the existing online endpoint.
+
+## Branches and code references
+
+All prototype work lives on `unit-local` branches in two repos. No PRs
+opened — these are intended as readable code diffs for the team.
+
+[`spotify/confidence-resolver` — `unit-local`](https://github.com/spotify/confidence-resolver/tree/unit-local)
+&nbsp;([compare with `main`](https://github.com/spotify/confidence-resolver/compare/main...unit-local))
+
+| Path | Purpose |
+|---|---|
+| `confidence-resolver/src/slicer.rs` | `slice_for_unit(state, account_id, unit)` — the core rewriter |
+| `confidence-resolver/tests/per_user_slice.rs` | Parity test, 4 units × 4 contexts |
+| `unit-local-server/` | Local Rust HTTP slice server (axum) on `127.0.0.1:8787` |
+| `openfeature-provider/swift/Sources/ConfidenceLocalResolver/` | WasmKit-backed `LocalResolver`, host-side `wasm-msg`, `SliceClient` |
+| `openfeature-provider/swift/Sources/LocalResolverCli/` | Standalone CLI exercising the same flow as the iOS demo |
+
+[`spotify/confidence-sdk-swift` — `unit-local`](https://github.com/spotify/confidence-sdk-swift/tree/unit-local)
+&nbsp;([compare with `main`](https://github.com/spotify/confidence-sdk-swift/compare/main...unit-local))
+
+| Path | Purpose |
+|---|---|
+| `Sources/Confidence/LocalConfidenceResolveClient.swift` | `actor` implementing `ConfidenceResolveClient` against the local resolver |
+| `Sources/Confidence/Confidence.swift` (`withLocalResolver(_:)`) | Public builder hook to inject the local resolver |
+| `ConfidenceDemoApp/ConfidenceDemoApp/ConfidenceDemoApp.swift` | Rewritten demo: SwiftUI screen that resolves a flag against the local server |
+| `Package.swift` | Adds the local-path SPM dep on the resolver Swift package; bumps platforms to iOS 16 / macOS 14 |
+
 ## References
 
-- Prototype slicer: [`confidence-resolver/src/slicer.rs`](confidence-resolver/src/slicer.rs)
-- Parity test: [`confidence-resolver/tests/per_user_slice.rs`](confidence-resolver/tests/per_user_slice.rs)
 - Resolver core (hashing, bucketing): [`confidence-resolver/src/lib.rs`](confidence-resolver/src/lib.rs)
-- Java equivalent: [`Randomizer.java`](../epx-flags-resolver/epx-flags-resolver-lib/src/main/java/com/spotify/confidence/flags/resolver/Randomizer.java)
-- Java WASM provider (reference for Swift port): [`WasmLocalResolver.java`](openfeature-provider/java/src/main/java/com/spotify/confidence/sdk/WasmLocalResolver.java)
+- Java equivalent of the slicer math: [`Randomizer.java`](../epx-flags-resolver/epx-flags-resolver-lib/src/main/java/com/spotify/confidence/flags/resolver/Randomizer.java)
+- Java WASM provider (reference for the Swift port): [`WasmLocalResolver.java`](openfeature-provider/java/src/main/java/com/spotify/confidence/sdk/WasmLocalResolver.java)
 - Swift / iOS SDK: [`spotify/confidence-sdk-swift`](https://github.com/spotify/confidence-sdk-swift)
 - WasmKit (Swift WASM runtime): [`swiftwasm/WasmKit`](https://github.com/swiftwasm/WasmKit)
