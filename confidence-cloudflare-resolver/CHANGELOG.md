@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.10.0...confidence-cloudflare-resolver-v0.10.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* **cloudflare:** prevent 503 from unsafe JS casts and queue flooding ([#406](https://github.com/spotify/confidence-resolver/issues/406)) ([1127db9](https://github.com/spotify/confidence-resolver/commit/1127db9fdd5d082d4bbf69f08985cf88799539e2))
+
 ## [0.10.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.9.0...confidence-cloudflare-resolver-v0.10.0) (2026-05-13)
 
 
