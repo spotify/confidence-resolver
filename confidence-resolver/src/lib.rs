@@ -238,8 +238,7 @@ impl ResolverState {
             .get(client_secret)
             .ok_or_else(|| {
                 let requested = mask_secret(client_secret);
-                let available: Vec<String> =
-                    self.secrets.keys().map(|s| mask_secret(s)).collect();
+                let available: Vec<String> = self.secrets.keys().map(|s| mask_secret(s)).collect();
                 format!(
                     "client secret not found: requested={}, available=[{}]",
                     requested,
