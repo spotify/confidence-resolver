@@ -12,19 +12,25 @@
 //! - `GET /v1/resolver-state/:state_file_hash/:unit` → protobuf-encoded
 //!   sliced `ResolverState`, with `X-Randomization-Unit-Fields` and
 //!   `X-State-File-Hash` headers.
+//! - `POST /v1/apply` → accepts a protobuf-encoded `ApplyFlagsRequest`
+//!   and logs the flags + resolve token. The prototype does not forward
+//!   to a real apply pipeline; productionising unit-local mode would
+//!   plumb this through to the existing apply backend.
 
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use confidence_resolver::proto::confidence::flags::admin::v1::ResolverState as ResolverStatePb;
+use confidence_resolver::proto::confidence::flags::resolver::v1::ApplyFlagsRequest;
 use confidence_resolver::proto::Message;
 use confidence_resolver::slicer;
 use serde::Serialize;
@@ -125,6 +131,29 @@ async fn resolver_state(
         .into_response()
 }
 
+async fn apply_flags(body: Bytes) -> Response {
+    match ApplyFlagsRequest::decode(body.as_ref()) {
+        Ok(req) => {
+            let flag_names: Vec<String> = req
+                .flags
+                .iter()
+                .map(|f| f.flag.clone())
+                .collect();
+            info!(
+                resolve_token_len = req.resolve_token.len(),
+                client_secret_present = !req.client_secret.is_empty(),
+                flags = ?flag_names,
+                "received apply"
+            );
+            StatusCode::OK.into_response()
+        }
+        Err(err) => {
+            error!("failed to decode ApplyFlagsRequest: {err:?}");
+            (StatusCode::BAD_REQUEST, "decode failed").into_response()
+        }
+    }
+}
+
 async fn health() -> &'static str {
     "ok"
 }
@@ -158,6 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health))
         .route("/v1/account-config", get(account_config))
         .route("/v1/resolver-state/:state_hash/:unit", get(resolver_state))
+        .route("/v1/apply", post(apply_flags))
         .with_state(app_state)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProtobuf
 
 /// Fetches per-unit slices from the unit-local slice server.
 public struct SliceClient {
@@ -67,6 +68,31 @@ public struct SliceClient {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         return Slice(bytes: data, stateFileHash: hash, randomizationUnitFields: fields)
+    }
+
+    /// Fire-and-forget POST of an `ApplyFlagsRequest` to the slice server. Production
+    /// would forward this onto the real apply backend; the prototype's server
+    /// just ack-logs it.
+    public func applyFlags(
+        clientSecret: String,
+        resolveToken: Data,
+        flags: [Confidence_Flags_Resolver_V1_AppliedFlag]
+    ) async throws {
+        var req = Confidence_Flags_Resolver_V1_ApplyFlagsRequest()
+        req.clientSecret = clientSecret
+        req.resolveToken = resolveToken
+        req.flags = flags
+        req.sendTime = .init(date: Date())
+
+        let body = try req.serializedData()
+        let url = baseURL.appendingPathComponent("/v1/apply")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/protobuf", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        let (data, response) = try await session.data(for: request)
+        try Self.requireSuccess(response: response, body: data)
     }
 
     private static func requireSuccess(response: URLResponse, body: Data) throws {
