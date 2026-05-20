@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package rust_guest;
+
+import "google/protobuf/struct.proto";
+
+option java_package = "rust_guest";
+option java_multiple_files = true;
+
+message Void {}
+
+message SetResolverStateRequest {
+    bytes state = 1;
+    string account_id = 2;
+}
+
+message ResolveSimpleRequest {
+    string client_secret = 1;
+    google.protobuf.Struct evaluation_context = 2;
+    string name = 3;
+}
+
+
+message Request {
+    bytes data = 1;
+}
+
+message Response {
+    oneof result {
+        bytes data = 1;
+        string error = 2;
+    }
+}
+
+message LogMessage {
+    string message = 1;
+}
