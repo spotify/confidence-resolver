@@ -123,6 +123,15 @@ impl Account {
     }
 }
 
+fn mask_secret(s: &str) -> String {
+    let len = s.len();
+    if len <= 6 {
+        return "***".to_string();
+    }
+    let suffix_start = len.saturating_sub(3);
+    format!("{}...{}", &s[..3], &s[suffix_start..])
+}
+
 #[derive(Debug)]
 pub struct Client {
     pub account: Account,
@@ -227,7 +236,15 @@ impl ResolverState {
     ) -> Result<AccountResolver<'a, H>, String> {
         self.secrets
             .get(client_secret)
-            .ok_or("client secret not found".to_string())
+            .ok_or_else(|| {
+                let requested = mask_secret(client_secret);
+                let available: Vec<String> = self.secrets.keys().map(|s| mask_secret(s)).collect();
+                format!(
+                    "client secret not found: requested={}, available=[{}]",
+                    requested,
+                    available.join(", ")
+                )
+            })
             .map(|client| {
                 AccountResolver::new(
                     client,

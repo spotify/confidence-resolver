@@ -209,7 +209,7 @@ class ResolveTest {
                     Struct.newBuilder().build(),
                     true,
                     "invalid-secret"))
-        .withMessage("client secret not found");
+        .withMessage("client secret not found: requested=inv...ret, available=[ver...ret]");
   }
 
   @Test

@@ -56,8 +56,9 @@ func TestLocalResolverProvider_ReturnsDefaultOnError(t *testing.T) {
 		if err == nil {
 			t.Errorf("Expected error during StringValueDetails, got nil")
 		}
-		if err.Error() != "error code: GENERAL: resolve failed: client secret not found" {
-			t.Errorf("Expected specific error message during StringValueDetails, got %v", err.Error())
+		expected := "error code: GENERAL: resolve failed: client secret not found: requested=tes...ret, available=[]"
+		if err.Error() != expected {
+			t.Errorf("Expected error message %q, got %q", expected, err.Error())
 		}
 
 		if result.Value != defaultValue {
