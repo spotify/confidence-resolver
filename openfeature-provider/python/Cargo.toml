@@ -1,6 +1,6 @@
 [package]
 name = "openfeature-provider-python"
-version = "0.6.6"
+version = "0.6.7"
 edition = "2021"
 publish = false
 
@@ -17,4 +17,4 @@ path = "Cargo.toml"
 crate-type = []
 
 [dependencies]
-rust-guest = { path = "../../wasm/rust-guest", version = "0.2.1" }
+rust-guest = { path = "../../wasm/rust-guest", version = "0.2.2" }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.17.0...confidence_resolver-v0.17.1) (2026-05-21)
+
+
+### Bug Fixes
+
+* **resolver:** surface masked secrets in client secret not found error ([#410](https://github.com/spotify/confidence-resolver/issues/410)) ([4ace839](https://github.com/spotify/confidence-resolver/commit/4ace839e168142ba0594c01cfbc8243d6c6e504d))
+
 ## [0.17.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.16.1...confidence_resolver-v0.17.0) (2026-05-13)
 
 

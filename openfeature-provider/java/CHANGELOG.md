@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.7](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.6...openfeature-provider-java-v0.14.7) (2026-05-21)
+
+
+### Bug Fixes
+
+* **resolver:** surface masked secrets in client secret not found error ([#410](https://github.com/spotify/confidence-resolver/issues/410)) ([4ace839](https://github.com/spotify/confidence-resolver/commit/4ace839e168142ba0594c01cfbc8243d6c6e504d))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.1 to 0.2.2
+
 ## [0.14.6](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.5...openfeature-provider-java-v0.14.6) (2026-05-13)
 
 
