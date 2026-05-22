@@ -833,14 +833,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         let flag_names: Vec<String> = resolve_request
             .flags
             .iter()
-            .filter(|name| {
-                if let Err(e) = validate_flag_name(name) {
-                    H::log(&format!("WARN: {}, skipping", e));
-                    false
-                } else {
-                    true
-                }
-            })
+            .filter(|name| validate_flag_name(name).is_ok())
             .cloned()
             .collect();
         let flags_to_resolve = self
@@ -995,8 +988,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         // ensure that all flags are present before we start sending events
         let mut assigned_flags: Vec<FlagToApply> = Vec::with_capacity(request.flags.len());
         for applied_flag in &request.flags {
-            if let Err(e) = validate_flag_name(&applied_flag.flag) {
-                H::log(&format!("WARN: {}, skipping", e));
+            if validate_flag_name(&applied_flag.flag).is_err() {
                 continue;
             }
             let Some(assigned_flag) = assignments.get(&applied_flag.flag) else {
