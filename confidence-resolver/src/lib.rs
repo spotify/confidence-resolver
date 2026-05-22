@@ -41,7 +41,10 @@ fn validate_flag_name(name: &str) -> Result<(), String> {
         ));
     }
 
-    if !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
         return Err(format!(
             "Invalid flag name '{}': id must contain only lowercase letters, digits, and hyphens",
             name
