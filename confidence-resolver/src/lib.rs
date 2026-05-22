@@ -829,17 +829,27 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         };
 
         let resolve_request = state.resolve_request.as_ref().or_fail()?;
-        let flag_names = resolve_request.flags.clone();
-        for flag_name in &flag_names {
-            validate_flag_name(flag_name)?;
-        }
+        let requested_specific_flags = !resolve_request.flags.is_empty();
+        let flag_names: Vec<String> = resolve_request
+            .flags
+            .iter()
+            .filter(|name| {
+                if let Err(e) = validate_flag_name(name) {
+                    H::log(&format!("WARN: {}, skipping", e));
+                    false
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
         let flags_to_resolve = self
             .state
             .flags
             .values()
             .filter(|flag| flag.state() == flags_admin::flag::State::Active)
             .filter(|flag| flag.clients.contains(&self.client.client_name))
-            .filter(|flag| flag_names.is_empty() || flag_names.contains(&flag.name))
+            .filter(|flag| !requested_specific_flags || flag_names.contains(&flag.name))
             // Skip flags that were already resolved in a prior attempt
             .filter(|flag| !state.resolved_flags.iter().any(|rf| rf.flag == flag.name))
             .collect::<Vec<&Flag>>();
@@ -985,7 +995,10 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         // ensure that all flags are present before we start sending events
         let mut assigned_flags: Vec<FlagToApply> = Vec::with_capacity(request.flags.len());
         for applied_flag in &request.flags {
-            validate_flag_name(&applied_flag.flag)?;
+            if let Err(e) = validate_flag_name(&applied_flag.flag) {
+                H::log(&format!("WARN: {}, skipping", e));
+                continue;
+            }
             let Some(assigned_flag) = assignments.get(&applied_flag.flag) else {
                 return Err("Flag in resolve token does not match flag in request".to_string());
             };
@@ -2571,7 +2584,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_rejects_invalid_flag_name() {
+    fn test_resolve_skips_invalid_flag_name() {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
@@ -2592,13 +2605,17 @@ mod tests {
             sdk: None,
         };
 
-        let result = resolver.resolve_flags_no_materialization(&resolve_flag_req);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid flag name"));
+        let result = resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
+        assert!(
+            result.resolved_flags.is_empty(),
+            "Invalid flag names should be silently skipped"
+        );
     }
 
     #[test]
-    fn test_apply_rejects_invalid_flag_name() {
+    fn test_apply_skips_invalid_flag_name() {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
@@ -2640,8 +2657,10 @@ mod tests {
         };
 
         let result = resolver.apply_flags(&apply_request);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid flag name"));
+        assert!(
+            result.is_ok(),
+            "Invalid flag names should be silently skipped"
+        );
     }
 
     #[test]
