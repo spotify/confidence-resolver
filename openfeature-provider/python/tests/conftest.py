@@ -1,5 +1,6 @@
 """Shared pytest fixtures for Confidence OpenFeature provider tests."""
 
+import os
 from pathlib import Path
 from typing import Optional, Protocol, Tuple
 
@@ -146,4 +147,4 @@ def mock_state_fetcher(
 @pytest.fixture
 def e2e_client_secret() -> str:
     """Client secret for E2E tests."""
-    return "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx"
+    return os.environ["CONFIDENCE_CLIENT_SECRET"]

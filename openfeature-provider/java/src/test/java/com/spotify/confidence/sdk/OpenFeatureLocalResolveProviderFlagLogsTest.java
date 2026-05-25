@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
  * </ul>
  */
 class OpenFeatureLocalResolveProviderFlagLogsTest {
-  private static final String FLAG_CLIENT_SECRET = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
+  private static final String FLAG_CLIENT_SECRET = System.getenv("CONFIDENCE_CLIENT_SECRET");
   private static final String TARGETING_KEY = "test-a";
   private Client client;
   private CapturingWasmFlagLogger capturingLogger;

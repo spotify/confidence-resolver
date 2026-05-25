@@ -26,7 +26,7 @@ const DEFAULT_MOCK_ADDR: &str = "http://localhost:8081";
 const DEFAULT_DURATION_SECS: u64 = 30;
 const DEFAULT_WARMUP_SECS: u64 = 5;
 const DEFAULT_FLAG_KEY: &str = "web-sdk-e2e-flag";
-const DEFAULT_CLIENT_SECRET: &str = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
+const DEFAULT_CLIENT_SECRET: &str = "IlDJIFpDSs51URW04NW1JqjleJTm2Fzo";
 
 struct Args {
     mock_addr: String,

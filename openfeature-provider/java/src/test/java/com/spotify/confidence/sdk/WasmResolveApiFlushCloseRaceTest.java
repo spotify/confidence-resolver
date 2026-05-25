@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
  * operations.
  */
 class WasmResolveApiFlushCloseRaceTest {
-  private static final String FLAG_CLIENT_SECRET = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
+  private static final String FLAG_CLIENT_SECRET = System.getenv("CONFIDENCE_CLIENT_SECRET");
   private static final String TARGETING_KEY = "test-race";
 
   private static byte[] resolverState;

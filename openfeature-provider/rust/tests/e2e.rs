@@ -7,8 +7,11 @@
 use open_feature::{EvaluationContext, EvaluationReason, OpenFeature, StructValue, Value};
 use spotify_confidence_openfeature_provider_local::{ConfidenceProvider, ProviderOptions};
 
-const CLIENT_SECRET: &str = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
+fn client_secret() -> String {
+    std::env::var("CONFIDENCE_CLIENT_SECRET").expect("CONFIDENCE_CLIENT_SECRET must be set")
+}
 const TARGETING_KEY: &str = "test-a"; // control variant
+const STICKY_TARGETING_KEY: &str = "test-3"; // sticky variant
 
 fn context() -> EvaluationContext {
     EvaluationContext::default()
@@ -18,14 +21,15 @@ fn context() -> EvaluationContext {
 
 fn sticky_context() -> EvaluationContext {
     EvaluationContext::default()
-        .with_targeting_key(TARGETING_KEY)
+        .with_targeting_key(STICKY_TARGETING_KEY)
         .with_custom_field("sticky", true)
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_tests() {
     // Initialize provider
-    let options = ProviderOptions::new(CLIENT_SECRET).with_confidence_materialization_store();
+    let secret = client_secret();
+    let options = ProviderOptions::new(&secret).with_confidence_materialization_store();
     let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
 
     let mut ofe = OpenFeature::singleton_mut().await;

@@ -8,7 +8,7 @@ const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver
 const module = new WebAssembly.Module(moduleBytes);
 const resolver = new WasmResolver(module);
 const confidenceProvider = new ConfidenceServerProviderLocal(resolver, {
-  flagClientSecret: 'ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv',
+  flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
   materializationStore: 'CONFIDENCE_REMOTE_STORE',
 });
 
@@ -83,7 +83,7 @@ describe('ConfidenceServerProvider E2E tests', () => {
   it('should resolve a flag with a sticky resolve', async () => {
     const client = OpenFeature.getClient();
     const result = await client.getNumberDetails('web-sdk-e2e-flag.double', -1, {
-      targetingKey: 'test-a',
+      targetingKey: 'test-3',
       sticky: true,
     });
 

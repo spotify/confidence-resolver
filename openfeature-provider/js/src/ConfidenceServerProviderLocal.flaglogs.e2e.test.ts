@@ -11,7 +11,7 @@ import { createCapturingLoggingBackend } from './test-helpers';
  */
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
-const FLAG_CLIENT_SECRET = 'ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv';
+const FLAG_CLIENT_SECRET = process.env.CONFIDENCE_CLIENT_SECRET!;
 const TARGETING_KEY = 'test-a';
 
 describe('WriteFlagLogs Backend E2E tests', () => {

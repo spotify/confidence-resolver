@@ -3,10 +3,12 @@
 from openfeature import api
 from openfeature.evaluation_context import EvaluationContext
 
+import os
+
 from confidence import ConfidenceProvider
 
 # E2E test configuration - matches Go e2e_test.go
-E2E_CLIENT_SECRET = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx"
+E2E_CLIENT_SECRET = os.environ["CONFIDENCE_CLIENT_SECRET"]
 E2E_INCLUDED_TARGETING_KEY = "user-a"
 E2E_EXCLUDED_TARGETING_KEY = "user-x"
 
