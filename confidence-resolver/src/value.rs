@@ -32,7 +32,10 @@ pub fn convert_to_targeting_value(
                 targeting::value::Value::StringValue(num_value.to_string())
             }
             Some(targeting::value::Value::TimestampValue(_)) => {
-                targeting::value::Value::TimestampValue(number_to_timestamp(*num_value).or_fail()?)
+                match number_to_timestamp(*num_value) {
+                    Some(ts) => targeting::value::Value::TimestampValue(ts),
+                    None => targeting::value::Value::StringValue("null".to_string()),
+                }
             }
             _ => targeting::value::Value::StringValue("null".to_string()),
         },
@@ -46,9 +49,10 @@ pub fn convert_to_targeting_value(
             Some(targeting::value::Value::StringValue(_)) => {
                 targeting::value::Value::StringValue(str_value.clone())
             }
-            Some(targeting::value::Value::TimestampValue(_)) => {
-                targeting::value::Value::TimestampValue(from_str(str_value).or_fail()?)
-            } // fixme:propagate error
+            Some(targeting::value::Value::TimestampValue(_)) => match from_str(str_value) {
+                Ok(ts) => targeting::value::Value::TimestampValue(ts),
+                Err(_) => targeting::value::Value::StringValue("null".to_string()),
+            },
             Some(targeting::value::Value::VersionValue(_)) => {
                 targeting::value::Value::VersionValue(targeting::SemanticVersion {
                     version: str_value.clone(),
@@ -573,6 +577,28 @@ mod tests {
             convert_to_targeting_value(&1668698177200.0.into(), timestamp_type!()).unwrap();
         let expected = chrono::DateTime::parse_from_rfc3339("2022-11-17T15:16:17.200Z").unwrap();
         assert_timestamp(&timestamp, &expected);
+    }
+
+    #[test]
+    fn convert_number_to_timestamp_nan_falls_through_to_null() {
+        // Non-finite numbers cannot be converted; they fall through to the "null" sentinel
+        // rather than producing an error, matching the Java resolver's lenient behavior.
+        let value = Value {
+            kind: Some(Kind::NumberValue(f64::NAN)),
+        };
+        let result = convert_to_targeting_value(&value, timestamp_type!()).unwrap();
+        assert_string(&result, "null");
+    }
+
+    #[test]
+    fn convert_invalid_string_to_timestamp_falls_through_to_null() {
+        // Unparseable timestamp strings (including empty) fall through to "null" sentinel
+        // rather than producing an error, matching the Java resolver's lenient behavior.
+        let result = convert_to_targeting_value(&"".into(), timestamp_type!()).unwrap();
+        assert_string(&result, "null");
+        let result =
+            convert_to_targeting_value(&"not-a-timestamp".into(), timestamp_type!()).unwrap();
+        assert_string(&result, "null");
     }
 
     #[test]
