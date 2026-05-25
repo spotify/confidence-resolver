@@ -31,6 +31,9 @@ pub fn convert_to_targeting_value(
             Some(targeting::value::Value::StringValue(_)) => {
                 targeting::value::Value::StringValue(num_value.to_string())
             }
+            Some(targeting::value::Value::TimestampValue(_)) => {
+                targeting::value::Value::TimestampValue(number_to_timestamp(*num_value).or_fail()?)
+            }
             _ => targeting::value::Value::StringValue("null".to_string()),
         },
         Some(Kind::StringValue(str_value)) => match expected_type {
@@ -341,6 +344,25 @@ impl Ord for targeting::SemanticVersion {
     }
 }
 
+// Numbers with |value| < 1e12 are treated as epoch seconds (boundary at year 33658 in seconds /
+// year 2001 in millis), otherwise epoch milliseconds. Non-finite values and chrono out-of-range
+// inputs return None.
+fn number_to_timestamp(value: f64) -> Option<Timestamp> {
+    if !value.is_finite() {
+        return None;
+    }
+    let long_value = value as i64;
+    let dt = if long_value.abs() >= 1_000_000_000_000 {
+        DateTime::<Utc>::from_timestamp_millis(long_value)?
+    } else {
+        DateTime::<Utc>::from_timestamp(long_value, 0)?
+    };
+    Some(Timestamp {
+        seconds: dt.timestamp(),
+        nanos: dt.timestamp_subsec_nanos() as i32,
+    })
+}
+
 fn from_str(s: &str) -> Fallible<Timestamp> {
     // parse timestamp from s
     if s.contains(['T', ' ']) {
@@ -533,6 +555,24 @@ mod tests {
         let str = convert_to_targeting_value(&"foobar".into(), string_type!()).unwrap();
 
         assert_string(&str, "foobar");
+    }
+
+    #[test]
+    fn convert_number_to_timestamp_epoch_seconds() {
+        // 1668698178 seconds = 2022-11-17T15:16:18Z
+        let timestamp =
+            convert_to_targeting_value(&1668698178.0.into(), timestamp_type!()).unwrap();
+        let expected = chrono::DateTime::parse_from_rfc3339("2022-11-17T15:16:18Z").unwrap();
+        assert_timestamp(&timestamp, &expected);
+    }
+
+    #[test]
+    fn convert_number_to_timestamp_epoch_millis() {
+        // 1668698177200 millis = 2022-11-17T15:16:17.200Z
+        let timestamp =
+            convert_to_targeting_value(&1668698177200.0.into(), timestamp_type!()).unwrap();
+        let expected = chrono::DateTime::parse_from_rfc3339("2022-11-17T15:16:17.200Z").unwrap();
+        assert_timestamp(&timestamp, &expected);
     }
 
     #[test]

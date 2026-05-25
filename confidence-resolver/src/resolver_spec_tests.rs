@@ -622,6 +622,8 @@ spec_test!(semver_no_match);
 spec_test!(timestamp_match);
 spec_test!(timestamp_no_match);
 spec_test!(timestamp_bad_value);
+spec_test!(timestamp_epoch_seconds_number);
+spec_test!(timestamp_epoch_millis_number);
 
 // Targeting key + rollout edge cases
 spec_test!(full_rollout_invalid_key_type);
