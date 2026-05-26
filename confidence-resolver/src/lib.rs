@@ -1680,7 +1680,9 @@ impl<'a> TryFrom<&ResolvedValue<'a>> for flags_resolver::ResolvedFlag {
                     .find(|v| &v.name == variant_name)
                     .or_fail()?;
                 resolved_flag.variant = variant.name.clone();
-                resolved_flag.value = variant.value.clone();
+                let default_schema = flags_types::flag_schema::StructFlagSchema::default();
+                let schema = value.flag.schema.as_ref().unwrap_or(&default_schema);
+                resolved_flag.value = Some(fill_schema_nulls(variant.value.clone(), schema));
                 resolved_flag.flag_schema = value.flag.schema.clone();
             } else {
                 resolved_flag.variant = "".to_string();
@@ -1692,6 +1694,46 @@ impl<'a> TryFrom<&ResolvedValue<'a>> for flags_resolver::ResolvedFlag {
 
         Ok(resolved_flag)
     }
+}
+
+/// Ensures all schema-defined fields are present in the value struct.
+/// Fields missing from the variant value are filled in with null values,
+/// matching the behavior of the server-side resolver.
+fn fill_schema_nulls(
+    value: Option<Struct>,
+    schema: &flags_types::flag_schema::StructFlagSchema,
+) -> Struct {
+    let mut result = value.unwrap_or_default();
+
+    for (field_name, field_schema) in &schema.schema {
+        match result.fields.get(field_name) {
+            None => {
+                result.fields.insert(
+                    field_name.clone(),
+                    Value {
+                        kind: Some(Kind::NullValue(0)),
+                    },
+                );
+            }
+            Some(val) => {
+                if let (
+                    Some(Kind::StructValue(sub_struct)),
+                    Some(flags_types::flag_schema::SchemaType::StructSchema(sub_schema)),
+                ) = (&val.kind, field_schema.schema_type.as_ref())
+                {
+                    let filled = fill_schema_nulls(Some(sub_struct.clone()), sub_schema);
+                    result.fields.insert(
+                        field_name.clone(),
+                        Value {
+                            kind: Some(Kind::StructValue(filled)),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    result
 }
 
 impl<'a> From<&ResolvedValue<'a>> for AssignedFlag {
@@ -1726,6 +1768,7 @@ mod resolver_spec_tests;
 mod tests {
     use super::*;
     use crate::proto::confidence::flags::resolver::v1::{ResolveFlagsResponse, Sdk};
+    use std::collections::BTreeMap;
 
     const EXAMPLE_STATE: &[u8] = include_bytes!("../test-payloads/resolver_state.pb");
     const EXAMPLE_STATE_2: &[u8] =
@@ -5070,5 +5113,114 @@ mod tests {
             "Error should mention the max limit, got: {}",
             err
         );
+    }
+
+    #[test]
+    fn fill_schema_nulls_adds_missing_fields() {
+        let schema = flags_types::flag_schema::StructFlagSchema {
+            schema: BTreeMap::from([(
+                "my_bool".to_string(),
+                flags_types::FlagSchema {
+                    schema_type: Some(flags_types::flag_schema::SchemaType::BoolSchema(
+                        flags_types::flag_schema::BoolFlagSchema {},
+                    )),
+                },
+            )]),
+        };
+
+        let result = fill_schema_nulls(Some(Struct::default()), &schema);
+        let val = result.fields.get("my_bool").expect("field should exist");
+        assert_eq!(val.kind, Some(Kind::NullValue(0)));
+    }
+
+    #[test]
+    fn fill_schema_nulls_preserves_existing_values() {
+        let schema = flags_types::flag_schema::StructFlagSchema {
+            schema: BTreeMap::from([(
+                "enabled".to_string(),
+                flags_types::FlagSchema {
+                    schema_type: Some(flags_types::flag_schema::SchemaType::BoolSchema(
+                        flags_types::flag_schema::BoolFlagSchema {},
+                    )),
+                },
+            )]),
+        };
+
+        let value = Struct {
+            fields: HashMap::from([(
+                "enabled".to_string(),
+                Value {
+                    kind: Some(Kind::BoolValue(true)),
+                },
+            )]),
+        };
+
+        let result = fill_schema_nulls(Some(value), &schema);
+        let val = result.fields.get("enabled").expect("field should exist");
+        assert_eq!(val.kind, Some(Kind::BoolValue(true)));
+    }
+
+    #[test]
+    fn fill_schema_nulls_handles_none_value() {
+        let schema = flags_types::flag_schema::StructFlagSchema {
+            schema: BTreeMap::from([(
+                "color".to_string(),
+                flags_types::FlagSchema {
+                    schema_type: Some(flags_types::flag_schema::SchemaType::StringSchema(
+                        flags_types::flag_schema::StringFlagSchema {},
+                    )),
+                },
+            )]),
+        };
+
+        let result = fill_schema_nulls(None, &schema);
+        let val = result.fields.get("color").expect("field should exist");
+        assert_eq!(val.kind, Some(Kind::NullValue(0)));
+    }
+
+    #[test]
+    fn fill_schema_nulls_recurses_into_nested_structs() {
+        let inner_schema = flags_types::flag_schema::StructFlagSchema {
+            schema: BTreeMap::from([(
+                "nested_bool".to_string(),
+                flags_types::FlagSchema {
+                    schema_type: Some(flags_types::flag_schema::SchemaType::BoolSchema(
+                        flags_types::flag_schema::BoolFlagSchema {},
+                    )),
+                },
+            )]),
+        };
+
+        let schema = flags_types::flag_schema::StructFlagSchema {
+            schema: BTreeMap::from([(
+                "config".to_string(),
+                flags_types::FlagSchema {
+                    schema_type: Some(flags_types::flag_schema::SchemaType::StructSchema(
+                        inner_schema,
+                    )),
+                },
+            )]),
+        };
+
+        let value = Struct {
+            fields: HashMap::from([(
+                "config".to_string(),
+                Value {
+                    kind: Some(Kind::StructValue(Struct::default())),
+                },
+            )]),
+        };
+
+        let result = fill_schema_nulls(Some(value), &schema);
+        let config = result.fields.get("config").expect("config should exist");
+        if let Some(Kind::StructValue(inner)) = &config.kind {
+            let nested = inner
+                .fields
+                .get("nested_bool")
+                .expect("nested_bool should exist");
+            assert_eq!(nested.kind, Some(Kind::NullValue(0)));
+        } else {
+            panic!("config should be a struct");
+        }
     }
 }
