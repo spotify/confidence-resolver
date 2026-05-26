@@ -3543,10 +3543,64 @@
           }
         ],
         "expectError": null
+      }
+    }
+  },
+  {
+    "name": "timestamp_epoch_seconds_number",
+    "resolveRequest": {
+      "flags": [
+        "flags/timestamp-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "releaseTime": 1668698178
       },
-      "rust": {
-        "resolvedFlags": [],
-        "expectError": "InternalError"
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/timestamp-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "timestamp_epoch_millis_number",
+    "resolveRequest": {
+      "flags": [
+        "flags/timestamp-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "releaseTime": 1668698177200
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/timestamp-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
       }
     }
   },
