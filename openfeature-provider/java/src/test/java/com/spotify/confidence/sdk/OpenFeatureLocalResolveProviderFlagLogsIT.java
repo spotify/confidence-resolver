@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
  * run against the shaded JAR to verify shading is correct.
  */
 class OpenFeatureLocalResolveProviderFlagLogsIT {
-  private static final String FLAG_CLIENT_SECRET = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
+  private static final String FLAG_CLIENT_SECRET = System.getenv("CONFIDENCE_CLIENT_SECRET");
   private static final String TARGETING_KEY = "test-a";
 
   @AfterEach

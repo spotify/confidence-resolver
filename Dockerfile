@@ -319,15 +319,19 @@ COPY wasm/resolver_state.pb ../../../wasm/resolver_state.pb
 COPY openfeature-provider/js/prettier.config.cjs ./
 COPY openfeature-provider/js/.prettierignore ./
 
-RUN make test
+RUN --mount=type=secret,id=confidence_client_secret \
+    CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    make test
 
 # ==============================================================================
 # E2E Test OpenFeature Provider (requires credentials)
 # ==============================================================================
 FROM openfeature-provider-js.test AS openfeature-provider-js.test_e2e
 
-# Run e2e tests with secrets mounted as .env.test file
-RUN make test-e2e
+# Run e2e tests with secrets mounted
+RUN --mount=type=secret,id=confidence_client_secret \
+    CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    make test-e2e
 
 # ==============================================================================
 # Build OpenFeature Provider
@@ -444,7 +448,9 @@ RUN make build
 # ==============================================================================
 FROM openfeature-provider-go.build AS openfeature-provider-go.test
 
-RUN make test
+RUN --mount=type=secret,id=confidence_client_secret \
+    CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    make test
 
 # ==============================================================================
 # Lint OpenFeature Provider (Go)
@@ -567,7 +573,9 @@ RUN make test
 # ==============================================================================
 FROM openfeature-provider-python.test AS openfeature-provider-python.test_e2e
 
-RUN make test-e2e
+RUN --mount=type=secret,id=confidence_client_secret \
+    CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    make test-e2e
 
 # ==============================================================================
 # Lint OpenFeature Provider (Python)
@@ -613,7 +621,9 @@ RUN make test
 FROM openfeature-provider-rust.build AS openfeature-provider-rust.test_e2e
 
 WORKDIR /workspace/openfeature-provider/rust
-RUN make test-e2e
+RUN --mount=type=secret,id=confidence_client_secret \
+    CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    make test-e2e
 
 # ==============================================================================
 # OpenFeature Provider (Rust) - Lint
@@ -690,15 +700,18 @@ RUN make build
 # ==============================================================================
 FROM openfeature-provider-java.build AS openfeature-provider-java.test
 
-RUN make test
+RUN --mount=type=secret,id=confidence_client_secret \
+    CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    make test
 
 # ==============================================================================
 # E2E Test OpenFeature Provider (Java) (requires credentials)
 # ==============================================================================
 FROM openfeature-provider-java.test AS openfeature-provider-java.test_e2e
 
-# Run e2e tests with secrets mounted as .env.test file
-RUN make test-e2e
+RUN --mount=type=secret,id=confidence_client_secret \
+    CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    make test-e2e
 
 # ==============================================================================
 # Publish OpenFeature Provider (Java) to Maven Central

@@ -3,6 +3,7 @@ package confidence
 import (
 	"context"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,10 +14,9 @@ import (
 
 // End-to-end tests that verify WriteFlagLogs successfully sends to the real backend.
 
-const (
-	flagLogsClientSecret = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv"
-	flagLogsTargetingKey = "test-a"
-)
+var flagLogsClientSecret = os.Getenv("CONFIDENCE_CLIENT_SECRET")
+
+const flagLogsTargetingKey = "test-a"
 
 // TestFlagLogs_ShouldSuccessfullySendToRealBackend tests that we can successfully
 // send WriteFlagLogs to the real Confidence backend and get a successful response.

@@ -23,10 +23,9 @@ import (
 //   - Assignment information is present and valid
 //   - Variant information matches the resolved value
 
-const (
-	unitTestClientSecret = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv"
-	unitTestTargetingKey = "test-a"
-)
+var unitTestClientSecret = os.Getenv("CONFIDENCE_CLIENT_SECRET")
+
+const unitTestTargetingKey = "test-a"
 
 // setupFlagLogsUnitTest creates a provider with a capturing logger for testing.
 // Returns the capturing logger, provider, and client.

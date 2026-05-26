@@ -5,10 +5,12 @@ import time
 from openfeature import api
 from openfeature.evaluation_context import EvaluationContext
 
+import os
+
 from confidence import ConfidenceProvider
 
 # E2E test configuration
-E2E_CLIENT_SECRET = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx"
+E2E_CLIENT_SECRET = os.environ["CONFIDENCE_CLIENT_SECRET"]
 
 
 class TestFlagLogging:

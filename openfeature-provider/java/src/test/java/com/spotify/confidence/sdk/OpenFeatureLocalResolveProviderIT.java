@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
  * shaded JAR to verify shading is correct.
  */
 class OpenFeatureLocalResolveProviderIT {
-  private static final String FLAG_CLIENT_SECRET = "ti5Sipq5EluCYRG7I5cdbpWC3xq7JTWv";
+  private static final String FLAG_CLIENT_SECRET = System.getenv("CONFIDENCE_CLIENT_SECRET");
   private static Client client;
 
   @BeforeAll
@@ -101,7 +101,7 @@ class OpenFeatureLocalResolveProviderIT {
 
   @Test
   void shouldResolveFlagWithStickyResolveAndRemoteMaterializationStore() {
-    final EvaluationContext stickyContext = new MutableContext("test-a").add("sticky", true);
+    final EvaluationContext stickyContext = new MutableContext("test-3").add("sticky", true);
 
     final FlagEvaluationDetails<Double> details =
         client.getDoubleDetails("web-sdk-e2e-flag.double", -1.0, stickyContext);

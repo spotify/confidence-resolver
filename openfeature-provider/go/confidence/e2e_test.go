@@ -2,6 +2,7 @@ package confidence
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/open-feature/go-sdk/openfeature"
@@ -9,8 +10,9 @@ import (
 
 // End-to-end tests that verify WriteFlagLogs successfully sends to the real backend.
 
+var e2eClientSecret = os.Getenv("CONFIDENCE_CLIENT_SECRET")
+
 const (
-	e2eClientSecret         = "Ip7lGcBeGA4Le9MI8md4i5LkUOnLnyFx"
 	e2eIncludedTargetingKey = "user-a"
 	e2eExcludedTargetingKey = "user-x"
 )
