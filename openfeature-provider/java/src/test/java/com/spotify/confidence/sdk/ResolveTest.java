@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import com.google.protobuf.NullValue;
 import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import com.google.protobuf.util.Structs;
 import com.google.protobuf.util.Values;
 import com.spotify.confidence.sdk.flags.admin.v1.Client;
@@ -225,7 +227,10 @@ class ResolveTest {
     final var response =
         resolveWithContext(List.of(flag1), "foo", Struct.newBuilder().build(), true);
     assertThat(response.getResolveId()).isNotEmpty();
-    final Struct expectedValue = variantOn.getValue();
+    final Struct expectedValue =
+        variantOn.getValue().toBuilder()
+            .putFields("extra", Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build())
+            .build();
 
     assertEquals(variantOn.getName(), response.getResolvedFlags(0).getVariant());
     assertEquals(expectedValue, response.getResolvedFlags(0).getValue());
@@ -237,7 +242,10 @@ class ResolveTest {
     final var response =
         resolveWithContext(List.of(flag1), "foo", Struct.newBuilder().build(), false);
     assertThat(response.getResolveId()).isNotEmpty();
-    final Struct expectedValue = variantOn.getValue();
+    final Struct expectedValue =
+        variantOn.getValue().toBuilder()
+            .putFields("extra", Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build())
+            .build();
 
     assertEquals(variantOn.getName(), response.getResolvedFlags(0).getVariant());
     assertEquals(expectedValue, response.getResolvedFlags(0).getValue());
@@ -286,7 +294,10 @@ class ResolveTest {
             secret.getSecret(),
             mockMaterializationStore);
 
-    final Struct expectedValue = variantOn.getValue();
+    final Struct expectedValue =
+        variantOn.getValue().toBuilder()
+            .putFields("extra", Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build())
+            .build();
     assertEquals(variantOn.getName(), response.getResolvedFlags(0).getVariant());
     assertEquals(expectedValue, response.getResolvedFlags(0).getValue());
     assertEquals(schema1, response.getResolvedFlags(0).getFlagSchema());
@@ -327,7 +338,10 @@ class ResolveTest {
                       && writeOp.variant().equalsIgnoreCase(flagOn);
                 }));
 
-    final Struct expectedValue = variantOn.getValue();
+    final Struct expectedValue =
+        variantOn.getValue().toBuilder()
+            .putFields("extra", Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build())
+            .build();
     assertEquals(variantOn.getName(), response.getResolvedFlags(0).getVariant());
     assertEquals(expectedValue, response.getResolvedFlags(0).getValue());
     assertEquals(schema1, response.getResolvedFlags(0).getFlagSchema());
