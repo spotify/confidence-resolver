@@ -173,7 +173,7 @@ func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
-		"visitor_id":              "tutorial_visitor",
+		"visitor_id":             "tutorial_visitor",
 		"_confidence_skip_apply": true,
 	})
 
