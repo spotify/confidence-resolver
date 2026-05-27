@@ -200,7 +200,9 @@ export class ConfidenceServerProviderLocal implements Provider {
     const startMs = performance.now();
     try {
       const [flagName] = flagKey.split('.', 1);
-      const resolution = await this.resolve(context, [flagName], true);
+      const { _confidence_skip_apply, ...cleanContext } = context;
+      const skipApply = _confidence_skip_apply === true;
+      const resolution = await this.resolve(cleanContext as EvaluationContext, [flagName], !skipApply);
       const result = FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
 
       const latencyUs = Math.round((performance.now() - startMs) * 1000);

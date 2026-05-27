@@ -452,12 +452,20 @@ class ConfidenceProvider(AbstractProvider):
 
         try:
             flag_name, path = self._parse_flag_path(flag_key)
+
+            skip_apply = False
+            if evaluation_context and evaluation_context.attributes:
+                skip_apply = (
+                    evaluation_context.attributes.pop("_confidence_skip_apply", False)
+                    is True
+                )
+
             proto_context = self._context_to_proto(evaluation_context)
 
             resolve_req = api_pb2.ResolveFlagsRequest()
             resolve_req.flags.append(f"flags/{flag_name}")
             resolve_req.client_secret = self._client_secret
-            resolve_req.apply = True
+            resolve_req.apply = not skip_apply
             if proto_context is not None:
                 resolve_req.evaluation_context.CopyFrom(proto_context)
             resolve_req.sdk.id = types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER

@@ -339,6 +339,23 @@ yarn add debug
 
 ---
 
+## Advanced: Controlling Exposure Events
+
+By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply: true` in the evaluation context:
+
+```typescript
+const value = await client.getBooleanValue('my-flag.enabled', false, {
+  targetingKey: 'user-123',
+  _confidence_skip_apply: true,
+});
+```
+
+The key is automatically stripped from the context before it reaches the resolver.
+
+This is an advanced feature intended for specific use cases such as prefetching or background evaluation. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
+
+---
+
 ## License
 
 See the root `LICENSE`.

@@ -325,6 +325,24 @@ Consider implementing a materialization store if:
 If you don't use sticky assignments or materialized segments, the default behavior is sufficient.
 
 
+## Advanced: Controlling Exposure Events
+
+By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply` in the evaluation context:
+
+```rust
+let context = EvaluationContext::default()
+    .with_targeting_key("user-123")
+    .with_custom_field("_confidence_skip_apply", true);
+
+let value = client
+    .get_bool_value("my-flag.enabled", Some(&context), None)
+    .await;
+```
+
+The key is automatically stripped from the context before it reaches the resolver.
+
+This is an advanced feature intended for specific use cases such as prefetching or background evaluation. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
+
 ## License
 
 See the root `LICENSE` file.

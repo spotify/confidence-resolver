@@ -490,6 +490,22 @@ The provider logs at different levels: `Debug` (flag resolution details), `Info`
 
 The shutdown respects the context timeout you provide.
 
+## Advanced: Controlling Exposure Events
+
+By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply` in the evaluation context:
+
+```go
+evalCtx := openfeature.NewEvaluationContext("user-123", map[string]interface{}{
+    "_confidence_skip_apply": true,
+})
+
+value, err := client.BooleanValue(ctx, "my-flag.enabled", false, evalCtx)
+```
+
+The key is automatically stripped from the context before it reaches the resolver.
+
+This is an advanced feature intended for specific use cases such as prefetching or background evaluation. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
+
 ## License
 
 See the root `LICENSE` file.

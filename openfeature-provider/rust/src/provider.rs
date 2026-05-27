@@ -312,14 +312,25 @@ impl ConfidenceProvider {
         // Parse flag path
         let (flag_name, path) = parse_flag_path(flag_key);
 
+        // Check for skip apply before converting context
+        let mut context = context.clone();
+        let skip_apply = context
+            .custom_fields
+            .remove("_confidence_skip_apply")
+            .and_then(|v| match v {
+                EvaluationContextFieldValue::Bool(b) => Some(b),
+                _ => None,
+            })
+            .unwrap_or(false);
+
         // Convert evaluation context to protobuf
-        let proto_context = convert_evaluation_context(context);
+        let proto_context = convert_evaluation_context(&context);
 
         // Create resolve request
         let request = ResolveFlagsRequest {
             flags: vec![format!("flags/{}", flag_name)],
             evaluation_context: Some(proto_context.clone()),
-            apply: true,
+            apply: !skip_apply,
             client_secret: self.client_secret.clone(),
             sdk: Some(provider_sdk()),
         };
@@ -1576,5 +1587,50 @@ mod tests {
             .map(|r| r.value)
             .unwrap_or_else(|_| "my-default".to_string()); // Caller's default
         assert_eq!(string_value, "my-default", "Should use caller's default");
+    }
+
+    #[test]
+    fn test_skip_apply_key_stripped_from_context() {
+        let ctx = EvaluationContext::default()
+            .with_targeting_key("user-123")
+            .with_custom_field("country", "SE")
+            .with_custom_field("_confidence_skip_apply", true);
+
+        let mut ctx_clone = ctx.clone();
+        let skip_apply = ctx_clone
+            .custom_fields
+            .remove("_confidence_skip_apply")
+            .and_then(|v| match v {
+                EvaluationContextFieldValue::Bool(b) => Some(b),
+                _ => None,
+            })
+            .unwrap_or(false);
+
+        assert!(skip_apply);
+
+        let proto = convert_evaluation_context(&ctx_clone);
+        assert!(
+            !proto.fields.contains_key("_confidence_skip_apply"),
+            "Expected _confidence_skip_apply to be stripped from context"
+        );
+        assert!(proto.fields.contains_key("targeting_key"));
+        assert!(proto.fields.contains_key("country"));
+    }
+
+    #[test]
+    fn test_skip_apply_defaults_to_false() {
+        let ctx = EvaluationContext::default().with_targeting_key("user-123");
+
+        let mut ctx_clone = ctx.clone();
+        let skip_apply = ctx_clone
+            .custom_fields
+            .remove("_confidence_skip_apply")
+            .and_then(|v| match v {
+                EvaluationContextFieldValue::Bool(b) => Some(b),
+                _ => None,
+            })
+            .unwrap_or(false);
+
+        assert!(!skip_apply);
     }
 }
