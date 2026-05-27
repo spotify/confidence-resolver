@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.3](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.2.2...rust-guest-v0.2.3) (2026-05-27)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.17.1 to 0.18.0
+
 ## [0.2.2](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.2.1...rust-guest-v0.2.2) (2026-05-21)
 
 
