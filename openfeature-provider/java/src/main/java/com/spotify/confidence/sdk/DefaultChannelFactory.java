@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Default implementation of ChannelFactory that creates standard gRPC channels with security
@@ -28,7 +29,11 @@ public class DefaultChannelFactory implements ChannelFactory {
             .map(Boolean::parseBoolean)
             .orElse(false);
 
-    ManagedChannelBuilder<?> builder = ManagedChannelBuilder.forTarget(target);
+    ManagedChannelBuilder<?> builder =
+        ManagedChannelBuilder.forTarget(target)
+            .keepAliveTime(5, TimeUnit.MINUTES)
+            .keepAliveTimeout(20, TimeUnit.SECONDS)
+            .idleTimeout(30, TimeUnit.MINUTES);
     if (useGrpcPlaintext) {
       builder = builder.usePlaintext();
     }
