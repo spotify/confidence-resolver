@@ -456,9 +456,7 @@ class ConfidenceProvider(AbstractProvider):
             skip_apply = False
             if evaluation_context and evaluation_context.attributes:
                 skip_apply = (
-                    evaluation_context.attributes.pop(
-                        "_confidence_skip_apply", False
-                    )
+                    evaluation_context.attributes.pop("_confidence_skip_apply", False)
                     is True
                 )
 
