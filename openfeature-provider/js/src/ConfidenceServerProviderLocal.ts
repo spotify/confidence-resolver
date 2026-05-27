@@ -200,8 +200,9 @@ export class ConfidenceServerProviderLocal implements Provider {
     const startMs = performance.now();
     try {
       const [flagName] = flagKey.split('.', 1);
-      const skipApply = context._confidence_skip_apply === true;
-      const resolution = await this.resolve(context, [flagName], !skipApply);
+      const { _confidence_skip_apply, ...cleanContext } = context;
+      const skipApply = _confidence_skip_apply === true;
+      const resolution = await this.resolve(cleanContext as EvaluationContext, [flagName], !skipApply);
       const result = FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
 
       const latencyUs = Math.round((performance.now() - startMs) * 1000);
@@ -356,11 +357,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     throw new Error('Write materialization not supported');
   }
 
-  private static convertEvaluationContext({
-    targetingKey: targeting_key,
-    _confidence_skip_apply,
-    ...rest
-  }: EvaluationContext): {
+  private static convertEvaluationContext({ targetingKey: targeting_key, ...rest }: EvaluationContext): {
     [key: string]: any;
   } {
     return {
