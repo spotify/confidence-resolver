@@ -388,6 +388,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       throw new RuntimeException(e);
     }
 
+    final boolean skipApply = OpenFeatureUtils.isSkipApply(ctx);
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
     ResolveFlagsResponse resolveFlagResponse;
     try {
@@ -396,7 +397,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       final var req =
           ResolveFlagsRequest.newBuilder()
               .addFlags(requestFlagName)
-              .setApply(true)
+              .setApply(!skipApply)
               .setClientSecret(clientSecret)
               .setEvaluationContext(
                   Struct.newBuilder().putAllFields(evaluationContext.getFieldsMap()).build())

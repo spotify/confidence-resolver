@@ -303,6 +303,43 @@ describe('remote materialization for sticky assignments', () => {
     expect(net.resolver.readMaterializations.calls).toBe(0);
   });
 
+  it('sets apply=false when _confidence_skip_apply is true in context', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    mockedWasmResolver.resolveProcess.mockReturnValue({
+      resolved: {
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/test-flag',
+              variant: 'variant-a',
+              value: { enabled: true },
+              reason: RESOLVE_REASON_MATCH,
+              shouldApply: true,
+            },
+          ],
+          resolveToken: new Uint8Array(),
+          resolveId: 'resolve-123',
+        },
+        materializationsToWrite: [],
+      },
+    });
+
+    await provider.resolveBooleanEvaluation('test-flag.enabled', false, {
+      targetingKey: 'user-123',
+      _confidence_skip_apply: true,
+    });
+
+    expect(mockedWasmResolver.resolveProcess).toHaveBeenCalledWith({
+      deferredMaterializations: expect.objectContaining({
+        apply: false,
+        evaluationContext: expect.not.objectContaining({
+          _confidence_skip_apply: true,
+        }),
+      }),
+    });
+  });
+
   it('reads materializations from remote when WASM reports missing materializations', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 

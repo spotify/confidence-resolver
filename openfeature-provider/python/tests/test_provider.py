@@ -839,3 +839,85 @@ class TestPrometheusMetrics:
             assert "confidence_resolve_latency" in metrics
         finally:
             provider.shutdown()
+
+
+class TestSkipApply:
+    """Tests for _confidence_skip_apply context key."""
+
+    def test_resolve_with_skip_apply_still_resolves(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Test that _confidence_skip_apply does not prevent resolution."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes={
+                    "visitor_id": "tutorial_visitor",
+                    "_confidence_skip_apply": True,
+                },
+            )
+            result = provider.resolve_string_details(
+                flag_key="tutorial-feature.message",
+                default_value="default-message",
+                evaluation_context=ctx,
+            )
+
+            assert result.reason == Reason.TARGETING_MATCH
+            assert result.value != "default-message"
+        finally:
+            provider.shutdown()
+
+    def test_skip_apply_key_is_stripped_from_context(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Test that _confidence_skip_apply is removed from attributes after resolve."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            attrs = {
+                "visitor_id": "tutorial_visitor",
+                "_confidence_skip_apply": True,
+            }
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes=attrs,
+            )
+            provider.resolve_string_details(
+                flag_key="tutorial-feature.message",
+                default_value="default-message",
+                evaluation_context=ctx,
+            )
+
+            assert "_confidence_skip_apply" not in attrs
+        finally:
+            provider.shutdown()

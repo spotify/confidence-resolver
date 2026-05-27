@@ -248,7 +248,15 @@ func evaluate[T any](
 		})
 	}
 
-	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, true)
+	apply := true
+	if skip, ok := evalCtx["_confidence_skip_apply"]; ok {
+		if b, ok := skip.(bool); ok && b {
+			apply = false
+		}
+		delete(evalCtx, "_confidence_skip_apply")
+	}
+
+	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, apply)
 	if err != nil {
 		var matErr *MaterializationNotSupportedError
 		if errors.As(err, &matErr) {

@@ -153,6 +153,45 @@ func TestLocalResolverProvider_ReturnsCorrectValue(t *testing.T) {
 	})
 }
 
+func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
+	ctx := context.Background()
+
+	testState := tu.LoadTestResolverState(t)
+	testAcctID := tu.LoadTestAccountID(t)
+
+	stateProvider := &tu.StateProviderMock{
+		State:     testState,
+		AccountID: testAcctID,
+	}
+	mockFlagLogger := &tu.MockFlagLogger{}
+	unsupportedMatStore := newUnsupportedMaterializationStore()
+
+	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+	}, unsupportedMatStore)
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	client := openfeature.NewClient("test-client")
+
+	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
+		"visitor_id":              "tutorial_visitor",
+		"_confidence_skip_apply": true,
+	})
+
+	t.Run("resolves correctly with _confidence_skip_apply in context", func(t *testing.T) {
+		result, err := client.StringValueDetails(ctx, "tutorial-feature.message", "default-message", evalCtx)
+		if err != nil {
+			t.Errorf("Error during StringValueDetails: %v", err)
+		}
+		expectedMessage := "We are very excited to welcome you to Confidence! This is a message from the tutorial flag."
+		if result.Value != expectedMessage {
+			t.Errorf("Expected value '%s', got '%s'", expectedMessage, result.Value)
+		}
+		if result.Reason != openfeature.TargetingMatchReason {
+			t.Errorf("Expected TargetingMatchReason, got %v", result.Reason)
+		}
+	})
+}
+
 func TestLocalResolverProvider_PathNotFound(t *testing.T) {
 	ctx := context.Background()
 	runtime := lr.DefaultResolverFactory(lr.NoOpLogSink)

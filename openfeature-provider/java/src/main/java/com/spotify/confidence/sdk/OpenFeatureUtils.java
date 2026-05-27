@@ -13,7 +13,13 @@ import org.slf4j.Logger;
 class OpenFeatureUtils {
 
   static final String TARGETING_KEY = "targeting_key";
+  static final String SKIP_APPLY_KEY = "_confidence_skip_apply";
   private static final Logger log = org.slf4j.LoggerFactory.getLogger(OpenFeatureUtils.class);
+
+  static boolean isSkipApply(EvaluationContext evaluationContext) {
+    final Value value = evaluationContext.getValue(SKIP_APPLY_KEY);
+    return value != null && value.isBoolean() && value.asBoolean();
+  }
 
   /*
   OpenFeature Evaluation Context -> Proto
@@ -24,7 +30,9 @@ class OpenFeatureUtils {
         .asMap()
         .forEach(
             (mapKey, mapValue) -> {
-              protoEvaluationContext.putFields(mapKey, OpenFeatureTypeMapper.from(mapValue));
+              if (!SKIP_APPLY_KEY.equals(mapKey)) {
+                protoEvaluationContext.putFields(mapKey, OpenFeatureTypeMapper.from(mapValue));
+              }
             });
     // add targeting key as a regular value to proto struct
     if (evaluationContext.getTargetingKey() != null
