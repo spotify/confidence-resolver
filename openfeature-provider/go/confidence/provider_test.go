@@ -46,6 +46,126 @@ func TestLocalResolverProvider_Hooks(t *testing.T) {
 	}
 }
 
+type typedObjectFlag struct {
+	Message string `json:"message"`
+	Limit   int    `json:"limit"`
+}
+
+func TestLocalResolverProvider_ObjectEvaluationWithSkipApplyContextReturnsTypedStruct(t *testing.T) {
+	provider := NewLocalResolverProvider(nil, nil, nil, "test-secret", nil)
+	var resolvedApply bool
+	var resolvedFlags []string
+	var resolvedContext *structpb.Struct
+	ctx := context.WithValue(context.Background(), SkipApplyContextKey, true)
+
+	provider.resolver = &mockResolverAPIForInit{
+		resolveProcess: func(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
+			resolveRequest := request.GetWithoutMaterializations()
+			if resolveRequest == nil {
+				t.Fatalf("expected resolve request without materializations, got %#v", request)
+			}
+			resolvedApply = resolveRequest.GetApply()
+			resolvedFlags = resolveRequest.GetFlags()
+			resolvedContext = resolveRequest.GetEvaluationContext()
+
+			value, err := structpb.NewStruct(map[string]any{
+				"message": "resolved",
+				"limit":   7,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			return &wasm.ResolveProcessResponse{
+				Result: &wasm.ResolveProcessResponse_Resolved_{
+					Resolved: &wasm.ResolveProcessResponse_Resolved{
+						Response: &resolver.ResolveFlagsResponse{
+							ResolvedFlags: []*resolver.ResolvedFlag{
+								{
+									Flag:    "flags/typed-object",
+									Variant: "flags/typed-object/variants/treatment",
+									Value:   value,
+									Reason:  resolver.ResolveReason_RESOLVE_REASON_MATCH,
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	result := provider.ObjectEvaluation(
+		ctx,
+		"typed-object",
+		typedObjectFlag{},
+		openfeature.FlattenedContext{
+			"targeting_key": "user-123",
+		},
+	)
+
+	if err := result.Error(); err != nil {
+		t.Fatalf("expected no resolution error, got %v", err)
+	}
+	if resolvedApply {
+		t.Fatal("expected apply=false in resolve request")
+	}
+	if !slices.Equal(resolvedFlags, []string{"flags/typed-object"}) {
+		t.Fatalf("unexpected resolved flags: got %v", resolvedFlags)
+	}
+	if _, ok := resolvedContext.GetFields()[string(SkipApplyContextKey)]; ok {
+		t.Fatalf("expected %s not to be sent in the resolver context", SkipApplyContextKey)
+	}
+	if _, ok := result.Value.(*structpb.Struct); ok {
+		t.Fatalf("expected typed struct value, got protobuf struct")
+	}
+
+	got, ok := result.Value.(typedObjectFlag)
+	if !ok {
+		t.Fatalf("expected typedObjectFlag, got %T", result.Value)
+	}
+	if got != (typedObjectFlag{Message: "resolved", Limit: 7}) {
+		t.Fatalf("unexpected result: got %+v", got)
+	}
+}
+
+func TestLocalResolverProvider_ResolveWithSkipApplyContext(t *testing.T) {
+	provider := NewLocalResolverProvider(nil, nil, nil, "test-secret", nil)
+	var resolvedApply bool
+
+	provider.resolver = &mockResolverAPIForInit{
+		resolveProcess: func(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
+			resolveRequest := request.GetWithoutMaterializations()
+			if resolveRequest == nil {
+				t.Fatalf("expected resolve request without materializations, got %#v", request)
+			}
+			resolvedApply = resolveRequest.GetApply()
+
+			return &wasm.ResolveProcessResponse{
+				Result: &wasm.ResolveProcessResponse_Resolved_{
+					Resolved: &wasm.ResolveProcessResponse_Resolved{
+						Response: &resolver.ResolveFlagsResponse{},
+					},
+				},
+			}, nil
+		},
+	}
+
+	ctx := context.WithValue(context.Background(), SkipApplyContextKey, true)
+	_, err := provider.Resolve(
+		ctx,
+		openfeature.FlattenedContext{"targeting_key": "user-123"},
+		[]string{"typed-object"},
+		true,
+	)
+	if err != nil {
+		t.Fatalf("expected no resolve error, got %v", err)
+	}
+	if resolvedApply {
+		t.Fatal("expected apply=false in resolve request")
+	}
+}
+
 func TestParseFlagPath(t *testing.T) {
 	testCases := []struct {
 		name         string

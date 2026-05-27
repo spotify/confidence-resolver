@@ -19,9 +19,14 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+type contextKey string
+
 const (
 	defaultStatePollIntervalSeconds = 10
 	defaultLogPollIntervalSeconds   = 15
+
+	// SkipApplyContextKey disables apply-on-resolve when set to true in context.Context.
+	SkipApplyContextKey contextKey = "_confidence_skip_apply"
 )
 
 type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
@@ -248,7 +253,7 @@ func evaluate[T any](
 		})
 	}
 
-	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, true)
+	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, !skipApplyFromContext(ctx))
 	if err != nil {
 		var matErr *MaterializationNotSupportedError
 		if errors.As(err, &matErr) {
@@ -399,7 +404,7 @@ func (p *LocalResolverProvider) Resolve(
 		requestFlags[i] = "flags/" + name
 	}
 
-	return p.resolveFlags(evalCtx, requestFlags, apply)
+	return p.resolveFlags(evalCtx, requestFlags, apply && !skipApplyFromContext(ctx))
 }
 
 // ApplyFlags records exposure events for flags previously resolved with
@@ -651,6 +656,14 @@ func processTargetingKey(evalCtx openfeature.FlattenedContext) openfeature.Flatt
 	}
 
 	return newEvalContext
+}
+
+func skipApplyFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	skipApply, _ := ctx.Value(SkipApplyContextKey).(bool)
+	return skipApply
 }
 
 // flattenedContextToProto converts OpenFeature FlattenedContext to protobuf Struct
