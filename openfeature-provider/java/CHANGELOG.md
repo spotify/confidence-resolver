@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.8](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.7...openfeature-provider-java-v0.14.8) (2026-05-27)
+
+
+### Bug Fixes
+
+* **java:** add gRPC keepalive and idle timeout to DefaultChannelFactory ([#418](https://github.com/spotify/confidence-resolver/issues/418)) ([44d6613](https://github.com/spotify/confidence-resolver/commit/44d6613e1be8612afdba27678c793b5561fab90b))
+* **resolver:** backfill null values for unset variant properties ([#415](https://github.com/spotify/confidence-resolver/issues/415)) ([f6aad38](https://github.com/spotify/confidence-resolver/commit/f6aad3834a62afc056ac6147062f7470aff58bc6))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.2 to 0.2.3
+
 ## [0.14.7](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.6...openfeature-provider-java-v0.14.7) (2026-05-21)
 
 

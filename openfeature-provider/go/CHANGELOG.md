@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.16.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.15.1...openfeature-provider/go/v0.16.0) (2026-05-27)
+
+
+### Features
+
+* **resolver:** support epoch number inputs for timestamp targeting ([#413](https://github.com/spotify/confidence-resolver/issues/413)) ([0bf6dd1](https://github.com/spotify/confidence-resolver/commit/0bf6dd114ee8ca435384245b52d7484cfa75e9ff))
+
+
+### Bug Fixes
+
+* **resolver:** backfill null values for unset variant properties ([#415](https://github.com/spotify/confidence-resolver/issues/415)) ([f6aad38](https://github.com/spotify/confidence-resolver/commit/f6aad3834a62afc056ac6147062f7470aff58bc6))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.2 to 0.2.3
+
 ## [0.15.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.15.0...openfeature-provider/go/v0.15.1) (2026-05-21)
 
 
