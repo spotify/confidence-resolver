@@ -1411,7 +1411,12 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         return Ok(Some(false));
                     };
 
-                    self.segment_match_internal(ref_segment, unit, visited, materialization_context)
+                    self.segment_match_internal(
+                        ref_segment,
+                        unit,
+                        &mut visited.clone(),
+                        materialization_context,
+                    )
                 }
                 criterion::Criterion::MaterializedSegment(MaterializedSegmentCriterion {
                     materialized_segment,

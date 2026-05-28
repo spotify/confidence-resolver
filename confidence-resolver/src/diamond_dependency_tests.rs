@@ -164,7 +164,7 @@ fn make_resolver(state: &ResolverState) -> AccountResolver<'_, L> {
 }
 
 #[test]
-fn diamond_single_flag_resolve_errors() {
+fn diamond_single_flag_resolves_ok() {
     let state = make_diamond_state();
     let resolver = make_resolver(&state);
     let req = flags_resolver::ResolveFlagsRequest {
@@ -174,10 +174,11 @@ fn diamond_single_flag_resolve_errors() {
         apply: false,
         sdk: None,
     };
-    let result = resolver.resolve_flags_no_materialization(&req);
-    assert!(
-        result.is_err(),
-        "diamond-flag should error due to false cycle detection"
+    let resp = resolver.resolve_flags_no_materialization(&req).unwrap();
+    assert_eq!(resp.resolved_flags.len(), 1);
+    assert_eq!(
+        resp.resolved_flags[0].reason,
+        flags_resolver::ResolveReason::NoSegmentMatch as i32,
     );
 }
 
@@ -201,7 +202,7 @@ fn diamond_unaffected_flag_resolves_ok() {
 }
 
 #[test]
-fn diamond_batch_resolve_fails_due_to_bad_flag() {
+fn diamond_batch_resolve_succeeds() {
     let state = make_diamond_state();
     let resolver = make_resolver(&state);
     let req = flags_resolver::ResolveFlagsRequest {
@@ -211,9 +212,6 @@ fn diamond_batch_resolve_fails_due_to_bad_flag() {
         apply: false,
         sdk: None,
     };
-    let result = resolver.resolve_flags_no_materialization(&req);
-    assert!(
-        result.is_err(),
-        "batch resolve should fail because diamond-flag poisons the batch"
-    );
+    let resp = resolver.resolve_flags_no_materialization(&req).unwrap();
+    assert_eq!(resp.resolved_flags.len(), 2);
 }

@@ -3982,10 +3982,6 @@
           }
         ],
         "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [],
-        "expectError": "InternalError"
       }
     }
   },
