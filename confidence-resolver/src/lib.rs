@@ -1339,7 +1339,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         materializations: &mut MaterializationContext,
     ) -> Result<Tribool, ResolveError> {
         if visited.contains(&segment.name) {
-            fail!("circular segment dependency found");
+            return Ok(Some(false));
         }
         visited.insert(segment.name.clone());
 
@@ -1411,7 +1411,12 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                         return Ok(Some(false));
                     };
 
-                    self.segment_match_internal(ref_segment, unit, visited, materialization_context)
+                    self.segment_match_internal(
+                        ref_segment,
+                        unit,
+                        &mut visited.clone(),
+                        materialization_context,
+                    )
                 }
                 criterion::Criterion::MaterializedSegment(MaterializedSegmentCriterion {
                     materialized_segment,
@@ -1757,6 +1762,9 @@ pub fn bucket(hash: u128, buckets: u64) -> Fallible<usize> {
     // don't ask me why
     Ok(((hash_long >> 4) % buckets) as usize)
 }
+
+#[cfg(test)]
+mod diamond_dependency_tests;
 
 #[cfg(test)]
 mod materialization_tests;
