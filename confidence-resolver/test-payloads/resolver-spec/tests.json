@@ -3959,5 +3959,61 @@
         "expectError": null
       }
     }
+  },
+  {
+    "name": "diamond_segment_dependency",
+    "resolveRequest": {
+      "flags": ["flags/diamond-dep-flag"],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/diamond-dep-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      },
+      "rust": {
+        "resolvedFlags": [],
+        "expectError": "InternalError"
+      }
+    }
+  },
+  {
+    "name": "diamond_unaffected_flag",
+    "resolveRequest": {
+      "flags": ["flags/diamond-ok-flag"],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "SE"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/diamond-ok-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
   }
 ]

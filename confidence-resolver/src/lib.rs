@@ -1759,6 +1759,9 @@ pub fn bucket(hash: u128, buckets: u64) -> Fallible<usize> {
 }
 
 #[cfg(test)]
+mod diamond_dependency_tests;
+
+#[cfg(test)]
 mod materialization_tests;
 
 #[cfg(test)]

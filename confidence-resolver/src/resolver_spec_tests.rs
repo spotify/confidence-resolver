@@ -125,6 +125,11 @@ struct SpecResolvedFlag {
 // Building ResolverState from spec
 // ---------------------------------------------------------------------------
 
+pub(crate) fn build_state_from_json(json: &str) -> ResolverState {
+    let spec: SpecState = serde_json::from_str(json).unwrap();
+    build_state_from_spec(&spec)
+}
+
 fn build_state_from_spec(spec: &SpecState) -> ResolverState {
     let mut flags = HashMap::new();
     for (name, val) in &spec.flags {
@@ -488,6 +493,8 @@ spec_test!(bitset_no_unit);
 spec_test!(nested_segment_match);
 spec_test!(circular_segment_dependency);
 spec_test!(self_referencing_segment);
+spec_test!(diamond_segment_dependency);
+spec_test!(diamond_unaffected_flag);
 
 // Variant / assignment
 spec_test!(fallthrough_then_match);
