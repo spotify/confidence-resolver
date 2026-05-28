@@ -765,7 +765,9 @@ fn null_value_error() -> EvaluationError {
         .code(EvaluationErrorCode::General(
             "Property value is null".to_string(),
         ))
-        .message("Property value is null (unset in flag configuration). The SDK default will be used.")
+        .message(
+            "Property value is null (unset in flag configuration). The SDK default will be used.",
+        )
         .build()
 }
 
