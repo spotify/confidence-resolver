@@ -709,10 +709,6 @@
           }
         ],
         "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [],
-        "expectError": "InternalError"
       }
     }
   },
@@ -735,10 +731,6 @@
           }
         ],
         "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [],
-        "expectError": "InternalError"
       }
     }
   },

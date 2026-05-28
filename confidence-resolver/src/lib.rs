@@ -1339,7 +1339,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         materializations: &mut MaterializationContext,
     ) -> Result<Tribool, ResolveError> {
         if visited.contains(&segment.name) {
-            fail!("circular segment dependency found");
+            return Ok(Some(false));
         }
         visited.insert(segment.name.clone());
 
