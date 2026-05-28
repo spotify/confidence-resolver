@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.5.6...openfeature-provider/rust-v0.6.0) (2026-05-28)
+
+
+### Features
+
+* support skipping apply using context key ([#421](https://github.com/spotify/confidence-resolver/issues/421)) ([0ad63cc](https://github.com/spotify/confidence-resolver/commit/0ad63ccebef53073e57be42a9ab78a03f14e1851))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.18.0 to 0.18.1
+
 ## [0.5.6](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.5.5...openfeature-provider/rust-v0.5.6) (2026-05-27)
 
 

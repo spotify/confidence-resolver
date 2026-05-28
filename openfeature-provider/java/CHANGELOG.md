@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.8...openfeature-provider-java-v0.15.0) (2026-05-28)
+
+
+### Features
+
+* support skipping apply using context key ([#421](https://github.com/spotify/confidence-resolver/issues/421)) ([0ad63cc](https://github.com/spotify/confidence-resolver/commit/0ad63ccebef53073e57be42a9ab78a03f14e1851))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.3 to 0.2.4
+
 ## [0.14.8](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.14.7...openfeature-provider-java-v0.14.8) (2026-05-27)
 
 

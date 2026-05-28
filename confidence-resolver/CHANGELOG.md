@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.18.0...confidence_resolver-v0.18.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* **resolver:** handle diamond and circular segment dependencies ([#423](https://github.com/spotify/confidence-resolver/issues/423)) ([55a94fa](https://github.com/spotify/confidence-resolver/commit/55a94fae446570f1a2fd1706125cccdae1221485))
+
 ## [0.18.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.17.1...confidence_resolver-v0.18.0) (2026-05-27)
 
 
