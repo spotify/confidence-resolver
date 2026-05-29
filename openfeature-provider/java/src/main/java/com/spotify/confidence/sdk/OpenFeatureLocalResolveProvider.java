@@ -57,8 +57,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final MaterializationStore materializationStore;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
-  private final ScheduledExecutorService flagsFetcherExecutor =
-      Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
+  private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
+  private final ScheduledExecutorService flagsFetcherExecutor = newFlagsFetcherExecutor();
   private final ScheduledExecutorService assignLogExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
   private final AccountStateProvider stateProvider;
@@ -66,8 +66,18 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       new AtomicReference<>(ProviderState.NOT_READY);
   private volatile boolean initialized = false;
   private volatile byte[] lastStateBytes = null;
+  @VisibleForTesting boolean forcedFetcherShutdown = false;
   private static final Sdk SDK =
       Sdk.newBuilder().setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER).setVersion(Version.VERSION).build();
+
+  private static ScheduledExecutorService newFlagsFetcherExecutor() {
+    final ScheduledThreadPoolExecutor executor =
+        new ScheduledThreadPoolExecutor(1, new ThreadFactoryBuilder().setDaemon(true).build());
+    // The poll task reschedules itself, so there is always one pending. Drop it on shutdown instead
+    // of letting awaitTermination wait for a poll that won't fire for another poll interval.
+    executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+    return executor;
+  }
 
   private static long getPollIntervalSeconds() {
     return Optional.ofNullable(System.getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"))
@@ -341,13 +351,17 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     flagsFetcherExecutor.shutdown();
     assignLogExecutor.shutdown();
 
+    final long graceSeconds = SHUTDOWN_GRACE.toSeconds();
     try {
-      if (!flagsFetcherExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
-        log.warn("Flags fetcher executor did not terminate gracefully");
+      if (!flagsFetcherExecutor.awaitTermination(graceSeconds, TimeUnit.SECONDS)) {
+        log.warn(
+            "Flags fetcher executor did not terminate within {}s, forcing shutdown", graceSeconds);
+        forcedFetcherShutdown = true;
         flagsFetcherExecutor.shutdownNow();
       }
-      if (!assignLogExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
-        log.warn("Assign log executor did not terminate gracefully");
+      if (!assignLogExecutor.awaitTermination(graceSeconds, TimeUnit.SECONDS)) {
+        log.warn(
+            "Assign log executor did not terminate within {}s, forcing shutdown", graceSeconds);
         assignLogExecutor.shutdownNow();
       }
     } catch (InterruptedException e) {
