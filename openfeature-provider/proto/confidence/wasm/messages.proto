@@ -17,6 +17,12 @@ message SetResolverStateRequest {
     confidence.flags.resolver.v1.Sdk sdk = 3;
 }
 
+message SetEncryptedResolverStateRequest {
+    bytes encrypted_state = 1;
+    bytes encryption_key = 2;
+    confidence.flags.resolver.v1.Sdk sdk = 3;
+}
+
 message Request {
     bytes data = 1;
 }
