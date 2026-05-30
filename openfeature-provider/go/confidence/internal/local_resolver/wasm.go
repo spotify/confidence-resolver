@@ -36,6 +36,31 @@ type LogSink func(logs *resolverv1.WriteFlagLogsRequest)
 
 func NoOpLogSink(logs *resolverv1.WriteFlagLogsRequest) {}
 
+// Reuse api.Function handles per module instance: wazevo allocates a new call
+// engine and stack on every Module.ExportedFunction call, and there are three
+// WASM calls per resolve. Safe to share — calls on an instance are serialized
+// by WasmResolver.mu and host callbacks run synchronously, so a handle is
+// never used concurrently.
+var exportedFnCache sync.Map // api.Module -> *moduleFnCache
+
+type moduleFnCache struct {
+	mu sync.Mutex
+	m  map[string]api.Function
+}
+
+func cachedExportedFunction(inst api.Module, name string) api.Function {
+	v, _ := exportedFnCache.LoadOrStore(inst, &moduleFnCache{m: make(map[string]api.Function)})
+	c := v.(*moduleFnCache)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fn, ok := c.m[name]
+	if !ok {
+		fn = inst.ExportedFunction(name)
+		c.m[name] = fn
+	}
+	return fn
+}
+
 type WasmResolver struct {
 	instance   api.Module
 	logSink    LogSink
@@ -104,6 +129,7 @@ func (r *WasmResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics b
 func (r *WasmResolver) Close(ctx context.Context) error {
 	// TODO we should call flush assigned until it doesn't flush any more
 	r.FlushAllLogs()
+	exportedFnCache.Delete(r.instance)
 	return r.instance.Close(ctx)
 }
 
@@ -119,7 +145,7 @@ func (r *WasmResolver) call(fnName string, request proto.Message, response proto
 		reqPtr = transfer(r.instance, mustMarshal(wsmMsgReq))
 	}
 	ctx := context.Background()
-	fn := r.instance.ExportedFunction(fnName)
+	fn := cachedExportedFunction(r.instance, fnName)
 	resPtr, err := fn.Call(ctx, uint64(reqPtr))
 	if err != nil {
 		panic(err)
@@ -238,7 +264,7 @@ func consume(inst api.Module, addr uint32) []byte {
 
 	// Free memory
 	ctx := context.Background()
-	_, err := inst.ExportedFunction("wasm_msg_free").Call(ctx, uint64(addr))
+	_, err := cachedExportedFunction(inst, "wasm_msg_free").Call(ctx, uint64(addr))
 	if err != nil {
 		panic(err)
 	}
@@ -250,7 +276,7 @@ func transfer(inst api.Module, data []byte) uint32 {
 	ctx := context.Background()
 
 	// Allocate memory in WASM
-	results, err := inst.ExportedFunction("wasm_msg_alloc").Call(ctx, uint64(len(data)))
+	results, err := cachedExportedFunction(inst, "wasm_msg_alloc").Call(ctx, uint64(len(data)))
 	if err != nil {
 		panic(err)
 	}
