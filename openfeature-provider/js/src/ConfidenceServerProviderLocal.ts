@@ -170,6 +170,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
+    const startMs = performance.now();
     const resolveRequest = {
       flags: flagNames.map(name => `flags/${name}`),
       evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
@@ -181,6 +182,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       },
     };
 
+    let reason = ResolveReason.RESOLVE_REASON_BUNDLE;
     try {
       const processRequest: ResolveProcessRequest = this.materializationStore
         ? { deferredMaterializations: resolveRequest }
@@ -188,7 +190,15 @@ export class ConfidenceServerProviderLocal implements Provider {
 
       return FlagBundle.create(await this.resolveProcess(processRequest));
     } catch (err) {
+      reason = ResolveReason.RESOLVE_REASON_ERROR;
       return FlagBundle.error(ErrorCode.GENERAL, String(err));
+    } finally {
+      const latencyUs = Math.round((performance.now() - startMs) * 1000);
+      try {
+        this.resolver.registerResolve({ reason, latencyUs });
+      } catch {
+        // best-effort telemetry
+      }
     }
   }
 
