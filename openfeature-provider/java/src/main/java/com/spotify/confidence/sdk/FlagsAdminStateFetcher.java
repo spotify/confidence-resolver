@@ -113,8 +113,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         }
         etagHolder.set(etag);
       }
-      logger.info(
-          "Loaded resolver state (encrypted={}, etag={})", encrypted, etag);
+      logger.info("Loaded resolver state (encrypted={}, etag={})", encrypted, etag);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
