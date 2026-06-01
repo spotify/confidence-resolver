@@ -187,11 +187,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
   }
 
-  private async resolveFlags(
-    context: EvaluationContext,
-    flagNames: string[],
-    apply: boolean,
-  ): Promise<FlagBundle> {
+  private async resolveFlags(context: EvaluationContext, flagNames: string[], apply: boolean): Promise<FlagBundle> {
     const resolveRequest = {
       flags: flagNames.map(name => `flags/${name}`),
       evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
