@@ -16,8 +16,10 @@ type mockResolver struct {
 	shouldPanic bool
 }
 
-func (m *mockResolver) SetResolverState(*wasm.SetResolverStateRequest) error                  { return nil }
-func (m *mockResolver) SetEncryptedResolverState(*wasm.SetEncryptedResolverStateRequest) error { return nil }
+func (m *mockResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }
+func (m *mockResolver) SetEncryptedResolverState(*wasm.SetEncryptedResolverStateRequest) error {
+	return nil
+}
 func (m *mockResolver) ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
 	if m.shouldPanic {
 		panic("simulated WASM crash")

@@ -19,7 +19,7 @@ const confidenceDomain = "edge-grpc.spotify.com"
 
 type ProviderConfig struct {
 	ClientSecret                  string
-	EncryptionKey                 string               // Optional: hex-encoded AES-256 key for decrypting CDN state
+	EncryptionKey                 string // Optional: hex-encoded AES-256 key for decrypting CDN state
 	Logger                        *slog.Logger
 	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
 	MaterializationStore          MaterializationStore // Optional

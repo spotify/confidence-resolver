@@ -55,6 +55,9 @@ class WasmResolver:
         self._wasm_msg_guest_set_resolver_state = exports[
             "wasm_msg_guest_set_resolver_state"
         ]
+        self._wasm_msg_guest_set_encrypted_resolver_state = exports[
+            "wasm_msg_guest_set_encrypted_resolver_state"
+        ]
         self._wasm_msg_guest_resolve_flags = exports["wasm_msg_guest_resolve_flags"]
         self._wasm_msg_guest_bounded_flush_logs = exports[
             "wasm_msg_guest_bounded_flush_logs"
@@ -115,6 +118,26 @@ class WasmResolver:
 
         req_ptr = self._transfer_request(request)
         resp_ptr = self._wasm_msg_guest_set_resolver_state(self._store, req_ptr)
+
+        if resp_ptr != 0:
+            self._consume_response(resp_ptr, None)
+
+    def set_encrypted_resolver_state(
+        self,
+        encrypted_state: bytes,
+        encryption_key: bytes,
+        sdk: Optional[protobuf_message.Message] = None,
+    ) -> None:
+        request = messages_pb2.SetEncryptedResolverStateRequest()
+        request.encrypted_state = encrypted_state
+        request.encryption_key = encryption_key
+        if sdk is not None:
+            request.sdk.CopyFrom(sdk)
+
+        req_ptr = self._transfer_request(request)
+        resp_ptr = self._wasm_msg_guest_set_encrypted_resolver_state(
+            self._store, req_ptr
+        )
 
         if resp_ptr != 0:
             self._consume_response(resp_ptr, None)
