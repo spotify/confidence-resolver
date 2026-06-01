@@ -623,8 +623,9 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error when accountID is empty")
 	}
-	if err.Error() != "AccountID is empty in the state" {
-		t.Errorf("Expected specific error message, got: %v", err)
+	expected := "failed to initialize resolver: AccountID is empty in the state"
+	if err.Error() != expected {
+		t.Errorf("Expected %q, got: %v", expected, err)
 	}
 }
 
