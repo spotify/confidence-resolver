@@ -171,24 +171,9 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
     const startMs = performance.now();
-    const resolveRequest = {
-      flags: flagNames.map(name => `flags/${name}`),
-      evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
-      apply,
-      clientSecret: this.options.flagClientSecret,
-      sdk: {
-        id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-        version: VERSION,
-      },
-    };
-
     let reason = ResolveReason.RESOLVE_REASON_BUNDLE;
     try {
-      const processRequest: ResolveProcessRequest = this.materializationStore
-        ? { deferredMaterializations: resolveRequest }
-        : { withoutMaterializations: resolveRequest };
-
-      return FlagBundle.create(await this.resolveProcess(processRequest));
+      return await this.resolveFlags(context, flagNames, apply);
     } catch (err) {
       reason = ResolveReason.RESOLVE_REASON_ERROR;
       return FlagBundle.error(ErrorCode.GENERAL, String(err));
@@ -202,6 +187,29 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
   }
 
+  private async resolveFlags(
+    context: EvaluationContext,
+    flagNames: string[],
+    apply: boolean,
+  ): Promise<FlagBundle> {
+    const resolveRequest = {
+      flags: flagNames.map(name => `flags/${name}`),
+      evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
+      apply,
+      clientSecret: this.options.flagClientSecret,
+      sdk: {
+        id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+        version: VERSION,
+      },
+    };
+
+    const processRequest: ResolveProcessRequest = this.materializationStore
+      ? { deferredMaterializations: resolveRequest }
+      : { withoutMaterializations: resolveRequest };
+
+    return FlagBundle.create(await this.resolveProcess(processRequest));
+  }
+
   async evaluate<T extends JsonValue>(
     flagKey: string,
     defaultValue: T,
@@ -212,7 +220,13 @@ export class ConfidenceServerProviderLocal implements Provider {
       const [flagName] = flagKey.split('.', 1);
       const { _confidence_skip_apply, ...cleanContext } = context;
       const skipApply = _confidence_skip_apply === true;
-      const resolution = await this.resolve(cleanContext as EvaluationContext, [flagName], !skipApply);
+
+      let resolution: FlagBundle;
+      try {
+        resolution = await this.resolveFlags(cleanContext as EvaluationContext, [flagName], !skipApply);
+      } catch (err) {
+        resolution = FlagBundle.error(ErrorCode.GENERAL, String(err));
+      }
       const result = FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
 
       const latencyUs = Math.round((performance.now() - startMs) * 1000);
