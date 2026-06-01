@@ -28,6 +28,7 @@ type FlagsAdminStateFetcher struct {
 	etag             atomic.Value // stores string
 	rawResolverState atomic.Value // stores []byte
 	rawCdnBytes      atomic.Value // stores []byte — set when CDN response is encrypted
+	encrypted        atomic.Bool
 	accountID        atomic.Value // stores string
 	HTTPClient       *http.Client // Exported for testing
 	logger           *slog.Logger
@@ -101,10 +102,11 @@ func (f *FlagsAdminStateFetcher) Reload(ctx context.Context) error {
 
 // RawCdnBytes returns the raw encrypted CDN bytes, or nil if unencrypted.
 func (f *FlagsAdminStateFetcher) RawCdnBytes() []byte {
+	if !f.encrypted.Load() {
+		return nil
+	}
 	if v := f.rawCdnBytes.Load(); v != nil {
-		if b, ok := v.([]byte); ok {
-			return b
-		}
+		return v.([]byte)
 	}
 	return nil
 }
@@ -167,6 +169,7 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 			return fmt.Errorf("resolver state is encrypted but no EncryptionKey was provided; set the encryption key for this client credential")
 		}
 		f.rawCdnBytes.Store(bytes)
+		f.encrypted.Store(true)
 		f.etag.Store(etag)
 		f.logger.Debug("Loaded encrypted resolver state", "etag", etag)
 	} else {
@@ -176,7 +179,7 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 		}
 		f.accountID.Store(stateRequest.AccountId)
 		f.rawResolverState.Store(stateRequest.State)
-		f.rawCdnBytes.Store(nil)
+		f.encrypted.Store(false)
 		f.etag.Store(etag)
 		f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
 	}
