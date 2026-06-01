@@ -477,6 +477,10 @@ func (m *mockResolverAPIForInit) SetResolverState(request *wasm.SetResolverState
 	return nil
 }
 
+func (m *mockResolverAPIForInit) SetEncryptedResolverState(_ *wasm.SetEncryptedResolverStateRequest) error {
+	return nil
+}
+
 func (m *mockResolverAPIForInit) Close(ctx context.Context) error {
 	if m.closeFunc != nil {
 		m.closeFunc(ctx)

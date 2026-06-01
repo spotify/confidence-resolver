@@ -19,6 +19,7 @@ const confidenceDomain = "edge-grpc.spotify.com"
 
 type ProviderConfig struct {
 	ClientSecret                  string
+	EncryptionKey                 string               // Optional: hex-encoded AES-256 key for decrypting CDN state
 	Logger                        *slog.Logger
 	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
 	MaterializationStore          MaterializationStore // Optional
@@ -72,7 +73,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	flagLoggerService := resolverv1.NewInternalFlagLoggerServiceClient(conn)
 	// Build HTTP transport using hooks and pass into state fetcher
 	transport := hooks.WrapHTTP(http.DefaultTransport)
-	stateProvider := NewFlagsAdminStateFetcherWithTransport(config.ClientSecret, logger, transport)
+	stateProvider := NewFlagsAdminStateFetcherWithEncryption(config.ClientSecret, config.EncryptionKey, logger, transport)
 	flagLogger := fl.NewGrpcWasmFlagLogger(flagLoggerService, config.ClientSecret, logger)
 	materializationStore := config.MaterializationStore
 	if materializationStore == nil {
@@ -87,6 +88,9 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
+	if config.EncryptionKey != "" {
+		providerOpts = append(providerOpts, WithEncryptionKey(config.EncryptionKey))
+	}
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
