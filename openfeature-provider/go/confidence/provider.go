@@ -407,7 +407,19 @@ func (p *LocalResolverProvider) Resolve(
 		requestFlags[i] = "flags/" + name
 	}
 
-	return p.resolveFlags(evalCtx, requestFlags, apply)
+	start := time.Now()
+	resp, err := p.resolveFlags(evalCtx, requestFlags, apply)
+
+	reason := resolver.ResolveReason_RESOLVE_REASON_BUNDLE
+	if err != nil {
+		reason = resolver.ResolveReason_RESOLVE_REASON_ERROR
+	}
+	p.resolver.RegisterResolve(&wasm.RegisterResolveRequest{
+		Reason:    reason,
+		LatencyUs: uint32(time.Since(start).Microseconds()),
+	})
+
+	return resp, err
 }
 
 // ApplyFlags records exposure events for flags previously resolved with
