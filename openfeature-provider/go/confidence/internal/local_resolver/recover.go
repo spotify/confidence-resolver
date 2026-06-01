@@ -41,6 +41,7 @@ type RecoveringResolver struct {
 
 	lastState          atomic.Value // holds *wasm.SetResolverStateRequest
 	lastEncryptedState atomic.Value // holds *wasm.SetEncryptedResolverStateRequest
+	useEncrypted       atomic.Bool
 }
 
 func (r *RecoveringResolver) get() LocalResolver {
@@ -61,12 +62,12 @@ func (r *RecoveringResolver) startRecreate() {
 		}()
 		old := r.get()
 		newLR := r.factory.New()
-		if v := r.lastEncryptedState.Load(); v != nil {
-			state := v.(*wasm.SetEncryptedResolverStateRequest)
-			_ = newLR.SetEncryptedResolverState(state)
+		if r.useEncrypted.Load() {
+			if v := r.lastEncryptedState.Load(); v != nil {
+				_ = newLR.SetEncryptedResolverState(v.(*wasm.SetEncryptedResolverStateRequest))
+			}
 		} else if v := r.lastState.Load(); v != nil {
-			state := v.(*wasm.SetResolverStateRequest)
-			_ = newLR.SetResolverState(state)
+			_ = newLR.SetResolverState(v.(*wasm.SetResolverStateRequest))
 		}
 		r.current.Store(newLR)
 		if old != nil {
@@ -99,7 +100,7 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 		err = lr.SetResolverState(request)
 		if err == nil {
 			r.lastState.Store(request)
-			r.lastEncryptedState = atomic.Value{}
+			r.useEncrypted.Store(false)
 		}
 	})
 	return
@@ -110,7 +111,7 @@ func (r *RecoveringResolver) SetEncryptedResolverState(request *wasm.SetEncrypte
 		err = lr.SetEncryptedResolverState(request)
 		if err == nil {
 			r.lastEncryptedState.Store(request)
-			r.lastState = atomic.Value{}
+			r.useEncrypted.Store(true)
 		}
 	})
 	return
