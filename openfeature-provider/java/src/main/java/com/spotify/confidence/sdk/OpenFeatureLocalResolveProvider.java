@@ -516,6 +516,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    */
   CompletionStage<ResolveFlagsResponse> resolve(
       EvaluationContext ctx, List<String> flagNames, boolean apply) {
+    final long startNanos = System.nanoTime();
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
 
     final var reqBuilder =
@@ -544,7 +545,15 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             ResolveProcessRequest.newBuilder()
                 .setWithoutMaterializations(reqBuilder.build())
                 .build())
-        .thenApply(processResponse -> processResponse.getResolved().getResponse());
+        .thenApply(processResponse -> processResponse.getResolved().getResponse())
+        .whenComplete(
+            (response, error) -> {
+              ResolveReason reason =
+                  error != null
+                      ? ResolveReason.RESOLVE_REASON_ERROR
+                      : ResolveReason.RESOLVE_REASON_BUNDLE;
+              doRegisterResolve(reason, startNanos);
+            });
   }
 
   /**
