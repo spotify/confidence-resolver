@@ -64,6 +64,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final AccountStateProvider stateProvider;
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
+  private final String encryptionKey;
   private volatile boolean initialized = false;
   private volatile byte[] lastStateBytes = null;
   @VisibleForTesting boolean forcedFetcherShutdown = false;
@@ -147,8 +148,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   public OpenFeatureLocalResolveProvider(
       LocalProviderConfig config, String clientSecret, MaterializationStore materializationStore) {
     this.clientSecret = clientSecret;
+    this.encryptionKey = config.getEncryptionKey();
     this.materializationStore = materializationStore;
-    this.stateProvider = new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory());
+    this.stateProvider =
+        new FlagsAdminStateFetcher(
+            clientSecret, config.getHttpClientFactory(), config.getEncryptionKey());
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
     this.flagLogger = wasmFlagLogger;
     final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
@@ -174,6 +178,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger) {
     this.clientSecret = clientSecret;
+    this.encryptionKey = null;
     this.materializationStore = materializationStore;
     this.stateProvider = accountStateProvider;
     this.flagLogger = wasmFlagLogger;
@@ -198,12 +203,19 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         new AtomicReference<>(stateProvider.provide());
     final AtomicReference<String> accountIdRef = new AtomicReference<>(stateProvider.accountId());
 
-    // Only initialize WASM and set READY if we got valid state (non-empty accountId)
-    if (!accountIdRef.get().isEmpty()) {
+    if (encryptionKey != null) {
+      final byte[] stateBytes = resolverStateProtobuf.get();
+      if (stateBytes != null && stateBytes.length > 0) {
+        resolver.setEncryptedResolverState(stateBytes, hexToBytes(encryptionKey), SDK);
+        initialized = true;
+        this.state.set(ProviderState.READY);
+      }
+    } else if (!accountIdRef.get().isEmpty()) {
       resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
       initialized = true;
       this.state.set(ProviderState.READY);
-    } else {
+    }
+    if (!initialized) {
       log.warn(
           "Initial state load failed, provider starting in NOT_READY state, serving default"
               + " values.");
@@ -245,22 +257,31 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             resolverStateProtobuf.set(stateProvider.provide());
             accountIdRef.set(stateProvider.accountId());
 
-            if (!accountIdRef.get().isEmpty()) {
+            final byte[] newState = resolverStateProtobuf.get();
+            final boolean hasState =
+                encryptionKey != null
+                    ? (newState != null && newState.length > 0)
+                    : !accountIdRef.get().isEmpty();
+            if (hasState) {
               if (!initialized) {
-                resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
-                lastStateBytes = resolverStateProtobuf.get();
+                if (encryptionKey != null) {
+                  resolver.setEncryptedResolverState(newState, hexToBytes(encryptionKey), SDK);
+                } else {
+                  resolver.setResolverState(newState, accountIdRef.get(), SDK);
+                }
+                lastStateBytes = newState;
                 initialized = true;
                 this.state.set(ProviderState.READY);
                 log.info("Provider recovered and is now READY");
               } else {
-                // Only push state into the wasm instances when it actually changed — the wasm
-                // execution inside setResolverState is expensive (runs across all pool slots).
-                final byte[] newState = resolverStateProtobuf.get();
                 if (!java.util.Arrays.equals(newState, lastStateBytes)) {
-                  resolver.setResolverState(newState, accountIdRef.get(), SDK);
+                  if (encryptionKey != null) {
+                    resolver.setEncryptedResolverState(newState, hexToBytes(encryptionKey), SDK);
+                  } else {
+                    resolver.setResolverState(newState, accountIdRef.get(), SDK);
+                  }
                   lastStateBytes = newState;
                 }
-                // Always flush logs regardless of state change.
                 resolver.flushAllLogs();
               }
             }
@@ -272,6 +293,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         },
         delaySeconds,
         TimeUnit.SECONDS);
+  }
+
+  private static byte[] hexToBytes(String hex) {
+    return java.util.HexFormat.of().parseHex(hex);
   }
 
   @Override
