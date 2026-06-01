@@ -512,7 +512,7 @@ func (p *LocalResolverProvider) setResolverState(state []byte, accountId string,
 	}
 
 	if accountId == "" {
-		return fmt.Errorf("accountID is empty in the fetched state")
+		return fmt.Errorf("AccountID is empty in the state")
 	}
 	return p.resolver.SetResolverState(&wasm.SetResolverStateRequest{
 		State:     state,
