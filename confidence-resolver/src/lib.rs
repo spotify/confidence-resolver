@@ -937,6 +937,13 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     }
 
     pub fn apply_flags(&self, request: &flags_resolver::ApplyFlagsRequest) -> Result<(), String> {
+        // The Cloudflare edge resolver applies at resolve time (apply=true) and
+        // returns no resolve token, but SDKs still issue a background apply with
+        // an empty token. There is nothing to apply, so no-op instead of failing
+        // to decrypt an empty buffer.
+        if request.resolve_token.is_empty() {
+            return Ok(());
+        }
         let send_time_ts = request.send_time.as_ref().ok_or("send_time is required")?;
         let send_time = to_date_time_utc(send_time_ts).ok_or("invalid send_time")?;
         let receive_time: DateTime<Utc> = timestamp_to_datetime(&H::current_time())?;
@@ -2527,6 +2534,32 @@ mod tests {
                 .unwrap_err()
                 .contains("Flag in resolve token does not match"),
             "Error message should indicate flag mismatch"
+        );
+    }
+
+    #[test]
+    fn apply_flags_empty_resolve_token_is_noop() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, L> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let apply_request = flags_resolver::ApplyFlagsRequest {
+            resolve_token: vec![],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            resolver.apply_flags(&apply_request),
+            Ok(()),
+            "apply_flags should no-op when the resolve token is empty"
         );
     }
 
