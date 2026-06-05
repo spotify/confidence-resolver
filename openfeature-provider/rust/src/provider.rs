@@ -551,6 +551,11 @@ impl FeatureProvider for ConfidenceProvider {
             return Err(no_variant_matched_error(&result.reason));
         }
 
+        if is_null_value(&result.value) {
+            do_register_resolve(result.resolve_reason, start);
+            return Err(null_value_error());
+        }
+
         match extract_bool_value(&result.value) {
             Some(value) => {
                 do_register_resolve(result.resolve_reason, start);
@@ -588,6 +593,11 @@ impl FeatureProvider for ConfidenceProvider {
         if result.variant.is_none() {
             do_register_resolve(result.resolve_reason, start);
             return Err(no_variant_matched_error(&result.reason));
+        }
+
+        if is_null_value(&result.value) {
+            do_register_resolve(result.resolve_reason, start);
+            return Err(null_value_error());
         }
 
         match extract_number_value(&result.value).map(|v| v as i64) {
@@ -629,6 +639,11 @@ impl FeatureProvider for ConfidenceProvider {
             return Err(no_variant_matched_error(&result.reason));
         }
 
+        if is_null_value(&result.value) {
+            do_register_resolve(result.resolve_reason, start);
+            return Err(null_value_error());
+        }
+
         match extract_number_value(&result.value) {
             Some(value) => {
                 do_register_resolve(result.resolve_reason, start);
@@ -666,6 +681,11 @@ impl FeatureProvider for ConfidenceProvider {
         if result.variant.is_none() {
             do_register_resolve(result.resolve_reason, start);
             return Err(no_variant_matched_error(&result.reason));
+        }
+
+        if is_null_value(&result.value) {
+            do_register_resolve(result.resolve_reason, start);
+            return Err(null_value_error());
         }
 
         match extract_string_value(&result.value) {
@@ -728,6 +748,27 @@ fn do_register_resolve(reason: ResolveReason, start: Instant) {
     let latency_us = start.elapsed().as_micros() as u32;
     TELEMETRY.record_latency_us(latency_us);
     TELEMETRY.mark_resolve(reason);
+}
+
+fn is_null_value(value: &Option<Struct>) -> bool {
+    match value {
+        None => true,
+        Some(s) => match s.fields.iter().next() {
+            None => true,
+            Some((_, v)) => matches!(&v.kind, Some(value::Kind::NullValue(_)) | None),
+        },
+    }
+}
+
+fn null_value_error() -> EvaluationError {
+    EvaluationError::builder()
+        .code(EvaluationErrorCode::General(
+            "Property value is null".to_string(),
+        ))
+        .message(
+            "Property value is null (unset in flag configuration). The SDK default will be used.",
+        )
+        .build()
 }
 
 /// Create an error for when no variant was matched (e.g., no segment match).
@@ -1632,5 +1673,53 @@ mod tests {
             .unwrap_or(false);
 
         assert!(!skip_apply);
+    }
+
+    #[test]
+    fn test_is_null_value_with_null() {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "prop".to_string(),
+            ProtoValue {
+                kind: Some(value::Kind::NullValue(0)),
+            },
+        );
+        assert!(is_null_value(&Some(Struct { fields })));
+    }
+
+    #[test]
+    fn test_is_null_value_with_none() {
+        assert!(is_null_value(&None));
+    }
+
+    #[test]
+    fn test_is_null_value_with_empty_struct() {
+        assert!(is_null_value(&Some(Struct {
+            fields: HashMap::new(),
+        })));
+    }
+
+    #[test]
+    fn test_is_null_value_with_bool() {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "prop".to_string(),
+            ProtoValue {
+                kind: Some(value::Kind::BoolValue(true)),
+            },
+        );
+        assert!(!is_null_value(&Some(Struct { fields })));
+    }
+
+    #[test]
+    fn test_is_null_value_with_string() {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "prop".to_string(),
+            ProtoValue {
+                kind: Some(value::Kind::StringValue("hello".to_string())),
+            },
+        );
+        assert!(!is_null_value(&Some(Struct { fields })));
     }
 }
