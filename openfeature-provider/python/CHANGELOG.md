@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.7.0...openfeature-provider-python-v0.7.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **python:** avoid mutating caller context for skip-apply ([#436](https://github.com/spotify/confidence-resolver/issues/436)) ([deedd96](https://github.com/spotify/confidence-resolver/commit/deedd967ff19d255cbfb0cda6ecf56c4311d4052))
+* **python:** use set_provider_and_wait for openfeature-sdk 0.10.0 ([#438](https://github.com/spotify/confidence-resolver/issues/438)) ([9d8da9a](https://github.com/spotify/confidence-resolver/commit/9d8da9af0df84eec4cd03705fc2f97803bcf218f))
+
 ## [0.7.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.6.8...openfeature-provider-python-v0.7.0) (2026-05-28)
 
 

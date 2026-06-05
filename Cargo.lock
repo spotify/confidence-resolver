@@ -256,7 +256,7 @@ dependencies = [
 
 [[package]]
 name = "confidence-cloudflare-resolver"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -1223,28 +1223,28 @@ dependencies = [
 
 [[package]]
 name = "openfeature-provider-go"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-java"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-js"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-python"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "rust-guest",
 ]

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.5](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.10.4...confidence-cloudflare-resolver-v0.10.5) (2026-06-05)
+
+
+### Bug Fixes
+
+* **cloudflare:** no-op apply and telemetry for service binding SDKs ([#434](https://github.com/spotify/confidence-resolver/issues/434)) ([308b1b4](https://github.com/spotify/confidence-resolver/commit/308b1b4085efdf7731946ad8d6be8112864948a0))
+
 ## [0.10.4](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.10.3...confidence-cloudflare-resolver-v0.10.4) (2026-05-28)
 
 
