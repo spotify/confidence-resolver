@@ -331,6 +331,14 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         };
 
+                        // This resolver forces apply=true at resolve time and
+                        // returns no resolve token. SDKs still send a background
+                        // apply with an empty token — nothing to do.
+                        if apply_flag_req.resolve_token.is_empty() {
+                            return Response::from_json(&ApplyFlagsResponse::default())?
+                                .with_cors_headers(&allowed_origin);
+                        }
+
                         match state.get_resolver::<H>(
                             &apply_flag_req.client_secret,
                             Struct::default(),
