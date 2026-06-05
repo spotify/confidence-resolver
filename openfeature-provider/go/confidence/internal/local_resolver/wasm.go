@@ -41,9 +41,22 @@ type WasmResolver struct {
 	logSink    LogSink
 	mu         *sync.Mutex
 	instanceID string
+	fnCache    sync.Map
 }
 
 var _ LocalResolver = (*WasmResolver)(nil)
+
+// exportedFunction returns a cached WASM function handle. Wazevo allocates a
+// new call engine on every Module.ExportedFunction call; caching avoids that
+// on the hot path.
+func (r *WasmResolver) exportedFunction(name string) api.Function {
+	if fn, ok := r.fnCache.Load(name); ok {
+		return fn.(api.Function)
+	}
+	fn := r.instance.ExportedFunction(name)
+	r.fnCache.Store(name, fn)
+	return fn
+}
 
 func (r *WasmResolver) SetResolverState(request *wasm.SetResolverStateRequest) error {
 	return r.call("wasm_msg_guest_set_resolver_state", request, nil)
@@ -116,17 +129,17 @@ func (r *WasmResolver) call(fnName string, request proto.Message, response proto
 		wsmMsgReq := &wasm.Request{
 			Data: mustMarshal(request),
 		}
-		reqPtr = transfer(r.instance, mustMarshal(wsmMsgReq))
+		reqPtr = r.transfer(mustMarshal(wsmMsgReq))
 	}
 	ctx := context.Background()
-	fn := r.instance.ExportedFunction(fnName)
+	fn := r.exportedFunction(fnName)
 	resPtr, err := fn.Call(ctx, uint64(reqPtr))
 	if err != nil {
 		panic(err)
 	}
 
 	if resPtr[0] != 0 {
-		resBytes := consume(r.instance, uint32(resPtr[0]))
+		resBytes := r.consume(uint32(resPtr[0]))
 		wsmMsgRes := &wasm.Response{}
 		mustUnmarshal(resBytes, wsmMsgRes)
 		errMsg := wsmMsgRes.GetError()
@@ -215,30 +228,29 @@ func (wrf *WasmResolverFactory) Close(ctx context.Context) error {
 	return wrf.runtime.Close(ctx)
 }
 
-// consume reads data from WASM memory and frees it
-func consume(inst api.Module, addr uint32) []byte {
+// readAndFree and allocAndWrite are the low-level WASM memory primitives.
+// They accept the alloc/free function handle as a parameter so callers can
+// choose between a cached handle (WasmResolver methods, hot path) and a
+// direct ExportedFunction lookup (host callbacks, cold path).
+func readAndFree(inst api.Module, addr uint32, freeFn api.Function) []byte {
 	memory := inst.Memory()
 
-	// Read length (assuming 4-byte length prefix)
 	lenBytes, ok := memory.Read(addr-4, 4)
 	if !ok {
 		panic("failed to read buffer len")
 	}
 	length := binary.LittleEndian.Uint32(lenBytes) - 4
 
-	// Read data
 	data, ok := memory.Read(addr, length)
 	if !ok {
 		panic("failed to read buffer")
 	}
 
-	// Make a copy of the data before freeing the WASM memory
 	dataCopy := make([]byte, length)
 	copy(dataCopy, data)
 
-	// Free memory
 	ctx := context.Background()
-	_, err := inst.ExportedFunction("wasm_msg_free").Call(ctx, uint64(addr))
+	_, err := freeFn.Call(ctx, uint64(addr))
 	if err != nil {
 		panic(err)
 	}
@@ -246,22 +258,36 @@ func consume(inst api.Module, addr uint32) []byte {
 	return dataCopy
 }
 
-func transfer(inst api.Module, data []byte) uint32 {
+func allocAndWrite(inst api.Module, data []byte, allocFn api.Function) uint32 {
 	ctx := context.Background()
 
-	// Allocate memory in WASM
-	results, err := inst.ExportedFunction("wasm_msg_alloc").Call(ctx, uint64(len(data)))
+	results, err := allocFn.Call(ctx, uint64(len(data)))
 	if err != nil {
 		panic(err)
 	}
 
 	addr := uint32(results[0])
-
-	// Write data to WASM memory
-	memory := inst.Memory()
-	memory.Write(addr, data)
+	inst.Memory().Write(addr, data)
 
 	return addr
+}
+
+// Method versions use cached function handles (hot path — called per resolve).
+func (r *WasmResolver) consume(addr uint32) []byte {
+	return readAndFree(r.instance, addr, r.exportedFunction("wasm_msg_free"))
+}
+
+func (r *WasmResolver) transfer(data []byte) uint32 {
+	return allocAndWrite(r.instance, data, r.exportedFunction("wasm_msg_alloc"))
+}
+
+// Free-function versions look up the handle each time (cold path — host callbacks only).
+func consume(inst api.Module, addr uint32) []byte {
+	return readAndFree(inst, addr, inst.ExportedFunction("wasm_msg_free"))
+}
+
+func transfer(inst api.Module, data []byte) uint32 {
+	return allocAndWrite(inst, data, inst.ExportedFunction("wasm_msg_alloc"))
 }
 
 // mustMarshal is a helper function that panics on marshal errors
