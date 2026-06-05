@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.17.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.17.0...openfeature-provider/go/v0.17.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* register telemetry on bundle resolve path ([#431](https://github.com/spotify/confidence-resolver/issues/431)) ([2ce5c9a](https://github.com/spotify/confidence-resolver/commit/2ce5c9a5eb50be27b3aa8d98bfb1be469d23b7c0))
+
+
+### Performance Improvements
+
+* **go:** cache exported WASM function handles ([#430](https://github.com/spotify/confidence-resolver/issues/430)) ([362b7ba](https://github.com/spotify/confidence-resolver/commit/362b7bae60298df0032403410095a02cf17849b6))
+
 ## [0.17.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.16.0...openfeature-provider/go/v0.17.0) (2026-05-28)
 
 

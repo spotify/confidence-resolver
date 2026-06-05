@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.15.0...openfeature-provider-js-v0.15.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* register telemetry on bundle resolve path ([#431](https://github.com/spotify/confidence-resolver/issues/431)) ([2ce5c9a](https://github.com/spotify/confidence-resolver/commit/2ce5c9a5eb50be27b3aa8d98bfb1be469d23b7c0))
+
 ## [0.15.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.14.2...openfeature-provider-js-v0.15.0) (2026-05-28)
 
 
