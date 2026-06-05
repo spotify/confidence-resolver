@@ -197,6 +197,36 @@ No WASM dependency, no proto generation — this stage is fast and self-containe
 
 No `@bufbuild/protobuf`, no `debug`, no React/Next.js. The package is tiny.
 
+## Future: Unified provider with pluggable resolver
+
+The shared code extraction in PR 1 and the CF provider in PR 2 are stepping stones toward a single `ConfidenceProvider` with a pluggable `Resolver` interface:
+
+```ts
+interface Resolver {
+  resolve(flags: string[], context: Record<string, any>): Promise<FlagBundle>;
+  initialize?(): Promise<void>;
+  close?(): Promise<void>;
+}
+```
+
+Three resolver implementations, same provider:
+
+| Resolver | Backend | Use case |
+|----------|---------|----------|
+| `ServiceBindingResolver` | CF Worker via service binding | Cloudflare Workers at the edge |
+| `LocalResolver` | In-process WASM + CDN state polling | High-throughput servers (Node, Deno, Bun) |
+| `RemoteResolver` | HTTP to `resolver.confidence.dev` | Simple setups, low-volume backends |
+
+**What this PR already does toward that goal:**
+- `js-shared/flag-bundle.ts` extracts the shared `FlagBundle` type and `resolve()`/`evaluateAssignment()` — this becomes the contract between provider and resolver
+- The CF provider's `evaluate()` method is essentially the unified provider pattern already (FlagBundle in, ResolutionDetails out)
+
+**What a follow-up would need to change:**
+- **Refactor `ConfidenceServerProviderLocal`** — move state polling, log flushing, materialization orchestration, and WASM lifecycle out of the provider class and into a `LocalResolver` implementation. This is the bulk of the work (~400 LOC moves from provider to resolver).
+- **Extract the provider shell** — the ~50 LOC of OpenFeature glue (`evaluate()`, `resolveBooleanEvaluation()`, etc.) becomes the shared `ConfidenceProvider` class.
+- **Unify `FlagBundle` creation** — each resolver normalizes its response format (protobuf, JSON, etc.) to `FlagBundle` internally, so the provider never sees protocol-specific types.
+- **Package consolidation** — either merge into one package with entry points (`/local`, `/cloudflare`, `/remote`) or keep a core + resolver packages. A single package with entry points is simpler but means renaming from `@spotify-confidence/openfeature-server-provider-local` (breaking change). Separate resolver packages avoid the rename but add maintenance surface.
+
 ## Reused code
 
 | Code | Location | Used by |
