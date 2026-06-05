@@ -9,6 +9,7 @@ import FlagBundleType, * as FlagBundle from '../flag-bundle';
 import { ErrorCode } from '../types';
 
 type FlagBundle = FlagBundleType;
+type ApplyFn = (flagName: string) => Promise<void>;
 
 const createTestBundle = (flags: FlagBundle['flags'] = {}): FlagBundle => ({
   flags,
@@ -17,7 +18,7 @@ const createTestBundle = (flags: FlagBundle['flags'] = {}): FlagBundle => ({
 });
 
 describe('useFlag', () => {
-  let mockApply: ReturnType<typeof vi.fn>;
+  let mockApply: ReturnType<typeof vi.fn<ApplyFn>>;
 
   beforeEach(() => {
     mockApply = vi.fn().mockResolvedValue(undefined);
@@ -360,7 +361,7 @@ describe('useFlag', () => {
 });
 
 describe('useFlagDetails', () => {
-  let mockApply: ReturnType<typeof vi.fn>;
+  let mockApply: ReturnType<typeof vi.fn<ApplyFn>>;
 
   beforeEach(() => {
     mockApply = vi.fn().mockResolvedValue(undefined);
