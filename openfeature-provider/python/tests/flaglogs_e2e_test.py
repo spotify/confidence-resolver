@@ -3,6 +3,7 @@
 import time
 
 from openfeature import api
+from openfeature.api import set_provider_and_wait
 from openfeature.evaluation_context import EvaluationContext
 
 import os
@@ -24,8 +25,7 @@ class TestFlagLogging:
         )
 
         try:
-            provider.initialize(EvaluationContext())
-            api.set_provider(provider)
+            set_provider_and_wait(provider)
             client = api.get_client()
 
             # Perform multiple resolves to generate logs
@@ -56,8 +56,7 @@ class TestFlagLogging:
         )
 
         try:
-            provider.initialize(EvaluationContext())
-            api.set_provider(provider)
+            set_provider_and_wait(provider)
             client = api.get_client()
 
             # Resolve a flag
@@ -102,8 +101,7 @@ class TestAssignmentLogging:
         )
 
         try:
-            provider.initialize(EvaluationContext())
-            api.set_provider(provider)
+            set_provider_and_wait(provider)
             client = api.get_client()
 
             ctx = EvaluationContext(

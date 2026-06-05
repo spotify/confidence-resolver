@@ -15,7 +15,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 ## Requirements
 
 - Python 3.10+
-- OpenFeature SDK 0.8.0+
+- OpenFeature SDK 0.10.0+
 
 ## Installation
 
@@ -42,7 +42,7 @@ from confidence import ConfidenceProvider
 
 # Create and register the provider
 provider = ConfidenceProvider(client_secret="your-client-secret")
-api.set_provider(provider)
+api.set_provider_and_wait(provider)
 
 # Get a client
 client = api.get_client()
