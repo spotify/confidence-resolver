@@ -47,6 +47,8 @@ enum ResolveReason {
   RESOLVE_REASON_TYPE_MISMATCH = 9;
   // The flag was not found in the resolve response
   RESOLVE_REASON_FLAG_NOT_FOUND = 10;
+  // A bundle resolve was performed (multiple flags resolved at once)
+  RESOLVE_REASON_BUNDLE = 11;
 }
 
 enum SdkId {
