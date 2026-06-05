@@ -1,6 +1,7 @@
 """End-to-end tests that verify flag resolution with the real backend."""
 
 from openfeature import api
+from openfeature.api import set_provider_and_wait
 from openfeature.evaluation_context import EvaluationContext
 
 import os
@@ -24,8 +25,7 @@ class TestFlagResolveWithRemoteMaterializationStore:
         )
 
         try:
-            provider.initialize(EvaluationContext())
-            api.set_provider(provider)
+            set_provider_and_wait(provider)
             client = api.get_client()
 
             # Use targetless context with only user_id, matching Go tests
@@ -55,8 +55,7 @@ class TestFlagResolveWithRemoteMaterializationStore:
         )
 
         try:
-            provider.initialize(EvaluationContext())
-            api.set_provider(provider)
+            set_provider_and_wait(provider)
             client = api.get_client()
 
             # Use targetless context with only user_id, matching Go tests
@@ -90,8 +89,7 @@ class TestFlagResolveWithoutMaterializationStore:
         )
 
         try:
-            provider.initialize(EvaluationContext())
-            api.set_provider(provider)
+            set_provider_and_wait(provider)
             client = api.get_client()
 
             ctx = EvaluationContext(
