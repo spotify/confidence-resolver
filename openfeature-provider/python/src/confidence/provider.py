@@ -456,7 +456,7 @@ class ConfidenceProvider(AbstractProvider):
             skip_apply = False
             if evaluation_context and evaluation_context.attributes:
                 skip_apply = (
-                    evaluation_context.attributes.pop("_confidence_skip_apply", False)
+                    evaluation_context.attributes.get("_confidence_skip_apply", False)
                     is True
                 )
 
@@ -870,9 +870,11 @@ class ConfidenceProvider(AbstractProvider):
                 string_value=context.targeting_key
             )
 
-        # Add attributes
+        # Add attributes, skipping the internal apply-control flag
         if context.attributes:
             for key, value in context.attributes.items():
+                if key == "_confidence_skip_apply":
+                    continue
                 fields[key] = ConfidenceProvider._value_to_proto(value)
 
         return struct_pb2.Struct(fields=fields)

@@ -883,14 +883,18 @@ class TestSkipApply:
         finally:
             provider.shutdown()
 
-    def test_skip_apply_key_is_stripped_from_context(
+    def test_skip_apply_does_not_mutate_caller_context(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
         test_account_id: str,
         test_client_secret: str,
     ) -> None:
-        """Test that _confidence_skip_apply is removed from attributes after resolve."""
+        """Test that _confidence_skip_apply is left intact on the caller's context.
+
+        The key must not be popped from the caller's attributes, otherwise a
+        reused EvaluationContext would only skip apply on its first evaluation.
+        """
         mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
         mock_logger = MockFlagLogger()
 
@@ -912,12 +916,15 @@ class TestSkipApply:
                 targeting_key="test-user",
                 attributes=attrs,
             )
-            provider.resolve_string_details(
-                flag_key="tutorial-feature.message",
-                default_value="default-message",
-                evaluation_context=ctx,
-            )
 
-            assert "_confidence_skip_apply" not in attrs
+            # Resolve twice with the same context to ensure skip_apply is
+            # honored consistently and the key is never stripped.
+            for _ in range(2):
+                provider.resolve_string_details(
+                    flag_key="tutorial-feature.message",
+                    default_value="default-message",
+                    evaluation_context=ctx,
+                )
+                assert attrs["_confidence_skip_apply"] is True
         finally:
             provider.shutdown()
