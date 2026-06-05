@@ -80,7 +80,7 @@
     "ts-proto": "^2.7.3",
     "tsdown": "latest",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.0"
   },
   "peerDependencies": {
     "@openfeature/core": "^1.0.0",
