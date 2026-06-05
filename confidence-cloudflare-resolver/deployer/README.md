@@ -119,7 +119,62 @@ When integrating with the Cloudflare resolver, you have two options:
 
 **HTTP calls**: Standard HTTP requests to the resolver endpoint. Use this approach when calling from external services or client applications.
 
-For more details on integration, including code examples using the [`@spotify-confidence/sdk`](https://github.com/spotify/confidence-sdk-js), see the [Confidence documentation](https://confidence.spotify.com/docs/sdks/edge/cloudflare#cloudflare-workers).
+### Example: Service binding with `@spotify-confidence/sdk`
+
+1. Add a service binding to your `wrangler.json`:
+
+```json
+{
+  "name": "my-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-04",
+  "services": [
+    {
+      "binding": "ConfidenceBinding",
+      "service": "confidence-cloudflare-resolver"
+    }
+  ]
+}
+```
+
+2. Use the SDK with `fetchImplementation` and `waitUntil`:
+
+```typescript
+import { Confidence } from '@spotify-confidence/sdk';
+
+interface Env {
+  CONFIDENCE_CLIENT_SECRET: string;
+  ConfidenceBinding: {
+    fetch: (request: Request) => Promise<Response>;
+  };
+}
+
+export default {
+  async fetch(request, env, ctx): Promise<Response> {
+    const confidence = Confidence.create({
+      clientSecret: env.CONFIDENCE_CLIENT_SECRET,
+      environment: 'backend',
+      fetchImplementation: (req: Request) => env.ConfidenceBinding.fetch(req),
+      timeout: 1000,
+      waitUntil: (p) => ctx.waitUntil(p),
+    });
+
+    const flag = await confidence
+      .withContext({ targeting_key: 'user-123' })
+      .evaluateFlag('my-flag', {});
+
+    return new Response(JSON.stringify({ flag }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  },
+} satisfies ExportedHandler<Env>;
+```
+
+- **`fetchImplementation`** routes resolve requests through the service binding instead of the public internet.
+- **`waitUntil`** keeps the Worker alive for background tasks (apply events, telemetry) after the response is sent. Without it, these fire-and-forget calls are silently dropped.
+- **`environment: 'backend'`** is required for server-side usage.
+
+For more details, see the [Confidence documentation](https://confidence.spotify.com/docs/sdks/edge/cloudflare#cloudflare-workers).
 
 ## Telemetry & Metrics
 
