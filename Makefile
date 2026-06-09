@@ -25,6 +25,11 @@ sync-wasm-go:
 	@echo "  git add $(GO_WASM)/confidence_resolver.wasm"
 	@echo "  git commit -m 'chore: sync WASM module for Go provider'"
 
+.PHONY: sync-wasm-go-with-commit
+sync-wasm-go-with-commit: sync-wasm-go
+	git add $(GO_WASM)/confidence_resolver.wasm
+	git commit -m 'chore: sync WASM module for Go provider'
+
 # Build Cloudflare deployer image using main Dockerfile
 .PHONY: build-deployer
 build-deployer:
