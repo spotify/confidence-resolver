@@ -1,6 +1,6 @@
 [package]
 name = "spotify-confidence-openfeature-provider-local"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "OpenFeature provider for Confidence using native Rust resolver"
 license = "Apache-2.0"
