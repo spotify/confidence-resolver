@@ -750,6 +750,129 @@ class FlagResolverServiceTest {
     }
   }
 
+  @Nested
+  class TokenSealing {
+
+    private final ResolveTokenSealer sealer =
+        ResolveTokenSealer.create("test-key-do-not-use-in-prod");
+
+    @Test
+    void resolveShouldSealTokenWhenSealerConfigured() {
+      FlagResolverService<ConfidenceHttpRequest> sealedService =
+          new FlagResolverService<>(mockProvider, sealer);
+
+      String requestBody =
+          """
+          {
+            "flags": ["flag1"],
+            "evaluationContext": {},
+            "apply": false
+          }
+          """;
+
+      ResolveFlagsResponse mockResponse =
+          ResolveFlagsResponse.newBuilder()
+              .setResolveToken(ByteString.copyFromUtf8("secret-token-value"))
+              .setResolveId("resolve-123")
+              .build();
+
+      when(mockProvider.resolve(any(EvaluationContext.class), anyList(), anyBoolean()))
+          .thenReturn(CompletableFuture.completedFuture(mockResponse));
+
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response =
+          sealedService.handleResolve(request).toCompletableFuture().join();
+
+      assertThat(response.statusCode()).isEqualTo(200);
+      String body = readBody(response);
+      // The raw token should NOT appear in the response
+      assertThat(body).doesNotContain("secret-token-value");
+      // But the response should still have a resolveToken field
+      assertThat(body).contains("resolveToken");
+    }
+
+    @Test
+    void applyShouldOpenSealedToken() {
+      FlagResolverService<ConfidenceHttpRequest> sealedService =
+          new FlagResolverService<>(mockProvider, sealer);
+
+      // Seal a token the same way the resolve handler would
+      byte[] rawToken = "the-real-resolve-token".getBytes(StandardCharsets.UTF_8);
+      byte[] sealed = sealer.seal(rawToken);
+      String sealedBase64 = java.util.Base64.getEncoder().encodeToString(sealed);
+
+      String requestBody =
+          """
+          {
+            "flags": [{"flag": "flags/my-flag", "applyTime": "2025-02-12T12:34:56Z"}],
+            "resolveToken": "%s"
+          }
+          """
+              .formatted(sealedBase64);
+
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response =
+          sealedService.handleApply(request).toCompletableFuture().join();
+
+      assertThat(response.statusCode()).isEqualTo(200);
+
+      ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
+      verify(mockProvider).applyFlags(captor.capture());
+      // The provider should receive the original, unsealed token
+      assertThat(captor.getValue().getResolveToken().toStringUtf8())
+          .isEqualTo("the-real-resolve-token");
+    }
+
+    @Test
+    void applyShouldReturn400ForTamperedToken() {
+      FlagResolverService<ConfidenceHttpRequest> sealedService =
+          new FlagResolverService<>(mockProvider, sealer);
+
+      byte[] sealed = sealer.seal("some-token".getBytes(StandardCharsets.UTF_8));
+      sealed[sealed.length - 1] ^= 0x01;
+      String tamperedBase64 = java.util.Base64.getEncoder().encodeToString(sealed);
+
+      String requestBody =
+          """
+          {
+            "flags": [{"flag": "flags/test"}],
+            "resolveToken": "%s"
+          }
+          """
+              .formatted(tamperedBase64);
+
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response =
+          sealedService.handleApply(request).toCompletableFuture().join();
+
+      assertThat(response.statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void applyShouldReturn400ForGarbageToken() {
+      FlagResolverService<ConfidenceHttpRequest> sealedService =
+          new FlagResolverService<>(mockProvider, sealer);
+
+      // A short garbage value that won't pass validation
+      String garbageBase64 = java.util.Base64.getEncoder().encodeToString(new byte[] {1, 2, 3});
+
+      String requestBody =
+          """
+          {
+            "flags": [{"flag": "flags/test"}],
+            "resolveToken": "%s"
+          }
+          """
+              .formatted(garbageBase64);
+
+      ConfidenceHttpRequest request = createRequest("POST", requestBody);
+      ConfidenceHttpResponse response =
+          sealedService.handleApply(request).toCompletableFuture().join();
+
+      assertThat(response.statusCode()).isEqualTo(400);
+    }
+  }
+
   private ConfidenceHttpRequest createRequest(String method, String body) {
     return createRequestWithHeaders(
         method, body, Map.of("Content-Type", List.of("application/json")));
