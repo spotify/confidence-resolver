@@ -68,11 +68,7 @@ impl BloomFilter {
 mod tests {
     use super::*;
 
-    fn make_packed(
-        data: &[u8],
-        num_hash_functions: i32,
-        num_bits: i64,
-    ) -> PackedBloomFilter {
+    fn make_packed(data: &[u8], num_hash_functions: i32, num_bits: i64) -> PackedBloomFilter {
         use miniz_oxide::deflate::compress_to_vec;
 
         let compressed = compress_to_vec(data, 6);
@@ -158,7 +154,8 @@ mod tests {
         //   BloomFilter.create(Funnels.stringFunnel(UTF_8), 100, 0.01)
         //   put("user1"), put("alice"), put("bob")
         //   Serialized via writeTo, header stripped, raw longs gzipped.
-        let gzipped_b64 = "H4sIAAAAAAAA/1NgAAIFEMHACCIEGJBBA4MDkFQCMR0UECphgAOkCyqEJC0ApllQFCLzQAAAULYFUXgAAAA=";
+        let gzipped_b64 =
+            "H4sIAAAAAAAA/1NgAAIFEMHACCIEGJBBA4MDkFQCMR0UECphgAOkCyqEJC0ApllQFCLzQAAAULYFUXgAAAA=";
         let gzipped_data = STANDARD.decode(gzipped_b64).unwrap();
 
         let packed = PackedBloomFilter {
