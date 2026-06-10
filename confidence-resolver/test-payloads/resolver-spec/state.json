@@ -954,6 +954,32 @@
         }
       ]
     },
+    "flags/bloom-filter-flag": {
+      "name": "flags/bloom-filter-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/bloom-filter-flag/rules/rule1",
+          "segment": "segments/bloom-filter-seg",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "flags/mat-criterion-flag": {
       "name": "flags/mat-criterion-flag",
       "state": "ACTIVE",
@@ -2451,6 +2477,20 @@
         "expression": { "ref": "c1" }
       }
     },
+    "segments/bloom-filter-seg": {
+      "name": "segments/bloom-filter-seg",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "materializedSegment": {
+              "materializedSegment": "materializations/bf-seg"
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
     "segments/mat-criterion": {
       "name": "segments/mat-criterion",
       "state": "OK",
@@ -2846,6 +2886,7 @@
     "segments/range-exclusive": "ALL",
     "segments/range-end-inclusive-only": "ALL",
     "segments/range-end-exclusive-only": "ALL",
+    "segments/bloom-filter-seg": "ALL",
     "segments/mat-criterion": "ALL",
     "segments/criterion-not-set": "ALL",
     "segments/empty-set": "ALL",
@@ -2870,6 +2911,14 @@
     "segments/diamond-parent": "ALL",
     "segments/diamond-child": "ALL",
     "segments/diamond-leaf": "ALL"
+  },
+  "bloomFilters": {
+    "materializations/bf-seg": {
+      "gzippedData": "H4sIAAAAAAAA/1NgAAIFEMHACCIEGJBBA4MDkFQCMR0UECphgAOkCyqEJC0ApllQFCLzQAAAULYFUXgAAAA=",
+      "numHashFunctions": 7,
+      "numBits": 960,
+      "strategy": 1
+    }
   },
   "clients": {
     "test-secret": {

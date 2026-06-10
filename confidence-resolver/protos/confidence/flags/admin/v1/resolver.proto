@@ -85,6 +85,24 @@ message ResolverState {
   // The region of the account
   Region region = 8;
 
+  // Bloom filters for materialized segments, enabling local membership checks
+  repeated PackedBloomFilter bloom_filters = 10;
+
+  // A bloom filter for a materialized segment, carrying the raw bit array and hash parameters
+  // extracted from Guava's BloomFilter serialization format.
+  message PackedBloomFilter {
+    string materialized_segment = 1;
+
+    bytes gzipped_data = 2;
+
+    int32 num_hash_functions = 3;
+
+    int64 num_bits = 4;
+
+    // Hash strategy. 1 = MURMUR128_MITZ_64.
+    int32 strategy = 5;
+  }
+
   // A compressed bitset for a specific segment. The bitset will be gzipped, unless it's all ones, in which case the
   // `full_bitset` field will be set instead.
   message PackedBitset {

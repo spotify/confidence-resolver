@@ -42,6 +42,7 @@ fn random_alphanumeric(len: usize) -> String {
 use err::Fallible;
 
 pub mod assign_logger;
+pub(crate) mod bloom_filter;
 mod bounded_set;
 mod err;
 pub mod flag_logger;
@@ -71,6 +72,7 @@ use flags_types::targeting;
 use flags_types::targeting::criterion;
 use flags_types::targeting::Criterion;
 use flags_types::Expression;
+use bloom_filter::BloomFilter;
 use gzip::decompress_gz;
 
 use crate::err::{ErrorCode, OrFailExt};
@@ -146,6 +148,7 @@ pub struct ResolverState {
     pub flags: HashMap<String, Flag>,
     pub segments: HashMap<String, Segment>,
     pub bitsets: HashMap<String, bv::BitVec<u8, bv::Lsb0>>,
+    pub bloom_filters: HashMap<String, BloomFilter>,
     pub sdk: Option<flags_resolver::Sdk>,
 }
 impl ResolverState {
@@ -158,6 +161,7 @@ impl ResolverState {
         let mut flags = HashMap::new();
         let mut segments = HashMap::new();
         let mut bitsets = HashMap::new();
+        let mut bloom_filters = HashMap::new();
 
         for flag in state_pb.flags {
             flags.insert(flag.name.clone(), flag);
@@ -177,6 +181,11 @@ impl ResolverState {
                 // missing bitset treated as full
                 flags_admin::resolver_state::packed_bitset::Bitset::FullBitset(true) => (),
                 _ => fail!(),
+            }
+        }
+        for packed_bf in &state_pb.bloom_filters {
+            if let Ok(bf) = BloomFilter::from_packed(packed_bf) {
+                bloom_filters.insert(packed_bf.materialized_segment.clone(), bf);
             }
         }
         for client in state_pb.clients {
@@ -207,6 +216,7 @@ impl ResolverState {
             flags,
             segments,
             bitsets,
+            bloom_filters,
             sdk,
         })
     }
@@ -1421,10 +1431,12 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 criterion::Criterion::MaterializedSegment(MaterializedSegmentCriterion {
                     materialized_segment,
                 }) => {
-                    // Materialized segment criteria require a unit
                     let Some(unit_str) = unit else {
                         return Ok(Some(false));
                     };
+                    if let Some(bf) = self.state.bloom_filters.get(materialized_segment.as_str()) {
+                        return Ok(Some(bf.might_contain(unit_str)));
+                    }
                     materialization_context
                         .is_unit_in_materialization(materialized_segment, unit_str)
                 }
@@ -3903,6 +3915,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets: HashMap::new(),
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
 
@@ -3947,6 +3960,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
 
@@ -4022,6 +4036,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
 
@@ -4092,6 +4107,7 @@ mod tests {
             flags: HashMap::new(),
             segments,
             bitsets,
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
 
@@ -4672,6 +4688,7 @@ mod tests {
             flags,
             segments,
             bitsets: HashMap::new(),
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
 
@@ -4769,6 +4786,7 @@ mod tests {
             flags,
             segments,
             bitsets: HashMap::new(),
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
         (state, flag_name, SECRET.to_string())
@@ -4993,6 +5011,7 @@ mod tests {
             flags,
             segments,
             bitsets,
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
 
@@ -5046,6 +5065,7 @@ mod tests {
             flags,
             segments,
             bitsets,
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
 
@@ -5097,6 +5117,7 @@ mod tests {
             flags,
             segments: HashMap::new(),
             bitsets: HashMap::new(),
+            bloom_filters: HashMap::new(),
             sdk: None,
         };
 
