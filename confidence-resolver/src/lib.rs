@@ -62,6 +62,7 @@ use proto::confidence::iam::v1 as iam;
 use proto::google::{value::Kind, Struct, Timestamp, Value};
 use proto::Message;
 
+use bloom_filter::BloomFilter;
 use flags_admin::flag::rule;
 use flags_admin::flag::{Rule, Variant};
 use flags_admin::Flag;
@@ -72,7 +73,6 @@ use flags_types::targeting;
 use flags_types::targeting::criterion;
 use flags_types::targeting::Criterion;
 use flags_types::Expression;
-use bloom_filter::BloomFilter;
 use gzip::decompress_gz;
 
 use crate::err::{ErrorCode, OrFailExt};
