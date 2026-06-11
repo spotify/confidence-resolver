@@ -81,6 +81,7 @@ fn make_state_from_json_flags(
         flags,
         segments,
         bitsets,
+        bloom_filters: HashMap::new(),
         sdk: None,
     }
 }
@@ -278,6 +279,7 @@ fn make_materialized_segment_state() -> (Segment, ResolverState) {
         flags: HashMap::new(),
         segments,
         bitsets,
+        bloom_filters: HashMap::new(),
         sdk: None,
     };
     (segment, state)
@@ -679,6 +681,7 @@ fn make_segment_with_targeting(name: &str, targeting_json: &str) -> (Segment, Re
         flags: HashMap::new(),
         segments,
         bitsets,
+        bloom_filters: HashMap::new(),
         sdk: None,
     };
     (segment, state)

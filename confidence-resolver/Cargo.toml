@@ -43,6 +43,7 @@ serde_json = { version = "1.0.107", optional = true }
 isocountry = "0.3.2"
 
 [dev-dependencies]
+base64 = "0.22"
 openmetrics-parser = "0.4.4"
 regex = "1.10.2"
 

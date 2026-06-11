@@ -4003,5 +4003,59 @@
         "expectError": null
       }
     }
+  },
+  {
+    "name": "bloom_filter_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/bloom-filter-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/bloom-filter-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "bloom_filter_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/bloom-filter-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user3"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/bloom-filter-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
   }
 ]
