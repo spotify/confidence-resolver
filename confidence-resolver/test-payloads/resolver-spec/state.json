@@ -2915,8 +2915,8 @@
   "bloomFilters": {
     "materializations/bf-seg": {
       "gzippedData": "H4sIAAAAAAAA/1NgAAIFEMHACCIEGJBBA4MDkFQCMR0UECphgAOkCyqEJC0ApllQFCLzQAAAULYFUXgAAAA=",
-      "numHashFunctions": 7,
-      "numBits": 960,
+      "hashFunctionCount": 7,
+      "bitCount": 960,
       "strategy": 1
     }
   },

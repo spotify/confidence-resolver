@@ -55,8 +55,8 @@ struct SpecState {
 #[serde(rename_all = "camelCase")]
 struct SpecBloomFilter {
     gzipped_data: String,
-    num_hash_functions: i32,
-    num_bits: i64,
+    hash_function_count: i32,
+    bit_count: i64,
     strategy: i32,
 }
 
@@ -194,8 +194,8 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
         let packed = PackedBloomFilter {
             materialized_segment: name.clone(),
             gzipped_data,
-            num_hash_functions: spec_bf.num_hash_functions,
-            num_bits: spec_bf.num_bits,
+            hash_function_count: spec_bf.hash_function_count,
+            bit_count: spec_bf.bit_count,
             strategy: spec_bf.strategy,
         };
         let bf = BloomFilter::from_packed(&packed).unwrap();
