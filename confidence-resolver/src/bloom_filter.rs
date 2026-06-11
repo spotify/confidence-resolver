@@ -21,8 +21,8 @@ impl BloomFilter {
                 "bloom_filter.unsupported_strategy",
             ));
         }
-        let num_bits = packed.num_bits as u64;
-        let num_hash_functions = packed.num_hash_functions as u32;
+        let num_bits = packed.bit_count as u64;
+        let num_hash_functions = packed.hash_function_count as u32;
         let mut decompressed = decompress_gz(&packed.gzipped_data)?;
         // Guava serializes its long[] array in big-endian byte order (DataOutputStream.writeLong).
         // BitVec<u8, Lsb0> expects bit 0 at the LSB of byte 0 (little-endian within each long).
@@ -68,7 +68,7 @@ impl BloomFilter {
 mod tests {
     use super::*;
 
-    fn make_packed(data: &[u8], num_hash_functions: i32, num_bits: i64) -> PackedBloomFilter {
+    fn make_packed(data: &[u8], hash_function_count: i32, bit_count: i64) -> PackedBloomFilter {
         use miniz_oxide::deflate::compress_to_vec;
 
         let compressed = compress_to_vec(data, 6);
@@ -86,8 +86,8 @@ mod tests {
         PackedBloomFilter {
             materialized_segment: "segments/test".into(),
             gzipped_data: gzipped,
-            num_hash_functions,
-            num_bits,
+            hash_function_count,
+            bit_count,
             strategy: STRATEGY_MURMUR128_MITZ_64,
         }
     }
@@ -161,8 +161,8 @@ mod tests {
         let packed = PackedBloomFilter {
             materialized_segment: "materializations/test".into(),
             gzipped_data,
-            num_hash_functions: 7,
-            num_bits: 960,
+            hash_function_count: 7,
+            bit_count: 960,
             strategy: STRATEGY_MURMUR128_MITZ_64,
         };
         let bf = BloomFilter::from_packed(&packed).unwrap();
@@ -182,8 +182,8 @@ mod tests {
         let packed = PackedBloomFilter {
             materialized_segment: "segments/test".into(),
             gzipped_data: vec![],
-            num_hash_functions: 3,
-            num_bits: 128,
+            hash_function_count: 3,
+            bit_count: 128,
             strategy: 99,
         };
         assert!(BloomFilter::from_packed(&packed).is_err());
