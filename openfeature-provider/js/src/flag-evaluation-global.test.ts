@@ -1,0 +1,107 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { publishFlagEvaluation } from './flag-evaluation-global';
+
+describe('publishFlagEvaluation', () => {
+  let originalWindow: typeof globalThis.window;
+
+  beforeEach(() => {
+    originalWindow = globalThis.window;
+  });
+
+  afterEach(() => {
+    if (originalWindow === undefined) {
+      // @ts-expect-error restoring undefined
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  });
+
+  it('writes flag evaluation to window.__confidence.flags', () => {
+    globalThis.window = {} as any;
+
+    publishFlagEvaluation('flags/my-flag', 'flags/my-flag/variants/treatment');
+
+    expect((window as any).__confidence.flags['flags/my-flag']).toEqual({
+      variant: 'flags/my-flag/variants/treatment',
+    });
+  });
+
+  it('initializes __confidence and flags if missing', () => {
+    globalThis.window = {} as any;
+
+    publishFlagEvaluation('flags/test', 'flags/test/variants/control');
+
+    expect((window as any).__confidence).toBeDefined();
+    expect((window as any).__confidence.flags).toBeDefined();
+    expect((window as any).__confidence.flags['flags/test']).toEqual({
+      variant: 'flags/test/variants/control',
+    });
+  });
+
+  it('preserves existing __confidence object', () => {
+    const existing = { other: 'data' };
+    globalThis.window = { __confidence: existing } as any;
+
+    publishFlagEvaluation('flags/my-flag', 'flags/my-flag/variants/treatment');
+
+    expect((window as any).__confidence.other).toBe('data');
+    expect((window as any).__confidence.flags['flags/my-flag']).toEqual({
+      variant: 'flags/my-flag/variants/treatment',
+    });
+  });
+
+  it('preserves existing flags object (e.g. recorder Proxy)', () => {
+    const flags = { 'flags/existing': { variant: 'flags/existing/variants/a' } };
+    globalThis.window = { __confidence: { flags } } as any;
+
+    publishFlagEvaluation('flags/new-flag', 'flags/new-flag/variants/b');
+
+    expect((window as any).__confidence.flags['flags/existing']).toEqual({
+      variant: 'flags/existing/variants/a',
+    });
+    expect((window as any).__confidence.flags['flags/new-flag']).toEqual({
+      variant: 'flags/new-flag/variants/b',
+    });
+    expect((window as any).__confidence.flags).toBe(flags);
+  });
+
+  it('deduplicates: skips write when variant unchanged', () => {
+    const flags: Record<string, { variant: string }> = {};
+    globalThis.window = { __confidence: { flags } } as any;
+
+    const setter = vi.fn();
+    Object.defineProperty(flags, 'flags/my-flag', {
+      get: () => ({ variant: 'flags/my-flag/variants/treatment' }),
+      set: setter,
+      configurable: true,
+    });
+
+    publishFlagEvaluation('flags/my-flag', 'flags/my-flag/variants/treatment');
+
+    expect(setter).not.toHaveBeenCalled();
+  });
+
+  it('writes when variant changes', () => {
+    globalThis.window = {
+      __confidence: {
+        flags: { 'flags/my-flag': { variant: 'flags/my-flag/variants/control' } },
+      },
+    } as any;
+
+    publishFlagEvaluation('flags/my-flag', 'flags/my-flag/variants/treatment');
+
+    expect((window as any).__confidence.flags['flags/my-flag']).toEqual({
+      variant: 'flags/my-flag/variants/treatment',
+    });
+  });
+
+  it('is a no-op when window is undefined', () => {
+    // @ts-expect-error simulating server-side
+    delete globalThis.window;
+
+    expect(() => {
+      publishFlagEvaluation('flags/my-flag', 'flags/my-flag/variants/treatment');
+    }).not.toThrow();
+  });
+});
