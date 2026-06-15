@@ -438,6 +438,7 @@ impl ExpectedValueType for targeting::criterion::AttributeCriterion {
             }
             criterion::attribute_criterion::Rule::StartsWithRule(_)
             | criterion::attribute_criterion::Rule::EndsWithRule(_) => Some(&STRING_VALUE_TYPE),
+            criterion::attribute_criterion::Rule::IsNullRule(_) => None,
         }
     }
 }

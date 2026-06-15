@@ -2655,6 +2655,145 @@
     }
   },
   {
+    "name": "is_null_rule_explicit",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": null
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-rule-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_rule_implicit",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-rule-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_rule_non_null_value",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": "hello"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-rule-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_rule_with_value",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": "hello"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-rule-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_rule_missing",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-rule-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-rule-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
     "name": "not_any_no_overlap",
     "resolveRequest": {
       "flags": [

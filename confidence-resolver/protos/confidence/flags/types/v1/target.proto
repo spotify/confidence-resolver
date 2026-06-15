@@ -30,6 +30,7 @@ message Targeting {
         AllRule all_rule = 6;
         StartsWithRule starts_with_rule = 7;
         EndsWithRule ends_with_rule = 8;
+        IsNullRule is_null_rule = 9;
       }
     }
 
@@ -100,6 +101,11 @@ message Targeting {
   message EndsWithRule {
     string value = 1;
   }
+
+  // matches if the attribute value is null or absent from the evaluation
+  // context. "is not null" is expressed by wrapping the criterion reference in
+  // Expression.not.
+  message IsNullRule {}
 
   // equality (==, !=, ∈) defined for all types
   // comparison (<, <=, >, >=) defined for number, timestamp, version

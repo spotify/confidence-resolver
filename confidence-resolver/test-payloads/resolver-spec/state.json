@@ -1766,6 +1766,58 @@
         }
       ]
     },
+    "flags/is-null-rule-flag": {
+      "name": "flags/is-null-rule-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/is-null-rule-flag/rules/rule1",
+          "segment": "segments/is-null-rule",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/is-not-null-rule-flag": {
+      "name": "flags/is-not-null-rule-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/is-not-null-rule-flag/rules/rule1",
+          "segment": "segments/is-not-null-rule",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "flags/not-any-flag": {
       "name": "flags/not-any-flag",
       "state": "ACTIVE",
@@ -2572,6 +2624,36 @@
         "expression": { "not": { "ref": "c1" } }
       }
     },
+    "segments/is-null-rule": {
+      "name": "segments/is-null-rule",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "null-attribute",
+              "isNullRule": {}
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/is-not-null-rule": {
+      "name": "segments/is-not-null-rule",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "null-attribute",
+              "isNullRule": {}
+            }
+          }
+        },
+        "expression": { "not": { "ref": "c1" } }
+      }
+    },
     "segments/not-any-rule": {
       "name": "segments/not-any-rule",
       "state": "OK",
@@ -2756,6 +2838,8 @@
     "segments/catch-all": "ALL",
     "segments/is-null": "ALL",
     "segments/is-not-null": "ALL",
+    "segments/is-null-rule": "ALL",
+    "segments/is-not-null-rule": "ALL",
     "segments/not-any-rule": "ALL",
     "segments/not-all-rule": "ALL",
     "segments/semver-range": "ALL",
