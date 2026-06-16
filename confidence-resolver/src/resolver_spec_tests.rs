@@ -187,18 +187,18 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
     let mut bloom_filters = HashMap::new();
     for (name, spec_bf) in &spec.bloom_filters {
         use crate::bloom_filter::BloomFilter;
-        use crate::proto::confidence::flags::admin::v1::resolver_state::PackedBloomFilter;
+        use crate::proto::confidence::flags::admin::v1::resolver_state::BloomFilter as BloomFilterPb;
 
         use base64::{engine::general_purpose::STANDARD, Engine};
         let data = STANDARD.decode(&spec_bf.data).unwrap();
-        let packed = PackedBloomFilter {
+        let packed = BloomFilterPb {
             materialized_segment: name.clone(),
             data,
             hash_function_count: spec_bf.hash_function_count,
             bit_count: spec_bf.bit_count,
             strategy: spec_bf.strategy,
         };
-        let bf = BloomFilter::from_packed(&packed).unwrap();
+        let bf = BloomFilter::from_proto(&packed).unwrap();
         bloom_filters.insert(name.clone(), bf);
     }
 

@@ -85,11 +85,11 @@ message ResolverState {
   // The region of the account
   Region region = 8;
 
-  repeated PackedBloomFilter bloom_filters = 10;
+  repeated BloomFilter bloom_filters = 10;
 
-  // A bloom filter for a materialized segment, packed for delivery to local resolvers.
+  // A bloom filter for a materialized segment, delivered to local resolvers.
   // The raw bit array is extracted from Guava's BloomFilter serialization format.
-  message PackedBloomFilter {
+  message BloomFilter {
     // The materialized segment this bloom filter belongs to
     string materialized_segment = 1 [
       (google.api.resource_reference).type = "flags.confidence.dev/MaterializedSegment"

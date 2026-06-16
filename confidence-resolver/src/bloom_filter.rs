@@ -2,7 +2,7 @@ use bitvec::prelude as bv;
 use fastmurmur3::murmur3_x64_128;
 
 use crate::err::Fallible;
-use crate::proto::confidence::flags::admin::v1::resolver_state::PackedBloomFilter;
+use crate::proto::confidence::flags::admin::v1::resolver_state::BloomFilter as BloomFilterPb;
 
 const STRATEGY_MURMUR128_MITZ_64: i32 = 1;
 
@@ -14,7 +14,7 @@ pub struct BloomFilter {
 }
 
 impl BloomFilter {
-    pub fn from_packed(packed: &PackedBloomFilter) -> Fallible<Self> {
+    pub fn from_proto(packed: &BloomFilterPb) -> Fallible<Self> {
         if packed.strategy != STRATEGY_MURMUR128_MITZ_64 {
             return Err(crate::err::ErrorCode::from_tag(
                 "bloom_filter.unsupported_strategy",
@@ -67,8 +67,8 @@ impl BloomFilter {
 mod tests {
     use super::*;
 
-    fn make_packed(data: &[u8], hash_function_count: i32, bit_count: i64) -> PackedBloomFilter {
-        PackedBloomFilter {
+    fn make_packed(data: &[u8], hash_function_count: i32, bit_count: i64) -> BloomFilterPb {
+        BloomFilterPb {
             materialized_segment: "segments/test".into(),
             data: data.to_vec(),
             hash_function_count,
@@ -81,7 +81,7 @@ mod tests {
     fn all_bits_set_always_matches() {
         let data = vec![0xFF; 16];
         let packed = make_packed(&data, 3, 128);
-        let bf = BloomFilter::from_packed(&packed).unwrap();
+        let bf = BloomFilter::from_proto(&packed).unwrap();
         assert!(bf.might_contain("anything"));
         assert!(bf.might_contain("something_else"));
     }
@@ -90,7 +90,7 @@ mod tests {
     fn all_bits_clear_never_matches() {
         let data = vec![0x00; 16];
         let packed = make_packed(&data, 3, 128);
-        let bf = BloomFilter::from_packed(&packed).unwrap();
+        let bf = BloomFilter::from_proto(&packed).unwrap();
         assert!(!bf.might_contain("anything"));
         assert!(!bf.might_contain("something_else"));
     }
@@ -123,7 +123,7 @@ mod tests {
         insert_into_bloom_be(&mut data, "user2", num_hash_functions, num_bits);
 
         let packed = make_packed(&data, num_hash_functions as i32, num_bits as i64);
-        let bf = BloomFilter::from_packed(&packed).unwrap();
+        let bf = BloomFilter::from_proto(&packed).unwrap();
 
         assert!(bf.might_contain("user1"));
         assert!(bf.might_contain("user2"));
@@ -142,14 +142,14 @@ mod tests {
         let raw_b64 = "IAAAAAAgAAAAAAABAAAAABAAAAAAAAAAAAAAAAAAgABAAAAAIgAAAABAIAAAAAAgAAAAAAAAAAAAAAAAAAgAAAABIAAAAAAAACAAAAAAIAAAAAAAEAAgAAAABAAAAAAAAAAAAAAACAAEAAAAAAAAAAAAAAAAAAAA";
         let data = STANDARD.decode(raw_b64).unwrap();
 
-        let packed = PackedBloomFilter {
+        let packed = BloomFilterPb {
             materialized_segment: "materializations/test".into(),
             data,
             hash_function_count: 7,
             bit_count: 960,
             strategy: STRATEGY_MURMUR128_MITZ_64,
         };
-        let bf = BloomFilter::from_packed(&packed).unwrap();
+        let bf = BloomFilter::from_proto(&packed).unwrap();
 
         // These were inserted — Guava confirms mightContain == true
         assert!(bf.might_contain("user1"), "user1 should match");
@@ -163,13 +163,13 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_strategy() {
-        let packed = PackedBloomFilter {
+        let packed = BloomFilterPb {
             materialized_segment: "segments/test".into(),
             data: vec![],
             hash_function_count: 3,
             bit_count: 128,
             strategy: 99,
         };
-        assert!(BloomFilter::from_packed(&packed).is_err());
+        assert!(BloomFilter::from_proto(&packed).is_err());
     }
 }
