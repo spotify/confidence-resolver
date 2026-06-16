@@ -416,6 +416,19 @@ pub fn expected_value_type(
     attribute_criterion.expected_value_type()
 }
 
+/// True when the criterion is an EqRule against an explicit null value, i.e. an
+/// "is null" check. "is not null" wraps the reference in Expression.not.
+pub fn is_null_check(attribute_criterion: &targeting::criterion::AttributeCriterion) -> bool {
+    matches!(
+        &attribute_criterion.rule,
+        Some(criterion::attribute_criterion::Rule::EqRule(targeting::EqRule {
+            value: Some(targeting::Value {
+                value: Some(targeting::value::Value::NullValue(_)),
+            }),
+        }))
+    )
+}
+
 trait ExpectedValueType {
     fn expected_value_type(&self) -> Option<&targeting::value::Value>;
 }

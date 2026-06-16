@@ -1766,8 +1766,8 @@
         }
       ]
     },
-    "flags/dropped-not-null-flag": {
-      "name": "flags/dropped-not-null-flag",
+    "flags/null-value-is-null-flag": {
+      "name": "flags/null-value-is-null-flag",
       "state": "ACTIVE",
       "clients": ["clients/test-client"],
       "variants": [
@@ -1775,8 +1775,34 @@
       ],
       "rules": [
         {
-          "name": "flags/dropped-not-null-flag/rules/rule1",
-          "segment": "segments/dropped-not-null",
+          "name": "flags/null-value-is-null-flag/rules/rule1",
+          "segment": "segments/null-value-is-null",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/null-value-is-not-null-flag": {
+      "name": "flags/null-value-is-not-null-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/null-value-is-not-null-flag/rules/rule1",
+          "segment": "segments/null-value-is-not-null",
           "enabled": true,
           "targetingKeySelector": "targeting_key",
           "assignmentSpec": {
@@ -2651,14 +2677,30 @@
         "expression": { "not": { "ref": "c1" } }
       }
     },
-    "segments/dropped-not-null": {
-      "name": "segments/dropped-not-null",
+    "segments/null-value-is-null": {
+      "name": "segments/null-value-is-null",
       "state": "OK",
       "targeting": {
         "criteria": {
           "c1": {
             "attribute": {
-              "attributeName": "country"
+              "attributeName": "country",
+              "eqRule": { "value": { "nullValue": true } }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/null-value-is-not-null": {
+      "name": "segments/null-value-is-not-null",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "country",
+              "eqRule": { "value": { "nullValue": true } }
             }
           }
         },
@@ -2899,7 +2941,8 @@
     "segments/catch-all": "ALL",
     "segments/is-null": "ALL",
     "segments/is-not-null": "ALL",
-    "segments/dropped-not-null": "ALL",
+    "segments/null-value-is-null": "ALL",
+    "segments/null-value-is-not-null": "ALL",
     "segments/not-any-rule": "ALL",
     "segments/not-all-rule": "ALL",
     "segments/semver-range": "ALL",

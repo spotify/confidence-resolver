@@ -1393,9 +1393,19 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             };
             match &criterion {
                 criterion::Criterion::Attribute(attribute_criterion) => {
-                    let expected_value_type = value::expected_value_type(attribute_criterion);
                     let attribute_value =
                         self.get_attribute_value(&attribute_criterion.attribute_name);
+
+                    // An EqRule against an explicit null value is a null check: it
+                    // matches when the attribute is null or absent. "is not null"
+                    // wraps the reference in Expression.not.
+                    if value::is_null_check(attribute_criterion) {
+                        let is_null =
+                            matches!(attribute_value.kind, None | Some(Kind::NullValue(_)));
+                        return Ok(Some(is_null));
+                    }
+
+                    let expected_value_type = value::expected_value_type(attribute_criterion);
                     let converted =
                         value::convert_to_targeting_value(attribute_value, expected_value_type)?;
                     let wrapped = list_wrapper(&converted);

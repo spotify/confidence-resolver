@@ -111,6 +111,11 @@ message Targeting {
       google.protobuf.Timestamp timestamp_value = 5;
       SemanticVersion version_value = 6;
       ListValue list_value = 8;
+      // Explicit null value. An EqRule against this matches when the attribute
+      // is null or absent ("is null"); "is not null" wraps it in Expression.not.
+      // Set to true so the value is non-empty on the wire and survives transports
+      // that prune empty/default values.
+      bool null_value = 9;
     }
   }
 
