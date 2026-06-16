@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Mutex;
 
 use crate::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
@@ -77,8 +77,22 @@ impl AssignLogger {
         };
         let start = req.encoded_len();
         let limit_bytes = limit_bytes.saturating_sub(start);
+        // Dedup applied flags by (flag, targeting_key, assignment_id) within this flush.
+        // Cross-flush dedup could be achieved by moving this set into State and
+        // clearing it when state.pending is fully drained after Phase 2.
+        let mut seen: HashSet<(String, String, String)> = HashSet::new();
         while state.pending_bytes < limit_bytes {
-            if let Some(assigned) = self.assigned.pop() {
+            if let Some(mut assigned) = self.assigned.pop() {
+                assigned.flags.retain(|f| {
+                    seen.insert((
+                        f.flag.clone(),
+                        f.targeting_key.clone(),
+                        f.assignment_id.clone(),
+                    ))
+                });
+                if assigned.flags.is_empty() {
+                    continue;
+                }
                 let len = AssignLogger::encoded_len(&assigned);
                 state.pending.push_back((assigned, len));
                 state.pending_bytes = state.pending_bytes.saturating_add(len);
@@ -197,11 +211,17 @@ mod tests {
         assert_eq!(2 * ev_size, req.encoded_len())
     }
 
+    fn make_unique_event(n: usize) -> pb::FlagAssigned {
+        make_event_with_flags(
+            &format!("rid-{n}"),
+            &[(&format!("flags/f-{n}"), "user", "a")],
+        )
+    }
+
     #[test]
     fn can_allow_less() {
         let logger = AssignLogger::new();
-        // push a small event directly
-        logger.assigned.push(make_event());
+        logger.assigned.push(make_unique_event(0));
 
         let r = logger.checkpoint_with_limit(10_000, false);
         assert_eq!(r.flag_assigned.len(), 1);
@@ -209,24 +229,21 @@ mod tests {
 
     #[test]
     fn flushes_until_reaching_target() {
-        let ev_size = AssignLogger::encoded_len(&make_event());
+        let ev_size = AssignLogger::encoded_len(&make_unique_event(0));
 
-        let logger = AssignLogger::new(); // tiny target forces immediate flush
-                                          // two events
-        logger.assigned.push(make_event());
-        logger.assigned.push(make_event());
-        logger.assigned.push(make_event());
+        let logger = AssignLogger::new();
+        logger.assigned.push(make_unique_event(1));
+        logger.assigned.push(make_unique_event(2));
+        logger.assigned.push(make_unique_event(3));
         let r = logger.checkpoint_with_limit(3 * ev_size - 1, true);
-        // At least one event should be flushed; with target 0, implementation may flush one
         assert_eq!(r.flag_assigned.len(), 2);
     }
 
     #[test]
     fn first_event_exceeding_target_is_sent_alone() {
-        // Target smaller than single event size
         let logger = AssignLogger::new();
-        logger.assigned.push(make_event());
-        logger.assigned.push(make_event());
+        logger.assigned.push(make_unique_event(0));
+        logger.assigned.push(make_unique_event(1));
 
         let r = logger.checkpoint_with_limit(1, true);
         assert_eq!(r.flag_assigned.len(), 1);
@@ -238,5 +255,165 @@ mod tests {
         // no events queued, target positive, allow_less = false
         let r = logger.checkpoint_with_limit(10_000, true);
         assert!(r.flag_assigned.is_empty());
+    }
+
+    fn make_event_with_flags(
+        resolve_id: &str,
+        flags: &[(&str, &str, &str)],
+    ) -> pb::FlagAssigned {
+        pb::FlagAssigned {
+            resolve_id: resolve_id.to_string(),
+            client_info: None,
+            flags: flags
+                .iter()
+                .map(|(flag, tk, aid)| pb::AppliedFlag {
+                    flag: flag.to_string(),
+                    targeting_key: tk.to_string(),
+                    assignment_id: aid.to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn dedup_same_flag_targeting_key_assignment() {
+        let logger = AssignLogger::new();
+        logger
+            .assigned
+            .push(make_event_with_flags("r1", &[("flags/a", "user1", "ctrl")]));
+        logger
+            .assigned
+            .push(make_event_with_flags("r2", &[("flags/a", "user1", "ctrl")]));
+        logger
+            .assigned
+            .push(make_event_with_flags("r3", &[("flags/a", "user1", "ctrl")]));
+
+        let r = logger.checkpoint();
+        assert_eq!(r.flag_assigned.len(), 1);
+        assert_eq!(r.flag_assigned[0].flags.len(), 1);
+    }
+
+    #[test]
+    fn different_targeting_keys_not_deduped() {
+        let logger = AssignLogger::new();
+        logger
+            .assigned
+            .push(make_event_with_flags("r1", &[("flags/a", "user1", "ctrl")]));
+        logger
+            .assigned
+            .push(make_event_with_flags("r2", &[("flags/a", "user2", "ctrl")]));
+
+        let r = logger.checkpoint();
+        assert_eq!(r.flag_assigned.len(), 2);
+    }
+
+    #[test]
+    fn different_assignment_ids_not_deduped() {
+        let logger = AssignLogger::new();
+        logger
+            .assigned
+            .push(make_event_with_flags("r1", &[("flags/a", "user1", "ctrl")]));
+        logger.assigned.push(make_event_with_flags(
+            "r2",
+            &[("flags/a", "user1", "treatment")],
+        ));
+
+        let r = logger.checkpoint();
+        assert_eq!(r.flag_assigned.len(), 2);
+    }
+
+    #[test]
+    fn partial_dedup_within_single_event() {
+        let logger = AssignLogger::new();
+        logger
+            .assigned
+            .push(make_event_with_flags("r1", &[("flags/a", "user1", "ctrl")]));
+        logger.assigned.push(make_event_with_flags(
+            "r2",
+            &[("flags/a", "user1", "ctrl"), ("flags/b", "user1", "ctrl")],
+        ));
+
+        let r = logger.checkpoint();
+        assert_eq!(r.flag_assigned.len(), 2);
+        assert_eq!(r.flag_assigned[0].flags.len(), 1);
+        assert_eq!(r.flag_assigned[0].flags[0].flag, "flags/a");
+        assert_eq!(r.flag_assigned[1].flags.len(), 1);
+        assert_eq!(r.flag_assigned[1].flags[0].flag, "flags/b");
+    }
+
+    #[test]
+    fn separate_flush_calls_both_log() {
+        let logger = AssignLogger::new();
+        logger
+            .assigned
+            .push(make_event_with_flags("r1", &[("flags/a", "user1", "ctrl")]));
+        let r1 = logger.checkpoint();
+        assert_eq!(r1.flag_assigned.len(), 1);
+
+        logger
+            .assigned
+            .push(make_event_with_flags("r2", &[("flags/a", "user1", "ctrl")]));
+        let r2 = logger.checkpoint();
+        assert_eq!(r2.flag_assigned.len(), 1);
+    }
+
+    #[test]
+    #[ignore]
+    fn flush_throughput_bench() {
+        use std::time::Instant;
+
+        struct Scenario {
+            name: &'static str,
+            unique_users: usize,
+            total_events: usize,
+        }
+
+        let scenarios = [
+            Scenario {
+                name: "0% dup (10k unique)",
+                unique_users: 10_000,
+                total_events: 10_000,
+            },
+            Scenario {
+                name: "90% dup (1k unique, 10k total)",
+                unique_users: 1_000,
+                total_events: 10_000,
+            },
+            Scenario {
+                name: "99% dup (100 unique, 10k total)",
+                unique_users: 100,
+                total_events: 10_000,
+            },
+            Scenario {
+                name: "100% dup (1 unique, 10k total)",
+                unique_users: 1,
+                total_events: 10_000,
+            },
+        ];
+
+        for scenario in &scenarios {
+            let logger = AssignLogger::new();
+            for i in 0..scenario.total_events {
+                let user_idx = i % scenario.unique_users;
+                logger.assigned.push(make_event_with_flags(
+                    &format!("resolve-{i}"),
+                    &[("flags/banner", &format!("user-{user_idx}"), "ctrl-assignment")],
+                ));
+            }
+
+            let start = Instant::now();
+            let r = logger.checkpoint();
+            let elapsed = start.elapsed();
+
+            eprintln!(
+                "[{}] input={}, output_events={}, output_flags={}, elapsed={:?}",
+                scenario.name,
+                scenario.total_events,
+                r.flag_assigned.len(),
+                r.flag_assigned.iter().map(|e| e.flags.len()).sum::<usize>(),
+                elapsed,
+            );
+        }
     }
 }
