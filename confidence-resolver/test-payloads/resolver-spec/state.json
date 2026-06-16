@@ -1766,6 +1766,32 @@
         }
       ]
     },
+    "flags/dropped-not-null-flag": {
+      "name": "flags/dropped-not-null-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/dropped-not-null-flag/rules/rule1",
+          "segment": "segments/dropped-not-null",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "flags/not-any-flag": {
       "name": "flags/not-any-flag",
       "state": "ACTIVE",
@@ -2625,6 +2651,20 @@
         "expression": { "not": { "ref": "c1" } }
       }
     },
+    "segments/dropped-not-null": {
+      "name": "segments/dropped-not-null",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "country"
+            }
+          }
+        },
+        "expression": { "not": { "ref": "c1" } }
+      }
+    },
     "segments/not-any-rule": {
       "name": "segments/not-any-rule",
       "state": "OK",
@@ -2859,6 +2899,7 @@
     "segments/catch-all": "ALL",
     "segments/is-null": "ALL",
     "segments/is-not-null": "ALL",
+    "segments/dropped-not-null": "ALL",
     "segments/not-any-rule": "ALL",
     "segments/not-all-rule": "ALL",
     "segments/semver-range": "ALL",

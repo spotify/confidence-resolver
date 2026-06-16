@@ -584,6 +584,7 @@ spec_test!(is_null_implicit);
 spec_test!(is_null_non_null_value);
 spec_test!(is_not_null_with_value);
 spec_test!(is_not_null_missing);
+spec_test!(is_not_null_with_dropped_rule);
 
 // NOT any rule
 spec_test!(not_any_no_overlap);

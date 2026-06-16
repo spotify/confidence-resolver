@@ -2647,6 +2647,35 @@
     }
   },
   {
+    "name": "is_not_null_with_dropped_rule",
+    "resolveRequest": {
+      "flags": [
+        "flags/dropped-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "US"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/dropped-not-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
     "name": "not_any_no_overlap",
     "resolveRequest": {
       "flags": [
