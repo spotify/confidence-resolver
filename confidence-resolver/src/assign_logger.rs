@@ -257,10 +257,7 @@ mod tests {
         assert!(r.flag_assigned.is_empty());
     }
 
-    fn make_event_with_flags(
-        resolve_id: &str,
-        flags: &[(&str, &str, &str)],
-    ) -> pb::FlagAssigned {
+    fn make_event_with_flags(resolve_id: &str, flags: &[(&str, &str, &str)]) -> pb::FlagAssigned {
         pb::FlagAssigned {
             resolve_id: resolve_id.to_string(),
             client_info: None,
@@ -398,7 +395,11 @@ mod tests {
                 let user_idx = i % scenario.unique_users;
                 logger.assigned.push(make_event_with_flags(
                     &format!("resolve-{i}"),
-                    &[("flags/banner", &format!("user-{user_idx}"), "ctrl-assignment")],
+                    &[(
+                        "flags/banner",
+                        &format!("user-{user_idx}"),
+                        "ctrl-assignment",
+                    )],
                 ));
             }
 
