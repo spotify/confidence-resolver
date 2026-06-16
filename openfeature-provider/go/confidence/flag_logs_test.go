@@ -205,11 +205,11 @@ func TestFlagLogs_ShouldCaptureMultipleResolvesInSingleRequest(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Perform multiple resolves
-	_, _ = client.BooleanValue(ctx, "web-sdk-e2e-flag.bool", true, openfeature.EvaluationContext{})
-	_, _ = client.StringValue(ctx, "web-sdk-e2e-flag.str", "default", openfeature.EvaluationContext{})
-	_, _ = client.IntValue(ctx, "web-sdk-e2e-flag.int", 10, openfeature.EvaluationContext{})
-	_, _ = client.FloatValue(ctx, "web-sdk-e2e-flag.double", 10.0, openfeature.EvaluationContext{})
+	// Perform multiple resolves with distinct targeting keys so each is a unique exposure
+	_, _ = client.BooleanValue(ctx, "web-sdk-e2e-flag.bool", true, openfeature.NewEvaluationContext("user-1", nil))
+	_, _ = client.StringValue(ctx, "web-sdk-e2e-flag.str", "default", openfeature.NewEvaluationContext("user-2", nil))
+	_, _ = client.IntValue(ctx, "web-sdk-e2e-flag.int", 10, openfeature.NewEvaluationContext("user-3", nil))
+	_, _ = client.FloatValue(ctx, "web-sdk-e2e-flag.double", 10.0, openfeature.NewEvaluationContext("user-4", nil))
 
 	// Shutdown to flush logs
 	flushAndWait()
