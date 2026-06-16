@@ -12,8 +12,7 @@ module Confidence
       # Error_code and error_message seemingly not used by OpenFeature SDK.
       # Including here for compatibility.
       ResolutionDetails = Struct.new(
-        :value, :reason, :variant, :error_code, :error_message,
-        keyword_init: true
+        :value, :reason, :variant, :error_code, :error_message
       )
 
       def initialize(api_client:, apply_on_resolve: true)

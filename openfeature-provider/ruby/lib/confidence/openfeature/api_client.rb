@@ -84,7 +84,7 @@ module Confidence
       end
     end
 
-    ResolvedFlag = Struct.new(:flag, :variant, :value, keyword_init: true) do
+    ResolvedFlag = Struct.new(:flag, :variant, :value) do
       def empty?
         variant.nil? || value.nil?
       end
