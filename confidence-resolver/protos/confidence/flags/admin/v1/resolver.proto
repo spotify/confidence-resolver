@@ -88,15 +88,15 @@ message ResolverState {
   repeated PackedBloomFilter bloom_filters = 10;
 
   // A bloom filter for a materialized segment, packed for delivery to local resolvers.
-  // The raw bit array is extracted from Guava's BloomFilter serialization format and gzip-compressed.
+  // The raw bit array is extracted from Guava's BloomFilter serialization format.
   message PackedBloomFilter {
     // The materialized segment this bloom filter belongs to
     string materialized_segment = 1 [
       (google.api.resource_reference).type = "flags.confidence.dev/MaterializedSegment"
     ];
 
-    // Gzip-compressed raw bit array (long[] serialized as bytes)
-    bytes gzipped_data = 2;
+    // Raw bit array (long[] serialized as bytes)
+    bytes data = 2;
 
     // Number of hash functions used
     int32 hash_function_count = 3;

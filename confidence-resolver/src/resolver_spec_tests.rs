@@ -54,7 +54,7 @@ struct SpecState {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SpecBloomFilter {
-    gzipped_data: String,
+    data: String,
     hash_function_count: i32,
     bit_count: i64,
     strategy: i32,
@@ -190,10 +190,10 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
         use crate::proto::confidence::flags::admin::v1::resolver_state::PackedBloomFilter;
 
         use base64::{engine::general_purpose::STANDARD, Engine};
-        let gzipped_data = STANDARD.decode(&spec_bf.gzipped_data).unwrap();
+        let data = STANDARD.decode(&spec_bf.data).unwrap();
         let packed = PackedBloomFilter {
             materialized_segment: name.clone(),
-            gzipped_data,
+            data,
             hash_function_count: spec_bf.hash_function_count,
             bit_count: spec_bf.bit_count,
             strategy: spec_bf.strategy,
