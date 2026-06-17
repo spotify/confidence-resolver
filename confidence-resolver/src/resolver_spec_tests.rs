@@ -208,6 +208,7 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
         segments,
         bitsets,
         bloom_filters,
+        bloom_filter_errors: HashMap::new(),
         sdk: None,
     }
 }

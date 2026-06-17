@@ -149,6 +149,7 @@ pub struct ResolverState {
     pub segments: HashMap<String, Segment>,
     pub bitsets: HashMap<String, bv::BitVec<u8, bv::Lsb0>>,
     pub bloom_filters: HashMap<String, BloomFilter>,
+    pub bloom_filter_errors: HashMap<String, String>,
     pub sdk: Option<flags_resolver::Sdk>,
 }
 impl ResolverState {
@@ -162,6 +163,7 @@ impl ResolverState {
         let mut segments = HashMap::new();
         let mut bitsets = HashMap::new();
         let mut bloom_filters = HashMap::new();
+        let mut bloom_filter_errors = HashMap::new();
 
         for flag in state_pb.flags {
             flags.insert(flag.name.clone(), flag);
@@ -185,8 +187,13 @@ impl ResolverState {
         }
         for bf_pb in state_pb.bloom_filters {
             let name = bf_pb.materialized_segment.clone();
-            if let Ok(bf) = BloomFilter::from_proto(bf_pb) {
-                bloom_filters.insert(name, bf);
+            match BloomFilter::from_proto(bf_pb) {
+                Ok(bf) => {
+                    bloom_filters.insert(name, bf);
+                }
+                Err(msg) => {
+                    bloom_filter_errors.insert(name, msg);
+                }
             }
         }
         for client in state_pb.clients {
@@ -218,6 +225,7 @@ impl ResolverState {
             segments,
             bitsets,
             bloom_filters,
+            bloom_filter_errors,
             sdk,
         })
     }
@@ -1435,6 +1443,16 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     let Some(unit_str) = unit else {
                         return Ok(Some(false));
                     };
+                    if let Some(err) = self
+                        .state
+                        .bloom_filter_errors
+                        .get(materialized_segment.as_str())
+                    {
+                        return Err(ResolveError::message(&format!(
+                            "bloom filter error for '{}': {}",
+                            materialized_segment, err
+                        )));
+                    }
                     if let Some(bf) = self.state.bloom_filters.get(materialized_segment.as_str()) {
                         return Ok(Some(bf.might_contain(unit_str)));
                     }
@@ -3917,6 +3935,7 @@ mod tests {
             segments,
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
 
@@ -3962,6 +3981,7 @@ mod tests {
             segments,
             bitsets,
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
 
@@ -4038,6 +4058,7 @@ mod tests {
             segments,
             bitsets,
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
 
@@ -4109,6 +4130,7 @@ mod tests {
             segments,
             bitsets,
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
 
@@ -4690,6 +4712,7 @@ mod tests {
             segments,
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
 
@@ -4788,6 +4811,7 @@ mod tests {
             segments,
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
         (state, flag_name, SECRET.to_string())
@@ -5013,6 +5037,7 @@ mod tests {
             segments,
             bitsets,
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
 
@@ -5067,6 +5092,7 @@ mod tests {
             segments,
             bitsets,
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
 
@@ -5119,6 +5145,7 @@ mod tests {
             segments: HashMap::new(),
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
+            bloom_filter_errors: HashMap::new(),
             sdk: None,
         };
 

@@ -1,7 +1,6 @@
 use bitvec::prelude as bv;
 use fastmurmur3::murmur3_x64_128;
 
-use crate::err::Fallible;
 use crate::proto::confidence::flags::admin::v1::resolver_state::BloomFilter as BloomFilterPb;
 
 const STRATEGY_MURMUR128_MITZ_64: i32 = 1;
@@ -14,10 +13,29 @@ pub struct BloomFilter {
 }
 
 impl BloomFilter {
-    pub fn from_proto(packed: BloomFilterPb) -> Fallible<Self> {
+    pub fn from_proto(packed: BloomFilterPb) -> Result<Self, String> {
         if packed.strategy != STRATEGY_MURMUR128_MITZ_64 {
-            return Err(crate::err::ErrorCode::from_tag(
-                "bloom_filter.unsupported_strategy",
+            return Err(format!(
+                "unsupported bloom filter strategy: {}",
+                packed.strategy
+            ));
+        }
+        if packed.bit_count <= 0 {
+            return Err(format!(
+                "bloom filter bit_count must be positive, got {}",
+                packed.bit_count
+            ));
+        }
+        if packed.hash_function_count <= 0 {
+            return Err(format!(
+                "bloom filter hash_function_count must be positive, got {}",
+                packed.hash_function_count
+            ));
+        }
+        if !packed.data.len().is_multiple_of(8) {
+            return Err(format!(
+                "bloom filter data length must be a multiple of 8, got {}",
+                packed.data.len()
             ));
         }
         let num_bits = packed.bit_count as u64;
@@ -165,13 +183,53 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_strategy() {
-        let packed = BloomFilterPb {
+        let err = BloomFilter::from_proto(BloomFilterPb {
             materialized_segment: "segments/test".into(),
             data: vec![],
             hash_function_count: 3,
             bit_count: 128,
             strategy: 99,
-        };
-        assert!(BloomFilter::from_proto(packed).is_err());
+        })
+        .unwrap_err();
+        assert!(err.contains("unsupported bloom filter strategy"));
+    }
+
+    #[test]
+    fn rejects_zero_bit_count() {
+        let err = BloomFilter::from_proto(BloomFilterPb {
+            materialized_segment: "segments/test".into(),
+            data: vec![0; 8],
+            hash_function_count: 3,
+            bit_count: 0,
+            strategy: STRATEGY_MURMUR128_MITZ_64,
+        })
+        .unwrap_err();
+        assert!(err.contains("bit_count must be positive"));
+    }
+
+    #[test]
+    fn rejects_negative_hash_function_count() {
+        let err = BloomFilter::from_proto(BloomFilterPb {
+            materialized_segment: "segments/test".into(),
+            data: vec![0; 8],
+            hash_function_count: -1,
+            bit_count: 64,
+            strategy: STRATEGY_MURMUR128_MITZ_64,
+        })
+        .unwrap_err();
+        assert!(err.contains("hash_function_count must be positive"));
+    }
+
+    #[test]
+    fn rejects_misaligned_data() {
+        let err = BloomFilter::from_proto(BloomFilterPb {
+            materialized_segment: "segments/test".into(),
+            data: vec![0; 13],
+            hash_function_count: 3,
+            bit_count: 128,
+            strategy: STRATEGY_MURMUR128_MITZ_64,
+        })
+        .unwrap_err();
+        assert!(err.contains("must be a multiple of 8"));
     }
 }
