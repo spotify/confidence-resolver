@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.6.0...openfeature-provider/rust-v0.6.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* **rust:** return null-specific error instead of TypeMismatch for unset properties ([#425](https://github.com/spotify/confidence-resolver/issues/425)) ([95144b6](https://github.com/spotify/confidence-resolver/commit/95144b63840e9903e415d6a926061439b0d90b46))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.18.1 to 0.19.0
+
 ## [0.6.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.5.6...openfeature-provider/rust-v0.6.0) (2026-05-28)
 
 
