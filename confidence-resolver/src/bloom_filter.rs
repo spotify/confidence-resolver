@@ -14,7 +14,7 @@ pub struct BloomFilter {
 }
 
 impl BloomFilter {
-    pub fn from_proto(packed: &BloomFilterPb) -> Fallible<Self> {
+    pub fn from_proto(packed: BloomFilterPb) -> Fallible<Self> {
         if packed.strategy != STRATEGY_MURMUR128_MITZ_64 {
             return Err(crate::err::ErrorCode::from_tag(
                 "bloom_filter.unsupported_strategy",
@@ -22,14 +22,14 @@ impl BloomFilter {
         }
         let num_bits = packed.bit_count as u64;
         let num_hash_functions = packed.hash_function_count as u32;
-        let mut data = packed.data.clone();
+        let mut data = packed.data;
         // Guava serializes its long[] array in big-endian byte order (DataOutputStream.writeLong).
         // BitVec<u8, Lsb0> expects bit 0 at the LSB of byte 0 (little-endian within each long).
         // Reverse each 8-byte chunk to convert from BE to LE so bit indices align.
         for chunk in data.chunks_exact_mut(8) {
             chunk.reverse();
         }
-        let bits = bv::BitVec::from_slice(&data);
+        let bits = bv::BitVec::from_vec(data);
         Ok(BloomFilter {
             bits,
             num_hash_functions,
@@ -81,7 +81,7 @@ mod tests {
     fn all_bits_set_always_matches() {
         let data = vec![0xFF; 16];
         let packed = make_packed(&data, 3, 128);
-        let bf = BloomFilter::from_proto(&packed).unwrap();
+        let bf = BloomFilter::from_proto(packed).unwrap();
         assert!(bf.might_contain("anything"));
         assert!(bf.might_contain("something_else"));
     }
@@ -90,7 +90,7 @@ mod tests {
     fn all_bits_clear_never_matches() {
         let data = vec![0x00; 16];
         let packed = make_packed(&data, 3, 128);
-        let bf = BloomFilter::from_proto(&packed).unwrap();
+        let bf = BloomFilter::from_proto(packed).unwrap();
         assert!(!bf.might_contain("anything"));
         assert!(!bf.might_contain("something_else"));
     }
@@ -123,7 +123,7 @@ mod tests {
         insert_into_bloom_be(&mut data, "user2", num_hash_functions, num_bits);
 
         let packed = make_packed(&data, num_hash_functions as i32, num_bits as i64);
-        let bf = BloomFilter::from_proto(&packed).unwrap();
+        let bf = BloomFilter::from_proto(packed).unwrap();
 
         assert!(bf.might_contain("user1"));
         assert!(bf.might_contain("user2"));
@@ -150,7 +150,7 @@ mod tests {
             bit_count: 38400,
             strategy: STRATEGY_MURMUR128_MITZ_64,
         };
-        let bf = BloomFilter::from_proto(&bf_pb).unwrap();
+        let bf = BloomFilter::from_proto(bf_pb).unwrap();
 
         // Keys in the bloom filter: "user_1" through "user_1000"
         assert!(bf.might_contain("user_1"));
@@ -172,6 +172,6 @@ mod tests {
             bit_count: 128,
             strategy: 99,
         };
-        assert!(BloomFilter::from_proto(&packed).is_err());
+        assert!(BloomFilter::from_proto(packed).is_err());
     }
 }

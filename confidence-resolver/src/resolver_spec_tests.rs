@@ -198,7 +198,7 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
             bit_count: spec_bf.bit_count,
             strategy: spec_bf.strategy,
         };
-        let bf = BloomFilter::from_proto(&packed).unwrap();
+        let bf = BloomFilter::from_proto(packed).unwrap();
         bloom_filters.insert(name.clone(), bf);
     }
 

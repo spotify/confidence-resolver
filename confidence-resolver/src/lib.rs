@@ -183,9 +183,10 @@ impl ResolverState {
                 _ => fail!(),
             }
         }
-        for bf_pb in &state_pb.bloom_filters {
+        for bf_pb in state_pb.bloom_filters {
+            let name = bf_pb.materialized_segment.clone();
             if let Ok(bf) = BloomFilter::from_proto(bf_pb) {
-                bloom_filters.insert(bf_pb.materialized_segment.clone(), bf);
+                bloom_filters.insert(name, bf);
             }
         }
         for client in state_pb.clients {
