@@ -1,41 +1,13 @@
 # syntax=docker/dockerfile:1
 
 # Pre-baked base images (override with --build-arg for local dev without registry)
+ARG RUST_BASE_IMAGE=ghcr.io/spotify/confidence-resolver/rust-base:latest
 ARG JAVA_BASE_IMAGE=ghcr.io/spotify/confidence-resolver/java-base:latest
 
 # ==============================================================================
 # Base image with Rust toolchain (Alpine - more reliable than Debian)
 # ==============================================================================
-FROM alpine:3.22 AS rust-base
-
-# Install system dependencies
-# - protoc/protobuf-dev: Required for prost-build (proto compilation in build.rs)
-# - musl-dev: Required for linking Rust binaries on Alpine
-RUN apk add --no-cache \
-    protobuf-dev \
-    protoc \
-    musl-dev \
-    make \
-    gcc \
-    curl \
-    ca-certificates
-
-# Install rustup into system-wide dirs so later stages can cache/copy them
-ENV CARGO_HOME=/usr/local/cargo \
-    RUSTUP_HOME=/usr/local/rustup \
-    PATH=/usr/local/cargo/bin:$PATH
-
-# Install rustup with no default toolchain; the toolchain file will drive installs
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --profile minimal --default-toolchain none
-
-WORKDIR /workspace
-
-# Copy rust-toolchain.toml and let rustup configure everything automatically
-COPY rust-toolchain.toml ./
-
-# Install toolchain from rust-toolchain.toml (components + targets)
-RUN rustup show
+FROM ${RUST_BASE_IMAGE} AS rust-base
 
 # ==============================================================================
 # Dependencies layer - cached separately from source code

@@ -104,6 +104,7 @@ js-bench: js-build
 # Build pre-baked base images locally (for bootstrapping or offline dev)
 .PHONY: base-images
 base-images:
+	@docker build -f docker/rust-base.Dockerfile -t ghcr.io/spotify/confidence-resolver/rust-base:latest .
 	@docker build -f docker/java-base.Dockerfile -t ghcr.io/spotify/confidence-resolver/java-base:latest .
 	@echo "✅ Base images built"
 
