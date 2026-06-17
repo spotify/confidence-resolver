@@ -101,4 +101,10 @@ js-bench: js-build
 	docker compose down --remove-orphans --volumes; \
 	exit $$status
 
+# Build pre-baked base images locally (for bootstrapping or offline dev)
+.PHONY: base-images
+base-images:
+	@docker build -f docker/java-base.Dockerfile -t ghcr.io/spotify/confidence-resolver/java-base:latest .
+	@echo "✅ Base images built"
+
 .DEFAULT_GOAL := all

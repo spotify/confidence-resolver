@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
 
+# Pre-baked base images (override with --build-arg for local dev without registry)
+ARG JAVA_BASE_IMAGE=ghcr.io/spotify/confidence-resolver/java-base:latest
+
 # ==============================================================================
 # Base image with Rust toolchain (Alpine - more reliable than Debian)
 # ==============================================================================
@@ -658,14 +661,7 @@ RUN --mount=type=secret,id=crates_io_token \
 # ==============================================================================
 # OpenFeature Provider (Java) - Build and test
 # ==============================================================================
-FROM eclipse-temurin:17-jdk AS openfeature-provider-java-base
-
-# Install Maven and protobuf (Debian-based for glibc compatibility)
-RUN apt-get update && apt-get install -y \
-    maven \
-    protobuf-compiler \
-    make \
-  && rm -rf /var/lib/apt/lists/*
+FROM ${JAVA_BASE_IMAGE} AS openfeature-provider-java-base
 
 WORKDIR /app
 
