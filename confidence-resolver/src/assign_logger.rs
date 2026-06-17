@@ -83,6 +83,7 @@ impl AssignLogger {
         let mut seen: HashSet<(String, String, String)> = HashSet::new();
         while state.pending_bytes < limit_bytes {
             if let Some(mut assigned) = self.assigned.pop() {
+                let len_before = assigned.flags.len();
                 assigned.flags.retain(|f| {
                     seen.insert((
                         f.flag.clone(),
@@ -90,7 +91,7 @@ impl AssignLogger {
                         f.assignment_id.clone(),
                     ))
                 });
-                if assigned.flags.is_empty() {
+                if assigned.flags.is_empty() && len_before > 0 {
                     continue;
                 }
                 let len = AssignLogger::encoded_len(&assigned);
