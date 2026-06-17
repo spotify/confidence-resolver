@@ -85,10 +85,11 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationSto
 	openfeature.Shutdown()
 }
 
-func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreWillNotWork(t *testing.T) {
+func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUsesBloomFilter(t *testing.T) {
 	ctx := context.Background()
 
-	// Create a real provider with a RemoteMaterializationStore
+	// Without a materialization store, the resolver uses bloom filters
+	// delivered in the state to check materialized segment membership locally.
 	provider, err := NewProvider(ctx, ProviderConfig{
 		ClientSecret:                  e2eClientSecret,
 		UseRemoteMaterializationStore: false,
@@ -97,7 +98,6 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreWi
 		t.Fatalf("Failed to create provider: %v", err)
 	}
 
-	// Set provider and wait for ready
 	err = openfeature.SetProviderAndWait(provider)
 	if err != nil {
 		t.Fatalf("Failed to set provider: %v", err)
@@ -105,22 +105,14 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreWi
 
 	client := openfeature.NewClient("real-backend-e2e-test")
 
-	// Perform a resolve to generate logs
 	details, err := client.StringValueDetails(ctx, "custom-targeted-flag.message", "client default", openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
 		"user_id": e2eIncludedTargetingKey,
 	}))
-	if err == nil {
-		t.Fatalf("Expected to fail resolve got: %v", details)
+	if err != nil {
+		t.Fatalf("Failed to resolve string flag via bloom filter: %v", err)
 	}
-	if err.Error() != "error code: GENERAL: flag 'custom-targeted-flag' requires materializations; configure a materialization store" {
-		t.Fatalf("Expected materialization store error, got: %v", err)
-	}
-	if details.Reason != "ERROR" {
-		t.Errorf("Expected Variant flags/custom-targeted-flag/variants/default, got %v", details.Reason)
-	}
-
-	if details.Value != "client default" {
-		t.Errorf("Expected default value client default, got %v", details.Value)
+	if details.Variant != "flags/custom-targeted-flag/variants/cake-exclamation" {
+		t.Errorf("Expected Variant flags/custom-targeted-flag/variants/cake-exclamation, got %v", details.Variant)
 	}
 
 	openfeature.Shutdown()
