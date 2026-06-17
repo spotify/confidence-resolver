@@ -30,13 +30,13 @@ jobs:
       python_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/python--release_created'] }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
       - name: Release Please (manifest)
         id: releasemanifest
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
@@ -51,7 +51,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Extract confidence-cloudflare-resolver version and tag
         id: extract_ccr_version
@@ -61,13 +61,13 @@ jobs:
           echo "CCR_TAG_NAME=confidence-cloudflare-resolver-v$VERSION" >> $GITHUB_ENV
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -75,7 +75,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/confidence-cloudflare-deployer
           tags: |
@@ -83,7 +83,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push deployer image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           target: confidence-cloudflare-resolver.deployer
@@ -102,10 +102,10 @@ jobs:
     if: ${{ needs.release.outputs.java_provider_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
-        
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Construct Maven settings file
         run: |
@@ -131,7 +131,7 @@ jobs:
           echo "${{ secrets.SIGN_KEY_PASS }}" > /tmp/gpg_pass.txt
 
       - name: Publish Java package with Docker
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           target: openfeature-provider-java.publish
@@ -151,13 +151,13 @@ jobs:
     if: ${{ needs.release.outputs.js_provider_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Build and extract package tarball with Docker
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           target: openfeature-provider-js.artifact
@@ -165,7 +165,7 @@ jobs:
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
@@ -185,17 +185,17 @@ jobs:
     if: ${{ needs.release.outputs.ruby_provider_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Write RubyGems API key to file
         run: |
           echo "${{ secrets.RUBYGEM_API_KEY }}" > /tmp/rubygem_api_key.txt
 
       - name: Publish Ruby gem with Docker
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           target: openfeature-provider-ruby.publish
@@ -210,17 +210,17 @@ jobs:
     if: ${{ needs.release.outputs.confidence_resolver_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Write crates.io token to file
         run: |
           echo "${{ secrets.CRATES_IO_TOKEN }}" > /tmp/crates_io_token.txt
 
       - name: Publish confidence-resolver with Docker
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           target: confidence-resolver.publish
@@ -238,10 +238,10 @@ jobs:
       (needs.publish-confidence-resolver-release.result == 'success' || needs.publish-confidence-resolver-release.result == 'skipped')
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Write crates.io token to file
         run: |
@@ -252,7 +252,7 @@ jobs:
         run: sleep 30
 
       - name: Publish Rust provider with Docker
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           target: openfeature-provider-rust.publish
@@ -270,13 +270,13 @@ jobs:
     if: ${{ needs.release.outputs.python_provider_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Build and extract package with Docker
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           target: openfeature-provider-python.artifact
@@ -288,6 +288,6 @@ jobs:
         run: ls -la ./artifacts/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: ./artifacts/
