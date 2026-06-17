@@ -40,12 +40,24 @@ impl Host for L {
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SpecState {
     account: SpecAccount,
     flags: HashMap<String, serde_json::Value>,
     segments: HashMap<String, serde_json::Value>,
     bitsets: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    bloom_filters: HashMap<String, SpecBloomFilter>,
     clients: HashMap<String, SpecClientEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SpecBloomFilter {
+    data: String,
+    hash_function_count: i32,
+    bit_count: i64,
+    strategy: i32,
 }
 
 #[derive(Deserialize)]
@@ -172,11 +184,30 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
         );
     }
 
+    let mut bloom_filters = HashMap::new();
+    for (name, spec_bf) in &spec.bloom_filters {
+        use crate::bloom_filter::BloomFilter;
+        use crate::proto::confidence::flags::admin::v1::resolver_state::BloomFilter as BloomFilterPb;
+
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let data = STANDARD.decode(&spec_bf.data).unwrap();
+        let packed = BloomFilterPb {
+            materialized_segment: name.clone(),
+            data,
+            hash_function_count: spec_bf.hash_function_count,
+            bit_count: spec_bf.bit_count,
+            strategy: spec_bf.strategy,
+        };
+        let bf = BloomFilter::from_proto(packed).unwrap();
+        bloom_filters.insert(name.clone(), bf);
+    }
+
     ResolverState {
         secrets,
         flags,
         segments,
         bitsets,
+        bloom_filters,
         sdk: None,
     }
 }
@@ -644,6 +675,10 @@ spec_test!(fallthrough_single_rule);
 spec_test!(mat_criterion_no_match);
 spec_test!(nested_mat_match);
 spec_test!(nested_mat_no_match);
+
+// Bloom filter resolution
+spec_test!(bloom_filter_match);
+spec_test!(bloom_filter_no_match);
 
 // Combined criteria (attribute + materialized segment)
 spec_test!(combined_both_match);

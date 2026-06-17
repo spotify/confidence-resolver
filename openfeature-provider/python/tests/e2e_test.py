@@ -81,8 +81,8 @@ class TestFlagResolveWithRemoteMaterializationStore:
 class TestFlagResolveWithoutMaterializationStore:
     """E2E tests for flag resolution without materialization store."""
 
-    def test_resolve_without_materialization_returns_error(self) -> None:
-        """Without materialization store, flags needing it return error."""
+    def test_resolve_without_materialization_store_uses_bloom_filter(self) -> None:
+        """Without materialization store, bloom filters resolve membership locally."""
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
             use_remote_materialization_store=False,
@@ -102,8 +102,9 @@ class TestFlagResolveWithoutMaterializationStore:
                 evaluation_context=ctx,
             )
 
-            # Without materialization store, should return default with error
-            assert result.value == "client default"
-            assert result.reason.value == "ERROR"
+            expected = "flags/custom-targeted-flag/variants/cake-exclamation"
+            assert result.variant == expected, (
+                f"Expected bloom filter resolve, got variant {result.variant}"
+            )
         finally:
             provider.shutdown()

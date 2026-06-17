@@ -276,6 +276,7 @@ name = "confidence_resolver"
 version = "0.18.1"
 dependencies = [
  "arc-swap",
+ "base64 0.22.1",
  "bitvec",
  "bytes",
  "chrono",
