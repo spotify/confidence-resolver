@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use prost::Message;
+use rand::Rng;
 use reqwest::StatusCode;
 use reqwest_middleware::ClientWithMiddleware;
 
@@ -28,8 +29,27 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 /// Multiplier applied to the delay after each failed attempt.
 const RETRY_BACKOFF_MULTIPLIER: u32 = 2;
 
+/// Jitter factor applied to retry delays (±10%).
+const RETRY_JITTER: f64 = 0.1;
+
 fn is_retryable_status(status: StatusCode) -> bool {
-    status.is_server_error() || status == StatusCode::REQUEST_TIMEOUT || status == StatusCode::TOO_MANY_REQUESTS
+    status.is_server_error()
+        || status == StatusCode::REQUEST_TIMEOUT
+        || status == StatusCode::TOO_MANY_REQUESTS
+}
+
+fn apply_jitter(delay: Duration) -> Duration {
+    let mut rng = rand::rng();
+    let factor = 1.0 + rng.random_range(-RETRY_JITTER..RETRY_JITTER);
+    delay.mul_f64(factor)
+}
+
+fn parse_retry_after(header: Option<&str>) -> Option<Duration> {
+    let value = header?.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+    None
 }
 
 /// Log sender that sends flag logs to the Confidence API.
@@ -75,14 +95,21 @@ impl LogSender {
                 Ok(response) if is_retryable_status(response.status()) => {
                     let status = response.status();
                     if attempt < MAX_ATTEMPTS {
+                        let server_delay = parse_retry_after(
+                            response
+                                .headers()
+                                .get("retry-after")
+                                .and_then(|v| v.to_str().ok()),
+                        );
+                        let sleep_dur = server_delay.unwrap_or_else(|| apply_jitter(delay));
                         tracing::debug!(
                             "Flag log send attempt {}/{} failed with {}, retrying in {:?}",
                             attempt,
                             MAX_ATTEMPTS,
                             status,
-                            delay
+                            sleep_dur
                         );
-                        tokio::time::sleep(delay).await;
+                        tokio::time::sleep(sleep_dur).await;
                         delay *= RETRY_BACKOFF_MULTIPLIER;
                     } else {
                         let body = response.text().await.unwrap_or_default();
@@ -102,14 +129,15 @@ impl LogSender {
                 }
                 Err(e) => {
                     if attempt < MAX_ATTEMPTS {
+                        let sleep_dur = apply_jitter(delay);
                         tracing::debug!(
                             "Flag log send attempt {}/{} failed with {}, retrying in {:?}",
                             attempt,
                             MAX_ATTEMPTS,
                             e,
-                            delay
+                            sleep_dur
                         );
-                        tokio::time::sleep(delay).await;
+                        tokio::time::sleep(sleep_dur).await;
                         delay *= RETRY_BACKOFF_MULTIPLIER;
                     } else {
                         tracing::warn!(
@@ -290,6 +318,59 @@ mod tests {
 
         let sender = test_sender(&format!("{}/v1/clientFlagLogs:write", server.uri()));
         sender.send(b"test-payload").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn respects_retry_after_header() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/clientFlagLogs:write"))
+            .respond_with(
+                ResponseTemplate::new(429).insert_header("retry-after", "1"),
+            )
+            .up_to_n_times(2)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/clientFlagLogs:write"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let sender = test_sender(&format!("{}/v1/clientFlagLogs:write", server.uri()));
+        let start = tokio::time::Instant::now();
+        sender.send(b"test-payload").await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(server.received_requests().await.unwrap().len(), 3);
+        // 2 retries with Retry-After: 1 second each
+        assert!(elapsed >= Duration::from_secs(2));
+    }
+
+    #[test]
+    fn parse_retry_after_seconds() {
+        assert_eq!(parse_retry_after(Some("5")), Some(Duration::from_secs(5)));
+        assert_eq!(parse_retry_after(Some("0")), Some(Duration::from_secs(0)));
+        assert_eq!(parse_retry_after(Some(" 3 ")), Some(Duration::from_secs(3)));
+    }
+
+    #[test]
+    fn parse_retry_after_invalid() {
+        assert_eq!(parse_retry_after(None), None);
+        assert_eq!(parse_retry_after(Some("not-a-number")), None);
+        assert_eq!(parse_retry_after(Some("")), None);
+    }
+
+    #[test]
+    fn jitter_stays_within_bounds() {
+        let base = Duration::from_millis(500);
+        for _ in 0..100 {
+            let jittered = apply_jitter(base);
+            assert!(jittered >= Duration::from_millis(450));
+            assert!(jittered <= Duration::from_millis(550));
+        }
     }
 
     #[test]
