@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,10 +22,13 @@ interface FlagLogWriter {
 public class GrpcWasmFlagLogger implements WasmFlagLogger {
   private static final Logger logger = LoggerFactory.getLogger(GrpcWasmFlagLogger.class);
   private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
+  private static final int STATS_WINDOW = 10;
   private final InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub stub;
   private final ExecutorService executorService;
   private final FlagLogWriter writer;
   private final Duration shutdownTimeout;
+  private final AtomicLong attempts = new AtomicLong();
+  private final AtomicLong failures = new AtomicLong();
   private ManagedChannel channel;
 
   @VisibleForTesting
@@ -57,7 +61,14 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
                         "Successfully sent flag log with {} entries",
                         request.getFlagAssignedCount());
                   } catch (Exception e) {
-                    logger.warn("Failed to write flag logs", e);
+                    failures.incrementAndGet();
+                  }
+                  if (attempts.incrementAndGet() % STATS_WINDOW == 0) {
+                    long failCount = failures.getAndSet(0);
+                    if (failCount > 0) {
+                      logger.warn(
+                          "Flag log write failures: {}/{}", failCount, STATS_WINDOW);
+                    }
                   }
                 });
   }

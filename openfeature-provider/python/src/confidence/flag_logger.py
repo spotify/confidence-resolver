@@ -6,6 +6,7 @@ to the Confidence backend via gRPC.
 
 import json
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Protocol, runtime_checkable
 
@@ -81,6 +82,9 @@ class GrpcFlagLogger:
         """
         self._client_secret = client_secret
         self._executor = ThreadPoolExecutor(max_workers=2)
+        self._stats_lock = threading.Lock()
+        self._attempts = 0
+        self._failures = 0
 
         if channel is not None:
             self._channel = channel
@@ -134,6 +138,7 @@ class GrpcFlagLogger:
         Args:
             request: The WriteFlagLogsRequest to send.
         """
+        failed = False
         try:
             metadata = [("authorization", f"ClientSecret {self._client_secret}")]
             self._stub.ClientWriteFlagLogs(request, metadata=metadata, timeout=30.0)
@@ -141,8 +146,19 @@ class GrpcFlagLogger:
                 "Successfully sent flag log with %d entries",
                 len(request.flag_assigned),
             )
-        except Exception as e:
-            logger.warning("Failed to write flag logs: %s", e)
+        except Exception:
+            failed = True
+
+        with self._stats_lock:
+            if failed:
+                self._failures += 1
+            self._attempts += 1
+            if self._attempts % 10 == 0:
+                if self._failures > 0:
+                    logger.warning(
+                        "Flag log write failures: %d/10", self._failures
+                    )
+                self._failures = 0
 
     def shutdown(self) -> None:
         """Shutdown the logger and wait for pending writes to complete."""

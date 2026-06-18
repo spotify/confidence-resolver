@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
@@ -16,6 +17,8 @@ type GrpcFlagLogger struct {
 	clientSecret string
 	logger       *slog.Logger
 	wg           sync.WaitGroup
+	attempts     atomic.Int64
+	failures     atomic.Int64
 }
 
 func NewGrpcWasmFlagLogger(stub resolverv1.InternalFlagLoggerServiceClient, clientSecret string, logger *slog.Logger) *GrpcFlagLogger {
@@ -71,9 +74,15 @@ func (g *GrpcFlagLogger) sendAsync(request *resolverv1.WriteFlagLogsRequest) {
 		rpcCtx = metadata.NewOutgoingContext(rpcCtx, md)
 
 		if _, err := g.stub.ClientWriteFlagLogs(rpcCtx, request); err != nil {
-			g.logger.Warn("Failed to write flag logs", "error", err)
+			g.failures.Add(1)
 		} else {
 			g.logger.Debug("Successfully sent flag log", "entries", len(request.FlagAssigned))
+		}
+
+		if g.attempts.Add(1)%10 == 0 {
+			if failures := g.failures.Swap(0); failures > 0 {
+				g.logger.Warn("Flag log write failures", "failures", failures, "window", 10)
+			}
 		}
 	}()
 }
