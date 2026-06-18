@@ -326,9 +326,7 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/clientFlagLogs:write"))
-            .respond_with(
-                ResponseTemplate::new(429).insert_header("retry-after", "1"),
-            )
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "1"))
             .up_to_n_times(2)
             .mount(&server)
             .await;
