@@ -58,21 +58,9 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 
 	tlsCreds := credentials.NewTLS(nil)
-	retryServiceConfig := `{
-		"methodConfig": [{
-			"name": [{"service": "confidence.flags.resolver.v1.InternalFlagLoggerService"}],
-			"retryPolicy": {
-				"maxAttempts": 3,
-				"initialBackoff": "0.5s",
-				"maxBackoff": "5s",
-				"backoffMultiplier": 2.0,
-				"retryableStatusCodes": ["UNAVAILABLE"]
-			}
-		}]
-	}`
 	baseOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(tlsCreds),
-		grpc.WithDefaultServiceConfig(retryServiceConfig),
+		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	}
 
 	target, opts := hooks.ModifyGRPCDial(confidenceDomain, baseOpts)
