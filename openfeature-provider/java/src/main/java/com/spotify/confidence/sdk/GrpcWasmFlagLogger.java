@@ -57,7 +57,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
                         "Successfully sent flag log with {} entries",
                         request.getFlagAssignedCount());
                   } catch (Exception e) {
-                    logger.error("Failed to write flag logs", e);
+                    logger.warn("Failed to write flag logs", e);
                   }
                 });
   }

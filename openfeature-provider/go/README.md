@@ -162,7 +162,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 #### Optional Fields
 
 - `Logger` (\*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
-- `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration)
+- `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration). The default gRPC dial options include a retry policy for flag log writes (3 attempts with exponential backoff on `UNAVAILABLE`). Custom `TransportHooks` receive these options in `ModifyGRPCDial` and can keep, modify, or replace them. See [gRPC retry via service config](https://grpc.io/docs/guides/retry/) for details.
 - `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
 - `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
 - `ResolverPoolSize` (int): Number of WASM resolver instances in the pool (default: `2`). Increase for higher concurrency (with the penalty of higher memory footprint).

@@ -71,7 +71,7 @@ func (g *GrpcFlagLogger) sendAsync(request *resolverv1.WriteFlagLogsRequest) {
 		rpcCtx = metadata.NewOutgoingContext(rpcCtx, md)
 
 		if _, err := g.stub.ClientWriteFlagLogs(rpcCtx, request); err != nil {
-			g.logger.Error("Failed to write flag logs", "error", err)
+			g.logger.Warn("Failed to write flag logs", "error", err)
 		} else {
 			g.logger.Debug("Successfully sent flag log", "entries", len(request.FlagAssigned))
 		}

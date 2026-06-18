@@ -4,6 +4,7 @@ This module provides flag logging functionality to send flag assignment events
 to the Confidence backend via gRPC.
 """
 
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Protocol, runtime_checkable
@@ -19,6 +20,27 @@ logger = logging.getLogger(__name__)
 
 # gRPC target for the Confidence edge service
 GRPC_TARGET = "edge-grpc.spotify.com:443"
+
+_RETRY_SERVICE_CONFIG = json.dumps(
+    {
+        "methodConfig": [
+            {
+                "name": [
+                    {
+                        "service": "confidence.flags.resolver.v1.InternalFlagLoggerService"
+                    }
+                ],
+                "retryPolicy": {
+                    "maxAttempts": 3,
+                    "initialBackoff": "0.5s",
+                    "maxBackoff": "5s",
+                    "backoffMultiplier": 2.0,
+                    "retryableStatusCodes": ["UNAVAILABLE"],
+                },
+            }
+        ]
+    }
+)
 
 
 @runtime_checkable
@@ -67,6 +89,7 @@ class GrpcFlagLogger:
             self._channel = grpc.secure_channel(
                 GRPC_TARGET,
                 grpc.ssl_channel_credentials(),
+                options=[("grpc.service_config", _RETRY_SERVICE_CONFIG)],
             )
             self._owns_channel = True
 
@@ -119,7 +142,7 @@ class GrpcFlagLogger:
                 len(request.flag_assigned),
             )
         except Exception as e:
-            logger.error("Failed to write flag logs: %s", e)
+            logger.warning("Failed to write flag logs: %s", e)
 
     def shutdown(self) -> None:
         """Shutdown the logger and wait for pending writes to complete."""
