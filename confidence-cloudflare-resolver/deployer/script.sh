@@ -8,6 +8,7 @@ set -euo pipefail
 CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:=}
 CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:=}
 RESOLVE_TOKEN_ENCRYPTION_KEY=${RESOLVE_TOKEN_ENCRYPTION_KEY:=}
+STATE_ENCRYPTION_KEY=${STATE_ENCRYPTION_KEY:=}
 CONFIDENCE_RESOLVER_ALLOWED_ORIGIN=${CONFIDENCE_RESOLVER_ALLOWED_ORIGIN:=}
 CONFIDENCE_RESOLVER_STATE_URL=${CONFIDENCE_RESOLVER_STATE_URL:=}
 CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
@@ -200,11 +201,37 @@ elif [ "$HTTP_STATUS" = "200" ]; then
     echo "✅ Download of resolver state successful"
     # Extract etag and normalize
     ETAG_RAW=$(awk -F': ' 'tolower($1)=="etag"{print $2}' "$TMP_HEADER" | tr -d '\r')
+    # Check if CDN state is encrypted
+    CDN_ENCRYPTED=$(awk -F': ' 'tolower($1)=="x-goog-meta-encrypted"{print $2}' "$TMP_HEADER" | tr -d '\r')
     rm -f "$TMP_HEADER"
     # Normalize ETag: drop weak prefix and surrounding quotes, then escape for TOML
     if [ -n "$ETAG_RAW" ]; then
         ETAG_STRIPPED=$(printf '%s' "$ETAG_RAW" | sed -e 's/^W\///' -e 's/^"//' -e 's/"$//')
         ETAG_TOML=$(printf '%s' "$ETAG_STRIPPED" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
+    fi
+
+    # Decrypt state if CDN response is encrypted
+    if [ "$CDN_ENCRYPTED" = "true" ]; then
+        if [ -z "$STATE_ENCRYPTION_KEY" ]; then
+            echo "❌ Resolver state is encrypted but STATE_ENCRYPTION_KEY is not set."
+            echo "   Set the encryption key for this client credential."
+            exit 1
+        fi
+        echo "🔐 Decrypting resolver state..."
+        node -e "
+            const crypto = require('crypto');
+            const fs = require('fs');
+            const encrypted = fs.readFileSync('${RESPONSE_FILE}');
+            const key = Buffer.from('${STATE_ENCRYPTION_KEY}', 'hex');
+            const nonce = encrypted.subarray(0, 12);
+            const tag = encrypted.subarray(encrypted.length - 16);
+            const ciphertext = encrypted.subarray(12, encrypted.length - 16);
+            const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+            decipher.setAuthTag(tag);
+            const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+            fs.writeFileSync('${RESPONSE_FILE}', plaintext);
+        "
+        echo "✅ Resolver state decrypted"
     fi
 else
     echo "❌ Error downloading resolver state: HTTP status code $HTTP_STATUS"
