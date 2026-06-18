@@ -66,8 +66,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
                   if (attempts.incrementAndGet() % STATS_WINDOW == 0) {
                     long failCount = failures.getAndSet(0);
                     if (failCount > 0) {
-                      logger.warn(
-                          "Flag log write failures: {}/{}", failCount, STATS_WINDOW);
+                      logger.warn("Flag log write failures: {}/{}", failCount, STATS_WINDOW);
                     }
                   }
                 });

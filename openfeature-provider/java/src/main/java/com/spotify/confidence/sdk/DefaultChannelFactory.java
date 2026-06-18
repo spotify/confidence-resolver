@@ -32,16 +32,19 @@ public class DefaultChannelFactory implements ChannelFactory {
               Map.of(
                   "name",
                   List.of(
-                      Map.of(
-                          "service",
-                          "confidence.flags.resolver.v1.InternalFlagLoggerService")),
+                      Map.of("service", "confidence.flags.resolver.v1.InternalFlagLoggerService")),
                   "retryPolicy",
                   Map.of(
-                      "maxAttempts", 3.0,
-                      "initialBackoff", "0.5s",
-                      "maxBackoff", "5s",
-                      "backoffMultiplier", 2.0,
-                      "retryableStatusCodes", List.of("UNAVAILABLE")))));
+                      "maxAttempts",
+                      3.0,
+                      "initialBackoff",
+                      "0.5s",
+                      "maxBackoff",
+                      "5s",
+                      "backoffMultiplier",
+                      2.0,
+                      "retryableStatusCodes",
+                      List.of("UNAVAILABLE")))));
 
   @Override
   public ManagedChannel create(String target, List<ClientInterceptor> defaultInterceptors) {
