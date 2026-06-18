@@ -218,19 +218,8 @@ elif [ "$HTTP_STATUS" = "200" ]; then
             exit 1
         fi
         echo "🔐 Decrypting resolver state..."
-        node -e "
-            const crypto = require('crypto');
-            const fs = require('fs');
-            const encrypted = fs.readFileSync('${RESPONSE_FILE}');
-            const key = Buffer.from('${STATE_ENCRYPTION_KEY}', 'hex');
-            const nonce = encrypted.subarray(0, 12);
-            const tag = encrypted.subarray(encrypted.length - 16);
-            const ciphertext = encrypted.subarray(12, encrypted.length - 16);
-            const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
-            decipher.setAuthTag(tag);
-            const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-            fs.writeFileSync('${RESPONSE_FILE}', plaintext);
-        "
+        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+        node "$SCRIPT_DIR/decrypt_state.js" "$RESPONSE_FILE" "$STATE_ENCRYPTION_KEY"
         echo "✅ Resolver state decrypted"
     fi
 else
