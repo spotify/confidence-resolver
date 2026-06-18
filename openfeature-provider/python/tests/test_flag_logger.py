@@ -209,6 +209,107 @@ class TestGrpcFlagLoggerGrpcTarget:
         assert GRPC_TARGET == "edge-grpc.spotify.com:443"
 
 
+class TestGrpcFlagLoggerFailureStats:
+    """Test windowed failure stats logging."""
+
+    def test_no_log_when_all_succeed(self) -> None:
+        """No warning should be logged when all writes succeed."""
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+        mock_stub.ClientWriteFlagLogs = MagicMock(
+            return_value=internal_api_pb2.WriteFlagLogsResponse()
+        )
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with patch(stub_path, return_value=mock_stub):
+            flag_logger = GrpcFlagLogger(
+                client_secret="test-secret", channel=mock_channel
+            )
+
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.flag_assigned.add()
+            request_bytes = request.SerializeToString()
+
+            for _ in range(10):
+                flag_logger.write(request_bytes)
+
+            flag_logger.shutdown()
+
+        with patch("confidence.flag_logger.logger") as mock_logger:
+            mock_logger.warning.assert_not_called()
+
+    def test_warns_on_failures_at_window_boundary(self) -> None:
+        """Warning should be logged at the 10-attempt window when failures > 0."""
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 3:
+                raise Exception("unavailable")
+            return internal_api_pb2.WriteFlagLogsResponse()
+
+        mock_stub.ClientWriteFlagLogs = side_effect
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with (
+            patch(stub_path, return_value=mock_stub),
+            patch("confidence.flag_logger.logger") as mock_logger,
+        ):
+            flag_logger = GrpcFlagLogger(
+                client_secret="test-secret", channel=mock_channel
+            )
+
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.flag_assigned.add()
+            request_bytes = request.SerializeToString()
+
+            for _ in range(10):
+                flag_logger.write(request_bytes)
+
+            flag_logger.shutdown()
+
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert "Flag log write failures" in call_args[0][0]
+
+    def test_no_log_before_window_boundary(self) -> None:
+        """No warning should be logged before reaching the 10-attempt window."""
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+        mock_stub.ClientWriteFlagLogs = MagicMock(side_effect=Exception("unavailable"))
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with (
+            patch(stub_path, return_value=mock_stub),
+            patch("confidence.flag_logger.logger") as mock_logger,
+        ):
+            flag_logger = GrpcFlagLogger(
+                client_secret="test-secret", channel=mock_channel
+            )
+
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.flag_assigned.add()
+            request_bytes = request.SerializeToString()
+
+            # Only 5 writes — below the 10-attempt window
+            for _ in range(5):
+                flag_logger.write(request_bytes)
+
+            flag_logger.shutdown()
+
+            mock_logger.warning.assert_not_called()
+
+
 class TestNoOpFlagLogger:
     """Test NoOpFlagLogger behavior."""
 
