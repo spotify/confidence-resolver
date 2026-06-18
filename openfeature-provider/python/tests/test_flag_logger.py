@@ -284,9 +284,7 @@ class TestGrpcFlagLoggerFailureStats:
         """No warning should be logged before reaching the 10-attempt window."""
         mock_channel = MagicMock()
         mock_stub = MagicMock()
-        mock_stub.ClientWriteFlagLogs = MagicMock(
-            side_effect=Exception("unavailable")
-        )
+        mock_stub.ClientWriteFlagLogs = MagicMock(side_effect=Exception("unavailable"))
 
         stub_path = (
             "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
