@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/ruby/v0.1.3...openfeature-provider/ruby/v0.1.4) (2026-06-17)
+
+
+### Bug Fixes
+
+* **ruby:** remove redundant keyword_init from Struct definitions ([#446](https://github.com/spotify/confidence-resolver/issues/446)) ([01522a9](https://github.com/spotify/confidence-resolver/commit/01522a9ff7f0a34a1c20a019b6f289a21462834d))
+
 ## [0.1.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/ruby/v0.1.2...openfeature-provider/ruby/v0.1.3) (2026-03-12)
 
 

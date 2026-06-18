@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.7.1...openfeature-provider-python-v0.8.0) (2026-06-17)
+
+
+### Features
+
+* **resolve:** add support for resolving materialized segments via bloom filters ([#443](https://github.com/spotify/confidence-resolver/issues/443)) ([8d980c1](https://github.com/spotify/confidence-resolver/commit/8d980c145e192c21fb8f42ab84c7fd5da3308647))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.4 to 0.2.5
+
 ## [0.7.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.7.0...openfeature-provider-python-v0.7.1) (2026-06-05)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.18.1...confidence_resolver-v0.19.0) (2026-06-17)
+
+
+### Features
+
+* **resolve:** add support for resolving materialized segments via bloom filters ([#443](https://github.com/spotify/confidence-resolver/issues/443)) ([8d980c1](https://github.com/spotify/confidence-resolver/commit/8d980c145e192c21fb8f42ab84c7fd5da3308647))
+
 ## [0.18.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.18.0...confidence_resolver-v0.18.1) (2026-05-28)
 
 
