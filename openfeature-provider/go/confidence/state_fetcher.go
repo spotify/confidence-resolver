@@ -24,8 +24,11 @@ type StateProvider interface {
 // FlagsAdminStateFetcher fetches and updates the resolver state from the CDN
 type FlagsAdminStateFetcher struct {
 	clientSecret     string
+	encryptionKey    string
 	etag             atomic.Value // stores string
 	rawResolverState atomic.Value // stores []byte
+	rawCdnBytes      atomic.Value // stores []byte — set when CDN response is encrypted
+	encrypted        atomic.Bool
 	accountID        atomic.Value // stores string
 	HTTPClient       *http.Client // Exported for testing
 	logger           *slog.Logger
@@ -48,9 +51,20 @@ func NewFlagsAdminStateFetcherWithTransport(
 	logger *slog.Logger,
 	transport http.RoundTripper,
 ) *FlagsAdminStateFetcher {
+	return NewFlagsAdminStateFetcherWithEncryption(clientSecret, "", logger, transport)
+}
+
+// NewFlagsAdminStateFetcherWithEncryption creates a new FlagsAdminStateFetcher with optional encryption key.
+func NewFlagsAdminStateFetcherWithEncryption(
+	clientSecret string,
+	encryptionKey string,
+	logger *slog.Logger,
+	transport http.RoundTripper,
+) *FlagsAdminStateFetcher {
 	f := &FlagsAdminStateFetcher{
-		clientSecret: clientSecret,
-		logger:       logger,
+		clientSecret:  clientSecret,
+		encryptionKey: encryptionKey,
+		logger:        logger,
 		HTTPClient: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
@@ -84,6 +98,17 @@ func (f *FlagsAdminStateFetcher) GetAccountID() string {
 // Reload fetches and updates the state if it has changed
 func (f *FlagsAdminStateFetcher) Reload(ctx context.Context) error {
 	return f.fetchAndUpdateStateIfChanged(ctx)
+}
+
+// RawCdnBytes returns the raw encrypted CDN bytes, or nil if unencrypted.
+func (f *FlagsAdminStateFetcher) RawCdnBytes() []byte {
+	if !f.encrypted.Load() {
+		return nil
+	}
+	if v := f.rawCdnBytes.Load(); v != nil {
+		return v.([]byte)
+	}
+	return nil
 }
 
 // Provide implements the StateProvider interface
@@ -136,23 +161,28 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 		return err
 	}
 
-	// Parse SetResolverStateRequest
-	stateRequest := &wasm.SetResolverStateRequest{}
-	if err := proto.Unmarshal(bytes, stateRequest); err != nil {
-		return fmt.Errorf("failed to unmarshal SetResolverStateRequest: %w", err)
-	}
-
-	// Extract account ID and state bytes
-	f.accountID.Store(stateRequest.AccountId)
-
-	// Get and store the new ETag
+	encrypted := resp.Header.Get("x-goog-meta-encrypted") == "true"
 	etag := resp.Header.Get("ETag")
-	f.etag.Store(etag)
 
-	// Update the raw state (state is already in bytes format)
-	f.rawResolverState.Store(stateRequest.State)
-
-	f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
+	if encrypted {
+		if f.encryptionKey == "" {
+			return fmt.Errorf("resolver state is encrypted but no EncryptionKey was provided; set the encryption key for this client credential")
+		}
+		f.rawCdnBytes.Store(bytes)
+		f.encrypted.Store(true)
+		f.etag.Store(etag)
+		f.logger.Debug("Loaded encrypted resolver state", "etag", etag)
+	} else {
+		stateRequest := &wasm.SetResolverStateRequest{}
+		if err := proto.Unmarshal(bytes, stateRequest); err != nil {
+			return fmt.Errorf("failed to unmarshal SetResolverStateRequest: %w", err)
+		}
+		f.accountID.Store(stateRequest.AccountId)
+		f.rawResolverState.Store(stateRequest.State)
+		f.encrypted.Store(false)
+		f.etag.Store(etag)
+		f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
+	}
 
 	return nil
 }
