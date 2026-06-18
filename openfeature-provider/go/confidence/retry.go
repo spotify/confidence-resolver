@@ -9,8 +9,8 @@ const RetryServiceConfig = `{
 		"name": [{"service": "confidence.flags.resolver.v1.InternalFlagLoggerService"}],
 		"retryPolicy": {
 			"maxAttempts": 3,
-			"initialBackoff": "0.5s",
-			"maxBackoff": "5s",
+			"initialBackoff": "1s",
+			"maxBackoff": "10s",
 			"backoffMultiplier": 2.0,
 			"retryableStatusCodes": ["UNAVAILABLE"]
 		}
