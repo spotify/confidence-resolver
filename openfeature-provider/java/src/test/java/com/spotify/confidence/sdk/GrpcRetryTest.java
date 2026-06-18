@@ -5,14 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.spotify.confidence.sdk.flags.resolver.v1.*;
 import io.grpc.ClientInterceptor;
-import io.grpc.ManagedChannel;
 import io.grpc.Status;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.grpc.testing.GrpcCleanupRule;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -21,24 +18,6 @@ import org.junit.jupiter.api.Test;
 class GrpcRetryTest {
 
   private final GrpcCleanupRule grpcCleanup = new GrpcCleanupRule();
-
-  private static final Map<String, Object> RETRY_SERVICE_CONFIG =
-      Map.of(
-          "methodConfig",
-          List.of(
-              Map.of(
-                  "name",
-                  List.of(
-                      Map.of(
-                          "service",
-                          "confidence.flags.resolver.v1.InternalFlagLoggerService")),
-                  "retryPolicy",
-                  Map.of(
-                      "maxAttempts", 3.0,
-                      "initialBackoff", "0.1s",
-                      "maxBackoff", "0.5s",
-                      "backoffMultiplier", 2.0,
-                      "retryableStatusCodes", List.of("UNAVAILABLE")))));
 
   @Test
   void retryOnUnavailable() throws Exception {
@@ -76,7 +55,7 @@ class GrpcRetryTest {
           InProcessChannelBuilder builder =
               InProcessChannelBuilder.forName(serverName)
                   .directExecutor()
-                  .defaultServiceConfig(RETRY_SERVICE_CONFIG)
+                  .defaultServiceConfig(DefaultChannelFactory.RETRY_SERVICE_CONFIG)
                   .enableRetry();
           if (!interceptors.isEmpty()) {
             builder.intercept(interceptors.toArray(new ClientInterceptor[0]));
@@ -129,7 +108,7 @@ class GrpcRetryTest {
           InProcessChannelBuilder builder =
               InProcessChannelBuilder.forName(serverName)
                   .directExecutor()
-                  .defaultServiceConfig(RETRY_SERVICE_CONFIG)
+                  .defaultServiceConfig(DefaultChannelFactory.RETRY_SERVICE_CONFIG)
                   .enableRetry();
           if (!interceptors.isEmpty()) {
             builder.intercept(interceptors.toArray(new ClientInterceptor[0]));

@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class DefaultChannelFactory implements ChannelFactory {
 
-  private static final Map<String, Object> RETRY_SERVICE_CONFIG =
+  static final Map<String, Object> RETRY_SERVICE_CONFIG =
       Map.of(
           "methodConfig",
           List.of(
