@@ -155,9 +155,7 @@ class GrpcFlagLogger:
             self._attempts += 1
             if self._attempts % 10 == 0:
                 if self._failures > 0:
-                    logger.warning(
-                        "Flag log write failures: %d/10", self._failures
-                    )
+                    logger.warning("Flag log write failures: %d/10", self._failures)
                 self._failures = 0
 
     def shutdown(self) -> None:
