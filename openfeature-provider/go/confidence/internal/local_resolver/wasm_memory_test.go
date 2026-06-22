@@ -77,14 +77,7 @@ func TestWasmMemoryStableOnRepeatedSetResolverState(t *testing.T) {
 	factory := NewWasmResolverFactory(NoOpLogSink)
 	defer factory.Close(context.Background())
 
-	var wasmResolvers []*WasmResolver
-	supplier := func() LocalResolver {
-		lr := factory.New()
-		wasmResolvers = append(wasmResolvers, lr.(*WasmResolver))
-		return lr
-	}
-
-	pooled := NewPooledResolver(DefaultPoolSize, supplier)
+	pooled := NewPooledResolver(DefaultPoolSize, factory.New)
 	defer pooled.Close(context.Background())
 
 	testState := tu.LoadTestResolverState(t)
@@ -95,14 +88,6 @@ func TestWasmMemoryStableOnRepeatedSetResolverState(t *testing.T) {
 		AccountId: testAcctID,
 	}
 
-	totalMemory := func() uint32 {
-		var total uint32
-		for _, wr := range wasmResolvers {
-			total += wr.instance.Memory().Size()
-		}
-		return total
-	}
-
 	// Warm up: let one-time allocator growth and initial state settle.
 	warmupIterations := 10
 	for i := 0; i < warmupIterations; i++ {
@@ -111,7 +96,7 @@ func TestWasmMemoryStableOnRepeatedSetResolverState(t *testing.T) {
 		}
 	}
 
-	memBefore := totalMemory()
+	memBefore := pooledMemory(pooled)
 
 	// Simulate the production polling loop: repeated SetResolverState on the
 	// same long-lived pool. In production this happens every 10s with ~240KB
@@ -124,7 +109,7 @@ func TestWasmMemoryStableOnRepeatedSetResolverState(t *testing.T) {
 		}
 	}
 
-	memAfter := totalMemory()
+	memAfter := pooledMemory(pooled)
 
 	if memAfter > memBefore {
 		t.Errorf("WASM pool memory grew from %d to %d bytes (+%d bytes / +%d pages) after %d SetResolverState calls — "+
@@ -145,14 +130,7 @@ func TestWasmMemoryStableOnRepeatedSetResolverStateWithResolves(t *testing.T) {
 	factory := NewWasmResolverFactory(NoOpLogSink)
 	defer factory.Close(context.Background())
 
-	var wasmResolvers []*WasmResolver
-	supplier := func() LocalResolver {
-		lr := factory.New()
-		wasmResolvers = append(wasmResolvers, lr.(*WasmResolver))
-		return lr
-	}
-
-	pooled := NewPooledResolver(DefaultPoolSize, supplier)
+	pooled := NewPooledResolver(DefaultPoolSize, factory.New)
 	defer pooled.Close(context.Background())
 
 	testState := tu.LoadTestResolverState(t)
@@ -164,14 +142,6 @@ func TestWasmMemoryStableOnRepeatedSetResolverStateWithResolves(t *testing.T) {
 	}
 	resolveRequest := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
 
-	totalMemory := func() uint32 {
-		var total uint32
-		for _, wr := range wasmResolvers {
-			total += wr.instance.Memory().Size()
-		}
-		return total
-	}
-
 	// Warm up: initial state load + resolve traffic to settle allocator.
 	if err := pooled.SetResolverState(stateRequest); err != nil {
 		t.Fatalf("initial SetResolverState failed: %v", err)
@@ -182,7 +152,7 @@ func TestWasmMemoryStableOnRepeatedSetResolverStateWithResolves(t *testing.T) {
 		}
 	}
 
-	memBefore := totalMemory()
+	memBefore := pooledMemory(pooled)
 
 	// Simulate production: each "tick" does 1 state update across all pool
 	// slots + N resolves round-robined across them, modeling the 10s poll
@@ -203,14 +173,23 @@ func TestWasmMemoryStableOnRepeatedSetResolverStateWithResolves(t *testing.T) {
 		}
 	}
 
-	memAfter := totalMemory()
+	memAfter := pooledMemory(pooled)
 
 	fmt.Printf("Pool memory (%d slots): before=%d after=%d delta=%d bytes (%d pages) over %d state updates with %d resolves each\n",
-		len(wasmResolvers), memBefore, memAfter, memAfter-memBefore, (memAfter-memBefore)/65536, stateUpdates, resolvesPerTick)
+		len(pooled.slots), memBefore, memAfter, memAfter-memBefore, (memAfter-memBefore)/65536, stateUpdates, resolvesPerTick)
 
 	if memAfter > memBefore {
 		t.Errorf("WASM pool memory grew from %d to %d bytes (+%d bytes / +%d pages) after %d state updates interleaved with resolves — "+
 			"indicates heap fragmentation or leak during state+resolve cycles",
 			memBefore, memAfter, memAfter-memBefore, (memAfter-memBefore)/65536, stateUpdates)
 	}
+}
+
+// pooledMemory returns the total WASM linear memory across all current pool slots.
+func pooledMemory(p *PooledResolver) uint32 {
+	var total uint32
+	for _, s := range p.slots {
+		total += s.lr.(*WasmResolver).instance.Memory().Size()
+	}
+	return total
 }
