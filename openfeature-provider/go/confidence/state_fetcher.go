@@ -164,25 +164,28 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 	encrypted := resp.Header.Get("x-amz-meta-encrypted") == "true"
 	etag := resp.Header.Get("ETag")
 
-	if encrypted {
-		if f.encryptionKey == "" {
-			return fmt.Errorf("resolver state is encrypted but no EncryptionKey was provided; set the encryption key for this client credential")
-		}
-		f.rawCdnBytes.Store(bytes)
-		f.encrypted.Store(true)
-		f.etag.Store(etag)
-		f.logger.Debug("Loaded encrypted resolver state", "etag", etag)
-	} else {
+	if !encrypted {
 		stateRequest := &wasm.SetResolverStateRequest{}
 		if err := proto.Unmarshal(bytes, stateRequest); err != nil {
-			return fmt.Errorf("failed to unmarshal SetResolverStateRequest: %w", err)
+			f.logger.Warn("Protobuf decode failed, treating state as encrypted", "error", err)
+			encrypted = true
+		} else {
+			f.accountID.Store(stateRequest.AccountId)
+			f.rawResolverState.Store(stateRequest.State)
+			f.encrypted.Store(false)
+			f.etag.Store(etag)
+			f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
+			return nil
 		}
-		f.accountID.Store(stateRequest.AccountId)
-		f.rawResolverState.Store(stateRequest.State)
-		f.encrypted.Store(false)
-		f.etag.Store(etag)
-		f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
 	}
+
+	if f.encryptionKey == "" {
+		return fmt.Errorf("resolver state is encrypted but no EncryptionKey was provided; set the encryption key for this client credential")
+	}
+	f.rawCdnBytes.Store(bytes)
+	f.encrypted.Store(true)
+	f.etag.Store(etag)
+	f.logger.Debug("Loaded encrypted resolver state", "etag", etag)
 
 	return nil
 }

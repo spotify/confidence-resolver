@@ -125,27 +125,33 @@ class StateFetcher:
             encrypted = response.headers.get("x-amz-meta-encrypted") == "true"
             self._etag = response.headers.get("ETag")
 
-            if encrypted:
-                if not self._encryption_key:
-                    raise StateFetcherError(
-                        "Resolver state is encrypted but no encryption_key was provided. "
-                        "Set the encryption key for this client credential."
+            if not encrypted:
+                try:
+                    state_request = SetResolverStateRequest()
+                    state_request.ParseFromString(response.content)
+                    self._state = state_request.state
+                    self._account_id = state_request.account_id
+                    self._raw_cdn_bytes = None
+                    logger.info(
+                        "Loaded resolver state for account=%s, etag=%s",
+                        self._account_id,
+                        self._etag,
                     )
-                self._raw_cdn_bytes = response.content
-                logger.info("Loaded encrypted resolver state, etag=%s", self._etag)
-                return self._raw_cdn_bytes, "", True
-            else:
-                state_request = SetResolverStateRequest()
-                state_request.ParseFromString(response.content)
-                self._state = state_request.state
-                self._account_id = state_request.account_id
-                self._raw_cdn_bytes = None
-                logger.info(
-                    "Loaded resolver state for account=%s, etag=%s",
-                    self._account_id,
-                    self._etag,
+                    return self._state, self._account_id, True
+                except Exception:
+                    logger.warning(
+                        "Protobuf decode failed, treating state as encrypted"
+                    )
+                    encrypted = True
+
+            if not self._encryption_key:
+                raise StateFetcherError(
+                    "Resolver state is encrypted but no encryption_key was provided. "
+                    "Set the encryption key for this client credential."
                 )
-                return self._state, self._account_id, True
+            self._raw_cdn_bytes = response.content
+            logger.info("Loaded encrypted resolver state, etag=%s", self._etag)
+            return self._raw_cdn_bytes, "", True
 
         finally:
             if should_close:

@@ -210,8 +210,23 @@ elif [ "$HTTP_STATUS" = "200" ]; then
         ETAG_TOML=$(printf '%s' "$ETAG_STRIPPED" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
     fi
 
-    # Decrypt state if CDN response is encrypted
+    # Decrypt state if CDN response is encrypted (header check + protobuf parse fallback)
+    NEEDS_DECRYPT="false"
     if [ "$CDN_ENCRYPTED" = "true" ]; then
+        NEEDS_DECRYPT="true"
+    else
+        # Fallback: try protobuf decode — if it fails, treat as encrypted
+        if ! node -e "
+            const fs = require('fs');
+            const buf = fs.readFileSync('${RESPONSE_FILE}');
+            if (buf.length < 2 || buf[0] !== 0x0a) process.exit(1);
+        " 2>/dev/null; then
+            echo "⚠️ Protobuf decode heuristic failed, treating state as encrypted"
+            NEEDS_DECRYPT="true"
+        fi
+    fi
+
+    if [ "$NEEDS_DECRYPT" = "true" ]; then
         if [ -z "$STATE_ENCRYPTION_KEY" ]; then
             echo "❌ Resolver state is encrypted but STATE_ENCRYPTION_KEY is not set."
             echo "   Set the encryption key for this client credential."

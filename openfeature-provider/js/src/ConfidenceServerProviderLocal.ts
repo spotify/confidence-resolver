@@ -315,27 +315,32 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.stateEtag = resp.headers.get('etag');
 
     const bytes = new Uint8Array(await resp.arrayBuffer());
-    const encrypted = resp.headers.get('x-amz-meta-encrypted') === 'true';
+    let encrypted = resp.headers.get('x-amz-meta-encrypted') === 'true';
 
-    if (encrypted) {
-      const { encryptionKey } = this.options;
-      if (!encryptionKey) {
-        throw new Error(
-          'Resolver state is encrypted but no encryptionKey was provided in ProviderOptions. ' +
-            'Set the encryption key for this client credential.',
-        );
+    if (!encrypted) {
+      try {
+        const stateRequest = SetResolverStateRequest.decode(bytes);
+        stateRequest.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
+        this.resolver.setResolverState(stateRequest);
+        return;
+      } catch {
+        encrypted = true;
       }
-      const keyBytes = hexToBytes(encryptionKey);
-      this.resolver.setEncryptedResolverState({
-        encryptedState: bytes,
-        encryptionKey: keyBytes,
-        sdk: { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION },
-      });
-    } else {
-      const stateRequest = SetResolverStateRequest.decode(bytes);
-      stateRequest.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
-      this.resolver.setResolverState(stateRequest);
     }
+
+    const { encryptionKey } = this.options;
+    if (!encryptionKey) {
+      throw new Error(
+        'Resolver state is encrypted but no encryptionKey was provided in ProviderOptions. ' +
+          'Set the encryption key for this client credential.',
+      );
+    }
+    const keyBytes = hexToBytes(encryptionKey);
+    this.resolver.setEncryptedResolverState({
+      encryptedState: bytes,
+      encryptionKey: keyBytes,
+      sdk: { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION },
+    });
   }
 
   // TODO should this return success/failure, or even throw?
