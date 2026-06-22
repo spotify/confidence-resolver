@@ -102,10 +102,37 @@ func (s *PooledResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
 }
 
 // SetResolverState implements LocalResolver.
+// WASM linear memory can grow but never shrink (spec limitation). Repeated
+// state updates on a long-lived instance cause heap fragmentation from
+// interleaved resolve allocations, leading to unbounded memory.grow calls.
+// Replacing instances reclaims the old linear memory entirely.
 func (s *PooledResolver) SetResolverState(request *wasm.SetResolverStateRequest) error {
-	return s.maintenance(func(lr LocalResolver) error {
-		return lr.SetResolverState(request)
-	})
+	s.mmu.Lock()
+	defer s.mmu.Unlock()
+
+	var errs []error
+	for i := range s.slots {
+		slot := &s.slots[i]
+
+		fresh := s.supplier()
+		if err := fresh.SetResolverState(request); err != nil {
+			fresh.Close(context.Background())
+			errs = append(errs, fmt.Errorf("slot %d: %w", i, err))
+			continue
+		}
+
+		slot.rw.Lock()
+		old := slot.lr
+		slot.lr = fresh
+		slot.rw.Unlock()
+
+		old.Close(context.Background())
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
 // FlushAllLogs implements LocalResolver.
