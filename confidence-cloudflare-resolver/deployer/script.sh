@@ -202,7 +202,7 @@ elif [ "$HTTP_STATUS" = "200" ]; then
     # Extract etag and normalize
     ETAG_RAW=$(awk -F': ' 'tolower($1)=="etag"{print $2}' "$TMP_HEADER" | tr -d '\r')
     # Check if CDN state is encrypted
-    CDN_ENCRYPTED=$(awk -F': ' 'tolower($1)=="x-goog-meta-encrypted"{print $2}' "$TMP_HEADER" | tr -d '\r')
+    CDN_ENCRYPTED=$(awk -F': ' 'tolower($1)=="x-amz-meta-encrypted"{print $2}' "$TMP_HEADER" | tr -d '\r')
     rm -f "$TMP_HEADER"
     # Normalize ETag: drop weak prefix and surrounding quotes, then escape for TOML
     if [ -n "$ETAG_RAW" ]; then

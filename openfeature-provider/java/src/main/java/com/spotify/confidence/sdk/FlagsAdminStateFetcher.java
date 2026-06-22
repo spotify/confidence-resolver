@@ -93,7 +93,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         return;
       }
       final String etag = conn.getHeaderField("etag");
-      final boolean encrypted = "true".equals(conn.getHeaderField("x-goog-meta-encrypted"));
+      final boolean encrypted = "true".equals(conn.getHeaderField("x-amz-meta-encrypted"));
       try (final InputStream stream = conn.getInputStream()) {
         final byte[] bytes = stream.readAllBytes();
 

@@ -122,7 +122,7 @@ class StateFetcher:
                     f"Failed to fetch state: HTTP {response.status_code}"
                 )
 
-            encrypted = response.headers.get("x-goog-meta-encrypted") == "true"
+            encrypted = response.headers.get("x-amz-meta-encrypted") == "true"
             self._etag = response.headers.get("ETag")
 
             if encrypted:

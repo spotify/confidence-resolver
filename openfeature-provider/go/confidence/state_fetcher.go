@@ -161,7 +161,7 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 		return err
 	}
 
-	encrypted := resp.Header.Get("x-goog-meta-encrypted") == "true"
+	encrypted := resp.Header.Get("x-amz-meta-encrypted") == "true"
 	etag := resp.Header.Get("ETag")
 
 	if encrypted {

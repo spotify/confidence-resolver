@@ -315,7 +315,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.stateEtag = resp.headers.get('etag');
 
     const bytes = new Uint8Array(await resp.arrayBuffer());
-    const encrypted = resp.headers.get('x-goog-meta-encrypted') === 'true';
+    const encrypted = resp.headers.get('x-amz-meta-encrypted') === 'true';
 
     if (encrypted) {
       const { encryptionKey } = this.options;
