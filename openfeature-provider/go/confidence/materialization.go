@@ -189,6 +189,10 @@ func (m *materializationSupportedResolver) SetResolverState(request *wasm.SetRes
 	return m.current.SetResolverState(request)
 }
 
+func (m *materializationSupportedResolver) SetEncryptedResolverState(request *wasm.SetEncryptedResolverStateRequest) (err error) {
+	return m.current.SetEncryptedResolverState(request)
+}
+
 func (m *materializationSupportedResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics bool) string {
 	return m.current.PrometheusSnapshot(bucketsPerDecade, openmetrics)
 }
