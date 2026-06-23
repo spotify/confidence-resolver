@@ -363,14 +363,9 @@ mod tests {
 
     #[test]
     fn test_decrypt_rejects_wrong_key() {
+        use aes_gcm::{Aes256Gcm, KeyInit, aead::OsRng};
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
-        let mut wrong_key = hex::decode(
-            std::fs::read_to_string(data_dir().join("encryption_key_test.hex"))
-                .unwrap()
-                .trim(),
-        )
-        .unwrap();
-        wrong_key[0] ^= 0xff;
+        let wrong_key = Aes256Gcm::generate_key(OsRng).to_vec();
         let result = StateFetcher::decrypt(&encrypted, &Some(wrong_key));
         assert!(result.is_err());
     }
