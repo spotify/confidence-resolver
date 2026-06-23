@@ -364,9 +364,14 @@ mod tests {
     #[test]
     fn test_decrypt_rejects_wrong_key() {
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
-        let wrong_key = Some(vec![0u8; 32]);
-
-        let result = StateFetcher::decrypt(&encrypted, &wrong_key);
+        let mut wrong_key = hex::decode(
+            std::fs::read_to_string(data_dir().join("encryption_key_test.hex"))
+                .unwrap()
+                .trim(),
+        )
+        .unwrap();
+        wrong_key[0] ^= 0xff;
+        let result = StateFetcher::decrypt(&encrypted, &Some(wrong_key));
         assert!(result.is_err());
     }
 
