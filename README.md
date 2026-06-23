@@ -1,6 +1,6 @@
 # Confidence Rust Flags Resolver
 
-![Status: Experimental](https://img.shields.io/badge/status-experimental-orange)
+![Status: Beta](https://img.shields.io/badge/status-beta-orange)
 
 The Confidence flag resolver implemented in Rust, local-resolve OpenFeature Providers and edge-compatible resolver runnables.
 
@@ -12,7 +12,7 @@ The tools and SDKs published for direct usage:
   - [Go](./openfeature-provider/go/README.md)
   - [Java](./openfeature-provider/java/README.md)
   - [JavaScript/TypeScript](./openfeature-provider/js/README.md)
-  - [Python](./openfeature-provider/python/README.md) (alpha)
+  - [Python](./openfeature-provider/python/README.md)
   - [Rust](./openfeature-provider/rust/README.md)
   - [Ruby](./openfeature-provider/ruby/README.md)
 
