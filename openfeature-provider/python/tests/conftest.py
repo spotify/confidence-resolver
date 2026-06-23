@@ -56,6 +56,24 @@ def test_account_id() -> str:
 
 
 @pytest.fixture
+def test_encrypted_state() -> bytes:
+    """Load encrypted test resolver state."""
+    path = get_data_dir() / "resolver_state_encrypted.pb"
+    if not path.exists():
+        pytest.skip(f"Encrypted test state not found at {path}")
+    return path.read_bytes()
+
+
+@pytest.fixture
+def test_encryption_key() -> bytes:
+    """Load test encryption key (raw bytes)."""
+    path = get_data_dir() / "encryption_key_test.hex"
+    if not path.exists():
+        pytest.skip(f"Test encryption key not found at {path}")
+    return bytes.fromhex(path.read_text().strip())
+
+
+@pytest.fixture
 def test_client_secret() -> str:
     """Test client secret for the demo account."""
     return "mkjJruAATQWjeY7foFIWfVAcBWnci2YF"
