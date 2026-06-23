@@ -35,13 +35,22 @@ pub struct StateFetcher {
     cdn_url: String,
     etag: RwLock<Option<String>>,
     sdk: Option<Sdk>,
+    encryption_key: Option<Vec<u8>>,
 }
 
 impl StateFetcher {
     /// Create a new state fetcher with the given client, client secret, and sdk identity.
-    pub fn new(client: ClientWithMiddleware, client_secret: String, sdk: Option<Sdk>) -> Self {
+    pub fn new(
+        client: ClientWithMiddleware,
+        client_secret: String,
+        sdk: Option<Sdk>,
+        encryption_key_hex: Option<String>,
+    ) -> Self {
         let hash = Self::hash_client_secret(&client_secret);
         let cdn_url = format!("{}/{}", CDN_BASE_URL, hash);
+        let encryption_key = encryption_key_hex.map(|hex_str| {
+            hex::decode(&hex_str).expect("encryption_key must be valid hex")
+        });
 
         Self {
             client,
@@ -49,6 +58,7 @@ impl StateFetcher {
             cdn_url,
             etag: RwLock::new(None),
             sdk,
+            encryption_key,
         }
     }
 
@@ -100,21 +110,86 @@ impl StateFetcher {
             }
         }
 
+        // Check encryption header
+        let encrypted_header = response
+            .headers()
+            .get("x-amz-meta-encrypted")
+            .and_then(|v| v.to_str().ok())
+            == Some("true");
+
         // Parse response body
-        let bytes = response.bytes().await?;
-        let request = SetResolverStateRequest::decode(bytes).map_err(|e| {
-            Error::StateParse(format!("Failed to decode SetResolverStateRequest: {}", e))
+        let raw_bytes = response.bytes().await?;
+
+        // Try unencrypted path first (header check + protobuf fallback)
+        let decrypted_bytes = if !encrypted_header {
+            match SetResolverStateRequest::decode(raw_bytes.clone()) {
+                Ok(request) => {
+                    let state_pb = ResolverStatePb::decode(request.state).map_err(|e| {
+                        Error::StateParse(format!("Failed to decode ResolverState: {}", e))
+                    })?;
+                    let state =
+                        ResolverState::from_proto(state_pb, &request.account_id, self.sdk.clone())
+                            .map_err(|e| {
+                                Error::StateParse(format!(
+                                    "Failed to create ResolverState: {:?}",
+                                    e
+                                ))
+                            })?;
+                    return Ok(Some((state, request.account_id)));
+                }
+                Err(_) => {
+                    tracing::warn!("Protobuf decode failed, treating state as encrypted");
+                    Self::decrypt(&raw_bytes, &self.encryption_key)?
+                }
+            }
+        } else {
+            Self::decrypt(&raw_bytes, &self.encryption_key)?
+        };
+
+        let request = SetResolverStateRequest::decode(decrypted_bytes.as_slice()).map_err(|e| {
+            Error::StateParse(format!(
+                "Failed to decode decrypted SetResolverStateRequest: {}",
+                e
+            ))
         })?;
 
-        // Parse the inner ResolverState
         let state_pb = ResolverStatePb::decode(request.state)
             .map_err(|e| Error::StateParse(format!("Failed to decode ResolverState: {}", e)))?;
 
-        // Convert to ResolverState
         let state = ResolverState::from_proto(state_pb, &request.account_id, self.sdk.clone())
             .map_err(|e| Error::StateParse(format!("Failed to create ResolverState: {:?}", e)))?;
 
         Ok(Some((state, request.account_id)))
+    }
+
+    /// Decrypt AES-256-GCM encrypted state (Tink NO_PREFIX format).
+    fn decrypt(data: &[u8], key: &Option<Vec<u8>>) -> Result<Vec<u8>> {
+        use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+
+        let key_bytes = key.as_ref().ok_or_else(|| {
+            Error::StateParse(
+                "Resolver state is encrypted but no encryption_key was provided. \
+                 Set the encryption key for this client credential."
+                    .to_string(),
+            )
+        })?;
+
+        if data.len() < 12 {
+            return Err(Error::StateParse(
+                "Encrypted state too short (missing nonce)".to_string(),
+            ));
+        }
+
+        let cipher = Aes256Gcm::new_from_slice(key_bytes)
+            .map_err(|e| Error::StateParse(format!("Invalid encryption key: {}", e)))?;
+        let nonce = Nonce::from_slice(&data[..12]);
+        cipher
+            .decrypt(nonce, &data[12..])
+            .map_err(|_| {
+                Error::StateParse(
+                    "Failed to decrypt resolver state: invalid key or corrupted data".to_string(),
+                )
+            })
     }
 
     /// Get the client secret.
@@ -171,6 +246,16 @@ impl Default for SharedState {
 mod tests {
     use super::*;
     use crate::test_utils::{create_minimal_state, create_state_with_flag};
+    use std::path::PathBuf;
+
+    fn data_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("data")
+    }
 
     #[test]
     fn test_hash_client_secret() {
@@ -258,5 +343,38 @@ mod tests {
             shared_state.account_id().await,
             Some("custom-account-id".to_string())
         );
+    }
+
+    #[test]
+    fn test_decrypt_encrypted_state() {
+        let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
+        let hex_key =
+            std::fs::read_to_string(data_dir().join("encryption_key_test.hex")).unwrap();
+        let key = Some(hex::decode(hex_key.trim()).unwrap());
+
+        let decrypted = StateFetcher::decrypt(&encrypted, &key).unwrap();
+        let request = SetResolverStateRequest::decode(decrypted.as_slice()).unwrap();
+        assert_eq!(request.account_id, "confidence-test");
+
+        let state_pb = ResolverStatePb::decode(request.state).unwrap();
+        let state = ResolverState::from_proto(state_pb, &request.account_id, None).unwrap();
+        assert!(!state.flags.is_empty());
+    }
+
+    #[test]
+    fn test_decrypt_rejects_wrong_key() {
+        let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
+        let wrong_key = Some(vec![0u8; 32]);
+
+        let result = StateFetcher::decrypt(&encrypted, &wrong_key);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decrypt_rejects_missing_key() {
+        let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
+
+        let result = StateFetcher::decrypt(&encrypted, &None);
+        assert!(result.is_err());
     }
 }
