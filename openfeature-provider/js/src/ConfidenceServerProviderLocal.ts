@@ -4,7 +4,7 @@ import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidenc
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import { castStringToEnum, hexToBytes, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -35,6 +35,8 @@ export const DEFAULT_FLUSH_INTERVAL = 15_000;
 export interface SnapshotConfig {}
 export interface ProviderOptions {
   flagClientSecret: string;
+  /** Hex-encoded AES-256 encryption key for decrypting CDN state. */
+  encryptionKey?: string;
   initializeTimeout?: number;
   /** Interval in milliseconds between state polling updates. Defaults to 30000ms. */
   stateUpdateInterval?: number;
@@ -312,12 +314,33 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
     this.stateEtag = resp.headers.get('etag');
 
-    // Parse SetResolverStateRequest from response
     const bytes = new Uint8Array(await resp.arrayBuffer());
+    let encrypted = resp.headers.get('x-amz-meta-encrypted') === 'true';
 
-    const stateRequest = SetResolverStateRequest.decode(bytes);
-    stateRequest.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
-    this.resolver.setResolverState(stateRequest);
+    if (!encrypted) {
+      try {
+        const stateRequest = SetResolverStateRequest.decode(bytes);
+        stateRequest.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
+        this.resolver.setResolverState(stateRequest);
+        return;
+      } catch {
+        encrypted = true;
+      }
+    }
+
+    const { encryptionKey } = this.options;
+    if (!encryptionKey) {
+      throw new Error(
+        'Resolver state is encrypted but no encryptionKey was provided in ProviderOptions. ' +
+          'Set the encryption key for this client credential.',
+      );
+    }
+    const keyBytes = hexToBytes(encryptionKey);
+    this.resolver.setEncryptedResolverState({
+      encryptedState: bytes,
+      encryptionKey: keyBytes,
+      sdk: { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION },
+    });
   }
 
   // TODO should this return success/failure, or even throw?
