@@ -6,6 +6,7 @@ import type FlagBundleType from '../flag-bundle';
 import * as FlagBundle from '../flag-bundle';
 import { devWarn } from '../util';
 import { ErrorCode } from '../types';
+import { publishFlagEvaluation } from '../flag-evaluation-global';
 
 type FlagBundle = FlagBundleType;
 
@@ -168,6 +169,12 @@ export function useFlagDetails<T extends FlagValue>(
       doExpose();
     }
   }, [autoExpose, doExpose]);
+
+  useEffect(() => {
+    if (resolution.reason === 'MATCH' && resolution.variant) {
+      publishFlagEvaluation(`flags/${baseFlagName}`, resolution.variant);
+    }
+  }, [baseFlagName, resolution.reason, resolution.variant]);
 
   // Expose function returned to caller
   const expose = useCallback(() => {

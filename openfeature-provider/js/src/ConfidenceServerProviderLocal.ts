@@ -18,7 +18,6 @@ import {
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
 import FlagBundleType, * as FlagBundle from './flag-bundle';
 import { ErrorCode, ResolutionDetails } from './types';
-import { publishFlagEvaluation } from './flag-evaluation-global';
 
 type FlagBundle = FlagBundleType;
 const logger = getLogger('provider');
@@ -225,10 +224,6 @@ export class ConfidenceServerProviderLocal implements Provider {
         resolution = FlagBundle.error(ErrorCode.GENERAL, String(err));
       }
       const result = FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
-
-      if (result.reason === 'MATCH' && result.variant) {
-        publishFlagEvaluation(`flags/${flagName}`, result.variant);
-      }
 
       const latencyUs = Math.round((performance.now() - startMs) * 1000);
       let reason: ResolveReason;
