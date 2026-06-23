@@ -25,6 +25,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
       "https://confidence-resolver-state-cdn.spotifycdn.com/";
 
   private final String clientSecret;
+  private final String encryptionKey;
   private final HttpClientFactory httpClientFactory;
   // ETag for conditional GETs of resolver state
   private final AtomicReference<String> etagHolder = new AtomicReference<>();
@@ -33,19 +34,34 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
           com.spotify.confidence.sdk.flags.admin.v1.ResolverState.newBuilder()
               .build()
               .toByteArray());
+  private final AtomicReference<byte[]> rawCdnBytesHolder = new AtomicReference<>();
   private String accountId = "";
 
   public FlagsAdminStateFetcher(String clientSecret, HttpClientFactory httpClientFactory) {
+    this(clientSecret, httpClientFactory, null);
+  }
+
+  public FlagsAdminStateFetcher(
+      String clientSecret, HttpClientFactory httpClientFactory, String encryptionKey) {
     this.clientSecret = clientSecret;
     this.httpClientFactory = httpClientFactory;
+    this.encryptionKey = encryptionKey;
   }
 
   public AtomicReference<byte[]> rawStateHolder() {
     return rawResolverStateHolder;
   }
 
+  public byte[] rawCdnBytes() {
+    return rawCdnBytesHolder.get();
+  }
+
   @Override
   public byte[] provide() {
+    final byte[] cdnBytes = rawCdnBytesHolder.get();
+    if (cdnBytes != null) {
+      return cdnBytes;
+    }
     return rawResolverStateHolder.get();
   }
 
@@ -77,19 +93,35 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         return;
       }
       final String etag = conn.getHeaderField("etag");
+      boolean encrypted = "true".equals(conn.getHeaderField("x-amz-meta-encrypted"));
       try (final InputStream stream = conn.getInputStream()) {
         final byte[] bytes = stream.readAllBytes();
 
-        // Parse SetResolverStateRequest from CDN response
-        final var stateRequest =
-            com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
-        this.accountId = stateRequest.getAccountId();
+        if (!encrypted) {
+          try {
+            final var stateRequest =
+                com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
+            this.accountId = stateRequest.getAccountId();
+            rawResolverStateHolder.set(stateRequest.getState().toByteArray());
+            rawCdnBytesHolder.set(null);
+            etagHolder.set(etag);
+            logger.info("Loaded resolver state (etag={})", etag);
+            return;
+          } catch (Exception e) {
+            logger.warn("Protobuf decode failed, treating state as encrypted", e);
+            encrypted = true;
+          }
+        }
 
-        // Store the state bytes (already in bytes format)
-        rawResolverStateHolder.set(stateRequest.getState().toByteArray());
+        if (encryptionKey == null || encryptionKey.isEmpty()) {
+          throw new RuntimeException(
+              "Resolver state is encrypted but no encryptionKey was provided. "
+                  + "Set the encryption key for this client credential.");
+        }
+        rawCdnBytesHolder.set(bytes);
         etagHolder.set(etag);
       }
-      logger.info("Loaded resolver state for account={}, etag={}", accountId, etag);
+      logger.info("Loaded encrypted resolver state (etag={})", etag);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
