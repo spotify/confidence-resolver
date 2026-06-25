@@ -206,3 +206,7 @@ Resolve rates and latency are always sent to the Confidence backend via `WriteFl
 ## Limitations
 
 * **Sticky assignments**: Not currently supported with the Cloudflare resolver. Flags with sticky assignment rules will return "flag not found".
+
+* **Immediate apply**: The Cloudflare resolver forces `apply=true` on every resolve request, regardless of what the client SDK sends. This means:
+  * Flag exposures are logged immediately at resolve time, before the flag value is rendered or shown to the user.
+  * No resolve token is returned to the client, so the SDK's deferred apply mechanism is effectively disabled — apply calls from the SDK are accepted but silently discarded.
