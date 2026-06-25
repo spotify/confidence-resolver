@@ -4,6 +4,45 @@ use std::collections::HashMap;
 use worker::kv::KvStore;
 use worker::*;
 
+pub enum Backend {
+    Kv(KvStore),
+    Do(ObjectNamespace),
+}
+
+impl Backend {
+    pub fn from_env(env: &Env) -> Option<Self> {
+        env.kv("CONFIDENCE_MATERIALIZATIONS_KV")
+            .ok()
+            .map(Self::Kv)
+            .or_else(|| {
+                env.durable_object("CONFIDENCE_MATERIALIZATIONS_DO")
+                    .ok()
+                    .map(Self::Do)
+            })
+    }
+
+    pub async fn read(
+        &self,
+        records: &[MaterializationRecord],
+    ) -> Vec<MaterializationRecord> {
+        match self {
+            Self::Kv(kv) => read_materializations(kv, records).await,
+            Self::Do(ns) => read_materializations_do(ns, records).await,
+        }
+    }
+
+    pub async fn write(
+        &self,
+        records: &[MaterializationRecord],
+        ttl_seconds: Option<u64>,
+    ) {
+        match self {
+            Self::Kv(kv) => write_materializations(kv, records, ttl_seconds).await,
+            Self::Do(ns) => write_materializations_do(ns, records).await,
+        }
+    }
+}
+
 type Key = (String, String);
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
