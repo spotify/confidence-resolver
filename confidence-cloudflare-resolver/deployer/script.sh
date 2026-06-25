@@ -19,6 +19,8 @@ WRANGLER_DEPLOY_ARGS=${WRANGLER_DEPLOY_ARGS:=}
 WRANGLER_DEPLOY_ARGS_FILE=${WRANGLER_DEPLOY_ARGS_FILE:=}
 WRANGLER_DEPLOY_TAG=${WRANGLER_DEPLOY_TAG:=}
 WRANGLER_DEPLOY_MESSAGE=${WRANGLER_DEPLOY_MESSAGE:=}
+ENABLE_STICKY_ASSIGNMENTS_KV=${ENABLE_STICKY_ASSIGNMENTS_KV:=}
+ENABLE_STICKY_ASSIGNMENTS_DO=${ENABLE_STICKY_ASSIGNMENTS_DO:=}
 INITIAL_WORKDIR="$(pwd)"
 
 # CDN base URL for fetching resolver state
@@ -422,6 +424,77 @@ EOF
 fi
 
 fi  # end ENABLE_METRICS check
+
+# Sticky assignments storage backend (KV or DO, mutually exclusive)
+if [ -n "$ENABLE_STICKY_ASSIGNMENTS_KV" ] && [ -n "$ENABLE_STICKY_ASSIGNMENTS_DO" ]; then
+    echo "❌ ENABLE_STICKY_ASSIGNMENTS_KV and ENABLE_STICKY_ASSIGNMENTS_DO are mutually exclusive"
+    exit 1
+fi
+
+if [ -n "$ENABLE_STICKY_ASSIGNMENTS_KV" ]; then
+    if [ -n "$WORKER_NAME_PREFIX" ]; then
+        MAT_KV_TITLE="${WORKER_NAME_PREFIX}-resolver-materializations"
+    else
+        MAT_KV_TITLE="resolver-materializations"
+    fi
+
+    echo "🔍 Checking if KV namespace '$MAT_KV_TITLE' exists..."
+    MAT_KV_LIST=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces?per_page=100")
+    MAT_KV_LIST_STATUS="${MAT_KV_LIST: -3}"
+    MAT_KV_LIST_BODY="${MAT_KV_LIST%???}"
+
+    MAT_KV_NAMESPACE_ID=""
+    if [ "$MAT_KV_LIST_STATUS" = "200" ]; then
+        MAT_KV_NAMESPACE_ID=$(printf "%s" "$MAT_KV_LIST_BODY" | jq -r ".result[] | select(.title == \"${MAT_KV_TITLE}\") | .id" 2>/dev/null || true)
+    fi
+
+    if [ -z "$MAT_KV_NAMESPACE_ID" ]; then
+        echo "📦 KV namespace '$MAT_KV_TITLE' not found, creating..."
+        MAT_KV_CREATE_RESP=$(curl -sS -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"title\": \"${MAT_KV_TITLE}\"}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces")
+        MAT_KV_CREATE_STATUS="${MAT_KV_CREATE_RESP: -3}"
+        MAT_KV_CREATE_BODY="${MAT_KV_CREATE_RESP%???}"
+        if [ "$MAT_KV_CREATE_STATUS" = "200" ] || [ "$MAT_KV_CREATE_STATUS" = "201" ]; then
+            MAT_KV_NAMESPACE_ID=$(printf "%s" "$MAT_KV_CREATE_BODY" | jq -r '.result.id')
+            echo "✅ KV namespace '$MAT_KV_TITLE' created (id: $MAT_KV_NAMESPACE_ID)"
+        else
+            echo "❌ Failed to create KV namespace for materializations (HTTP $MAT_KV_CREATE_STATUS)"
+            exit 1
+        fi
+    else
+        echo "✅ KV namespace '$MAT_KV_TITLE' already exists (id: $MAT_KV_NAMESPACE_ID)"
+    fi
+
+    cat >> wrangler.toml <<EOF
+
+[[kv_namespaces]]
+binding = "CONFIDENCE_MATERIALIZATIONS_KV"
+id = "$MAT_KV_NAMESPACE_ID"
+EOF
+    echo "✅ Added CONFIDENCE_MATERIALIZATIONS_KV binding to wrangler.toml"
+
+elif [ -n "$ENABLE_STICKY_ASSIGNMENTS_DO" ]; then
+    cat >> wrangler.toml <<'EOF'
+
+[durable_objects]
+bindings = [
+  { name = "CONFIDENCE_MATERIALIZATIONS_DO", class_name = "StickyAssignmentDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["StickyAssignmentDO"]
+EOF
+    echo "✅ Added CONFIDENCE_MATERIALIZATIONS_DO binding to wrangler.toml"
+
+else
+    echo "ℹ️ Sticky assignments not enabled (set ENABLE_STICKY_ASSIGNMENTS_KV or ENABLE_STICKY_ASSIGNMENTS_DO to enable)"
+fi
 
 # Update worker name and queue name in wrangler.toml if using prefix
 if [ -n "$WORKER_NAME_PREFIX" ]; then
