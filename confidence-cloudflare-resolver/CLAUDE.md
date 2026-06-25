@@ -9,7 +9,7 @@ A Cloudflare Worker that serves the Confidence flag resolver at the edge. Compil
 ## Architecture
 
 - **Compile-time state** — Resolver state is embedded at build time via `include_bytes!("../../data/resolver_state_current.pb")`. No runtime state fetching. Redeployment required to update.
-- **No sticky assignments support** — Uses `ResolveProcessRequest::without_materializations()`.
+- **Optional sticky assignments** — Opt-in via `ENABLE_STICKY_ASSIGNMENTS_KV` (KV-backed) or `ENABLE_STICKY_ASSIGNMENTS_DO` (Durable Object-backed). Mutually exclusive.
 - **Queue-based log shipping** — Flag logs are serialized to JSON and sent to a Cloudflare Queue (`flag_logs_queue`), then consumed by a queue handler that aggregates and ships them.
 - **JSON API** — Request/response bodies are JSON (not protobuf), unlike the WASM-based providers.
 - **CORS** — All responses include CORS headers with configurable `ALLOWED_ORIGIN`.
@@ -40,6 +40,7 @@ The `#[event(queue)]` handler `consume_flag_logs_queue` processes batched flag l
 | `ALLOWED_ORIGIN` | CORS allowed origin (defaults to `"*"`) |
 | `RESOLVER_STATE_ETAG` | ETag of the embedded resolver state |
 | `DEPLOYER_VERSION` | Version of confidence-resolver used for deployment |
+| `MATERIALIZATION_TTL_SECONDS` | TTL for KV-backed sticky assignments (optional) |
 
 ## Build & Test
 
@@ -71,7 +72,7 @@ The `deployer/` directory contains a deployment script and Dockerfile for automa
 ## Key Differences from Other Providers
 
 1. **No runtime state updates** — State is compile-time, not polled from CDN
-2. **No materializations** — Sticky assignments not supported
+2. **Optional materializations** — Sticky assignments via KV or Durable Objects (opt-in)
 3. **JSON, not protobuf** — API uses JSON request/response bodies
 4. **Edge deployment** — Runs on Cloudflare's edge network, not in application processes
 5. **Queue logging** — Uses Cloudflare Queues instead of gRPC for log transport

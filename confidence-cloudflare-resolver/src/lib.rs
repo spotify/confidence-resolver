@@ -1,4 +1,7 @@
 mod materialization;
+mod sticky_do;
+
+pub use sticky_do::StickyAssignmentDO;
 
 use confidence_resolver::{
     assign_logger, flag_logger,
@@ -138,14 +141,20 @@ fn sdk_info() -> Sdk {
     }
 }
 
+enum MatBackend {
+    Kv(kv::KvStore),
+    Do(ObjectNamespace),
+}
+
 /// Resolve flags with sticky assignment support via the suspend/resume cycle.
 ///
-/// If the resolver suspends (needs materialization data), reads from KV and resumes.
+/// If the resolver suspends (needs materialization data), reads from the
+/// configured backend (KV or DO) and resumes.
 /// Returns the resolved response and any materialization writes to persist.
 async fn resolve_with_sticky(
     resolver: &AccountResolver<'_, H>,
     request: ResolveProcessRequest,
-    kv: Option<&kv::KvStore>,
+    backend: Option<&MatBackend>,
 ) -> std::result::Result<(ResolveFlagsResponse, Vec<MaterializationRecord>), String> {
     let response = resolver.resolve_flags(request)?;
 
@@ -155,9 +164,16 @@ async fn resolve_with_sticky(
             r.materializations_to_write,
         )),
         Some(resolve_process_response::Result::Suspended(s)) => {
-            let kv = kv.ok_or("Materializations required but KV not available")?;
-            let records =
-                materialization::read_materializations(kv, &s.materializations_to_read).await;
+            let backend =
+                backend.ok_or("Materializations required but no storage backend available")?;
+            let records = match &backend {
+                MatBackend::Kv(kv) => {
+                    materialization::read_materializations(kv, &s.materializations_to_read).await
+                }
+                MatBackend::Do(ns) => {
+                    materialization::read_materializations_do(ns, &s.materializations_to_read).await
+                }
+            };
             let resume = ResolveProcessRequest::resume(records, s.state);
             let resumed = resolver.resolve_flags(resume)?;
             resumed
@@ -203,6 +219,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     }
 
     let mat_kv_for_writes = env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
+    let mat_do_for_writes = env.durable_object("CONFIDENCE_MATERIALIZATIONS_DO").ok();
     let mat_ttl: Option<u64> = env
         .var("MATERIALIZATION_TTL_SECONDS")
         .ok()
@@ -281,7 +298,17 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         // during sync CPU, but scheduler.wait(0) unfreezes them.
                         let t0 = js_sys::Date::now();
 
-                        let mat_kv = ctx.env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
+                        let mat_backend = ctx
+                            .env
+                            .kv("CONFIDENCE_MATERIALIZATIONS_KV")
+                            .ok()
+                            .map(MatBackend::Kv)
+                            .or_else(|| {
+                                ctx.env
+                                    .durable_object("CONFIDENCE_MATERIALIZATIONS_DO")
+                                    .ok()
+                                    .map(MatBackend::Do)
+                            });
 
                         let (reasons, resp) = match state.get_resolver::<H>(
                             &resolver_request.client_secret,
@@ -289,7 +316,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
                         ) {
                             Ok(resolver) => {
-                                let process_request = if mat_kv.is_some() {
+                                let process_request = if mat_backend.is_some() {
                                     ResolveProcessRequest::deferred_materializations(
                                         resolver_request,
                                     )
@@ -299,7 +326,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     )
                                 };
                                 match resolve_with_sticky(
-                                    &resolver, process_request, mat_kv.as_ref(),
+                                    &resolver, process_request, mat_backend.as_ref(),
                                 ).await {
                                     Ok((response, writes)) => {
                                         if !writes.is_empty() {
@@ -419,12 +446,18 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         }
     });
 
-    // Write sticky assignments to KV after response is returned.
+    // Write sticky assignments after response is returned.
     let mat_writes = MAT_WRITES.with(|f| f.borrow_mut().take());
-    if let (Some(kv), Some(writes)) = (mat_kv_for_writes, mat_writes) {
-        ctx.wait_until(async move {
-            materialization::write_materializations(&kv, &writes, mat_ttl).await;
-        });
+    if let Some(writes) = mat_writes {
+        if let Some(kv) = mat_kv_for_writes {
+            ctx.wait_until(async move {
+                materialization::write_materializations(&kv, &writes, mat_ttl).await;
+            });
+        } else if let Some(ns) = mat_do_for_writes {
+            ctx.wait_until(async move {
+                materialization::write_materializations_do(&ns, &writes).await;
+            });
+        }
     }
 
     response

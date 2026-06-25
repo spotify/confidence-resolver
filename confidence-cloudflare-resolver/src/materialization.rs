@@ -2,6 +2,7 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::Materialization
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use worker::kv::KvStore;
+use worker::*;
 
 type Key = (String, String);
 
@@ -11,6 +12,28 @@ pub struct MaterializationData {
     pub included: bool,
     #[serde(default)]
     pub rules: HashMap<String, String>,
+}
+
+impl MaterializationData {
+    pub fn merge_record(&mut self, rule: &str, variant: &str) {
+        if rule.is_empty() {
+            self.included = true;
+        } else {
+            self.rules.insert(rule.to_string(), variant.to_string());
+            self.included = true;
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct WriteRequest {
+    pub records: Vec<WriteRecord>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct WriteRecord {
+    pub rule: String,
+    pub variant: String,
 }
 
 fn kv_key(unit: &str, materialization: &str) -> String {
@@ -81,13 +104,7 @@ fn merge_writes(
         let mut data = existing.get(&key).cloned().unwrap_or_default();
 
         for record in group_records {
-            if record.rule.is_empty() {
-                data.included = true;
-            } else {
-                data.rules
-                    .insert(record.rule.clone(), record.variant.clone());
-                data.included = true;
-            }
+            data.merge_record(&record.rule, &record.variant);
         }
 
         result.insert(key, data);
@@ -150,6 +167,69 @@ pub async fn write_materializations(
             if let Ok(b) = builder {
                 let _ = b.execute().await;
             }
+        }
+    }
+}
+
+/// Reads materialization data from a Durable Object namespace.
+///
+/// Each unique (unit, materialization) pair maps to a separate DO instance.
+pub async fn read_materializations_do(
+    ns: &ObjectNamespace,
+    records: &[MaterializationRecord],
+) -> Vec<MaterializationRecord> {
+    let groups = group_by_key(records);
+    let mut fetched: HashMap<Key, MaterializationData> = HashMap::new();
+
+    for (unit, materialization) in groups.keys() {
+        let id_name = format!("mat:{unit}:{materialization}");
+        let Ok(id) = ns.id_from_name(&id_name) else {
+            continue;
+        };
+        let Ok(stub) = id.get_stub() else { continue };
+        let Ok(mut resp) = stub.fetch_with_str("https://do/data").await else {
+            continue;
+        };
+        if let Ok(data) = resp.json::<MaterializationData>().await {
+            fetched.insert((unit.clone(), materialization.clone()), data);
+        }
+    }
+
+    build_read_results(records, &fetched)
+}
+
+/// Writes materialization assignments to Durable Objects.
+pub async fn write_materializations_do(
+    ns: &ObjectNamespace,
+    records: &[MaterializationRecord],
+) {
+    let groups = group_by_key(records);
+
+    for ((unit, materialization), group_records) in &groups {
+        let id_name = format!("mat:{unit}:{materialization}");
+        let Ok(id) = ns.id_from_name(&id_name) else {
+            continue;
+        };
+        let Ok(stub) = id.get_stub() else { continue };
+
+        let body = WriteRequest {
+            records: group_records
+                .iter()
+                .map(|r| WriteRecord {
+                    rule: r.rule.clone(),
+                    variant: r.variant.clone(),
+                })
+                .collect(),
+        };
+
+        let mut init = RequestInit::new();
+        init.with_method(Method::Put);
+        if let Ok(json) = serde_json::to_string(&body) {
+            init.with_body(Some(json.into()));
+        }
+
+        if let Ok(req) = Request::new_with_init("https://do/data", &init) {
+            let _ = stub.fetch_with_request(req).await;
         }
     }
 }
@@ -425,5 +505,75 @@ mod tests {
             groups[&("u1".to_string(), "m1".to_string())].len(),
             3
         );
+    }
+
+    // --- merge_record ---
+
+    #[wasm_bindgen_test]
+    fn merge_record_with_rule() {
+        let mut d = MaterializationData::default();
+        d.merge_record("rule_a", "treatment");
+        assert!(d.included);
+        assert_eq!(d.rules.get("rule_a").unwrap(), "treatment");
+    }
+
+    #[wasm_bindgen_test]
+    fn merge_record_inclusion_only() {
+        let mut d = MaterializationData::default();
+        d.merge_record("", "");
+        assert!(d.included);
+        assert!(d.rules.is_empty());
+    }
+
+    #[wasm_bindgen_test]
+    fn merge_record_overwrites_existing() {
+        let mut d = data(true, &[("rule_a", "treatment")]);
+        d.merge_record("rule_a", "control");
+        assert_eq!(d.rules.get("rule_a").unwrap(), "control");
+    }
+
+    #[wasm_bindgen_test]
+    fn merge_record_accumulates() {
+        let mut d = MaterializationData::default();
+        d.merge_record("rule_a", "treatment");
+        d.merge_record("rule_b", "control");
+        assert_eq!(d.rules.len(), 2);
+        assert_eq!(d.rules.get("rule_a").unwrap(), "treatment");
+        assert_eq!(d.rules.get("rule_b").unwrap(), "control");
+    }
+
+    // --- WriteRequest serde (DO compatibility) ---
+
+    #[wasm_bindgen_test]
+    fn write_request_serde_roundtrip() {
+        let req = WriteRequest {
+            records: vec![
+                WriteRecord {
+                    rule: "rule_a".to_string(),
+                    variant: "treatment".to_string(),
+                },
+                WriteRecord {
+                    rule: String::new(),
+                    variant: String::new(),
+                },
+            ],
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let deserialized: WriteRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(req, deserialized);
+    }
+
+    #[wasm_bindgen_test]
+    fn write_request_matches_expected_json_shape() {
+        let req = WriteRequest {
+            records: vec![WriteRecord {
+                rule: "rule_a".to_string(),
+                variant: "treatment".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["records"][0]["rule"], "rule_a");
+        assert_eq!(parsed["records"][0]["variant"], "treatment");
     }
 }
