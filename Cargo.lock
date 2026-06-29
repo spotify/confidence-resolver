@@ -262,6 +262,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "confidence_resolver",
+ "futures-util",
  "getrandom 0.3.3",
  "js-sys",
  "once_cell",

@@ -433,16 +433,30 @@ if [ -n "$ENABLE_STICKY_ASSIGNMENTS" ]; then
     fi
 
     echo "🔍 Checking if KV namespace '$MAT_KV_TITLE' exists..."
-    MAT_KV_LIST=$(curl -sS -w "%{http_code}" \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces?per_page=100")
-    MAT_KV_LIST_STATUS="${MAT_KV_LIST: -3}"
-    MAT_KV_LIST_BODY="${MAT_KV_LIST%???}"
-
     MAT_KV_NAMESPACE_ID=""
-    if [ "$MAT_KV_LIST_STATUS" = "200" ]; then
+    MAT_KV_PAGE=1
+    while true; do
+        MAT_KV_LIST=$(curl -sS -w "%{http_code}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces?per_page=100&page=${MAT_KV_PAGE}")
+        MAT_KV_LIST_STATUS="${MAT_KV_LIST: -3}"
+        MAT_KV_LIST_BODY="${MAT_KV_LIST%???}"
+
+        if [ "$MAT_KV_LIST_STATUS" != "200" ]; then
+            break
+        fi
+
         MAT_KV_NAMESPACE_ID=$(printf "%s" "$MAT_KV_LIST_BODY" | jq -r ".result[] | select(.title == \"${MAT_KV_TITLE}\") | .id" 2>/dev/null || true)
-    fi
+        if [ -n "$MAT_KV_NAMESPACE_ID" ]; then
+            break
+        fi
+
+        MAT_KV_COUNT=$(printf "%s" "$MAT_KV_LIST_BODY" | jq -r '.result | length' 2>/dev/null || echo "0")
+        if [ "$MAT_KV_COUNT" -lt 100 ]; then
+            break
+        fi
+        MAT_KV_PAGE=$((MAT_KV_PAGE + 1))
+    done
 
     if [ -z "$MAT_KV_NAMESPACE_ID" ]; then
         echo "📦 KV namespace '$MAT_KV_TITLE' not found, creating..."
