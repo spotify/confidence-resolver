@@ -22,6 +22,7 @@ describe('useFlag', () => {
 
   beforeEach(() => {
     mockApply = vi.fn().mockResolvedValue(undefined);
+    delete (window as any).__confidence;
   });
 
   const wrapper =
@@ -143,6 +144,19 @@ describe('useFlag', () => {
 
       expect(mockApply).toHaveBeenCalledTimes(1);
       expect(mockApply).toHaveBeenCalledWith('my-flag');
+      expect((window as any).__confidence?.flags?.['flags/my-flag']).toEqual({ variant: 'x' });
+    });
+
+    it('does not publish flag evaluation when variant is missing', () => {
+      const bundle = createTestBundle({
+        'no-variant-flag': { value: { value: 'hello' }, reason: 'NO_SEGMENT_MATCH', shouldApply: false },
+      });
+
+      renderHook(() => useFlag('no-variant-flag.value', 'default'), {
+        wrapper: wrapper(bundle),
+      });
+
+      expect((window as any).__confidence?.flags?.['flags/no-variant-flag']).toBeUndefined();
     });
 
     it('does not call apply on mount when shouldApply is false', () => {

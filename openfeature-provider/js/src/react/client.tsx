@@ -161,7 +161,10 @@ export function useFlagDetails<T extends FlagValue>(
     if (resolution.shouldApply) {
       ctx?.apply(baseFlagName);
     }
-  }, [ctx, baseFlagName, resolution.shouldApply]);
+    if(resolution.variant) {
+      publishFlagEvaluation(`flags/${baseFlagName}`, resolution.variant);
+    }
+  }, [ctx, baseFlagName, resolution.shouldApply, resolution.variant]);
 
   // Auto exposure effect
   useEffect(() => {
@@ -169,12 +172,6 @@ export function useFlagDetails<T extends FlagValue>(
       doExpose();
     }
   }, [autoExpose, doExpose]);
-
-  useEffect(() => {
-    if (resolution.reason === 'MATCH' && resolution.variant) {
-      publishFlagEvaluation(`flags/${baseFlagName}`, resolution.variant);
-    }
-  }, [baseFlagName, resolution.reason, resolution.variant]);
 
   // Expose function returned to caller
   const expose = useCallback(() => {
