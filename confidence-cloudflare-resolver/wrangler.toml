@@ -17,10 +17,8 @@ binding = "flag_logs_queue"
 # KV namespace for /metrics endpoint is created and injected by the deployer.
 # See deployer/script.sh for auto-creation of the CONFIDENCE_METRICS_KV binding.
 
-# Sticky assignments storage is created and injected by the deployer.
-# Set ENABLE_STICKY_ASSIGNMENTS_KV for KV-backed storage (CONFIDENCE_MATERIALIZATIONS_KV binding).
-# Set ENABLE_STICKY_ASSIGNMENTS_DO for Durable Object-backed storage (CONFIDENCE_MATERIALIZATIONS_DO binding).
-# These are mutually exclusive.
+# KV namespace for sticky assignments is created and injected by the deployer.
+# Set ENABLE_STICKY_ASSIGNMENTS to auto-create the CONFIDENCE_MATERIALIZATIONS_KV binding.
 
 [vars]
 CONFIDENCE_CLIENT_SECRET = "SECRET"

@@ -19,8 +19,7 @@ WRANGLER_DEPLOY_ARGS=${WRANGLER_DEPLOY_ARGS:=}
 WRANGLER_DEPLOY_ARGS_FILE=${WRANGLER_DEPLOY_ARGS_FILE:=}
 WRANGLER_DEPLOY_TAG=${WRANGLER_DEPLOY_TAG:=}
 WRANGLER_DEPLOY_MESSAGE=${WRANGLER_DEPLOY_MESSAGE:=}
-ENABLE_STICKY_ASSIGNMENTS_KV=${ENABLE_STICKY_ASSIGNMENTS_KV:=}
-ENABLE_STICKY_ASSIGNMENTS_DO=${ENABLE_STICKY_ASSIGNMENTS_DO:=}
+ENABLE_STICKY_ASSIGNMENTS=${ENABLE_STICKY_ASSIGNMENTS:=}
 INITIAL_WORKDIR="$(pwd)"
 
 # CDN base URL for fetching resolver state
@@ -425,13 +424,8 @@ fi
 
 fi  # end ENABLE_METRICS check
 
-# Sticky assignments storage backend (KV or DO, mutually exclusive)
-if [ -n "$ENABLE_STICKY_ASSIGNMENTS_KV" ] && [ -n "$ENABLE_STICKY_ASSIGNMENTS_DO" ]; then
-    echo "❌ ENABLE_STICKY_ASSIGNMENTS_KV and ENABLE_STICKY_ASSIGNMENTS_DO are mutually exclusive"
-    exit 1
-fi
-
-if [ -n "$ENABLE_STICKY_ASSIGNMENTS_KV" ]; then
+# Create KV namespace for sticky assignments if enabled
+if [ -n "$ENABLE_STICKY_ASSIGNMENTS" ]; then
     if [ -n "$WORKER_NAME_PREFIX" ]; then
         MAT_KV_TITLE="${WORKER_NAME_PREFIX}-resolver-materializations"
     else
@@ -477,23 +471,8 @@ binding = "CONFIDENCE_MATERIALIZATIONS_KV"
 id = "$MAT_KV_NAMESPACE_ID"
 EOF
     echo "✅ Added CONFIDENCE_MATERIALIZATIONS_KV binding to wrangler.toml"
-
-elif [ -n "$ENABLE_STICKY_ASSIGNMENTS_DO" ]; then
-    cat >> wrangler.toml <<'EOF'
-
-[durable_objects]
-bindings = [
-  { name = "CONFIDENCE_MATERIALIZATIONS_DO", class_name = "StickyAssignmentDO" }
-]
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["StickyAssignmentDO"]
-EOF
-    echo "✅ Added CONFIDENCE_MATERIALIZATIONS_DO binding to wrangler.toml"
-
 else
-    echo "ℹ️ Sticky assignments not enabled (set ENABLE_STICKY_ASSIGNMENTS_KV or ENABLE_STICKY_ASSIGNMENTS_DO to enable)"
+    echo "ℹ️ Sticky assignments not enabled (set ENABLE_STICKY_ASSIGNMENTS to enable)"
 fi
 
 # Update worker name and queue name in wrangler.toml if using prefix

@@ -25,7 +25,7 @@ A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-de
 * Cloudflare API token with the following permissions:
   * **Account > Workers Scripts > Edit**
   * **Account > Workers Queues > Edit** (needed for the first deploy)
-  * **Account > Workers KV Storage > Edit** (only if using `ENABLE_METRICS` or `ENABLE_STICKY_ASSIGNMENTS_KV`)
+  * **Account > Workers KV Storage > Edit** (only if using `ENABLE_METRICS` or `ENABLE_STICKY_ASSIGNMENTS`)
 * Confidence client secret (must be type **BACKEND**)
 
 ## Usage
@@ -65,9 +65,8 @@ The deployer automatically:
 | `WRANGLER_DEPLOY_ARGS`               | Additional newline-separated arguments passed to `wrangler deploy`                                                                                |
 | `WRANGLER_DEPLOY_ARGS_FILE`          | Path to a file containing additional `wrangler deploy` arguments, one argument per line                                                           |
 | `ENABLE_METRICS`                     | Set to create a KV namespace and enable the `/metrics` Prometheus endpoint. Requires a [KV store](https://developers.cloudflare.com/kv/platform/pricing/) |
-| `ENABLE_STICKY_ASSIGNMENTS_KV`       | Set to enable sticky assignments backed by [Cloudflare KV](https://developers.cloudflare.com/kv/). Best for high-read, globally distributed workloads. Mutually exclusive with `ENABLE_STICKY_ASSIGNMENTS_DO` |
-| `ENABLE_STICKY_ASSIGNMENTS_DO`       | Set to enable sticky assignments backed by [Durable Objects](https://developers.cloudflare.com/durable-objects/). Provides strong consistency per user. Mutually exclusive with `ENABLE_STICKY_ASSIGNMENTS_KV` |
-| `MATERIALIZATION_TTL_SECONDS`        | TTL in seconds for KV-backed sticky assignments. Omit for no expiration |
+| `ENABLE_STICKY_ASSIGNMENTS`          | Set to create a KV namespace and enable sticky assignments for experiments. Requires a [KV store](https://developers.cloudflare.com/kv/platform/pricing/) |
+| `MATERIALIZATION_TTL_SECONDS`        | TTL in seconds for sticky assignment KV entries. Omit for no expiration |
 
 ### Extending Wrangler Configuration
 
@@ -209,16 +208,11 @@ Resolve rates and latency are always sent to the Confidence backend via `WriteFl
 
 ## Sticky Assignments
 
-Sticky assignments ensure users see the same experiment variant across requests. The deployer supports two storage backends — set one of the following environment variables to enable:
+Sticky assignments ensure users see the same experiment variant across requests. Set `ENABLE_STICKY_ASSIGNMENTS` to have the deployer create a [KV namespace](https://developers.cloudflare.com/kv/) and bind it to the Worker.
 
-| Backend | Env var | Consistency | Read latency | Cost |
-|---------|---------|-------------|--------------|------|
-| **KV** | `ENABLE_STICKY_ASSIGNMENTS_KV` | Eventually consistent (~60s propagation) | <10ms (served from nearest edge) | Lower (per-read/write only) |
-| **Durable Objects** | `ENABLE_STICKY_ASSIGNMENTS_DO` | Strongly consistent | <1ms if co-located, 50-200ms cross-region | Higher (per-request + duration + SQLite row reads/writes, but idle DOs hibernate at no cost) |
+Each assignment is stored as a separate KV entry keyed by `mat:{unit}:{materialization}:{rule}`. This avoids read-modify-write races and allows all keys to be read/written independently. Components containing `:` are percent-encoded.
 
-**KV is recommended** for most use cases — sticky assignments are read-heavy with write-once-per-user semantics, which plays to KV's strengths. Durable Objects hibernate when idle (no duration charges while sleeping), so cost scales with active processing time rather than idle time. Use Durable Objects if you need strong consistency guarantees (e.g., mutual exclusion between experiments).
-
-The two backends are mutually exclusive. Without either variable set, sticky assignments are disabled and flags requiring them will return "flag not found".
+Without `ENABLE_STICKY_ASSIGNMENTS`, sticky assignments are disabled and flags requiring them will return "flag not found".
 
 ## Limitations
 
