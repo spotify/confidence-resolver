@@ -1,15 +1,5 @@
-interface ConfidenceFlagEntry {
-  variant: string;
-}
-
 interface ConfidenceGlobal {
-  flags?: Record<string, ConfidenceFlagEntry>;
-}
-
-declare global {
-  interface Window {
-    __confidence?: ConfidenceGlobal;
-  }
+  flags?: Record<string, { variant: string }>;
 }
 
 export function publishFlagEvaluation(name: string, variant: string): void {
