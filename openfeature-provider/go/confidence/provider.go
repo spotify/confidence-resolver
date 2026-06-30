@@ -2,6 +2,7 @@ package confidence
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,6 +33,7 @@ type Option func(*providerOptions)
 type providerOptions struct {
 	statePollInterval time.Duration
 	logPollInterval   time.Duration
+	encryptionKey     string
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -48,6 +50,13 @@ func WithLogPollInterval(d time.Duration) Option {
 	}
 }
 
+// WithEncryptionKey sets the hex-encoded AES-256 encryption key for decrypting CDN state.
+func WithEncryptionKey(key string) Option {
+	return func(o *providerOptions) {
+		o.encryptionKey = key
+	}
+}
+
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
@@ -56,6 +65,7 @@ type LocalResolverProvider struct {
 	stateProvider     StateProvider
 	flagLogger        FlagLogger
 	clientSecret      string
+	encryptionKey     string
 	logger            *slog.Logger
 	cancelFunc        context.CancelFunc
 	wg                sync.WaitGroup
@@ -107,6 +117,7 @@ func NewLocalResolverProvider(
 		stateProvider:     stateProvider,
 		flagLogger:        flagLogger,
 		clientSecret:      clientSecret,
+		encryptionKey:     options.encryptionKey,
 		logger:            logger,
 		statePollInterval: statePollInterval,
 		logPollInterval:   logPollInterval,
@@ -478,21 +489,12 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 		return fmt.Errorf("failed to fetch initial state: %w", err)
 	}
 
-	if accountId == "" {
-		p.logger.Error("AccountID is empty in the fetched state, this should not happen")
-		return fmt.Errorf("AccountID is empty in the initial state")
+	sdk := &resolvertypes.Sdk{
+		Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+		Version: Version,
 	}
 
-	// Update resolver with initial state (triggers WASM compilation and initialization)
-	setResolverStateRequest := &wasm.SetResolverStateRequest{
-		State:     initialState,
-		AccountId: accountId,
-		Sdk: &resolvertypes.Sdk{
-			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
-			Version: Version,
-		},
-	}
-	if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
+	if err := p.setResolverState(initialState, accountId, sdk); err != nil {
 		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
 		return fmt.Errorf("failed to initialize resolver: %w", err)
 	}
@@ -502,6 +504,33 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 
 	p.logger.Info("Provider initialized successfully")
 	return nil
+}
+
+func (p *LocalResolverProvider) setResolverState(state []byte, accountId string, sdk *resolvertypes.Sdk) error {
+	if p.encryptionKey != "" {
+		if fetcher, ok := p.stateProvider.(*FlagsAdminStateFetcher); ok {
+			if cdnBytes := fetcher.RawCdnBytes(); cdnBytes != nil {
+				keyBytes, err := hex.DecodeString(p.encryptionKey)
+				if err != nil {
+					return fmt.Errorf("invalid encryption key: %w", err)
+				}
+				return p.resolver.SetEncryptedResolverState(&wasm.SetEncryptedResolverStateRequest{
+					EncryptedState: cdnBytes,
+					EncryptionKey:  keyBytes,
+					Sdk:            sdk,
+				})
+			}
+		}
+	}
+
+	if accountId == "" {
+		return fmt.Errorf("AccountID is empty in the state")
+	}
+	return p.resolver.SetResolverState(&wasm.SetResolverStateRequest{
+		State:     state,
+		AccountId: accountId,
+		Sdk:       sdk,
+	})
 }
 
 // Shutdown closes the provider and cleans up resources (part of StateHandler interface)
@@ -566,33 +595,17 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 		for {
 			select {
 			case <-stateTicker.C:
-				// Fetch latest state and accountID
 				state, accountId, err := p.stateProvider.Provide(ctx)
 				if err != nil {
 					p.logger.Error("State fetch failed", "error", err)
 					continue
 				}
 
-				if accountId == "" {
-					p.logger.Error("AccountID inside fetched state is empty, skipping this state update attempt")
-					continue
+				sdk := &resolvertypes.Sdk{
+					Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+					Version: Version,
 				}
-
-				// Flush logs before state update to reduce WASM heap fragmentation (#455)
-				if err := p.resolver.FlushAllLogs(); err != nil {
-					p.logger.Error("Failed to flush logs before state update", "error", err)
-				}
-
-				// Update state
-				setResolverStateRequest := &wasm.SetResolverStateRequest{
-					State:     state,
-					AccountId: accountId,
-					Sdk: &resolvertypes.Sdk{
-						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
-						Version: Version,
-					},
-				}
-				if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
+				if err := p.setResolverState(state, accountId, sdk); err != nil {
 					p.logger.Error("Failed to update state", "error", err)
 				}
 			case <-ctx.Done():

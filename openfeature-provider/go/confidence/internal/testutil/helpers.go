@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -72,6 +73,28 @@ func LoadTestAccountID(t *testing.T) string {
 		t.Skipf("Skipping test - could not load test account ID: %v", err)
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func LoadTestEncryptedState(t *testing.T) []byte {
+	dataPath := filepath.Join(repoRoot, "data", "resolver_state_encrypted.pb")
+	data, err := os.ReadFile(dataPath)
+	if err != nil {
+		t.Skipf("Skipping test - could not load encrypted test state: %v", err)
+	}
+	return data
+}
+
+func LoadTestEncryptionKey(t *testing.T) []byte {
+	dataPath := filepath.Join(repoRoot, "data", "encryption_key_test.hex")
+	hexKey, err := os.ReadFile(dataPath)
+	if err != nil {
+		t.Skipf("Skipping test - could not load test encryption key: %v", err)
+	}
+	key, err := hex.DecodeString(strings.TrimSpace(string(hexKey)))
+	if err != nil {
+		t.Fatalf("Invalid hex encryption key: %v", err)
+	}
+	return key
 }
 
 // CreateStateWithMaterializedSegment creates a test state with a flag using MaterializedSegmentCriterion
@@ -428,9 +451,12 @@ func (m *MockedLocalResolver) ResolveProcess(*wasm.ResolveProcessRequest) (*wasm
 	return m.Response, m.Err
 }
 func (m MockedLocalResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }
-func (m MockedLocalResolver) PrometheusSnapshot(_ uint32, _ bool) string           { return "" }
-func (m MockedLocalResolver) RegisterResolve(*wasm.RegisterResolveRequest)         {}
-func (m MockedLocalResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error         { return nil }
+func (m MockedLocalResolver) SetEncryptedResolverState(*wasm.SetEncryptedResolverStateRequest) error {
+	return nil
+}
+func (m MockedLocalResolver) PrometheusSnapshot(_ uint32, _ bool) string   { return "" }
+func (m MockedLocalResolver) RegisterResolve(*wasm.RegisterResolveRequest) {}
+func (m MockedLocalResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error { return nil }
 
 func MustJSONToProto(jsonString string) *structpb.Value {
 	var v structpb.Value

@@ -62,6 +62,10 @@ func (r *WasmResolver) SetResolverState(request *wasm.SetResolverStateRequest) e
 	return r.call("wasm_msg_guest_set_resolver_state", request, nil)
 }
 
+func (r *WasmResolver) SetEncryptedResolverState(request *wasm.SetEncryptedResolverStateRequest) error {
+	return r.call("wasm_msg_guest_set_encrypted_resolver_state", request, nil)
+}
+
 func (r *WasmResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
 	resp := &wasm.ResolveProcessResponse{}
 	err := r.call("wasm_msg_guest_resolve_flags", request, resp)
