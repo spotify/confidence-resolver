@@ -676,6 +676,8 @@ impl MaterializationContext {
         unit: &str,
         rule: &str,
         assignments: &'b [rule::Assignment],
+        segment_name: &str,
+        bucket_count: i32,
     ) -> Option<&'b rule::Assignment> {
         let records = match &self.records {
             MaterializationRecords::Complete(records) => records,
@@ -690,12 +692,29 @@ impl MaterializationContext {
         }
 
         let variant = &record.variant;
-        assignments.iter().find(|assignment| {
-            matches!(
-                &assignment.assignment,
-                Some(Assignment::Variant(VariantAssignment { variant: v }))
-                    if variant == v
-            )
+        let matching: Vec<_> = assignments
+            .iter()
+            .filter(|assignment| {
+                matches!(
+                    &assignment.assignment,
+                    Some(Assignment::Variant(VariantAssignment { variant: v }))
+                        if variant == v
+                )
+            })
+            .collect();
+
+        if matching.len() <= 1 {
+            return matching.into_iter().next();
+        }
+
+        let variant_salt = segment_name.split('/').nth(1)?;
+        let key = format!("{}|{}", variant_salt, unit);
+        let b = bucket(hash(&key), bucket_count as u64).ok()? as i32;
+        matching.into_iter().find(|assignment| {
+            assignment
+                .bucket_ranges
+                .iter()
+                .any(|range| range.lower <= b && b < range.upper)
         })
     }
 
@@ -1153,6 +1172,8 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                                     unit_str,
                                     &rule.name,
                                     &spec.assignments,
+                                    segment_name,
+                                    spec.bucket_count,
                                 ) {
                                     return resolved_value.try_with_variant_match(
                                         rule, segment, assignment, unit_str,
