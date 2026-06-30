@@ -8,6 +8,7 @@ set -euo pipefail
 CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:=}
 CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:=}
 RESOLVE_TOKEN_ENCRYPTION_KEY=${RESOLVE_TOKEN_ENCRYPTION_KEY:=}
+STATE_ENCRYPTION_KEY=${STATE_ENCRYPTION_KEY:=}
 CONFIDENCE_RESOLVER_ALLOWED_ORIGIN=${CONFIDENCE_RESOLVER_ALLOWED_ORIGIN:=}
 CONFIDENCE_RESOLVER_STATE_URL=${CONFIDENCE_RESOLVER_STATE_URL:=}
 CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
@@ -200,11 +201,41 @@ elif [ "$HTTP_STATUS" = "200" ]; then
     echo "✅ Download of resolver state successful"
     # Extract etag and normalize
     ETAG_RAW=$(awk -F': ' 'tolower($1)=="etag"{print $2}' "$TMP_HEADER" | tr -d '\r')
+    # Check if CDN state is encrypted
+    CDN_ENCRYPTED=$(awk -F': ' 'tolower($1)=="x-amz-meta-encrypted"{print $2}' "$TMP_HEADER" | tr -d '\r')
     rm -f "$TMP_HEADER"
     # Normalize ETag: drop weak prefix and surrounding quotes, then escape for TOML
     if [ -n "$ETAG_RAW" ]; then
         ETAG_STRIPPED=$(printf '%s' "$ETAG_RAW" | sed -e 's/^W\///' -e 's/^"//' -e 's/"$//')
         ETAG_TOML=$(printf '%s' "$ETAG_STRIPPED" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
+    fi
+
+    # Decrypt state if CDN response is encrypted (header check + protobuf parse fallback)
+    NEEDS_DECRYPT="false"
+    if [ "$CDN_ENCRYPTED" = "true" ]; then
+        NEEDS_DECRYPT="true"
+    else
+        # Fallback: try protobuf decode — if it fails, treat as encrypted
+        if ! node -e "
+            const fs = require('fs');
+            const buf = fs.readFileSync('${RESPONSE_FILE}');
+            if (buf.length < 2 || buf[0] !== 0x0a) process.exit(1);
+        " 2>/dev/null; then
+            echo "⚠️ Protobuf decode heuristic failed, treating state as encrypted"
+            NEEDS_DECRYPT="true"
+        fi
+    fi
+
+    if [ "$NEEDS_DECRYPT" = "true" ]; then
+        if [ -z "$STATE_ENCRYPTION_KEY" ]; then
+            echo "❌ Resolver state is encrypted but STATE_ENCRYPTION_KEY is not set."
+            echo "   Set the encryption key for this client credential."
+            exit 1
+        fi
+        echo "🔐 Decrypting resolver state..."
+        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+        node "$SCRIPT_DIR/decrypt_state.js" "$RESPONSE_FILE" "$STATE_ENCRYPTION_KEY"
+        echo "✅ Resolver state decrypted"
     fi
 else
     echo "❌ Error downloading resolver state: HTTP status code $HTTP_STATUS"
