@@ -85,6 +85,8 @@ pub struct ProviderOptions {
     /// Confidence endpoints. The original host is preserved in the `X-Forwarded-Host` header.
     /// This is useful for routing through a proxy or mock server.
     pub gateway_url: Option<String>,
+    /// Hex-encoded AES-256 encryption key for decrypting CDN state.
+    pub encryption_key: Option<String>,
 }
 
 impl ProviderOptions {
@@ -98,6 +100,7 @@ impl ProviderOptions {
             assign_flush_interval: None,
             materialization_store: None,
             gateway_url: None,
+            encryption_key: None,
         }
     }
 
@@ -128,6 +131,12 @@ impl ProviderOptions {
     /// Set a gateway URL to route all HTTP requests through.
     pub fn with_gateway_url(mut self, url: impl Into<String>) -> Self {
         self.gateway_url = Some(url.into());
+        self
+    }
+
+    /// Set the hex-encoded AES-256 encryption key for decrypting CDN state.
+    pub fn with_encryption_key(mut self, key: impl Into<String>) -> Self {
+        self.encryption_key = Some(key.into());
         self
     }
 }
@@ -163,6 +172,7 @@ impl ConfidenceProvider {
             client.clone(),
             options.client_secret.clone(),
             Some(sdk.clone()),
+            options.encryption_key,
         ));
         let log_manager = Arc::new(LogManager::new(
             client.clone(),
