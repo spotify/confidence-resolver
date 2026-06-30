@@ -239,8 +239,7 @@ class GrpcRetryTest {
       logger.shutdown();
       long duration = System.currentTimeMillis() - start;
 
-      assertTrue(
-          duration < 30_000, "Shutdown should complete within 30s, took " + duration + "ms");
+      assertTrue(duration < 30_000, "Shutdown should complete within 30s, took " + duration + "ms");
       assertTrue(callCount.get() > 0, "Server should have received at least one call");
     } finally {
       server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
@@ -361,8 +360,7 @@ class GrpcRetryTest {
 
       logger.shutdown();
 
-      assertEquals(
-          5, callCount.get(), "All 5 writes should complete with retry config active");
+      assertEquals(5, callCount.get(), "All 5 writes should complete with retry config active");
     } finally {
       server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
     }
