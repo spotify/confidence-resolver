@@ -161,7 +161,7 @@ export function useFlagDetails<T extends FlagValue>(
     if (resolution.shouldApply) {
       ctx?.apply(baseFlagName);
     }
-    if(resolution.variant) {
+    if (resolution.variant) {
       publishFlagEvaluation(`flags/${baseFlagName}`, resolution.variant);
     }
   }, [ctx, baseFlagName, resolution.shouldApply, resolution.variant]);
