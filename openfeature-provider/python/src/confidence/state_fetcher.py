@@ -39,6 +39,7 @@ class StateFetcher:
         self,
         client_secret: str,
         http_client: Optional[httpx.Client] = None,
+        encryption_key: Optional[str] = None,
     ) -> None:
         """Initialize the StateFetcher.
 
@@ -47,12 +48,14 @@ class StateFetcher:
             http_client: Optional httpx.Client for custom HTTP configuration or testing.
         """
         self._client_secret = client_secret
+        self._encryption_key = encryption_key
         self._http_client = http_client
         self._owns_client = http_client is None
 
         # Cached state
         self._state: Optional[bytes] = None
         self._account_id: Optional[str] = None
+        self._raw_cdn_bytes: Optional[bytes] = None
         self._etag: Optional[str] = None
 
         # Build CDN URL from SHA256 hash of client secret
@@ -68,6 +71,11 @@ class StateFetcher:
     def account_id(self) -> Optional[str]:
         """Return the current cached account ID."""
         return self._account_id
+
+    @property
+    def raw_cdn_bytes(self) -> Optional[bytes]:
+        """Return raw encrypted CDN bytes, or None if unencrypted."""
+        return self._raw_cdn_bytes
 
     def _get_client(self) -> httpx.Client:
         """Get or create the HTTP client."""
@@ -114,22 +122,36 @@ class StateFetcher:
                     f"Failed to fetch state: HTTP {response.status_code}"
                 )
 
-            # Parse the protobuf response
-            state_request = SetResolverStateRequest()
-            state_request.ParseFromString(response.content)
-
-            # Cache the state, account ID, and ETag
-            self._state = state_request.state
-            self._account_id = state_request.account_id
+            encrypted = response.headers.get("x-amz-meta-encrypted") == "true"
             self._etag = response.headers.get("ETag")
 
-            logger.info(
-                "Loaded resolver state for account=%s, etag=%s",
-                self._account_id,
-                self._etag,
-            )
+            if not encrypted:
+                try:
+                    state_request = SetResolverStateRequest()
+                    state_request.ParseFromString(response.content)
+                    self._state = state_request.state
+                    self._account_id = state_request.account_id
+                    self._raw_cdn_bytes = None
+                    logger.info(
+                        "Loaded resolver state for account=%s, etag=%s",
+                        self._account_id,
+                        self._etag,
+                    )
+                    return self._state, self._account_id, True
+                except Exception:
+                    logger.warning(
+                        "Protobuf decode failed, treating state as encrypted"
+                    )
+                    encrypted = True
 
-            return self._state, self._account_id, True
+            if not self._encryption_key:
+                raise StateFetcherError(
+                    "Resolver state is encrypted but no encryption_key was provided. "
+                    "Set the encryption key for this client credential."
+                )
+            self._raw_cdn_bytes = response.content
+            logger.info("Loaded encrypted resolver state, etag=%s", self._etag)
+            return self._raw_cdn_bytes, "", True
 
         finally:
             if should_close:
