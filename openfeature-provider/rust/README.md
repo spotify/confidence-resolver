@@ -9,7 +9,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 - **Local Resolution**: Evaluates feature flags locally using the native Rust resolver
 - **Low Latency**: No network calls during flag evaluation
 - **Automatic Sync**: Periodically syncs flag configurations from Confidence
-- **Exposure Logging**: Fully supported exposure logging and resolve analytics
+- **Exposure Logging**: Fully supported exposure logging and resolve analytics with automatic retry on transient failures
 - **OpenFeature Compatible**: Works with the standard OpenFeature Rust SDK
 - **Async/Await**: Built on Tokio for efficient async operations
 
@@ -220,10 +220,12 @@ fn main() {
 ```
 
 The provider logs at different levels:
-- `DEBUG`: Flag resolution details, state updates
+- `DEBUG`: Flag resolution details, state updates, individual retry attempts
 - `INFO`: Provider initialization, configuration
-- `WARN`: Non-critical issues, fallbacks
-- `ERROR`: Failures, network errors
+- `WARN`: Non-critical issues, fallbacks, log delivery failures after retries exhausted
+- `ERROR`: Failures, non-retryable HTTP errors
+
+Flag log delivery retries up to 3 times on transient failures (5xx, 408, 429) with exponential backoff (500ms base, 2x multiplier, ±10% jitter). Server `Retry-After` headers are respected when present.
 
 ## Shutdown
 

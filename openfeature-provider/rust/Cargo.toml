@@ -63,6 +63,7 @@ prost-build = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 num_cpus = "1.16"
+wiremock = "0.6"
 
 [[example]]
 name = "demo"
