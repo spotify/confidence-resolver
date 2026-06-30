@@ -133,6 +133,7 @@ provider = ConfidenceProvider(
 - `state_poll_interval` (float, optional): Interval in seconds between state polling updates. Defaults to 30.0.
 - `log_poll_interval` (float, optional): Interval in seconds for sending evaluation logs. Defaults to 10.0.
 - `use_remote_materialization_store` (bool, optional): Enable remote materialization storage. Defaults to False.
+- `grpc_channel` (grpc.Channel, optional): Custom gRPC channel for flag log shipping. When not provided, the default channel retries flag log writes on transient failures (3 attempts with exponential backoff on `UNAVAILABLE`). If you provide your own channel, configure retry via [gRPC service config](https://grpc.io/docs/guides/retry/) to get the same behavior.
 
 ## Materializations
 

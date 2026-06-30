@@ -60,6 +60,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	tlsCreds := credentials.NewTLS(nil)
 	baseOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(tlsCreds),
+		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	}
 
 	target, opts := hooks.ModifyGRPCDial(confidenceDomain, baseOpts)

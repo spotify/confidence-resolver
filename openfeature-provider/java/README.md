@@ -154,8 +154,9 @@ The built-in `DefaultChannelFactory` configures sensible gRPC connection default
 | `keepAliveTime` | 5 min | Sends HTTP/2 pings to detect dead connections |
 | `keepAliveTimeout` | 20s | Time to wait for a keepalive ping response |
 | `idleTimeout` | 30 min | Closes channels with no active RPCs |
+| Retry on `UNAVAILABLE` | 3 attempts, 1s → 10s exponential backoff | Retries flag log writes on transient gRPC failures |
 
-These defaults prevent connection-reset errors when intermediate load balancers (e.g., Envoy) cycle long-lived HTTP/2 connections. If you provide a custom `ChannelFactory`, you may want to replicate these settings.
+These defaults prevent connection-reset errors when intermediate load balancers (e.g., Envoy) cycle long-lived HTTP/2 connections. The retry policy handles transient failures (e.g., pod recycling, TLS resets) transparently via gRPC service config. If you provide a custom `ChannelFactory`, you may want to replicate these settings — see [gRPC retry via service config](https://grpc.io/docs/guides/retry/).
 
 For testing or advanced production scenarios, you can provide a custom `ChannelFactory` to control how gRPC channels are created:
 
