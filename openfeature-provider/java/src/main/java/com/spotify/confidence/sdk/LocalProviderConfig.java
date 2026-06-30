@@ -11,6 +11,7 @@ public class LocalProviderConfig {
   private final HttpClientFactory httpClientFactory;
   private final boolean useRemoteMaterializationStore;
   private final int resolverPoolSize;
+  private final String encryptionKey;
 
   public LocalProviderConfig() {
     this(null, null);
@@ -36,11 +37,21 @@ public class LocalProviderConfig {
       HttpClientFactory httpClientFactory,
       boolean useRemoteMaterializationStore,
       int resolverPoolSize) {
+    this(channelFactory, httpClientFactory, useRemoteMaterializationStore, resolverPoolSize, null);
+  }
+
+  private LocalProviderConfig(
+      ChannelFactory channelFactory,
+      HttpClientFactory httpClientFactory,
+      boolean useRemoteMaterializationStore,
+      int resolverPoolSize,
+      String encryptionKey) {
     this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
     this.httpClientFactory =
         httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
     this.useRemoteMaterializationStore = useRemoteMaterializationStore;
     this.resolverPoolSize = resolverPoolSize > 0 ? resolverPoolSize : DEFAULT_RESOLVER_POOL_SIZE;
+    this.encryptionKey = encryptionKey;
   }
 
   public ChannelFactory getChannelFactory() {
@@ -63,6 +74,11 @@ public class LocalProviderConfig {
     return resolverPoolSize;
   }
 
+  /** Returns the hex-encoded AES-256 encryption key, or {@code null} if unset. */
+  public String getEncryptionKey() {
+    return encryptionKey;
+  }
+
   public static Builder builder() {
     return new Builder();
   }
@@ -72,6 +88,7 @@ public class LocalProviderConfig {
     private HttpClientFactory httpClientFactory;
     private boolean useRemoteMaterializationStore;
     private int resolverPoolSize;
+    private String encryptionKey;
 
     public Builder channelFactory(ChannelFactory channelFactory) {
       this.channelFactory = channelFactory;
@@ -100,9 +117,19 @@ public class LocalProviderConfig {
       return this;
     }
 
+    /** Sets the hex-encoded AES-256 encryption key for decrypting CDN state. */
+    public Builder encryptionKey(String encryptionKey) {
+      this.encryptionKey = encryptionKey;
+      return this;
+    }
+
     public LocalProviderConfig build() {
       return new LocalProviderConfig(
-          channelFactory, httpClientFactory, useRemoteMaterializationStore, resolverPoolSize);
+          channelFactory,
+          httpClientFactory,
+          useRemoteMaterializationStore,
+          resolverPoolSize,
+          encryptionKey);
     }
   }
 }
