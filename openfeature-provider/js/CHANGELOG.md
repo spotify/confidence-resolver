@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.16.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.15.2...openfeature-provider-js-v0.16.0) (2026-06-30)
+
+
+### Features
+
+* **js:** publish flag evaluations to window global for session recording ([#445](https://github.com/spotify/confidence-resolver/issues/445)) ([475195b](https://github.com/spotify/confidence-resolver/commit/475195bb6ce3a4c274399193d50cc926bf12d4ba))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.5 to 0.3.0
+
 ## [0.15.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.15.1...openfeature-provider-js-v0.15.2) (2026-06-17)
 
 

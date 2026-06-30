@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.19.0...confidence_resolver-v0.19.1) (2026-06-30)
+
+
+### Bug Fixes
+
+* **resolver:** bucket-match materialized assignments with duplicate variants ([#345](https://github.com/spotify/confidence-resolver/issues/345)) ([daf56cf](https://github.com/spotify/confidence-resolver/commit/daf56cfb4e520a84a9e97518b28d80ca3ee4b25a))
+
 ## [0.19.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.18.1...confidence_resolver-v0.19.0) (2026-06-17)
 
 

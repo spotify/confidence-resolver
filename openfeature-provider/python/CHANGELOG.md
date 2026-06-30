@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.8.0...openfeature-provider-python-v0.9.0) (2026-06-30)
+
+
+### Features
+
+* **providers:** retry flag log writes and improve error reporting ([#453](https://github.com/spotify/confidence-resolver/issues/453)) ([781533c](https://github.com/spotify/confidence-resolver/commit/781533ccd176d2795efad3d6b40de855f5a0770a))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.5 to 0.3.0
+
 ## [0.8.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.7.1...openfeature-provider-python-v0.8.0) (2026-06-17)
 
 
