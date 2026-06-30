@@ -21,7 +21,7 @@ use wasm_msg::WasmResult;
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/rust_guest.rs"));
 }
-use crate::proto::SetResolverStateRequest;
+use crate::proto::{SetEncryptedResolverStateRequest, SetResolverStateRequest};
 use confidence_resolver::{
     proto::{
         confidence::flags::admin::v1::ResolverState as ResolverStatePb,
@@ -137,6 +137,39 @@ wasm_msg_guest! {
         // let now = WasmHost::current_time();
         // let epoch_ms = now.seconds as u64 * 1000 + now.nanos as u64 / 1_000_000;
         // TELEMETRY.set_last_state_update(epoch_ms);
+        Ok(VOID)
+    }
+
+    fn set_encrypted_resolver_state(request: SetEncryptedResolverStateRequest) -> WasmResult<Void> {
+        use aes_gcm::{Aes256Gcm, Nonce, KeyInit};
+        use aes_gcm::aead::Aead;
+
+        if request.encryption_key.len() != 32 {
+            return Err(format!(
+                "Encryption key must be 32 bytes (AES-256), got {}",
+                request.encryption_key.len()
+            ));
+        }
+
+        let cipher = Aes256Gcm::new_from_slice(&request.encryption_key)
+            .map_err(|e| format!("Invalid encryption key: {}", e))?;
+
+        if request.encrypted_state.len() < 12 {
+            return Err("Encrypted state too short (missing nonce)".to_string());
+        }
+
+        let nonce = Nonce::from_slice(&request.encrypted_state[..12]);
+        let plaintext = cipher
+            .decrypt(nonce, &request.encrypted_state[12..])
+            .map_err(|_| "Failed to decrypt resolver state: invalid key or corrupted data".to_string())?;
+
+        let inner = SetResolverStateRequest::decode(plaintext.as_slice())
+            .map_err(|e| format!("Failed to decode decrypted resolver state: {}", e))?;
+
+        let state_pb = ResolverStatePb::decode(inner.state.as_slice())
+            .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
+        let new_state = ResolverState::from_proto(state_pb, inner.account_id.as_str(), request.sdk)?;
+        RESOLVER_STATE.store(Some(Arc::new(new_state)));
         Ok(VOID)
     }
 
