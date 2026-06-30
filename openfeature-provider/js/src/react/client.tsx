@@ -6,6 +6,7 @@ import type FlagBundleType from '../flag-bundle';
 import * as FlagBundle from '../flag-bundle';
 import { devWarn } from '../util';
 import { ErrorCode } from '../types';
+import { publishFlagEvaluation } from '../flag-evaluation-global';
 
 type FlagBundle = FlagBundleType;
 
@@ -160,7 +161,10 @@ export function useFlagDetails<T extends FlagValue>(
     if (resolution.shouldApply) {
       ctx?.apply(baseFlagName);
     }
-  }, [ctx, baseFlagName, resolution.shouldApply]);
+    if (resolution.variant) {
+      publishFlagEvaluation(`flags/${baseFlagName}`, resolution.variant);
+    }
+  }, [ctx, baseFlagName, resolution.shouldApply, resolution.variant]);
 
   // Auto exposure effect
   useEffect(() => {
