@@ -7,6 +7,8 @@ import { WriteFlagLogsRequest, SdkId } from './proto/test-only';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
 const stateBytes = readFileSync(__dirname + '/../../../wasm/resolver_state.pb');
+const encryptedStateBytes = readFileSync(__dirname + '/../../../data/resolver_state_encrypted.pb');
+const encryptionKeyHex = readFileSync(__dirname + '/../../../data/encryption_key_test.hex', 'utf8').trim();
 
 const module = new WebAssembly.Module(moduleBytes);
 const CLIENT_SECRET = 'mkjJruAATQWjeY7foFIWfVAcBWnci2YF';
@@ -226,5 +228,41 @@ describe('panic handling', () => {
     const logs = wasmResolver.flushLogs();
 
     expect(logs.length).toBeGreaterThan(0);
+  });
+});
+
+describe('encrypted state', () => {
+  let wasmResolver: WasmResolver;
+
+  beforeEach(() => {
+    wasmResolver = new WasmResolver(module);
+    const keyBytes = new Uint8Array(encryptionKeyHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+    wasmResolver.setEncryptedResolverState({
+      encryptedState: encryptedStateBytes,
+      encryptionKey: keyBytes,
+      sdk: { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: '0.0.0-test' },
+    });
+  });
+
+  it('should resolve flags after decrypting state', () => {
+    const resp = wasmResolver.resolveProcess(RESOLVE_REQUEST);
+    expect(resp).toMatchObject({
+      resolved: {
+        response: {
+          resolvedFlags: [{ reason: ResolveReason.RESOLVE_REASON_MATCH }],
+        },
+      },
+    });
+  });
+
+  it('should reject wrong encryption key', () => {
+    const freshResolver = new WasmResolver(module);
+    const wrongKey = new Uint8Array(32);
+    expect(() => {
+      freshResolver.setEncryptedResolverState({
+        encryptedState: encryptedStateBytes,
+        encryptionKey: wrongKey,
+      });
+    }).toThrowError('Failed to decrypt');
   });
 });
