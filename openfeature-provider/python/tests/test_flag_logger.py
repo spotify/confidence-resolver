@@ -373,9 +373,7 @@ class TestGrpcFlagLoggerShutdownDuringFailures:
             flag_logger.shutdown()
             elapsed = time.monotonic() - start
 
-            assert elapsed < 5.0, (
-                f"shutdown() took {elapsed:.2f}s, expected < 5s"
-            )
+            assert elapsed < 5.0, f"shutdown() took {elapsed:.2f}s, expected < 5s"
 
     def test_shutdown_drains_slow_failing_writes(self) -> None:
         """shutdown() should wait for slow failing writes to complete."""
