@@ -27,19 +27,9 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   private final String clientSecret;
   private final String encryptionKey;
   private final HttpClientFactory httpClientFactory;
-  // ETag for conditional GETs of resolver state
   private final AtomicReference<String> etagHolder = new AtomicReference<>();
-  private final AtomicReference<byte[]> rawResolverStateHolder =
-      new AtomicReference<>(
-          com.spotify.confidence.sdk.flags.admin.v1.ResolverState.newBuilder()
-              .build()
-              .toByteArray());
-  private final AtomicReference<byte[]> rawCdnBytesHolder = new AtomicReference<>();
+  private final AtomicReference<byte[]> rawStateHolder = new AtomicReference<>();
   private String accountId = "";
-
-  public FlagsAdminStateFetcher(String clientSecret, HttpClientFactory httpClientFactory) {
-    this(clientSecret, httpClientFactory, null);
-  }
 
   public FlagsAdminStateFetcher(
       String clientSecret, HttpClientFactory httpClientFactory, String encryptionKey) {
@@ -48,21 +38,9 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
     this.encryptionKey = encryptionKey;
   }
 
-  public AtomicReference<byte[]> rawStateHolder() {
-    return rawResolverStateHolder;
-  }
-
-  public byte[] rawCdnBytes() {
-    return rawCdnBytesHolder.get();
-  }
-
   @Override
   public byte[] provide() {
-    final byte[] cdnBytes = rawCdnBytesHolder.get();
-    if (cdnBytes != null) {
-      return cdnBytes;
-    }
-    return rawResolverStateHolder.get();
+    return rawStateHolder.get();
   }
 
   @Override
@@ -79,10 +57,13 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
     }
   }
 
+  boolean isEncrypted() {
+    return encryptionKey != null;
+  }
+
   private void fetchAndUpdateStateIfChanged() {
-    // Build CDN URL using SHA256 hash of client secret, with .enc suffix for encrypted state
     final String hash = sha256Hex(clientSecret);
-    final var cdnUrl = encryptionKey != null ? CDN_BASE_URL + hash + ".enc" : CDN_BASE_URL + hash;
+    final var cdnUrl = CDN_BASE_URL + hash + (encryptionKey != null ? ".enc" : "");
     try {
       final HttpURLConnection conn = httpClientFactory.create(cdnUrl);
       final String previousEtag = etagHolder.get();
@@ -90,7 +71,6 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         conn.setRequestProperty("if-none-match", previousEtag);
       }
       if (conn.getResponseCode() == 304) {
-        // Not modified
         return;
       }
       final String etag = conn.getHeaderField("etag");
@@ -98,19 +78,16 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         final byte[] bytes = stream.readAllBytes();
 
         if (encryptionKey != null) {
-          rawCdnBytesHolder.set(bytes);
-          etagHolder.set(etag);
-          logger.info("Loaded encrypted resolver state (etag={})", etag);
+          rawStateHolder.set(bytes);
         } else {
           final var stateRequest =
               com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
           this.accountId = stateRequest.getAccountId();
-          rawResolverStateHolder.set(stateRequest.getState().toByteArray());
-          rawCdnBytesHolder.set(null);
-          etagHolder.set(etag);
-          logger.info("Loaded resolver state (etag={})", etag);
+          rawStateHolder.set(stateRequest.getState().toByteArray());
         }
+        etagHolder.set(etag);
       }
+      logger.info("Loaded resolver state (encrypted={}, etag={})", encryptionKey != null, etag);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

@@ -31,7 +31,7 @@ class WasmResolveApiFlushCloseRaceTest {
   @BeforeAll
   static void fetchState() {
     final var stateProvider =
-        new FlagsAdminStateFetcher(FLAG_CLIENT_SECRET, new DefaultHttpClientFactory());
+        new FlagsAdminStateFetcher(FLAG_CLIENT_SECRET, new DefaultHttpClientFactory(), null);
     stateProvider.reload();
     resolverState = stateProvider.provide();
     accountId = stateProvider.accountId();

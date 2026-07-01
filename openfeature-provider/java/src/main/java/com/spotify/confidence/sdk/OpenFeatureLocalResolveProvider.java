@@ -204,30 +204,17 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
               + " An encryption key will be required in an upcoming version.");
     }
     stateProvider.reload();
-    final AtomicReference<byte[]> resolverStateProtobuf =
-        new AtomicReference<>(stateProvider.provide());
-    final AtomicReference<String> accountIdRef = new AtomicReference<>(stateProvider.accountId());
-
-    if (encryptionKey != null) {
-      final byte[] stateBytes = resolverStateProtobuf.get();
-      if (stateBytes != null && stateBytes.length > 0) {
-        resolver.setEncryptedResolverState(stateBytes, hexToBytes(encryptionKey), SDK);
-        initialized = true;
-        this.state.set(ProviderState.READY);
-      }
-    } else if (!accountIdRef.get().isEmpty()) {
-      resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
+    if (pushStateToResolver()) {
       initialized = true;
       this.state.set(ProviderState.READY);
-    }
-    if (!initialized) {
+    } else {
       log.warn(
           "Initial state load failed, provider starting in NOT_READY state, serving default"
               + " values.");
     }
 
     final long pollIntervalSeconds = getPollIntervalSeconds();
-    scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
+    scheduleStateRefresh(pollIntervalSeconds);
 
     assignLogExecutor.scheduleAtFixedRate(
         () -> {
@@ -244,56 +231,52 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         TimeUnit.MILLISECONDS);
   }
 
-  private void scheduleStateRefresh(
-      AtomicReference<byte[]> resolverStateProtobuf,
-      AtomicReference<String> accountIdRef,
-      long pollIntervalSeconds) {
+  private boolean pushStateToResolver() {
+    final byte[] stateBytes = stateProvider.provide();
+    if (stateBytes == null || stateBytes.length == 0) {
+      return false;
+    }
+    if (encryptionKey != null) {
+      resolver.setEncryptedResolverState(stateBytes, hexToBytes(encryptionKey), SDK);
+    } else {
+      final String accountId = stateProvider.accountId();
+      if (accountId == null || accountId.isEmpty()) {
+        return false;
+      }
+      resolver.setResolverState(stateBytes, accountId, SDK);
+    }
+    lastStateBytes = stateBytes;
+    return true;
+  }
+
+  private void scheduleStateRefresh(long pollIntervalSeconds) {
     if (flagsFetcherExecutor.isShutdown()) {
       return;
     }
 
-    // Use short retry interval (1s) when not initialized, normal interval otherwise
     long delaySeconds = initialized ? pollIntervalSeconds : 1;
 
     flagsFetcherExecutor.schedule(
         () -> {
           try {
             stateProvider.reload();
-            resolverStateProtobuf.set(stateProvider.provide());
-            accountIdRef.set(stateProvider.accountId());
 
-            final byte[] newState = resolverStateProtobuf.get();
-            final boolean hasState =
-                encryptionKey != null
-                    ? (newState != null && newState.length > 0)
-                    : !accountIdRef.get().isEmpty();
-            if (hasState) {
+            final byte[] newState = stateProvider.provide();
+            if (newState != null && !java.util.Arrays.equals(newState, lastStateBytes)) {
+              pushStateToResolver();
               if (!initialized) {
-                if (encryptionKey != null) {
-                  resolver.setEncryptedResolverState(newState, hexToBytes(encryptionKey), SDK);
-                } else {
-                  resolver.setResolverState(newState, accountIdRef.get(), SDK);
-                }
-                lastStateBytes = newState;
                 initialized = true;
                 this.state.set(ProviderState.READY);
                 log.info("Provider recovered and is now READY");
-              } else {
-                if (!java.util.Arrays.equals(newState, lastStateBytes)) {
-                  if (encryptionKey != null) {
-                    resolver.setEncryptedResolverState(newState, hexToBytes(encryptionKey), SDK);
-                  } else {
-                    resolver.setResolverState(newState, accountIdRef.get(), SDK);
-                  }
-                  lastStateBytes = newState;
-                }
-                resolver.flushAllLogs();
               }
+            }
+            if (initialized) {
+              resolver.flushAllLogs();
             }
           } catch (RuntimeException e) {
             log.error("State refresh failed", e);
           } finally {
-            scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
+            scheduleStateRefresh(pollIntervalSeconds);
           }
         },
         delaySeconds,
