@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
@@ -88,6 +89,168 @@ func TestNoRetryOnPermissionDenied(t *testing.T) {
 
 	if got := callCount.Load(); got != 1 {
 		t.Errorf("Expected 1 call (no retry on PERMISSION_DENIED), got %d", got)
+	}
+}
+
+func TestAllRetriesExhausted(t *testing.T) {
+	var callCount atomic.Int32
+	srv := grpc.NewServer()
+	resolverv1.RegisterInternalFlagLoggerServiceServer(srv, &retryTestService{
+		callCount: &callCount,
+		failUntil: 100,
+	})
+
+	lis := bufconn.Listen(1024 * 1024)
+	go srv.Serve(lis)
+	t.Cleanup(srv.Stop)
+
+	conn, err := grpc.NewClient("passthrough:///bufconn",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+	)
+	if err != nil {
+		t.Fatalf("Failed to dial: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	logger.Write(&resolverv1.WriteFlagLogsRequest{
+		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
+	})
+	logger.Shutdown()
+
+	if got := callCount.Load(); got != 3 {
+		t.Errorf("Expected 3 calls (max retries exhausted), got %d", got)
+	}
+}
+
+func TestShutdownDuringRetries(t *testing.T) {
+	var callCount atomic.Int32
+	srv := grpc.NewServer()
+	resolverv1.RegisterInternalFlagLoggerServiceServer(srv, &retryTestService{
+		callCount: &callCount,
+		failUntil: 100,
+	})
+
+	lis := bufconn.Listen(1024 * 1024)
+	go srv.Serve(lis)
+	t.Cleanup(srv.Stop)
+
+	conn, err := grpc.NewClient("passthrough:///bufconn",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+	)
+	if err != nil {
+		t.Fatalf("Failed to dial: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	logger.Write(&resolverv1.WriteFlagLogsRequest{
+		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		logger.Shutdown()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Shutdown did not complete within 30 seconds")
+	}
+}
+
+func TestTransportHooksPreserveRetry(t *testing.T) {
+	var callCount atomic.Int32
+	srv := grpc.NewServer()
+	resolverv1.RegisterInternalFlagLoggerServiceServer(srv, &retryTestService{
+		callCount: &callCount,
+		failUntil: 1,
+	})
+
+	lis := bufconn.Listen(1024 * 1024)
+	go srv.Serve(lis)
+	t.Cleanup(srv.Stop)
+
+	baseOpts := []grpc.DialOption{
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+	}
+	opts := append([]grpc.DialOption{}, baseOpts...)
+	opts = append(opts,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+	)
+
+	conn, err := grpc.NewClient("passthrough:///bufconn", opts...)
+	if err != nil {
+		t.Fatalf("Failed to dial: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	logger.Write(&resolverv1.WriteFlagLogsRequest{
+		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
+	})
+	logger.Shutdown()
+
+	if got := callCount.Load(); got != 2 {
+		t.Errorf("Expected 2 calls (retry should work with custom hooks), got %d", got)
+	}
+}
+
+func TestMultipleWritesWithRetryConfig(t *testing.T) {
+	var callCount atomic.Int32
+	srv := grpc.NewServer()
+	resolverv1.RegisterInternalFlagLoggerServiceServer(srv, &retryTestService{
+		callCount: &callCount,
+		failUntil: 0,
+	})
+
+	lis := bufconn.Listen(1024 * 1024)
+	go srv.Serve(lis)
+	t.Cleanup(srv.Stop)
+
+	conn, err := grpc.NewClient("passthrough:///bufconn",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+	)
+	if err != nil {
+		t.Fatalf("Failed to dial: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	for i := 0; i < 5; i++ {
+		logger.Write(&resolverv1.WriteFlagLogsRequest{
+			FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
+		})
+	}
+	logger.Shutdown()
+
+	if got := callCount.Load(); got != 5 {
+		t.Errorf("Expected 5 calls (all successful, no retries), got %d", got)
 	}
 }
 
