@@ -58,12 +58,12 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   }
 
   boolean isEncrypted() {
-    return encryptionKey != null;
+    return isEncrypted();
   }
 
   private void fetchAndUpdateStateIfChanged() {
     final String hash = sha256Hex(clientSecret);
-    final var cdnUrl = CDN_BASE_URL + hash + (encryptionKey != null ? ".enc" : "");
+    final var cdnUrl = CDN_BASE_URL + hash + (isEncrypted() ? ".enc" : "");
     try {
       final HttpURLConnection conn = httpClientFactory.create(cdnUrl);
       final String previousEtag = etagHolder.get();
@@ -77,7 +77,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
       try (final InputStream stream = conn.getInputStream()) {
         final byte[] bytes = stream.readAllBytes();
 
-        if (encryptionKey != null) {
+        if (isEncrypted()) {
           rawStateHolder.set(bytes);
         } else {
           final var stateRequest =
@@ -87,7 +87,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         }
         etagHolder.set(etag);
       }
-      logger.info("Loaded resolver state (encrypted={}, etag={})", encryptionKey != null, etag);
+      logger.info("Loaded resolver state (encrypted={}, etag={})", isEncrypted(), etag);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
