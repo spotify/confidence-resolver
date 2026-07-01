@@ -80,8 +80,10 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   }
 
   private void fetchAndUpdateStateIfChanged() {
-    // Build CDN URL using SHA256 hash of client secret
-    final var cdnUrl = CDN_BASE_URL + sha256Hex(clientSecret);
+    // Build CDN URL using SHA256 hash of client secret, with .enc suffix for encrypted state
+    final String hash = sha256Hex(clientSecret);
+    final var cdnUrl =
+        encryptionKey != null ? CDN_BASE_URL + hash + ".enc" : CDN_BASE_URL + hash;
     try {
       final HttpURLConnection conn = httpClientFactory.create(cdnUrl);
       final String previousEtag = etagHolder.get();
@@ -93,35 +95,23 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         return;
       }
       final String etag = conn.getHeaderField("etag");
-      boolean encrypted = "true".equals(conn.getHeaderField("x-amz-meta-encrypted"));
       try (final InputStream stream = conn.getInputStream()) {
         final byte[] bytes = stream.readAllBytes();
 
-        if (!encrypted) {
-          try {
-            final var stateRequest =
-                com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
-            this.accountId = stateRequest.getAccountId();
-            rawResolverStateHolder.set(stateRequest.getState().toByteArray());
-            rawCdnBytesHolder.set(null);
-            etagHolder.set(etag);
-            logger.info("Loaded resolver state (etag={})", etag);
-            return;
-          } catch (Exception e) {
-            logger.warn("Protobuf decode failed, treating state as encrypted", e);
-            encrypted = true;
-          }
+        if (encryptionKey != null) {
+          rawCdnBytesHolder.set(bytes);
+          etagHolder.set(etag);
+          logger.info("Loaded encrypted resolver state (etag={})", etag);
+        } else {
+          final var stateRequest =
+              com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
+          this.accountId = stateRequest.getAccountId();
+          rawResolverStateHolder.set(stateRequest.getState().toByteArray());
+          rawCdnBytesHolder.set(null);
+          etagHolder.set(etag);
+          logger.info("Loaded resolver state (etag={})", etag);
         }
-
-        if (encryptionKey == null || encryptionKey.isEmpty()) {
-          throw new RuntimeException(
-              "Resolver state is encrypted but no encryptionKey was provided. "
-                  + "Set the encryption key for this client credential.");
-        }
-        rawCdnBytesHolder.set(bytes);
-        etagHolder.set(etag);
       }
-      logger.info("Loaded encrypted resolver state (etag={})", etag);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

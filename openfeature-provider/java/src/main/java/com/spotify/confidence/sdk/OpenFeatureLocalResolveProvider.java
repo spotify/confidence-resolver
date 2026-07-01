@@ -198,6 +198,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
   @Override
   public void initialize(EvaluationContext evaluationContext) {
+    if (encryptionKey == null) {
+      log.warn(
+          "No encryptionKey provided. Falling back to unencrypted state."
+              + " An encryption key will be required in an upcoming version.");
+    }
     stateProvider.reload();
     final AtomicReference<byte[]> resolverStateProtobuf =
         new AtomicReference<>(stateProvider.provide());
