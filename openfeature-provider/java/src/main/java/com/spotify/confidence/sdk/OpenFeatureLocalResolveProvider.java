@@ -64,6 +64,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final AccountStateProvider stateProvider;
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
+  private final String encryptionKey;
   private volatile boolean initialized = false;
   private volatile byte[] lastStateBytes = null;
   @VisibleForTesting boolean forcedFetcherShutdown = false;
@@ -147,8 +148,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   public OpenFeatureLocalResolveProvider(
       LocalProviderConfig config, String clientSecret, MaterializationStore materializationStore) {
     this.clientSecret = clientSecret;
+    this.encryptionKey = config.getEncryptionKey();
     this.materializationStore = materializationStore;
-    this.stateProvider = new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory());
+    this.stateProvider =
+        new FlagsAdminStateFetcher(
+            clientSecret, config.getHttpClientFactory(), config.getEncryptionKey());
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
     this.flagLogger = wasmFlagLogger;
     final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
@@ -174,6 +178,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger) {
     this.clientSecret = clientSecret;
+    this.encryptionKey = null;
     this.materializationStore = materializationStore;
     this.stateProvider = accountStateProvider;
     this.flagLogger = wasmFlagLogger;
@@ -193,14 +198,13 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
   @Override
   public void initialize(EvaluationContext evaluationContext) {
+    if (encryptionKey == null) {
+      log.warn(
+          "No encryptionKey provided. Falling back to unencrypted state."
+              + " An encryption key will be required in an upcoming version.");
+    }
     stateProvider.reload();
-    final AtomicReference<byte[]> resolverStateProtobuf =
-        new AtomicReference<>(stateProvider.provide());
-    final AtomicReference<String> accountIdRef = new AtomicReference<>(stateProvider.accountId());
-
-    // Only initialize WASM and set READY if we got valid state (non-empty accountId)
-    if (!accountIdRef.get().isEmpty()) {
-      resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
+    if (pushStateToResolver()) {
       initialized = true;
       this.state.set(ProviderState.READY);
     } else {
@@ -210,7 +214,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     }
 
     final long pollIntervalSeconds = getPollIntervalSeconds();
-    scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
+    scheduleStateRefresh(pollIntervalSeconds);
 
     assignLogExecutor.scheduleAtFixedRate(
         () -> {
@@ -227,51 +231,60 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         TimeUnit.MILLISECONDS);
   }
 
-  private void scheduleStateRefresh(
-      AtomicReference<byte[]> resolverStateProtobuf,
-      AtomicReference<String> accountIdRef,
-      long pollIntervalSeconds) {
+  private boolean pushStateToResolver() {
+    final byte[] stateBytes = stateProvider.provide();
+    if (stateBytes == null || stateBytes.length == 0) {
+      return false;
+    }
+    if (encryptionKey != null) {
+      resolver.setEncryptedResolverState(stateBytes, hexToBytes(encryptionKey), SDK);
+    } else {
+      final String accountId = stateProvider.accountId();
+      if (accountId == null || accountId.isEmpty()) {
+        return false;
+      }
+      resolver.setResolverState(stateBytes, accountId, SDK);
+    }
+    lastStateBytes = stateBytes;
+    return true;
+  }
+
+  private void scheduleStateRefresh(long pollIntervalSeconds) {
     if (flagsFetcherExecutor.isShutdown()) {
       return;
     }
 
-    // Use short retry interval (1s) when not initialized, normal interval otherwise
     long delaySeconds = initialized ? pollIntervalSeconds : 1;
 
     flagsFetcherExecutor.schedule(
         () -> {
           try {
             stateProvider.reload();
-            resolverStateProtobuf.set(stateProvider.provide());
-            accountIdRef.set(stateProvider.accountId());
 
-            if (!accountIdRef.get().isEmpty()) {
+            final byte[] newState = stateProvider.provide();
+            if (newState != null && !java.util.Arrays.equals(newState, lastStateBytes)) {
+              pushStateToResolver();
               if (!initialized) {
-                resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
-                lastStateBytes = resolverStateProtobuf.get();
                 initialized = true;
                 this.state.set(ProviderState.READY);
                 log.info("Provider recovered and is now READY");
-              } else {
-                // Only push state into the wasm instances when it actually changed — the wasm
-                // execution inside setResolverState is expensive (runs across all pool slots).
-                final byte[] newState = resolverStateProtobuf.get();
-                if (!java.util.Arrays.equals(newState, lastStateBytes)) {
-                  resolver.setResolverState(newState, accountIdRef.get(), SDK);
-                  lastStateBytes = newState;
-                }
-                // Always flush logs regardless of state change.
-                resolver.flushAllLogs();
               }
+            }
+            if (initialized) {
+              resolver.flushAllLogs();
             }
           } catch (RuntimeException e) {
             log.error("State refresh failed", e);
           } finally {
-            scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
+            scheduleStateRefresh(pollIntervalSeconds);
           }
         },
         delaySeconds,
         TimeUnit.SECONDS);
+  }
+
+  private static byte[] hexToBytes(String hex) {
+    return java.util.HexFormat.of().parseHex(hex);
   }
 
   @Override

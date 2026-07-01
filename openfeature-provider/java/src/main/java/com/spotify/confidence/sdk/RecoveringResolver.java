@@ -22,12 +22,10 @@ import org.slf4j.LoggerFactory;
 class RecoveringResolver implements LocalResolver {
   private static final Logger logger = LoggerFactory.getLogger(RecoveringResolver.class);
 
-  private record StateRecord(byte[] state, String accountId, Sdk sdk) {}
-
   private final Supplier<LocalResolver> factory;
   private final AtomicReference<LocalResolver> current = new AtomicReference<>();
   private final AtomicBoolean broken = new AtomicBoolean(false);
-  private final AtomicReference<StateRecord> lastState = new AtomicReference<>();
+  private volatile java.util.function.Consumer<LocalResolver> replayState;
 
   RecoveringResolver(Supplier<LocalResolver> factory) {
     this.factory = factory;
@@ -41,9 +39,8 @@ class RecoveringResolver implements LocalResolver {
               try {
                 final LocalResolver old = current.get();
                 final LocalResolver newResolver = factory.get();
-                final StateRecord cached = lastState.get();
-                if (cached != null) {
-                  newResolver.setResolverState(cached.state(), cached.accountId(), cached.sdk());
+                if (replayState != null) {
+                  replayState.accept(newResolver);
                 }
                 current.set(newResolver);
                 if (old != null) {
@@ -83,9 +80,20 @@ class RecoveringResolver implements LocalResolver {
   public void setResolverState(byte[] state, String accountId, Sdk sdk) {
     try {
       current.get().setResolverState(state, accountId, sdk);
-      lastState.set(new StateRecord(state, accountId, sdk));
+      replayState = lr -> lr.setResolverState(state, accountId, sdk);
     } catch (ChicoryException e) {
       handleFailure("setResolverState", e);
+      throw e;
+    }
+  }
+
+  @Override
+  public void setEncryptedResolverState(byte[] encryptedState, byte[] encryptionKey, Sdk sdk) {
+    try {
+      current.get().setEncryptedResolverState(encryptedState, encryptionKey, sdk);
+      replayState = lr -> lr.setEncryptedResolverState(encryptedState, encryptionKey, sdk);
+    } catch (ChicoryException e) {
+      handleFailure("setEncryptedResolverState", e);
       throw e;
     }
   }
