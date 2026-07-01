@@ -56,9 +56,7 @@ class TestWasmResolverEncryptedState:
         resolver = WasmResolver(wasm_bytes)
         wrong_key = bytes(32)
         with pytest.raises(RuntimeError, match="decrypt"):
-            resolver.set_encrypted_resolver_state(
-                test_encrypted_state, wrong_key
-            )
+            resolver.set_encrypted_resolver_state(test_encrypted_state, wrong_key)
 
 
 class TestLocalResolverEncryptedState:
@@ -69,8 +67,6 @@ class TestLocalResolverEncryptedState:
         test_encryption_key: bytes,
     ) -> None:
         resolver = LocalResolver(wasm_bytes)
-        resolver.set_encrypted_resolver_state(
-            test_encrypted_state, test_encryption_key
-        )
+        resolver.set_encrypted_resolver_state(test_encrypted_state, test_encryption_key)
         assert resolver._current_encrypted_state is not None
         assert resolver._current_state is None
