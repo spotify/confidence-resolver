@@ -1,9 +1,11 @@
+mod materialization;
+
 use confidence_resolver::{
     assign_logger, flag_logger,
     proto::{confidence, google::Struct},
     resolve_logger,
     telemetry::{self, TelemetrySnapshot},
-    FlagToApply, Host, ResolvedValue, ResolverState,
+    AccountResolver, FlagToApply, Host, ResolvedValue, ResolverState,
 };
 use worker::*;
 
@@ -18,7 +20,8 @@ use wasm_bindgen::JsCast;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    ResolveProcessRequest, ResolveReason,
+    resolve_process_response, MaterializationRecord, ResolveProcessRequest, ResolveReason,
+    ResolveFlagsResponse,
 };
 
 use confidence_resolver::Client;
@@ -44,6 +47,7 @@ use std::sync::OnceLock;
 
 thread_local! {
     static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
+    static MAT_WRITES: RefCell<Option<Vec<MaterializationRecord>>> = const { RefCell::new(None) };
 }
 
 /// Prometheus exposition format content type (version 0.0.4).
@@ -134,6 +138,36 @@ fn sdk_info() -> Sdk {
     }
 }
 
+/// Resolve flags with sticky assignment support via the suspend/resume cycle.
+///
+/// If the resolver suspends (needs materialization data), reads from KV and resumes.
+/// Returns the resolved response and any materialization writes to persist.
+async fn resolve_with_sticky(
+    resolver: &AccountResolver<'_, H>,
+    request: ResolveProcessRequest,
+    kv: Option<&kv::KvStore>,
+) -> std::result::Result<(ResolveFlagsResponse, Vec<MaterializationRecord>), String> {
+    let response = resolver.resolve_flags(request)?;
+
+    match response.result {
+        Some(resolve_process_response::Result::Resolved(r)) => Ok((
+            r.response.ok_or("Empty resolve response")?,
+            r.materializations_to_write,
+        )),
+        Some(resolve_process_response::Result::Suspended(s)) => {
+            let kv = kv.ok_or("Materializations required but KV not available")?;
+            let records =
+                materialization::read_materializations(kv, &s.materializations_to_read).await;
+            let resume = ResolveProcessRequest::resume(records, s.state);
+            let resumed = resolver.resolve_flags(resume)?;
+            resumed
+                .into_resolved()
+                .ok_or_else(|| "Still suspended after resume".to_string())
+        }
+        None => Err("Empty process response".to_string()),
+    }
+}
+
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     match env.queue("flag_logs_queue") {
@@ -167,6 +201,12 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     if req.method() == Method::Options {
         return Response::ok("")?.with_cors_headers(&allowed_origin_env);
     }
+
+    let mat_kv_for_writes = env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
+    let mat_ttl: Option<u64> = env
+        .var("MATERIALIZATION_TTL_SECONDS")
+        .ok()
+        .and_then(|v| v.to_string().parse().ok());
 
     let state = &RESOLVER_STATE;
     let router = Router::new();
@@ -241,37 +281,39 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         // during sync CPU, but scheduler.wait(0) unfreezes them.
                         let t0 = js_sys::Date::now();
 
+                        let mat_kv = ctx.env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
+
                         let (reasons, resp) = match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
                             &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
                         ) {
                             Ok(resolver) => {
-                                let process_request =
+                                let process_request = if mat_kv.is_some() {
+                                    ResolveProcessRequest::deferred_materializations(
+                                        resolver_request,
+                                    )
+                                } else {
                                     ResolveProcessRequest::without_materializations(
                                         resolver_request,
-                                    );
-                                match resolver.resolve_flags(process_request) {
-                                    Ok(process_response) => {
-                                        match process_response.into_resolved() {
-                                            Some((response, _writes)) => {
-                                                let reasons: Vec<ResolveReason> = response
-                                                    .resolved_flags
-                                                    .iter()
-                                                    .map(|f| f.reason())
-                                                    .collect();
-                                                (reasons, Response::from_json(&response)?
-                                                    .with_cors_headers(&allowed_origin))
-                                            }
-                                            None => {
-                                                (vec![ResolveReason::Error],
-                                                Response::error(
-                                                    "Unexpected suspended response",
-                                                    500,
-                                                )?
-                                                .with_cors_headers(&allowed_origin))
-                                            }
+                                    )
+                                };
+                                match resolve_with_sticky(
+                                    &resolver, process_request, mat_kv.as_ref(),
+                                ).await {
+                                    Ok((response, writes)) => {
+                                        if !writes.is_empty() {
+                                            MAT_WRITES.with(|f| {
+                                                *f.borrow_mut() = Some(writes);
+                                            });
                                         }
+                                        let reasons: Vec<ResolveReason> = response
+                                            .resolved_flags
+                                            .iter()
+                                            .map(|f| f.reason())
+                                            .collect();
+                                        (reasons, Response::from_json(&response)?
+                                            .with_cors_headers(&allowed_origin))
                                     }
                                     Err(msg) => {
                                         (vec![ResolveReason::Error],
@@ -376,6 +418,14 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
             }
         }
     });
+
+    // Write sticky assignments to KV after response is returned.
+    let mat_writes = MAT_WRITES.with(|f| f.borrow_mut().take());
+    if let (Some(kv), Some(writes)) = (mat_kv_for_writes, mat_writes) {
+        ctx.wait_until(async move {
+            materialization::write_materializations(&kv, &writes, mat_ttl).await;
+        });
+    }
 
     response
 }
