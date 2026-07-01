@@ -870,19 +870,20 @@ fn proto_value_to_openfeature(value: &ProtoValue) -> Option<Value> {
 
 fn navigate_path(value: Option<Struct>, path: &str) -> Option<Struct> {
     let mut current = value?;
+    let parts: Vec<&str> = path.split('.').collect();
 
-    for part in path.split('.') {
-        let field = current.fields.get(part)?;
+    for (i, part) in parts.iter().enumerate() {
+        let field = current.fields.get(*part)?;
         match &field.kind {
             Some(value::Kind::StructValue(s)) => {
                 current = s.clone();
             }
-            _ => {
-                // If we're at the last part, wrap the value in a struct
+            _ if i == parts.len() - 1 => {
                 let mut fields = HashMap::new();
                 fields.insert(part.to_string(), field.clone());
                 return Some(Struct { fields });
             }
+            _ => return None,
         }
     }
 
@@ -1295,6 +1296,24 @@ mod tests {
     fn test_navigate_path_none_input() {
         let result = navigate_path(None, "any.path");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_navigate_path_non_struct_leaf() {
+        let test_struct = create_test_struct();
+        let result = navigate_path(Some(test_struct), "top.nonexistent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_navigate_path_non_struct_leaf_nested() {
+        let test_struct = create_test_struct();
+        // level1 is a struct, simple is a string — traversing further should fail
+        let result = navigate_path(Some(test_struct.clone()), "level1.simple.deep");
+        assert!(result.is_none());
+        // but navigating to the leaf itself should succeed
+        let result = navigate_path(Some(test_struct), "level1.simple");
+        assert!(result.is_some());
     }
 
     // ==================== extract_*_value tests ====================
