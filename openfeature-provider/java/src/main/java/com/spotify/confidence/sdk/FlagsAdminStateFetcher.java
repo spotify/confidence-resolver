@@ -82,8 +82,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   private void fetchAndUpdateStateIfChanged() {
     // Build CDN URL using SHA256 hash of client secret, with .enc suffix for encrypted state
     final String hash = sha256Hex(clientSecret);
-    final var cdnUrl =
-        encryptionKey != null ? CDN_BASE_URL + hash + ".enc" : CDN_BASE_URL + hash;
+    final var cdnUrl = encryptionKey != null ? CDN_BASE_URL + hash + ".enc" : CDN_BASE_URL + hash;
     try {
       final HttpURLConnection conn = httpClientFactory.create(cdnUrl);
       final String previousEtag = etagHolder.get();
