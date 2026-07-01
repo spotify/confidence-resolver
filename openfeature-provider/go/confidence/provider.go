@@ -456,6 +456,10 @@ func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
 // Init initializes the provider (part of StateHandler interface)
 // Fetches initial state and starts background tasks for state updates and log flushing
 func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationContext) (err error) {
+	if p.encryptionKey == "" {
+		p.logger.Warn("No EncryptionKey provided. Falling back to unencrypted state. An encryption key will be required in an upcoming version.")
+	}
+
 	ctx := context.Background()
 	defer func() {
 		if r := recover(); r != nil {

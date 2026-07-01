@@ -127,7 +127,11 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 	// Build CDN URL using SHA256 hash of client secret
 	hash := sha256.Sum256([]byte(f.clientSecret))
 	hashHex := hex.EncodeToString(hash[:])
-	cdnURL := "https://confidence-resolver-state-cdn.spotifycdn.com/" + hashHex
+	cdnPath := hashHex
+	if f.encryptionKey != "" {
+		cdnPath = hashHex + ".enc"
+	}
+	cdnURL := "https://confidence-resolver-state-cdn.spotifycdn.com/" + cdnPath
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cdnURL, nil)
 	if err != nil {
@@ -161,31 +165,25 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 		return err
 	}
 
-	encrypted := resp.Header.Get("x-amz-meta-encrypted") == "true"
 	etag := resp.Header.Get("ETag")
 
-	if !encrypted {
-		stateRequest := &wasm.SetResolverStateRequest{}
-		if err := proto.Unmarshal(bytes, stateRequest); err != nil {
-			f.logger.Warn("Protobuf decode failed, treating state as encrypted", "error", err)
-			encrypted = true
-		} else {
-			f.accountID.Store(stateRequest.AccountId)
-			f.rawResolverState.Store(stateRequest.State)
-			f.encrypted.Store(false)
-			f.etag.Store(etag)
-			f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
-			return nil
-		}
+	if f.encryptionKey != "" {
+		f.rawCdnBytes.Store(bytes)
+		f.encrypted.Store(true)
+		f.etag.Store(etag)
+		f.logger.Debug("Loaded encrypted resolver state", "etag", etag)
+		return nil
 	}
 
-	if f.encryptionKey == "" {
-		return fmt.Errorf("resolver state is encrypted but no EncryptionKey was provided; set the encryption key for this client credential")
+	// Unencrypted path: parse protobuf as before
+	stateRequest := &wasm.SetResolverStateRequest{}
+	if err := proto.Unmarshal(bytes, stateRequest); err != nil {
+		return fmt.Errorf("failed to decode resolver state: %w", err)
 	}
-	f.rawCdnBytes.Store(bytes)
-	f.encrypted.Store(true)
+	f.accountID.Store(stateRequest.AccountId)
+	f.rawResolverState.Store(stateRequest.State)
+	f.encrypted.Store(false)
 	f.etag.Store(etag)
-	f.logger.Debug("Loaded encrypted resolver state", "etag", etag)
-
+	f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
 	return nil
 }
