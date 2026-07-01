@@ -48,9 +48,8 @@ impl StateFetcher {
     ) -> Self {
         let hash = Self::hash_client_secret(&client_secret);
         let cdn_url = format!("{}/{}", CDN_BASE_URL, hash);
-        let encryption_key = encryption_key_hex.map(|hex_str| {
-            hex::decode(&hex_str).expect("encryption_key must be valid hex")
-        });
+        let encryption_key = encryption_key_hex
+            .map(|hex_str| hex::decode(&hex_str).expect("encryption_key must be valid hex"));
 
         Self {
             client,
@@ -183,13 +182,11 @@ impl StateFetcher {
         let cipher = Aes256Gcm::new_from_slice(key_bytes)
             .map_err(|e| Error::StateParse(format!("Invalid encryption key: {}", e)))?;
         let nonce = Nonce::from_slice(&data[..12]);
-        cipher
-            .decrypt(nonce, &data[12..])
-            .map_err(|_| {
-                Error::StateParse(
-                    "Failed to decrypt resolver state: invalid key or corrupted data".to_string(),
-                )
-            })
+        cipher.decrypt(nonce, &data[12..]).map_err(|_| {
+            Error::StateParse(
+                "Failed to decrypt resolver state: invalid key or corrupted data".to_string(),
+            )
+        })
     }
 
     /// Get the client secret.
@@ -348,8 +345,7 @@ mod tests {
     #[test]
     fn test_decrypt_encrypted_state() {
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
-        let hex_key =
-            std::fs::read_to_string(data_dir().join("encryption_key_test.hex")).unwrap();
+        let hex_key = std::fs::read_to_string(data_dir().join("encryption_key_test.hex")).unwrap();
         let key = Some(hex::decode(hex_key.trim()).unwrap());
 
         let decrypted = StateFetcher::decrypt(&encrypted, &key).unwrap();
@@ -363,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_rejects_wrong_key() {
-        use aes_gcm::{Aes256Gcm, KeyInit, aead::OsRng};
+        use aes_gcm::{aead::OsRng, Aes256Gcm, KeyInit};
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
         let wrong_key = Aes256Gcm::generate_key(OsRng).to_vec();
         let result = StateFetcher::decrypt(&encrypted, &Some(wrong_key));
