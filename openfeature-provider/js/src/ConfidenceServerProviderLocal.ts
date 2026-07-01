@@ -144,7 +144,12 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async initialize(context?: EvaluationContext): Promise<void> {
-    // TODO validate options and switch to fatal.
+    if (!this.options.encryptionKey) {
+      logger.warn(
+        'No encryptionKey provided. Falling back to unencrypted state. ' +
+          'An encryption key will be required in an upcoming version.',
+      );
+    }
     const signal = this.main.signal;
     const initialUpdateSignal = AbortSignal.any([
       signal,
@@ -296,9 +301,10 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async updateState(signal?: AbortSignal): Promise<void> {
-    // Build CDN URL using SHA256 hash of client secret
     const hashHex = await sha256Hex(this.options.flagClientSecret);
-    const cdnUrl = `https://confidence-resolver-state-cdn.spotifycdn.com/${hashHex}`;
+    const { encryptionKey } = this.options;
+    const cdnPath = encryptionKey ? `${hashHex}.enc` : hashHex;
+    const cdnUrl = `https://confidence-resolver-state-cdn.spotifycdn.com/${cdnPath}`;
 
     const headers = new Headers();
     if (this.stateEtag) {
@@ -306,7 +312,6 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
     const resp = await this.fetch(cdnUrl, { headers, signal });
     if (resp.status === 304) {
-      // not changed
       return;
     }
     if (!resp.ok) {
@@ -315,32 +320,19 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.stateEtag = resp.headers.get('etag');
 
     const bytes = new Uint8Array(await resp.arrayBuffer());
-    let encrypted = resp.headers.get('x-amz-meta-encrypted') === 'true';
+    const sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
 
-    if (!encrypted) {
-      try {
-        const stateRequest = SetResolverStateRequest.decode(bytes);
-        stateRequest.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
-        this.resolver.setResolverState(stateRequest);
-        return;
-      } catch {
-        encrypted = true;
-      }
+    if (encryptionKey) {
+      this.resolver.setEncryptedResolverState({
+        encryptedState: bytes,
+        encryptionKey: hexToBytes(encryptionKey),
+        sdk,
+      });
+    } else {
+      const stateRequest = SetResolverStateRequest.decode(bytes);
+      stateRequest.sdk = sdk;
+      this.resolver.setResolverState(stateRequest);
     }
-
-    const { encryptionKey } = this.options;
-    if (!encryptionKey) {
-      throw new Error(
-        'Resolver state is encrypted but no encryptionKey was provided in ProviderOptions. ' +
-          'Set the encryption key for this client credential.',
-      );
-    }
-    const keyBytes = hexToBytes(encryptionKey);
-    this.resolver.setEncryptedResolverState({
-      encryptedState: bytes,
-      encryptionKey: keyBytes,
-      sdk: { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION },
-    });
   }
 
   // TODO should this return success/failure, or even throw?
