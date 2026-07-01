@@ -58,7 +58,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   }
 
   boolean isEncrypted() {
-    return isEncrypted();
+    return encryptionKey != null;
   }
 
   private void fetchAndUpdateStateIfChanged() {
