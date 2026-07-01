@@ -109,6 +109,7 @@ COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
 COPY openfeature-provider/proto/ ./openfeature-provider/proto/
 COPY openfeature-provider/rust/ ./openfeature-provider/rust/
 COPY openfeature-provider/python/Cargo.toml ./openfeature-provider/python/
+COPY data/ ./data/
 
 # Touch files to ensure rebuild (dependencies are cached)
 RUN find . -type f -name "*.rs" -exec touch {} +
