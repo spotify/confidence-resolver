@@ -39,9 +39,7 @@ type RecoveringResolver struct {
 	current atomic.Value // holds LocalResolver
 	broken  atomic.Bool  // indicates an instance has panicked
 
-	lastState          atomic.Value // holds *wasm.SetResolverStateRequest
-	lastEncryptedState atomic.Value // holds *wasm.SetEncryptedResolverStateRequest
-	useEncrypted       atomic.Bool
+	replayState func(LocalResolver) // replays the last state-setting call on recovery
 }
 
 func (r *RecoveringResolver) get() LocalResolver {
@@ -62,12 +60,8 @@ func (r *RecoveringResolver) startRecreate() {
 		}()
 		old := r.get()
 		newLR := r.factory.New()
-		if r.useEncrypted.Load() {
-			if v := r.lastEncryptedState.Load(); v != nil {
-				_ = newLR.SetEncryptedResolverState(v.(*wasm.SetEncryptedResolverStateRequest))
-			}
-		} else if v := r.lastState.Load(); v != nil {
-			_ = newLR.SetResolverState(v.(*wasm.SetResolverStateRequest))
+		if r.replayState != nil {
+			r.replayState(newLR)
 		}
 		r.current.Store(newLR)
 		if old != nil {
@@ -99,8 +93,7 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 	r.withRecover("SetResolverState", &err, func(lr LocalResolver) {
 		err = lr.SetResolverState(request)
 		if err == nil {
-			r.lastState.Store(request)
-			r.useEncrypted.Store(false)
+			r.replayState = func(lr LocalResolver) { lr.SetResolverState(request) }
 		}
 	})
 	return
@@ -110,8 +103,7 @@ func (r *RecoveringResolver) SetEncryptedResolverState(request *wasm.SetEncrypte
 	r.withRecover("SetEncryptedResolverState", &err, func(lr LocalResolver) {
 		err = lr.SetEncryptedResolverState(request)
 		if err == nil {
-			r.lastEncryptedState.Store(request)
-			r.useEncrypted.Store(true)
+			r.replayState = func(lr LocalResolver) { lr.SetEncryptedResolverState(request) }
 		}
 	})
 	return
