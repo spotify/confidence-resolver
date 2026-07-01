@@ -217,6 +217,12 @@ class ConfidenceProvider(AbstractProvider):
         Raises:
             Exception: If initialization fails.
         """
+        if not self._encryption_key:
+            logger.warning(
+                "No encryption_key provided. Falling back to unencrypted state. "
+                "An encryption key will be required in an upcoming version."
+            )
+
         # Load WASM bytes if not provided
         if self._wasm_bytes is None:
             self._wasm_bytes = _load_wasm_from_resources()
