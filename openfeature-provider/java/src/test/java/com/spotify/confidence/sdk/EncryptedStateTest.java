@@ -27,8 +27,7 @@ class EncryptedStateTest {
   @BeforeEach
   void setUp() throws IOException {
     resolver = new WasmLocalResolver(request -> {});
-    encryptedState =
-        getClass().getResourceAsStream("/resolver_state_encrypted.pb").readAllBytes();
+    encryptedState = getClass().getResourceAsStream("/resolver_state_encrypted.pb").readAllBytes();
     encryptionKey =
         HexFormat.of()
             .parseHex(
