@@ -39,6 +39,7 @@ class StateFetcher:
         self,
         client_secret: str,
         http_client: Optional[httpx.Client] = None,
+        encryption_key: Optional[str] = None,
     ) -> None:
         """Initialize the StateFetcher.
 
@@ -47,17 +48,20 @@ class StateFetcher:
             http_client: Optional httpx.Client for custom HTTP configuration or testing.
         """
         self._client_secret = client_secret
+        self._encryption_key = encryption_key
         self._http_client = http_client
         self._owns_client = http_client is None
 
         # Cached state
         self._state: Optional[bytes] = None
         self._account_id: Optional[str] = None
+        self._raw_cdn_bytes: Optional[bytes] = None
         self._etag: Optional[str] = None
 
         # Build CDN URL from SHA256 hash of client secret
         hash_hex = hashlib.sha256(client_secret.encode()).hexdigest()
-        self._cdn_url = f"{CDN_BASE_URL}/{hash_hex}"
+        suffix = f"{hash_hex}.enc" if encryption_key else hash_hex
+        self._cdn_url = f"{CDN_BASE_URL}/{suffix}"
 
     @property
     def state(self) -> Optional[bytes]:
@@ -68,6 +72,11 @@ class StateFetcher:
     def account_id(self) -> Optional[str]:
         """Return the current cached account ID."""
         return self._account_id
+
+    @property
+    def raw_cdn_bytes(self) -> Optional[bytes]:
+        """Return raw encrypted CDN bytes, or None if unencrypted."""
+        return self._raw_cdn_bytes
 
     def _get_client(self) -> httpx.Client:
         """Get or create the HTTP client."""
@@ -101,6 +110,9 @@ class StateFetcher:
 
             # Handle 304 Not Modified - return cached state
             if response.status_code == 304:
+                if self._encryption_key and self._raw_cdn_bytes is not None:
+                    logger.debug("State not modified (304), using cached state")
+                    return self._raw_cdn_bytes, "", False
                 if self._state is not None and self._account_id is not None:
                     logger.debug("State not modified (304), using cached state")
                     return self._state, self._account_id, False
@@ -114,21 +126,23 @@ class StateFetcher:
                     f"Failed to fetch state: HTTP {response.status_code}"
                 )
 
-            # Parse the protobuf response
-            state_request = SetResolverStateRequest()
-            state_request.ParseFromString(response.content)
-
-            # Cache the state, account ID, and ETag
-            self._state = state_request.state
-            self._account_id = state_request.account_id
             self._etag = response.headers.get("ETag")
 
+            if self._encryption_key:
+                self._raw_cdn_bytes = response.content
+                logger.info("Loaded encrypted resolver state, etag=%s", self._etag)
+                return self._raw_cdn_bytes, "", True
+
+            state_request = SetResolverStateRequest()
+            state_request.ParseFromString(response.content)
+            self._state = state_request.state
+            self._account_id = state_request.account_id
+            self._raw_cdn_bytes = None
             logger.info(
                 "Loaded resolver state for account=%s, etag=%s",
                 self._account_id,
                 self._etag,
             )
-
             return self._state, self._account_id, True
 
         finally:

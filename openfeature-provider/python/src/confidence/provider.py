@@ -123,6 +123,7 @@ class ConfidenceProvider(AbstractProvider):
     def __init__(
         self,
         client_secret: str,
+        encryption_key: Optional[str] = None,
         state_poll_interval: float = DEFAULT_STATE_POLL_INTERVAL,
         log_poll_interval: float = DEFAULT_LOG_POLL_INTERVAL,
         assign_poll_interval: float = DEFAULT_ASSIGN_POLL_INTERVAL,
@@ -150,6 +151,7 @@ class ConfidenceProvider(AbstractProvider):
             wasm_bytes: Optional WASM bytes for testing.
         """
         self._client_secret = client_secret
+        self._encryption_key = encryption_key
         self._state_poll_interval = state_poll_interval
         self._log_poll_interval = log_poll_interval
         self._assign_poll_interval = assign_poll_interval
@@ -215,6 +217,12 @@ class ConfidenceProvider(AbstractProvider):
         Raises:
             Exception: If initialization fails.
         """
+        if not self._encryption_key:
+            logger.warning(
+                "No encryption_key provided. Falling back to unencrypted state. "
+                "An encryption key will be required in an upcoming version."
+            )
+
         # Load WASM bytes if not provided
         if self._wasm_bytes is None:
             self._wasm_bytes = _load_wasm_from_resources()
@@ -229,6 +237,7 @@ class ConfidenceProvider(AbstractProvider):
             self._state_fetcher = StateFetcher(
                 client_secret=self._client_secret,
                 http_client=self._http_client,
+                encryption_key=self._encryption_key,
             )
 
         # Create flag logger if not injected
@@ -243,12 +252,11 @@ class ConfidenceProvider(AbstractProvider):
         # Fetch initial state - don't fail if this fails, background thread will retry
         try:
             state, account_id, _ = self._state_fetcher.fetch()
-            if account_id:
-                sdk = types_pb2.Sdk(
-                    id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
-                    version=__version__,
-                )
-                self._resolver.set_resolver_state(state, account_id, sdk)
+            sdk = types_pb2.Sdk(
+                id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
+                version=__version__,
+            )
+            if self._set_resolver_state(state, account_id, sdk):
                 self._status = ProviderStatus.READY
                 self.emit_provider_ready(ProviderEventDetails())
                 logger.info("ConfidenceProvider initialized successfully")
@@ -310,6 +318,18 @@ class ConfidenceProvider(AbstractProvider):
                 logger.error("Failed to close materialization store: %s", e)
 
         logger.info("ConfidenceProvider shutdown complete")
+
+    def _set_resolver_state(self, state: bytes, account_id: str, sdk: object) -> bool:
+        if self._encryption_key and self._state_fetcher is not None:
+            cdn_bytes = getattr(self._state_fetcher, "raw_cdn_bytes", None)
+            if cdn_bytes is not None:
+                key_bytes = bytes.fromhex(self._encryption_key)
+                self._resolver.set_encrypted_resolver_state(cdn_bytes, key_bytes, sdk)
+                return True
+        if account_id:
+            self._resolver.set_resolver_state(state, account_id, sdk)
+            return True
+        return False
 
     def _resolve_typed(
         self,
@@ -786,17 +806,17 @@ class ConfidenceProvider(AbstractProvider):
 
             try:
                 state, account_id, changed = self._state_fetcher.fetch()
-                if changed and account_id:
+                if changed:
                     sdk = types_pb2.Sdk(
                         id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
                         version=__version__,
                     )
                     with self._resolver_lock:
-                        self._resolver.set_resolver_state(state, account_id, sdk)
+                        self._set_resolver_state(state, account_id, sdk)
                     logger.debug("Resolver state updated")
 
-                # If we were NOT_READY and now have valid state, transition to READY
-                if account_id and self._status == ProviderStatus.NOT_READY:
+                has_state = self._encryption_key is not None or bool(account_id)
+                if has_state and self._status == ProviderStatus.NOT_READY:
                     self._status = ProviderStatus.READY
                     self.emit_provider_ready(ProviderEventDetails())
                     logger.info("Provider recovered and is now READY")
