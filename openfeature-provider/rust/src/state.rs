@@ -47,9 +47,13 @@ impl StateFetcher {
         encryption_key_hex: Option<String>,
     ) -> Self {
         let hash = Self::hash_client_secret(&client_secret);
-        let cdn_url = format!("{}/{}", CDN_BASE_URL, hash);
         let encryption_key = encryption_key_hex
             .map(|hex_str| hex::decode(&hex_str).expect("encryption_key must be valid hex"));
+        let cdn_url = if encryption_key.is_some() {
+            format!("{}/{}.enc", CDN_BASE_URL, hash)
+        } else {
+            format!("{}/{}", CDN_BASE_URL, hash)
+        };
 
         Self {
             client,
@@ -109,47 +113,18 @@ impl StateFetcher {
             }
         }
 
-        // Check encryption header
-        let encrypted_header = response
-            .headers()
-            .get("x-amz-meta-encrypted")
-            .and_then(|v| v.to_str().ok())
-            == Some("true");
-
         // Parse response body
         let raw_bytes = response.bytes().await?;
 
-        // Try unencrypted path first (header check + protobuf fallback)
-        let decrypted_bytes = if !encrypted_header {
-            match SetResolverStateRequest::decode(raw_bytes.clone()) {
-                Ok(request) => {
-                    let state_pb = ResolverStatePb::decode(request.state).map_err(|e| {
-                        Error::StateParse(format!("Failed to decode ResolverState: {}", e))
-                    })?;
-                    let state =
-                        ResolverState::from_proto(state_pb, &request.account_id, self.sdk.clone())
-                            .map_err(|e| {
-                                Error::StateParse(format!(
-                                    "Failed to create ResolverState: {:?}",
-                                    e
-                                ))
-                            })?;
-                    return Ok(Some((state, request.account_id)));
-                }
-                Err(_) => {
-                    tracing::warn!("Protobuf decode failed, treating state as encrypted");
-                    Self::decrypt(&raw_bytes, &self.encryption_key)?
-                }
-            }
+        let proto_bytes = if self.encryption_key.is_some() {
+            let decrypted = Self::decrypt(&raw_bytes, &self.encryption_key)?;
+            Bytes::from(decrypted)
         } else {
-            Self::decrypt(&raw_bytes, &self.encryption_key)?
+            raw_bytes
         };
 
-        let request = SetResolverStateRequest::decode(decrypted_bytes.as_slice()).map_err(|e| {
-            Error::StateParse(format!(
-                "Failed to decode decrypted SetResolverStateRequest: {}",
-                e
-            ))
+        let request = SetResolverStateRequest::decode(proto_bytes).map_err(|e| {
+            Error::StateParse(format!("Failed to decode SetResolverStateRequest: {}", e))
         })?;
 
         let state_pb = ResolverStatePb::decode(request.state)
@@ -192,6 +167,11 @@ impl StateFetcher {
     /// Get the client secret.
     pub fn client_secret(&self) -> &str {
         &self.client_secret
+    }
+
+    /// Get the encryption key, if set.
+    pub fn encryption_key(&self) -> Option<&[u8]> {
+        self.encryption_key.as_deref()
     }
 }
 

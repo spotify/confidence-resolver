@@ -216,6 +216,10 @@ impl ConfidenceProvider {
 
     /// Initialize the provider by fetching initial state and starting background tasks.
     pub async fn init(&mut self) -> Result<()> {
+        if self.state_fetcher.encryption_key().is_none() {
+            tracing::warn!("No encryption_key provided. Falling back to unencrypted state. An encryption key will be required in an upcoming version.");
+        }
+
         // Fetch initial state
         let result = self.state_fetcher.fetch().await?;
         if let Some((state, account_id)) = result {
