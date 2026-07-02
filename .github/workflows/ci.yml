@@ -30,7 +30,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare secrets
-        run: echo "${{ secrets.CONFIDENCE_CLIENT_SECRET }}" > /tmp/confidence_client_secret.txt
+        run: |
+          echo "${{ secrets.CONFIDENCE_CLIENT_SECRET }}" > /tmp/confidence_client_secret.txt
+          echo "${{ secrets.CONFIDENCE_CLIENT_ENCRYPTION_KEY }}" > /tmp/confidence_client_encryption_key.txt
 
       - name: Build and test everything (PR)
         if: github.event_name != 'push'
@@ -42,6 +44,7 @@ jobs:
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
           secret-files: |
             confidence_client_secret=/tmp/confidence_client_secret.txt
+            confidence_client_encryption_key=/tmp/confidence_client_encryption_key.txt
 
       - name: Build and test everything (Push - updates cache)
         if: github.event_name == 'push'
@@ -54,3 +57,4 @@ jobs:
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main,mode=max
           secret-files: |
             confidence_client_secret=/tmp/confidence_client_secret.txt
+            confidence_client_encryption_key=/tmp/confidence_client_encryption_key.txt

@@ -96,6 +96,41 @@ describe('ConfidenceServerProvider E2E tests', () => {
   });
 });
 
+describe('ConfidenceServerProvider Encrypted E2E tests', () => {
+  const encryptedResolver = new WasmResolver(module);
+  const encryptedProvider = new ConfidenceServerProviderLocal(encryptedResolver, {
+    flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
+    encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY,
+  });
+
+  beforeAll(async () => {
+    await OpenFeature.setProviderAndWait('encrypted-e2e', encryptedProvider);
+  });
+
+  afterAll(() => OpenFeature.close());
+
+  it('should resolve a boolean via encrypted state', async () => {
+    const client = OpenFeature.getClient('encrypted-e2e');
+
+    expect(await client.getBooleanValue('web-sdk-e2e-flag.bool', true, { targetingKey: 'test-a', sticky: false })).toBeFalsy();
+  });
+
+  it('should resolve a string via encrypted state', async () => {
+    const client = OpenFeature.getClient('encrypted-e2e');
+
+    expect(await client.getStringValue('web-sdk-e2e-flag.str', 'default', { targetingKey: 'test-a', sticky: false })).toEqual('control');
+  });
+
+  it('should resolve with details via encrypted state', async () => {
+    const client = OpenFeature.getClient('encrypted-e2e');
+
+    const details = await client.getNumberDetails('web-sdk-e2e-flag.obj.double', 1, { targetingKey: 'test-a', sticky: false });
+    expect(details.value).toEqual(3.6);
+    expect(details.reason).toEqual('MATCH');
+    expect(details.variant).toEqual('flags/web-sdk-e2e-flag/variants/control');
+  });
+});
+
 function requireEnv<const N extends string[]>(...names: N): Record<N[number], string> {
   return names.reduce((acc, name) => {
     const value = process.env[name];
