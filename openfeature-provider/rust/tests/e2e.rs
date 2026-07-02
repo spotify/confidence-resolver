@@ -215,24 +215,15 @@ async fn e2e_tests() {
     OpenFeature::singleton_mut().await.shutdown().await;
 }
 
-fn encryption_key() -> Option<String> {
+fn encryption_key() -> String {
     std::env::var("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
-        .ok()
-        .filter(|s| !s.is_empty())
+        .expect("CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set")
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e_encrypted_state() {
-    let enc_key = match encryption_key() {
-        Some(k) => k,
-        None => {
-            eprintln!("CONFIDENCE_CLIENT_ENCRYPTION_KEY not set, skipping");
-            return;
-        }
-    };
-
     let secret = client_secret();
-    let options = ProviderOptions::new(&secret).with_encryption_key(enc_key);
+    let options = ProviderOptions::new(&secret).with_encryption_key(encryption_key());
     let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
 
     let mut ofe = OpenFeature::singleton_mut().await;
