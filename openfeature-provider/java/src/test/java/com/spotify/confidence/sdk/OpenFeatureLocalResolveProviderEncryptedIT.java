@@ -42,6 +42,6 @@ class OpenFeatureLocalResolveProviderEncryptedIT {
     final FlagEvaluationDetails<Double> details =
         client.getDoubleDetails("web-sdk-e2e-flag.obj.double", 1.0);
     assertThat(details.getValue()).isEqualTo(3.6);
-    assertThat(details.getReason()).isEqualTo("MATCH");
+    assertThat(details.getReason()).isEqualTo("RESOLVE_REASON_MATCH");
   }
 }
