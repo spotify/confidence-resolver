@@ -1,10 +1,11 @@
 """End-to-end tests that verify flag resolution with the real backend."""
 
+import os
+
+import pytest
 from openfeature import api
 from openfeature.api import set_provider_and_wait
 from openfeature.evaluation_context import EvaluationContext
-
-import os
 
 from confidence import ConfidenceProvider
 
@@ -106,5 +107,59 @@ class TestFlagResolveWithoutMaterializationStore:
             assert result.variant == expected, (
                 f"Expected bloom filter resolve, got variant {result.variant}"
             )
+        finally:
+            provider.shutdown()
+
+
+class TestFlagResolveWithEncryptedState:
+    """E2E tests for flag resolution with encrypted CDN state."""
+
+    def test_resolve_boolean_via_encrypted_state(self) -> None:
+        encryption_key = os.environ.get("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
+        if not encryption_key:
+            pytest.skip("CONFIDENCE_CLIENT_ENCRYPTION_KEY not set")
+
+        provider = ConfidenceProvider(
+            client_secret=E2E_CLIENT_SECRET,
+            encryption_key=encryption_key,
+        )
+        try:
+            set_provider_and_wait(provider)
+            client = api.get_client()
+            ctx = EvaluationContext(
+                targeting_key="test-a",
+                attributes={"sticky": False},
+            )
+            result = client.get_boolean_details(
+                flag_key="web-sdk-e2e-flag.bool",
+                default_value=True,
+                evaluation_context=ctx,
+            )
+            assert result.value is False
+        finally:
+            provider.shutdown()
+
+    def test_resolve_string_via_encrypted_state(self) -> None:
+        encryption_key = os.environ.get("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
+        if not encryption_key:
+            pytest.skip("CONFIDENCE_CLIENT_ENCRYPTION_KEY not set")
+
+        provider = ConfidenceProvider(
+            client_secret=E2E_CLIENT_SECRET,
+            encryption_key=encryption_key,
+        )
+        try:
+            set_provider_and_wait(provider)
+            client = api.get_client()
+            ctx = EvaluationContext(
+                targeting_key="test-a",
+                attributes={"sticky": False},
+            )
+            result = client.get_string_details(
+                flag_key="web-sdk-e2e-flag.str",
+                default_value="default",
+                evaluation_context=ctx,
+            )
+            assert result.value == "control"
         finally:
             provider.shutdown()
