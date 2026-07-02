@@ -2,7 +2,6 @@
 
 import os
 
-import pytest
 from openfeature import api
 from openfeature.api import set_provider_and_wait
 from openfeature.evaluation_context import EvaluationContext
@@ -11,6 +10,7 @@ from confidence import ConfidenceProvider
 
 # E2E test configuration - matches Go e2e_test.go
 E2E_CLIENT_SECRET = os.environ["CONFIDENCE_CLIENT_SECRET"]
+E2E_ENCRYPTION_KEY = os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"]
 E2E_INCLUDED_TARGETING_KEY = "user-a"
 E2E_EXCLUDED_TARGETING_KEY = "user-x"
 
@@ -115,13 +115,10 @@ class TestFlagResolveWithEncryptedState:
     """E2E tests for flag resolution with encrypted CDN state."""
 
     def test_resolve_boolean_via_encrypted_state(self) -> None:
-        encryption_key = os.environ.get("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
-        if not encryption_key:
-            pytest.skip("CONFIDENCE_CLIENT_ENCRYPTION_KEY not set")
 
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
-            encryption_key=encryption_key,
+            encryption_key=E2E_ENCRYPTION_KEY,
         )
         try:
             set_provider_and_wait(provider)
@@ -140,13 +137,10 @@ class TestFlagResolveWithEncryptedState:
             provider.shutdown()
 
     def test_resolve_string_via_encrypted_state(self) -> None:
-        encryption_key = os.environ.get("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
-        if not encryption_key:
-            pytest.skip("CONFIDENCE_CLIENT_ENCRYPTION_KEY not set")
 
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
-            encryption_key=encryption_key,
+            encryption_key=E2E_ENCRYPTION_KEY,
         )
         try:
             set_provider_and_wait(provider)
