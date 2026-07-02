@@ -120,9 +120,6 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUs
 }
 
 func TestFlagResolve_WithEncryptedState(t *testing.T) {
-	if e2eEncryptionKey == "" {
-		t.Skip("CONFIDENCE_CLIENT_ENCRYPTION_KEY not set")
-	}
 	ctx := context.Background()
 	provider, err := NewProvider(ctx, ProviderConfig{
 		ClientSecret:  e2eClientSecret,
