@@ -25,6 +25,7 @@ A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-de
 * Cloudflare API token with the following permissions:
   * **Account > Workers Scripts > Edit**
   * **Account > Workers Queues > Edit** (needed for the first deploy)
+  * **Account > Workers KV Storage > Edit** (only if using `ENABLE_METRICS` or `ENABLE_STICKY_ASSIGNMENTS`)
 * Confidence client secret (must be type **BACKEND**)
 
 ## Usage
@@ -64,6 +65,8 @@ The deployer automatically:
 | `WRANGLER_DEPLOY_ARGS`               | Additional newline-separated arguments passed to `wrangler deploy`                                                                                |
 | `WRANGLER_DEPLOY_ARGS_FILE`          | Path to a file containing additional `wrangler deploy` arguments, one argument per line                                                           |
 | `ENABLE_METRICS`                     | Set to create a KV namespace and enable the `/metrics` Prometheus endpoint. Requires a [KV store](https://developers.cloudflare.com/kv/platform/pricing/) |
+| `ENABLE_STICKY_ASSIGNMENTS`          | Set to create a KV namespace and enable sticky assignments for experiments. Requires a [KV store](https://developers.cloudflare.com/kv/platform/pricing/) |
+| `MATERIALIZATION_TTL_SECONDS`        | TTL in seconds for sticky assignment KV entries. Omit for no expiration |
 
 ### Extending Wrangler Configuration
 
@@ -203,9 +206,15 @@ Metrics are accumulated in a [KV namespace](https://developers.cloudflare.com/kv
 
 Resolve rates and latency are always sent to the Confidence backend via `WriteFlagLogsRequest`, regardless of the `ENABLE_METRICS` setting. The `/metrics` endpoint and KV store are only needed for direct Prometheus scraping — backend telemetry flows through the queue consumer independently.
 
-## Limitations
+## Sticky Assignments
 
-* **Sticky assignments**: Not currently supported with the Cloudflare resolver. Flags with sticky assignment rules will return "flag not found".
+Sticky assignments ensure users see the same experiment variant across requests. Set `ENABLE_STICKY_ASSIGNMENTS` to have the deployer create a [KV namespace](https://developers.cloudflare.com/kv/) and bind it to the Worker.
+
+Each assignment is stored as a separate KV entry keyed by `mat:{unit}:{materialization}:{rule}`. This avoids read-modify-write races and allows all keys to be read/written independently. Components containing `:` are percent-encoded.
+
+Without `ENABLE_STICKY_ASSIGNMENTS`, sticky assignments are disabled and flags requiring them will return "flag not found".
+
+## Limitations
 
 * **Immediate apply**: The Cloudflare resolver forces `apply=true` on every resolve request, regardless of what the client SDK sends. This means:
   * Flag exposures are logged immediately at resolve time, before the flag value is rendered or shown to the user.
