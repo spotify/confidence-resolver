@@ -627,7 +627,9 @@ FROM openfeature-provider-rust.build AS openfeature-provider-rust.test_e2e
 
 WORKDIR /workspace/openfeature-provider/rust
 RUN --mount=type=secret,id=confidence_client_secret \
+    --mount=type=secret,id=confidence_client_encryption_key \
     CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    CONFIDENCE_CLIENT_ENCRYPTION_KEY=$(cat /run/secrets/confidence_client_encryption_key) \
     make test-e2e
 
 # ==============================================================================
