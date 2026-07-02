@@ -211,38 +211,35 @@ async fn e2e_tests() {
         );
     }
 
-    // Shutdown
+    // Shutdown before re-init with encrypted provider
     OpenFeature::singleton_mut().await.shutdown().await;
-}
 
-fn encryption_key() -> String {
-    std::env::var("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
-        .expect("CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set")
-}
+    // Test: encrypted state resolves correctly
+    {
+        let enc_key = std::env::var("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
+            .expect("CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set");
+        let options = ProviderOptions::new(&secret).with_encryption_key(enc_key);
+        let provider =
+            ConfidenceProvider::new(options).expect("Failed to create encrypted provider");
 
-#[tokio::test(flavor = "multi_thread")]
-async fn e2e_encrypted_state() {
-    let secret = client_secret();
-    let options = ProviderOptions::new(&secret).with_encryption_key(encryption_key());
-    let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
+        let mut ofe = OpenFeature::singleton_mut().await;
+        ofe.set_provider(provider).await;
+        drop(ofe);
 
-    let mut ofe = OpenFeature::singleton_mut().await;
-    ofe.set_provider(provider).await;
-    drop(ofe);
+        let client = OpenFeature::singleton().await.create_client();
 
-    let client = OpenFeature::singleton().await.create_client();
+        let result = client
+            .get_bool_value("web-sdk-e2e-flag.bool", Some(&context()), None)
+            .await
+            .expect("Failed to resolve bool via encrypted state");
+        assert!(!result, "Expected bool to be false (encrypted)");
 
-    // Boolean
-    let result = client
-        .get_bool_value("web-sdk-e2e-flag.bool", Some(&context()), None)
-        .await
-        .expect("Failed to resolve bool");
-    assert!(!result, "Expected bool to be false");
+        let result = client
+            .get_string_value("web-sdk-e2e-flag.str", Some(&context()), None)
+            .await
+            .expect("Failed to resolve string via encrypted state");
+        assert_eq!(result, "control", "Expected string 'control' (encrypted)");
+    }
 
-    // String
-    let result = client
-        .get_string_value("web-sdk-e2e-flag.str", Some(&context()), None)
-        .await
-        .expect("Failed to resolve string");
-    assert_eq!(result, "control");
+    OpenFeature::singleton_mut().await.shutdown().await;
 }
