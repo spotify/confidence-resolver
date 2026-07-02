@@ -6,49 +6,51 @@ import { WasmResolver } from './WasmResolver';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
 const module = new WebAssembly.Module(moduleBytes);
-const resolver = new WasmResolver(module);
-const confidenceProvider = new ConfidenceServerProviderLocal(resolver, {
-  flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
-  materializationStore: 'CONFIDENCE_REMOTE_STORE',
-});
 
-describe('ConfidenceServerProvider E2E tests', () => {
+describe.each([
+  { name: 'unencrypted', encryptionKey: undefined },
+  { name: 'encrypted', encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY },
+])('ConfidenceServerProvider E2E ($name)', ({ name, encryptionKey }) => {
+  const resolver = new WasmResolver(module);
+  const provider = new ConfidenceServerProviderLocal(resolver, {
+    flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
+    encryptionKey,
+  });
+
   beforeAll(async () => {
-    await OpenFeature.setProviderAndWait(confidenceProvider);
-    OpenFeature.setContext({
-      targetingKey: 'test-a', // control
-      sticky: false,
-    });
+    await OpenFeature.setProviderAndWait(`e2e-${name}`, provider);
   });
 
   afterAll(() => OpenFeature.close());
 
-  it('should resolve a boolean e2e', async () => {
-    const client = OpenFeature.getClient();
+  const ctx = { targetingKey: 'test-a', sticky: false };
 
-    expect(await client.getBooleanValue('web-sdk-e2e-flag.bool', true)).toBeFalsy();
+  it('should resolve a boolean e2e', async () => {
+    const client = OpenFeature.getClient(`e2e-${name}`);
+
+    expect(await client.getBooleanValue('web-sdk-e2e-flag.bool', true, ctx)).toBeFalsy();
   });
 
   it('should resolve an int', async () => {
-    const client = OpenFeature.getClient();
+    const client = OpenFeature.getClient(`e2e-${name}`);
 
-    expect(await client.getNumberValue('web-sdk-e2e-flag.int', 10)).toEqual(3);
+    expect(await client.getNumberValue('web-sdk-e2e-flag.int', 10, ctx)).toEqual(3);
   });
 
   it('should resolve a double', async () => {
-    const client = OpenFeature.getClient();
+    const client = OpenFeature.getClient(`e2e-${name}`);
 
-    expect(await client.getNumberValue('web-sdk-e2e-flag.double', 10)).toEqual(3.5);
+    expect(await client.getNumberValue('web-sdk-e2e-flag.double', 10, ctx)).toEqual(3.5);
   });
 
   it('should resolve a string', async () => {
-    const client = OpenFeature.getClient();
+    const client = OpenFeature.getClient(`e2e-${name}`);
 
-    expect(await client.getStringValue('web-sdk-e2e-flag.str', 'default')).toEqual('control');
+    expect(await client.getStringValue('web-sdk-e2e-flag.str', 'default', ctx)).toEqual('control');
   });
 
   it('should resolve a struct', async () => {
-    const client = OpenFeature.getClient();
+    const client = OpenFeature.getClient(`e2e-${name}`);
     const expectedObject = {
       int: 4,
       str: 'obj control',
@@ -57,17 +59,17 @@ describe('ConfidenceServerProvider E2E tests', () => {
       ['obj-obj']: {},
     };
 
-    expect(await client.getObjectValue('web-sdk-e2e-flag.obj', {})).toEqual(expectedObject);
+    expect(await client.getObjectValue('web-sdk-e2e-flag.obj', {}, ctx)).toEqual(expectedObject);
   });
 
   it('should resolve a sub value from a struct', async () => {
-    const client = OpenFeature.getClient();
+    const client = OpenFeature.getClient(`e2e-${name}`);
 
-    expect(await client.getBooleanValue('web-sdk-e2e-flag.obj.bool', true)).toBeFalsy();
+    expect(await client.getBooleanValue('web-sdk-e2e-flag.obj.bool', true, ctx)).toBeFalsy();
   });
 
   it('should resolve a sub value from a struct with details with resolve token for client side apply call', async () => {
-    const client = OpenFeature.getClient();
+    const client = OpenFeature.getClient(`e2e-${name}`);
     const expectedObject = {
       flagKey: 'web-sdk-e2e-flag.obj.double',
       reason: 'MATCH',
@@ -77,11 +79,29 @@ describe('ConfidenceServerProvider E2E tests', () => {
       shouldApply: true,
     };
 
-    expect(await client.getNumberDetails('web-sdk-e2e-flag.obj.double', 1)).toEqual(expectedObject);
+    expect(await client.getNumberDetails('web-sdk-e2e-flag.obj.double', 1, ctx)).toEqual(expectedObject);
+  });
+});
+
+describe('ConfidenceServerProvider E2E (sticky)', () => {
+  const resolver = new WasmResolver(module);
+  const provider = new ConfidenceServerProviderLocal(resolver, {
+    flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
+    materializationStore: 'CONFIDENCE_REMOTE_STORE',
   });
 
+  beforeAll(async () => {
+    await OpenFeature.setProviderAndWait('e2e-sticky', provider);
+    OpenFeature.setContext({
+      targetingKey: 'test-a',
+      sticky: false,
+    });
+  });
+
+  afterAll(() => OpenFeature.close());
+
   it('should resolve a flag with a sticky resolve', async () => {
-    const client = OpenFeature.getClient();
+    const client = OpenFeature.getClient('e2e-sticky');
     const result = await client.getNumberDetails('web-sdk-e2e-flag.double', -1, {
       targetingKey: 'test-3',
       sticky: true,
@@ -95,14 +115,3 @@ describe('ConfidenceServerProvider E2E tests', () => {
     expect(result.reason).toBe('MATCH');
   });
 });
-
-function requireEnv<const N extends string[]>(...names: N): Record<N[number], string> {
-  return names.reduce((acc, name) => {
-    const value = process.env[name];
-    if (!value) throw new Error(`Missing environment variable ${name}`);
-    return {
-      ...acc,
-      [name]: value,
-    };
-  }, {}) as Record<N[number], string>;
-}

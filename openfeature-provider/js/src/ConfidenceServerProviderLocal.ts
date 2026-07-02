@@ -4,7 +4,7 @@ import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidenc
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import { castStringToEnum, hexToBytes, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -35,6 +35,8 @@ export const DEFAULT_FLUSH_INTERVAL = 15_000;
 export interface SnapshotConfig {}
 export interface ProviderOptions {
   flagClientSecret: string;
+  /** Hex-encoded AES-256 encryption key for decrypting CDN state. */
+  encryptionKey?: string;
   initializeTimeout?: number;
   /** Interval in milliseconds between state polling updates. Defaults to 30000ms. */
   stateUpdateInterval?: number;
@@ -142,7 +144,12 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async initialize(context?: EvaluationContext): Promise<void> {
-    // TODO validate options and switch to fatal.
+    if (!this.options.encryptionKey) {
+      logger.warn(
+        'No encryptionKey provided. Falling back to unencrypted state. ' +
+          'An encryption key will be required in an upcoming version.',
+      );
+    }
     const signal = this.main.signal;
     const initialUpdateSignal = AbortSignal.any([
       signal,
@@ -294,9 +301,10 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async updateState(signal?: AbortSignal): Promise<void> {
-    // Build CDN URL using SHA256 hash of client secret
     const hashHex = await sha256Hex(this.options.flagClientSecret);
-    const cdnUrl = `https://confidence-resolver-state-cdn.spotifycdn.com/${hashHex}`;
+    const { encryptionKey } = this.options;
+    const cdnPath = encryptionKey ? `${hashHex}.enc` : hashHex;
+    const cdnUrl = `https://confidence-resolver-state-cdn.spotifycdn.com/${cdnPath}`;
 
     const headers = new Headers();
     if (this.stateEtag) {
@@ -304,7 +312,6 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
     const resp = await this.fetch(cdnUrl, { headers, signal });
     if (resp.status === 304) {
-      // not changed
       return;
     }
     if (!resp.ok) {
@@ -312,12 +319,20 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
     this.stateEtag = resp.headers.get('etag');
 
-    // Parse SetResolverStateRequest from response
     const bytes = new Uint8Array(await resp.arrayBuffer());
+    const sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
 
-    const stateRequest = SetResolverStateRequest.decode(bytes);
-    stateRequest.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
-    this.resolver.setResolverState(stateRequest);
+    if (encryptionKey) {
+      this.resolver.setEncryptedResolverState({
+        encryptedState: bytes,
+        encryptionKey: hexToBytes(encryptionKey),
+        sdk,
+      });
+    } else {
+      const stateRequest = SetResolverStateRequest.decode(bytes);
+      stateRequest.sdk = sdk;
+      this.resolver.setResolverState(stateRequest);
+    }
   }
 
   // TODO should this return success/failure, or even throw?

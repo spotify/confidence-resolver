@@ -316,6 +316,8 @@ FROM openfeature-provider-js-base AS openfeature-provider-js.test
 
 # Copy files needed for testing
 COPY wasm/resolver_state.pb ../../../wasm/resolver_state.pb
+COPY data/resolver_state_encrypted.pb ../../../data/resolver_state_encrypted.pb
+COPY data/encryption_key_test.hex ../../../data/encryption_key_test.hex
 COPY openfeature-provider/js/prettier.config.cjs ./
 COPY openfeature-provider/js/.prettierignore ./
 
@@ -330,7 +332,9 @@ FROM openfeature-provider-js.test AS openfeature-provider-js.test_e2e
 
 # Run e2e tests with secrets mounted
 RUN --mount=type=secret,id=confidence_client_secret \
+    --mount=type=secret,id=confidence_client_encryption_key \
     CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    CONFIDENCE_CLIENT_ENCRYPTION_KEY=$(cat /run/secrets/confidence_client_encryption_key) \
     make test-e2e
 
 # ==============================================================================
