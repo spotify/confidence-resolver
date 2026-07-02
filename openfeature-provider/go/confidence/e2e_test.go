@@ -11,6 +11,7 @@ import (
 // End-to-end tests that verify WriteFlagLogs successfully sends to the real backend.
 
 var e2eClientSecret = os.Getenv("CONFIDENCE_CLIENT_SECRET")
+var e2eEncryptionKey = os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
 
 const (
 	e2eIncludedTargetingKey = "user-a"
@@ -116,4 +117,36 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUs
 	}
 
 	openfeature.Shutdown()
+}
+
+func TestFlagResolve_WithEncryptedState(t *testing.T) {
+	if e2eEncryptionKey == "" {
+		t.Skip("CONFIDENCE_CLIENT_ENCRYPTION_KEY not set")
+	}
+	ctx := context.Background()
+	provider, err := NewProvider(ctx, ProviderConfig{
+		ClientSecret:  e2eClientSecret,
+		EncryptionKey: e2eEncryptionKey,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	err = openfeature.SetProviderAndWait(provider)
+	if err != nil {
+		t.Fatalf("Failed to set provider: %v", err)
+	}
+	defer provider.Shutdown()
+	client := openfeature.NewClient("encrypted-e2e")
+
+	// Same flag assertions as existing e2e tests
+	details, err := client.BooleanValueDetails(ctx, "web-sdk-e2e-flag.bool", true, openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
+		"targeting_key": "test-a",
+		"sticky":        false,
+	}))
+	if err != nil {
+		t.Fatalf("Failed to resolve: %v", err)
+	}
+	if details.Value != false {
+		t.Errorf("Expected false, got %v", details.Value)
+	}
 }
