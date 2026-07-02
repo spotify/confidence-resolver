@@ -12,9 +12,6 @@ class OpenFeatureLocalResolveProviderEncryptedIT {
 
   @BeforeAll
   static void setup() {
-    Assumptions.assumeTrue(
-        ENCRYPTION_KEY != null && !ENCRYPTION_KEY.isEmpty(),
-        "CONFIDENCE_CLIENT_ENCRYPTION_KEY not set");
     final var provider =
         new OpenFeatureLocalResolveProvider(
             LocalProviderConfig.builder().encryptionKey(ENCRYPTION_KEY).build(),
