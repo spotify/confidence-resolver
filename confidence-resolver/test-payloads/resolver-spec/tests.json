@@ -2257,6 +2257,30 @@
     }
   },
   {
+    "name": "fallthrough_with_read_mat_should_not_match_as_variant",
+    "resolveRequest": {
+      "flags": ["flags/fallthrough-read-mat"],
+      "evaluationContext": { "targeting_key": "user1", "country": "SE" },
+      "clientSecret": "test-secret"
+    },
+    "materializations": {
+      "user1": {
+        "materializations/mat1": {
+          "isUnitInMaterialization": true,
+          "ruleToVariant": {
+            "flags/fallthrough-read-mat/rules/rule1": ""
+          }
+        }
+      }
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/fallthrough-read-mat", "reason": "RESOLVE_REASON_MATCH", "variant": "treatment", "value": { "color": "red" }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
     "name": "set_no_match",
     "resolveRequest": {
       "flags": [
