@@ -132,6 +132,7 @@ struct SpecResolvedFlag {
     value: Option<serde_json::Value>,
     should_apply: Option<bool>,
     assignment_id: Option<String>,
+    assignment_origin: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -458,6 +459,15 @@ fn run_spec_test(state: &ResolverState, test_case: &SpecTestCase) {
                 actual_should_apply, expected_should_apply,
                 "[{}] shouldApply mismatch for flag '{}': expected {}, got {}",
                 test_case.name, expected_flag.flag, expected_should_apply, actual_should_apply,
+            );
+        }
+
+        // assignmentOrigin assertion
+        if let Some(expected_origin) = &expected_flag.assignment_origin {
+            assert_eq!(
+                &actual.assignment_origin, expected_origin,
+                "[{}] assignmentOrigin mismatch for flag '{}'",
+                test_case.name, expected_flag.flag,
             );
         }
 

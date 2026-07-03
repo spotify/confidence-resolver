@@ -113,4 +113,7 @@ message ResolvedFlag {
 
   // Determines whether the flag should be applied in the clients
   bool should_apply = 6;
+
+  // The origin of the assignment, e.g. the rule name.
+  string assignment_origin = 7;
 }
