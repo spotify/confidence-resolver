@@ -1718,6 +1718,29 @@
         }
       ]
     },
+    "flags/fallthrough-read-mat": {
+      "name": "flags/fallthrough-read-mat",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [{ "name": "treatment", "value": { "color": "red" } }],
+      "rules": [
+        {
+          "name": "flags/fallthrough-read-mat/rules/rule1",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "materializationSpec": { "readMaterialization": "materializations/mat1" },
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a-ft", "fallthrough": {}, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        },
+        {
+          "name": "flags/fallthrough-read-mat/rules/rule2",
+          "segment": "segments/country-se",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": { "bucketCount": 1000, "assignments": [{ "assignmentId": "a-match", "variant": { "variant": "treatment" }, "bucketRanges": [{ "lower": 0, "upper": 1000 }] }] }
+        }
+      ]
+    },
     "flags/fallthrough-no-match": {
       "name": "flags/fallthrough-no-match",
       "state": "ACTIVE",

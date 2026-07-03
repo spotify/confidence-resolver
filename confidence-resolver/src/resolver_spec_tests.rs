@@ -622,6 +622,7 @@ spec_test!(missing_segment_then_match);
 spec_test!(null_targeting_key_then_match);
 spec_test!(no_assignment_then_match);
 spec_test!(fallthrough_with_write_mat);
+spec_test!(fallthrough_with_read_mat_should_not_match_as_variant);
 spec_test!(fallthrough_then_no_match_should_apply);
 
 // Additional materialization tests
