@@ -25,6 +25,7 @@ describe('FlagBundle', () => {
             value: { enabled: true },
             reason: ResolveReason.RESOLVE_REASON_MATCH,
             shouldApply: true,
+            assignmentOrigin: '',
           },
         ],
       });
@@ -99,6 +100,7 @@ describe('FlagBundle', () => {
             value: { key: 'value' },
             reason: ResolveReason.RESOLVE_REASON_MATCH,
             shouldApply: true,
+            assignmentOrigin: '',
           },
         ],
       });
@@ -118,6 +120,7 @@ describe('FlagBundle', () => {
             value: undefined,
             reason: ResolveReason.RESOLVE_REASON_NO_SEGMENT_MATCH,
             shouldApply: false,
+            assignmentOrigin: '',
           },
         ],
       });
@@ -136,6 +139,7 @@ describe('FlagBundle', () => {
             value: { x: 1 },
             reason: ResolveReason.RESOLVE_REASON_MATCH,
             shouldApply: true,
+            assignmentOrigin: '',
           },
           {
             flag: 'flags/apply-false',
@@ -143,6 +147,7 @@ describe('FlagBundle', () => {
             value: { x: 2 },
             reason: ResolveReason.RESOLVE_REASON_MATCH,
             shouldApply: false,
+            assignmentOrigin: '',
           },
         ],
       });
@@ -200,6 +205,7 @@ describe('FlagBundle', () => {
             value: { config: { enabled: true, limit: 10 } },
             reason: ResolveReason.RESOLVE_REASON_MATCH,
             shouldApply: true,
+            assignmentOrigin: '',
           },
         ],
       });
