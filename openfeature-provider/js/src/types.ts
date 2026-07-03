@@ -23,6 +23,7 @@ export interface ResolutionDetails<T> {
   errorCode?: ErrorCode;
   errorMessage?: string;
   shouldApply: boolean;
+  assignmentOrigin?: string;
 }
 
 type FlagPrimitive = null | boolean | string | number;

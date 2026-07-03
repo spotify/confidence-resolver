@@ -162,9 +162,9 @@ export function useFlagDetails<T extends FlagValue>(
       ctx?.apply(baseFlagName);
     }
     if (resolution.variant) {
-      publishFlagEvaluation(`flags/${baseFlagName}`, resolution.variant);
+      publishFlagEvaluation(`flags/${baseFlagName}`, resolution.variant, resolution.assignmentOrigin ?? '');
     }
-  }, [ctx, baseFlagName, resolution.shouldApply, resolution.variant]);
+  }, [ctx, baseFlagName, resolution.shouldApply, resolution.variant, resolution.assignmentOrigin]);
 
   // Auto exposure effect
   useEffect(() => {
