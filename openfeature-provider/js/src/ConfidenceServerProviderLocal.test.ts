@@ -58,8 +58,8 @@ describe('idealized conditions', () => {
 
     // since we fetch state every 30s we should fetch 120 times after init
     expect(net.cdn.state.calls).toBe(stateCallsAfterInit + 120);
-    // flush is called every 15s so 240 times in an hour
-    expect(net.resolver.flagLogs.calls).toBe(flushCallsAfterInit + 240);
+    // flush is called every 15s (240) plus once before each state update (120)
+    expect(net.resolver.flagLogs.calls).toBe(flushCallsAfterInit + 240 + 120);
 
     const flushCallsBeforeClose = net.resolver.flagLogs.calls;
     await advanceTimersUntil(expect(provider.onClose()).resolves.toBeUndefined());
@@ -165,8 +165,9 @@ describe('flush behavior', () => {
     await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_INTERVAL);
     expect(net.resolver.flagLogs.calls).toBe(start + 1);
 
+    // +1 periodic flush, +1 pre-state-update flush (state interval = 2x flush interval)
     await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_INTERVAL);
-    expect(net.resolver.flagLogs.calls).toBe(start + 2);
+    expect(net.resolver.flagLogs.calls).toBe(start + 3);
   });
   it('retries flagLogs writes up to 3 attempts', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());

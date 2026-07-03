@@ -578,6 +578,11 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 					continue
 				}
 
+				// Flush logs before state update to reduce WASM heap fragmentation (#455)
+				if err := p.resolver.FlushAllLogs(); err != nil {
+					p.logger.Error("Failed to flush logs before state update", "error", err)
+				}
+
 				// Update state
 				setResolverStateRequest := &wasm.SetResolverStateRequest{
 					State:     state,

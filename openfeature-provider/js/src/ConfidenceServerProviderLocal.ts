@@ -322,6 +322,12 @@ export class ConfidenceServerProviderLocal implements Provider {
     const bytes = new Uint8Array(await resp.arrayBuffer());
     const sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
 
+    try {
+      await this.flush(signal);
+    } catch {
+      // best-effort: don't block state update if flush fails
+    }
+
     if (encryptionKey) {
       this.resolver.setEncryptedResolverState({
         encryptedState: bytes,

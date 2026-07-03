@@ -253,6 +253,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                 this.state.set(ProviderState.READY);
                 log.info("Provider recovered and is now READY");
               } else {
+                // Flush logs before state update to reduce WASM heap fragmentation (#455)
+                resolver.flushAllLogs();
+
                 // Only push state into the wasm instances when it actually changed — the wasm
                 // execution inside setResolverState is expensive (runs across all pool slots).
                 final byte[] newState = resolverStateProtobuf.get();
@@ -260,8 +263,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                   resolver.setResolverState(newState, accountIdRef.get(), SDK);
                   lastStateBytes = newState;
                 }
-                // Always flush logs regardless of state change.
-                resolver.flushAllLogs();
               }
             }
           } catch (RuntimeException e) {
