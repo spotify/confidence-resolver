@@ -310,6 +310,197 @@ class TestGrpcFlagLoggerFailureStats:
             mock_logger.warning.assert_not_called()
 
 
+class TestGrpcFlagLoggerRetryExhausted:
+    """Test behavior when all writes fail (simulating exhausted retries)."""
+
+    def test_all_writes_fail_stats_correct(self) -> None:
+        """Failure stats should report 10/10 failures when all writes fail."""
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+        mock_stub.ClientWriteFlagLogs = MagicMock(side_effect=Exception("unavailable"))
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with (
+            patch(stub_path, return_value=mock_stub),
+            patch("confidence.flag_logger.logger") as mock_logger,
+        ):
+            flag_logger = GrpcFlagLogger(
+                client_secret="test-secret", channel=mock_channel
+            )
+
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.flag_assigned.add()
+            request_bytes = request.SerializeToString()
+
+            for _ in range(10):
+                flag_logger.write(request_bytes)
+
+            flag_logger.shutdown()
+
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert "Flag log write failures" in call_args[0][0]
+            assert call_args[0][1] == 10
+
+
+class TestGrpcFlagLoggerShutdownDuringFailures:
+    """Test shutdown behavior when writes are failing."""
+
+    def test_shutdown_completes_when_writes_fail(self) -> None:
+        """shutdown() should complete promptly even when all writes fail."""
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+        mock_stub.ClientWriteFlagLogs = MagicMock(side_effect=Exception("unavailable"))
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with patch(stub_path, return_value=mock_stub):
+            flag_logger = GrpcFlagLogger(
+                client_secret="test-secret", channel=mock_channel
+            )
+
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.flag_assigned.add()
+            request_bytes = request.SerializeToString()
+
+            for _ in range(5):
+                flag_logger.write(request_bytes)
+
+            start = time.monotonic()
+            flag_logger.shutdown()
+            elapsed = time.monotonic() - start
+
+            assert elapsed < 5.0, f"shutdown() took {elapsed:.2f}s, expected < 5s"
+
+    def test_shutdown_drains_slow_failing_writes(self) -> None:
+        """shutdown() should wait for slow failing writes to complete."""
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+
+        call_count = 0
+
+        def slow_fail(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.1)
+            raise Exception("unavailable")
+
+        mock_stub.ClientWriteFlagLogs = slow_fail
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with patch(stub_path, return_value=mock_stub):
+            flag_logger = GrpcFlagLogger(
+                client_secret="test-secret", channel=mock_channel
+            )
+
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.flag_assigned.add()
+            request_bytes = request.SerializeToString()
+
+            for _ in range(3):
+                flag_logger.write(request_bytes)
+
+            flag_logger.shutdown()
+
+            assert call_count == 3, f"Expected 3 calls, got {call_count}"
+
+
+class TestGrpcFlagLoggerCustomChannel:
+    """Test behavior with custom vs default gRPC channels."""
+
+    def test_custom_channel_used_directly(self) -> None:
+        """Custom channel should be used as-is, not owned by the logger."""
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+        mock_stub.ClientWriteFlagLogs = MagicMock(
+            return_value=internal_api_pb2.WriteFlagLogsResponse()
+        )
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with patch(stub_path, return_value=mock_stub) as mock_stub_class:
+            flag_logger = GrpcFlagLogger(
+                client_secret="test-secret", channel=mock_channel
+            )
+
+            mock_stub_class.assert_called_once_with(mock_channel)
+            assert not flag_logger._owns_channel
+
+            flag_logger.shutdown()
+
+            mock_channel.close.assert_not_called()
+
+    def test_default_channel_has_retry_config(self) -> None:
+        """Default channel should be created with retry service config."""
+        with (
+            patch("confidence.flag_logger.grpc.secure_channel") as mock_secure_channel,
+            patch("confidence.flag_logger.grpc.ssl_channel_credentials") as mock_creds,
+            patch(
+                "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+            ),
+        ):
+            mock_secure_channel.return_value = MagicMock()
+            mock_creds.return_value = MagicMock()
+
+            flag_logger = GrpcFlagLogger(client_secret="test-secret")
+
+            mock_secure_channel.assert_called_once()
+            call_kwargs = mock_secure_channel.call_args
+            options = call_kwargs.kwargs.get("options")
+            assert options is not None, "Options should be passed to secure_channel"
+
+            config_found = False
+            for key, value in options:
+                if key == "grpc.service_config":
+                    import json
+
+                    config = json.loads(value)
+                    assert "methodConfig" in config
+                    retry_policy = config["methodConfig"][0]["retryPolicy"]
+                    assert retry_policy["maxAttempts"] == 3
+                    assert "UNAVAILABLE" in retry_policy["retryableStatusCodes"]
+                    config_found = True
+                    break
+
+            assert config_found, "Retry service config not found in channel options"
+
+            assert flag_logger._owns_channel
+            flag_logger.shutdown()
+
+    def test_multiple_writes_with_custom_channel(self) -> None:
+        """Multiple writes through custom channel should all complete."""
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+        mock_stub.ClientWriteFlagLogs = MagicMock(
+            return_value=internal_api_pb2.WriteFlagLogsResponse()
+        )
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with patch(stub_path, return_value=mock_stub):
+            flag_logger = GrpcFlagLogger(
+                client_secret="test-secret", channel=mock_channel
+            )
+
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.flag_assigned.add()
+            request_bytes = request.SerializeToString()
+
+            for _ in range(5):
+                flag_logger.write(request_bytes)
+
+            flag_logger.shutdown()
+
+            assert mock_stub.ClientWriteFlagLogs.call_count == 5
+
+
 class TestNoOpFlagLogger:
     """Test NoOpFlagLogger behavior."""
 

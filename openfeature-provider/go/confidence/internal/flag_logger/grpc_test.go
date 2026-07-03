@@ -241,6 +241,34 @@ func TestGrpcWasmFlagLogger_FailureStats_NoLogBeforeWindow(t *testing.T) {
 	}
 }
 
+func TestGrpcWasmFlagLogger_FailureStats_AllFail(t *testing.T) {
+	var buf bytes.Buffer
+	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	mockStub := &mockInternalFlagLoggerServiceClient{
+		writeFlagLogsFunc: func(ctx context.Context, req *resolverv1.WriteFlagLogsRequest) (*resolverv1.WriteFlagLogsResponse, error) {
+			return nil, errors.New("unavailable")
+		},
+	}
+
+	logger := NewGrpcWasmFlagLogger(mockStub, "test-secret", testLogger)
+
+	for i := 0; i < 10; i++ {
+		logger.Write(&resolverv1.WriteFlagLogsRequest{
+			FlagAssigned: make([]*resolverv1.FlagAssigned, 1),
+		})
+	}
+	logger.Shutdown()
+
+	output := buf.String()
+	if !strings.Contains(output, "Flag log write failures") {
+		t.Error("Expected failure log after window with all failures")
+	}
+	if !strings.Contains(output, "failures=10") {
+		t.Errorf("Expected failures=10 in output, got: %s", output)
+	}
+}
+
 func TestNoOpWasmFlagLogger(t *testing.T) {
 	logger := NewNoOpWasmFlagLogger()
 
