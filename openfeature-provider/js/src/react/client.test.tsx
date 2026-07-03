@@ -144,7 +144,7 @@ describe('useFlag', () => {
 
       expect(mockApply).toHaveBeenCalledTimes(1);
       expect(mockApply).toHaveBeenCalledWith('my-flag');
-      expect((window as any).__confidence?.flags?.['flags/my-flag']).toEqual({ variant: 'x' });
+      expect((window as any).__confidence?.flags?.['flags/my-flag']).toEqual({ variant: 'x', assignmentOrigin: '' });
     });
 
     it('does not publish flag evaluation when variant is missing', () => {
