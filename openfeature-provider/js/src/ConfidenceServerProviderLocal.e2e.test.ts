@@ -77,6 +77,7 @@ describe.each([
       flagMetadata: {},
       value: 3.6,
       shouldApply: true,
+      assignmentOrigin: expect.any(String),
     };
 
     expect(await client.getNumberDetails('web-sdk-e2e-flag.obj.double', 1, ctx)).toEqual(expectedObject);
