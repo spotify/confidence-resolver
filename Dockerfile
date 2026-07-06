@@ -109,6 +109,7 @@ COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
 COPY openfeature-provider/proto/ ./openfeature-provider/proto/
 COPY openfeature-provider/rust/ ./openfeature-provider/rust/
 COPY openfeature-provider/python/Cargo.toml ./openfeature-provider/python/
+COPY data/ ./data/
 
 # Touch files to ensure rebuild (dependencies are cached)
 RUN find . -type f -name "*.rs" -exec touch {} +
@@ -626,7 +627,9 @@ FROM openfeature-provider-rust.build AS openfeature-provider-rust.test_e2e
 
 WORKDIR /workspace/openfeature-provider/rust
 RUN --mount=type=secret,id=confidence_client_secret \
+    --mount=type=secret,id=confidence_client_encryption_key \
     CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    CONFIDENCE_CLIENT_ENCRYPTION_KEY=$(cat /run/secrets/confidence_client_encryption_key) \
     make test-e2e
 
 # ==============================================================================
