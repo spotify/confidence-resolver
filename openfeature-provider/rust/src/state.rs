@@ -48,6 +48,7 @@ impl StateFetcher {
     ) -> Self {
         let hash = Self::hash_client_secret(&client_secret);
         let encryption_key = encryption_key_hex
+            .filter(|s| !s.is_empty())
             .map(|hex_str| hex::decode(&hex_str).expect("encryption_key must be valid hex"));
         let cdn_url = if encryption_key.is_some() {
             format!("{}/{}.enc", CDN_BASE_URL, hash)
