@@ -52,6 +52,10 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		}))
 	}
 
+	if config.EncryptionKey == "" {
+		logger.Warn("No EncryptionKey provided. Falling back to unencrypted state. An encryption key will be required in an upcoming version.")
+	}
+
 	// Create gRPC connection for flag logger
 	hooks := config.TransportHooks
 	if hooks == nil {
