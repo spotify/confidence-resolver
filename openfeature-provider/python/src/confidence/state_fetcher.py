@@ -5,6 +5,7 @@ This module provides functionality to fetch resolver state from the Confidence C
 
 import hashlib
 import logging
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from typing import Optional, Tuple
 
 import httpx
@@ -39,6 +40,7 @@ class StateFetcher:
         self,
         client_secret: str,
         http_client: Optional[httpx.Client] = None,
+        encryption_key: Optional[str] = None,
     ) -> None:
         """Initialize the StateFetcher.
 
@@ -47,6 +49,7 @@ class StateFetcher:
             http_client: Optional httpx.Client for custom HTTP configuration or testing.
         """
         self._client_secret = client_secret
+        self._encryption_key = encryption_key
         self._http_client = http_client
         self._owns_client = http_client is None
 
@@ -57,7 +60,8 @@ class StateFetcher:
 
         # Build CDN URL from SHA256 hash of client secret
         hash_hex = hashlib.sha256(client_secret.encode()).hexdigest()
-        self._cdn_url = f"{CDN_BASE_URL}/{hash_hex}"
+        suffix = f"{hash_hex}.enc" if encryption_key else hash_hex
+        self._cdn_url = f"{CDN_BASE_URL}/{suffix}"
 
     @property
     def state(self) -> Optional[bytes]:
@@ -114,23 +118,33 @@ class StateFetcher:
                     f"Failed to fetch state: HTTP {response.status_code}"
                 )
 
-            # Parse the protobuf response
-            state_request = SetResolverStateRequest()
-            state_request.ParseFromString(response.content)
-
-            # Cache the state, account ID, and ETag
-            self._state = state_request.state
-            self._account_id = state_request.account_id
             self._etag = response.headers.get("ETag")
 
+            content = response.content
+            if self._encryption_key:
+                content = _decrypt_aes_gcm(content, self._encryption_key)
+
+            state_request = SetResolverStateRequest()
+            state_request.ParseFromString(content)
+            self._state = state_request.state
+            self._account_id = state_request.account_id
             logger.info(
                 "Loaded resolver state for account=%s, etag=%s",
                 self._account_id,
                 self._etag,
             )
-
             return self._state, self._account_id, True
 
         finally:
             if should_close:
                 client.close()
+
+
+def _decrypt_aes_gcm(data: bytes, hex_key: str) -> bytes:
+    key = bytes.fromhex(hex_key)
+    nonce_len = 12
+    if len(data) < nonce_len:
+        raise StateFetcherError("Encrypted state too short (missing nonce)")
+    nonce = data[:nonce_len]
+    ciphertext = data[nonce_len:]
+    return AESGCM(key).decrypt(nonce, ciphertext, None)

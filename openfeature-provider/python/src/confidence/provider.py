@@ -123,6 +123,7 @@ class ConfidenceProvider(AbstractProvider):
     def __init__(
         self,
         client_secret: str,
+        encryption_key: Optional[str] = None,
         state_poll_interval: float = DEFAULT_STATE_POLL_INTERVAL,
         log_poll_interval: float = DEFAULT_LOG_POLL_INTERVAL,
         assign_poll_interval: float = DEFAULT_ASSIGN_POLL_INTERVAL,
@@ -150,6 +151,7 @@ class ConfidenceProvider(AbstractProvider):
             wasm_bytes: Optional WASM bytes for testing.
         """
         self._client_secret = client_secret
+        self._encryption_key = encryption_key
         self._state_poll_interval = state_poll_interval
         self._log_poll_interval = log_poll_interval
         self._assign_poll_interval = assign_poll_interval
@@ -215,6 +217,12 @@ class ConfidenceProvider(AbstractProvider):
         Raises:
             Exception: If initialization fails.
         """
+        if not self._encryption_key:
+            logger.warning(
+                "No encryption_key provided. Falling back to unencrypted state. "
+                "An encryption key will be required in an upcoming version."
+            )
+
         # Load WASM bytes if not provided
         if self._wasm_bytes is None:
             self._wasm_bytes = _load_wasm_from_resources()
@@ -229,6 +237,7 @@ class ConfidenceProvider(AbstractProvider):
             self._state_fetcher = StateFetcher(
                 client_secret=self._client_secret,
                 http_client=self._http_client,
+                encryption_key=self._encryption_key,
             )
 
         # Create flag logger if not injected
