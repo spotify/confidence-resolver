@@ -483,6 +483,7 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 		return fmt.Errorf("AccountID is empty in the initial state")
 	}
 
+	// Update resolver with initial state (triggers WASM compilation and initialization)
 	setResolverStateRequest := &wasm.SetResolverStateRequest{
 		State:     initialState,
 		AccountId: accountId,
@@ -565,6 +566,7 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 		for {
 			select {
 			case <-stateTicker.C:
+				// Fetch latest state and accountID
 				state, accountId, err := p.stateProvider.Provide(ctx)
 				if err != nil {
 					p.logger.Error("State fetch failed", "error", err)
@@ -576,10 +578,12 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 					continue
 				}
 
+				// Flush logs before state update to reduce WASM heap fragmentation (#455)
 				if err := p.resolver.FlushAllLogs(); err != nil {
 					p.logger.Error("Failed to flush logs before state update", "error", err)
 				}
 
+				// Update state
 				setResolverStateRequest := &wasm.SetResolverStateRequest{
 					State:     state,
 					AccountId: accountId,
