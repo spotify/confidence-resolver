@@ -4,7 +4,6 @@ import {
   Response,
   Void,
   SetResolverStateRequest,
-  SetEncryptedResolverStateRequest,
   PrometheusSnapshotRequest,
   PrometheusSnapshotResponse,
 } from './proto/confidence/wasm/messages';
@@ -31,7 +30,6 @@ const EXPORT_FN_NAMES = [
   'wasm_msg_guest_resolve_flags',
   'wasm_msg_guest_register_resolve',
   'wasm_msg_guest_set_resolver_state',
-  'wasm_msg_guest_set_encrypted_resolver_state',
   'wasm_msg_guest_bounded_flush_logs',
   'wasm_msg_guest_bounded_flush_assign',
   'wasm_msg_guest_apply_flags',
@@ -90,12 +88,6 @@ export class UnsafeWasmResolver implements LocalResolver {
   setResolverState(request: SetResolverStateRequest): void {
     const reqPtr = this.transferRequest(request, SetResolverStateRequest);
     const resPtr = this.exports.wasm_msg_guest_set_resolver_state(reqPtr);
-    this.consumeResponse(resPtr, Void);
-  }
-
-  setEncryptedResolverState(request: SetEncryptedResolverStateRequest): void {
-    const reqPtr = this.transferRequest(request, SetEncryptedResolverStateRequest);
-    const resPtr = this.exports.wasm_msg_guest_set_encrypted_resolver_state(reqPtr);
     this.consumeResponse(resPtr, Void);
   }
 
@@ -192,7 +184,6 @@ export const DEFAULT_DELEGATE_FACTORY: DelegateFactory = module => new UnsafeWas
 export class WasmResolver implements LocalResolver {
   private delegate: LocalResolver;
   private currentState?: { state: Uint8Array; accountId: string };
-  private currentEncryptedState?: SetEncryptedResolverStateRequest;
   private bufferedLogs: Uint8Array[] = [];
 
   constructor(private readonly module: WebAssembly.Module, private delegateFactory = DEFAULT_DELEGATE_FACTORY) {
@@ -208,9 +199,7 @@ export class WasmResolver implements LocalResolver {
     }
 
     this.delegate = this.delegateFactory(this.module);
-    if (this.currentEncryptedState) {
-      this.delegate.setEncryptedResolverState(this.currentEncryptedState);
-    } else if (this.currentState) {
+    if (this.currentState) {
       this.delegate.setResolverState(this.currentState);
     }
   }
@@ -236,22 +225,8 @@ export class WasmResolver implements LocalResolver {
 
   setResolverState(request: SetResolverStateRequest): void {
     this.currentState = request;
-    this.currentEncryptedState = undefined;
     try {
       this.delegate.setResolverState(request);
-    } catch (error: unknown) {
-      if (error instanceof WebAssembly.RuntimeError) {
-        this.reloadInstance(error);
-      }
-      throw error;
-    }
-  }
-
-  setEncryptedResolverState(request: SetEncryptedResolverStateRequest): void {
-    this.currentEncryptedState = request;
-    this.currentState = undefined;
-    try {
-      this.delegate.setEncryptedResolverState(request);
     } catch (error: unknown) {
       if (error instanceof WebAssembly.RuntimeError) {
         this.reloadInstance(error);
