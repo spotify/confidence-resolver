@@ -328,17 +328,10 @@ export class ConfidenceServerProviderLocal implements Provider {
       // best-effort: don't block state update if flush fails
     }
 
-    if (encryptionKey) {
-      this.resolver.setEncryptedResolverState({
-        encryptedState: bytes,
-        encryptionKey: hexToBytes(encryptionKey),
-        sdk,
-      });
-    } else {
-      const stateRequest = SetResolverStateRequest.decode(bytes);
-      stateRequest.sdk = sdk;
-      this.resolver.setResolverState(stateRequest);
-    }
+    const plaintext = encryptionKey ? await decryptAesGcm(bytes, hexToBytes(encryptionKey)) : bytes;
+    const stateRequest = SetResolverStateRequest.decode(plaintext);
+    stateRequest.sdk = sdk;
+    this.resolver.setResolverState(stateRequest);
   }
 
   // TODO should this return success/failure, or even throw?
@@ -474,6 +467,18 @@ export class ConfidenceServerProviderLocal implements Provider {
 
     this.resolver.applyFlags(request);
   }
+}
+
+async function decryptAesGcm(data: Uint8Array, rawKey: Uint8Array): Promise<Uint8Array> {
+  const NONCE_LEN = 12;
+  if (data.length < NONCE_LEN) {
+    throw new Error('Encrypted state too short (missing nonce)');
+  }
+  const iv = data.buffer.slice(data.byteOffset, data.byteOffset + NONCE_LEN) as ArrayBuffer;
+  const ciphertext = data.buffer.slice(data.byteOffset + NONCE_LEN, data.byteOffset + data.byteLength) as ArrayBuffer;
+  const key = await crypto.subtle.importKey('raw', rawKey.buffer as ArrayBuffer, 'AES-GCM', false, ['decrypt']);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new Uint8Array(plaintext);
 }
 
 function reasonStringToEnum(reason: string): ResolveReason {

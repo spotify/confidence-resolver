@@ -10,13 +10,13 @@ TypeScript OpenFeature provider using the Confidence resolver compiled to WASM. 
 
 The package has 5 build targets configured in `tsdown.config.ts`:
 
-| Export Path | Entry File | Platform | WASM Loading |
-|-------------|-----------|----------|-------------|
-| `"."` (default) | `src/index.inlined.ts` | neutral | WASM inlined as data URL |
-| `"./node"` | `src/index.node.ts` | node | `fs.readFile` |
-| `"./fetch"` | `src/index.fetch.ts` | neutral | `fetch()` (Deno, Bun, browsers) |
-| `"./react-server"` | `src/react/server.tsx` | neutral | React Server Component |
-| `"./react-client"` | `src/react/client.tsx` | neutral | React Client Component |
+| Export Path        | Entry File             | Platform | WASM Loading                    |
+| ------------------ | ---------------------- | -------- | ------------------------------- |
+| `"."` (default)    | `src/index.inlined.ts` | neutral  | WASM inlined as data URL        |
+| `"./node"`         | `src/index.node.ts`    | node     | `fs.readFile`                   |
+| `"./fetch"`        | `src/index.fetch.ts`   | neutral  | `fetch()` (Deno, Bun, browsers) |
+| `"./react-server"` | `src/react/server.tsx` | neutral  | React Server Component          |
+| `"./react-client"` | `src/react/client.tsx` | neutral  | React Client Component          |
 
 Each entry point exports a `createConfidenceServerProvider` factory function.
 
@@ -30,8 +30,8 @@ Defined in `src/ConfidenceServerProviderLocal.ts`:
 interface ProviderOptions {
   flagClientSecret: string;
   initializeTimeout?: number;
-  stateUpdateInterval?: number;  // ms between state polls (default: 30000)
-  flushInterval?: number;        // ms between log flushes (default: 15000)
+  stateUpdateInterval?: number; // ms between state polls (default: 30000)
+  flushInterval?: number; // ms between log flushes (default: 15000)
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
 }
