@@ -800,6 +800,7 @@ class ConfidenceProvider(AbstractProvider):
                         id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
                         version=__version__,
                     )
+                    # Flush logs before state update to reduce WASM heap fragmentation (#455)
                     with self._resolver_lock:
                         flushed_logs = self._resolver.flush_logs()
                         self._resolver.set_resolver_state(state, account_id, sdk)
@@ -807,6 +808,7 @@ class ConfidenceProvider(AbstractProvider):
                         self._flag_logger.write(flushed_logs)
                     logger.debug("Resolver state updated")
 
+                # If we were NOT_READY and now have valid state, transition to READY
                 if account_id and self._status == ProviderStatus.NOT_READY:
                     self._status = ProviderStatus.READY
                     self.emit_provider_ready(ProviderEventDetails())
