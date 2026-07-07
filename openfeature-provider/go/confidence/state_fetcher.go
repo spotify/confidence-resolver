@@ -2,6 +2,8 @@ package confidence
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -24,6 +26,7 @@ type StateProvider interface {
 // FlagsAdminStateFetcher fetches and updates the resolver state from the CDN
 type FlagsAdminStateFetcher struct {
 	clientSecret     string
+	encryptionKey    string
 	etag             atomic.Value // stores string
 	rawResolverState atomic.Value // stores []byte
 	accountID        atomic.Value // stores string
@@ -48,9 +51,20 @@ func NewFlagsAdminStateFetcherWithTransport(
 	logger *slog.Logger,
 	transport http.RoundTripper,
 ) *FlagsAdminStateFetcher {
+	return NewFlagsAdminStateFetcherWithEncryption(clientSecret, "", logger, transport)
+}
+
+// NewFlagsAdminStateFetcherWithEncryption creates a new FlagsAdminStateFetcher with optional encryption key.
+func NewFlagsAdminStateFetcherWithEncryption(
+	clientSecret string,
+	encryptionKey string,
+	logger *slog.Logger,
+	transport http.RoundTripper,
+) *FlagsAdminStateFetcher {
 	f := &FlagsAdminStateFetcher{
-		clientSecret: clientSecret,
-		logger:       logger,
+		clientSecret:  clientSecret,
+		encryptionKey: encryptionKey,
+		logger:        logger,
 		HTTPClient: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
@@ -102,7 +116,11 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 	// Build CDN URL using SHA256 hash of client secret
 	hash := sha256.Sum256([]byte(f.clientSecret))
 	hashHex := hex.EncodeToString(hash[:])
-	cdnURL := "https://confidence-resolver-state-cdn.spotifycdn.com/" + hashHex
+	cdnPath := hashHex
+	if f.encryptionKey != "" {
+		cdnPath = hashHex + ".enc"
+	}
+	cdnURL := "https://confidence-resolver-state-cdn.spotifycdn.com/" + cdnPath
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cdnURL, nil)
 	if err != nil {
@@ -136,23 +154,43 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 		return err
 	}
 
-	// Parse SetResolverStateRequest
-	stateRequest := &wasm.SetResolverStateRequest{}
-	if err := proto.Unmarshal(bytes, stateRequest); err != nil {
-		return fmt.Errorf("failed to unmarshal SetResolverStateRequest: %w", err)
+	etag := resp.Header.Get("ETag")
+
+	if f.encryptionKey != "" {
+		plaintext, err := decryptAesGcm(bytes, f.encryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt resolver state: %w", err)
+		}
+		bytes = plaintext
 	}
 
-	// Extract account ID and state bytes
+	stateRequest := &wasm.SetResolverStateRequest{}
+	if err := proto.Unmarshal(bytes, stateRequest); err != nil {
+		return fmt.Errorf("failed to decode resolver state: %w", err)
+	}
 	f.accountID.Store(stateRequest.AccountId)
-
-	// Get and store the new ETag
-	etag := resp.Header.Get("ETag")
-	f.etag.Store(etag)
-
-	// Update the raw state (state is already in bytes format)
 	f.rawResolverState.Store(stateRequest.State)
-
+	f.etag.Store(etag)
 	f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
-
 	return nil
+}
+
+func decryptAesGcm(data []byte, hexKey string) ([]byte, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid encryption key: %w", err)
+	}
+	block, err := aes.NewCipher(keyBytes)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return nil, fmt.Errorf("encrypted state too short (missing nonce)")
+	}
+	return gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
 }

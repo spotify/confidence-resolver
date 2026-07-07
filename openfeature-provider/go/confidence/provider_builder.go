@@ -19,6 +19,7 @@ const confidenceDomain = "edge-grpc.spotify.com"
 
 type ProviderConfig struct {
 	ClientSecret                  string
+	EncryptionKey                 string // Optional: hex-encoded AES-256 key for decrypting CDN state
 	Logger                        *slog.Logger
 	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
 	MaterializationStore          MaterializationStore // Optional
@@ -51,6 +52,10 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		}))
 	}
 
+	if config.EncryptionKey == "" {
+		logger.Warn("No EncryptionKey provided. Falling back to unencrypted state. An encryption key will be required in an upcoming version.")
+	}
+
 	// Create gRPC connection for flag logger
 	hooks := config.TransportHooks
 	if hooks == nil {
@@ -60,7 +65,6 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	tlsCreds := credentials.NewTLS(nil)
 	baseOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(tlsCreds),
-		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	}
 
 	target, opts := hooks.ModifyGRPCDial(confidenceDomain, baseOpts)
@@ -73,7 +77,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	flagLoggerService := resolverv1.NewInternalFlagLoggerServiceClient(conn)
 	// Build HTTP transport using hooks and pass into state fetcher
 	transport := hooks.WrapHTTP(http.DefaultTransport)
-	stateProvider := NewFlagsAdminStateFetcherWithTransport(config.ClientSecret, logger, transport)
+	stateProvider := NewFlagsAdminStateFetcherWithEncryption(config.ClientSecret, config.EncryptionKey, logger, transport)
 	flagLogger := fl.NewGrpcWasmFlagLogger(flagLoggerService, config.ClientSecret, logger)
 	materializationStore := config.MaterializationStore
 	if materializationStore == nil {

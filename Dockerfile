@@ -454,7 +454,9 @@ RUN make build
 FROM openfeature-provider-go.build AS openfeature-provider-go.test
 
 RUN --mount=type=secret,id=confidence_client_secret \
+    --mount=type=secret,id=confidence_client_encryption_key \
     CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    CONFIDENCE_CLIENT_ENCRYPTION_KEY=$(cat /run/secrets/confidence_client_encryption_key) \
     make test
 
 # ==============================================================================
