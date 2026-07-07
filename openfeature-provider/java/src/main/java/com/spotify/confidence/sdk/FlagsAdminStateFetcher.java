@@ -7,6 +7,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,8 +28,8 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
       "https://confidence-resolver-state-cdn.spotifycdn.com/";
 
   private final String clientSecret;
+  private final String encryptionKey;
   private final HttpClientFactory httpClientFactory;
-  // ETag for conditional GETs of resolver state
   private final AtomicReference<String> etagHolder = new AtomicReference<>();
   private final AtomicReference<byte[]> rawResolverStateHolder =
       new AtomicReference<>(
@@ -35,13 +38,11 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
               .toByteArray());
   private String accountId = "";
 
-  public FlagsAdminStateFetcher(String clientSecret, HttpClientFactory httpClientFactory) {
+  public FlagsAdminStateFetcher(
+      String clientSecret, HttpClientFactory httpClientFactory, String encryptionKey) {
     this.clientSecret = clientSecret;
     this.httpClientFactory = httpClientFactory;
-  }
-
-  public AtomicReference<byte[]> rawStateHolder() {
-    return rawResolverStateHolder;
+    this.encryptionKey = encryptionKey;
   }
 
   @Override
@@ -64,8 +65,8 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   }
 
   private void fetchAndUpdateStateIfChanged() {
-    // Build CDN URL using SHA256 hash of client secret
-    final var cdnUrl = CDN_BASE_URL + sha256Hex(clientSecret);
+    final String hash = sha256Hex(clientSecret);
+    final var cdnUrl = CDN_BASE_URL + hash + (encryptionKey != null ? ".enc" : "");
     try {
       final HttpURLConnection conn = httpClientFactory.create(cdnUrl);
       final String previousEtag = etagHolder.get();
@@ -73,25 +74,43 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         conn.setRequestProperty("if-none-match", previousEtag);
       }
       if (conn.getResponseCode() == 304) {
-        // Not modified
         return;
       }
       final String etag = conn.getHeaderField("etag");
       try (final InputStream stream = conn.getInputStream()) {
-        final byte[] bytes = stream.readAllBytes();
+        byte[] bytes = stream.readAllBytes();
 
-        // Parse SetResolverStateRequest from CDN response
+        if (encryptionKey != null) {
+          bytes = decryptAesGcm(bytes, encryptionKey);
+        }
+
         final var stateRequest =
             com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
         this.accountId = stateRequest.getAccountId();
-
-        // Store the state bytes (already in bytes format)
         rawResolverStateHolder.set(stateRequest.getState().toByteArray());
         etagHolder.set(etag);
       }
       logger.info("Loaded resolver state for account={}, etag={}", accountId, etag);
     } catch (IOException e) {
       throw new RuntimeException(e);
+    }
+  }
+
+  private static byte[] decryptAesGcm(byte[] data, String hexKey) {
+    try {
+      final byte[] key = java.util.HexFormat.of().parseHex(hexKey);
+      final int nonceLen = 12;
+      if (data.length < nonceLen) {
+        throw new IllegalArgumentException("Encrypted state too short (missing nonce)");
+      }
+      final var cipher = Cipher.getInstance("AES/GCM/NoPadding");
+      cipher.init(
+          Cipher.DECRYPT_MODE,
+          new SecretKeySpec(key, "AES"),
+          new GCMParameterSpec(128, data, 0, nonceLen));
+      return cipher.doFinal(data, nonceLen, data.length - nonceLen);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to decrypt resolver state", e);
     }
   }
 

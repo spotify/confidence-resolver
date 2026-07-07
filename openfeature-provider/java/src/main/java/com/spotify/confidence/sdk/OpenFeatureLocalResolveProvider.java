@@ -148,7 +148,14 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       LocalProviderConfig config, String clientSecret, MaterializationStore materializationStore) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
-    this.stateProvider = new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory());
+    if (config.getEncryptionKey() == null) {
+      log.warn(
+          "No encryptionKey provided. Falling back to unencrypted state."
+              + " An encryption key will be required in an upcoming version.");
+    }
+    this.stateProvider =
+        new FlagsAdminStateFetcher(
+            clientSecret, config.getHttpClientFactory(), config.getEncryptionKey());
     final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
     this.flagLogger = wasmFlagLogger;
     final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
@@ -234,7 +241,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     if (flagsFetcherExecutor.isShutdown()) {
       return;
     }
-
     // Use short retry interval (1s) when not initialized, normal interval otherwise
     long delaySeconds = initialized ? pollIntervalSeconds : 1;
 
