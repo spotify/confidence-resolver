@@ -30,8 +30,6 @@ class LocalResolver:
     and Go RecoveringResolver.
     """
 
-    EncryptedState = Tuple[bytes, bytes, object]
-
     def __init__(
         self,
         wasm_bytes: bytes,
@@ -48,7 +46,6 @@ class LocalResolver:
         self._delegate_factory = delegate_factory or WasmResolver
         self._delegate: WasmResolver = self._delegate_factory(wasm_bytes)
         self._current_state: Optional[Tuple[bytes, str, object]] = None
-        self._current_encrypted_state: Optional["LocalResolver.EncryptedState"] = None
         self._buffered_logs: List[bytes] = []
 
     def _reload_instance(self, error: BaseException) -> None:
@@ -73,15 +70,7 @@ class LocalResolver:
         self._delegate = self._delegate_factory(self._wasm_bytes)
 
         # Restore state if available
-        if self._current_encrypted_state is not None:
-            encrypted_state, encryption_key, sdk = self._current_encrypted_state
-            try:
-                self._delegate.set_encrypted_resolver_state(
-                    encrypted_state, encryption_key, sdk
-                )
-            except Exception as e:
-                logger.error("Failed to restore encrypted state after reload: %s", e)
-        elif self._current_state is not None:
+        if self._current_state is not None:
             state, account_id, sdk = self._current_state
             try:
                 self._delegate.set_resolver_state(state, account_id, sdk)
@@ -101,25 +90,8 @@ class LocalResolver:
             sdk: Optional SDK identifier and version.
         """
         self._current_state = (state, account_id, sdk)
-        self._current_encrypted_state = None
         try:
             self._delegate.set_resolver_state(state, account_id, sdk)
-        except WasmCrashError as error:
-            self._reload_instance(error)
-            raise
-
-    def set_encrypted_resolver_state(
-        self,
-        encrypted_state: bytes,
-        encryption_key: bytes,
-        sdk: Optional[object] = None,
-    ) -> None:
-        self._current_encrypted_state = (encrypted_state, encryption_key, sdk)
-        self._current_state = None
-        try:
-            self._delegate.set_encrypted_resolver_state(
-                encrypted_state, encryption_key, sdk
-            )
         except WasmCrashError as error:
             self._reload_instance(error)
             raise

@@ -5,6 +5,7 @@ This module provides functionality to fetch resolver state from the Confidence C
 
 import hashlib
 import logging
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from typing import Optional, Tuple
 
 import httpx
@@ -55,7 +56,6 @@ class StateFetcher:
         # Cached state
         self._state: Optional[bytes] = None
         self._account_id: Optional[str] = None
-        self._raw_cdn_bytes: Optional[bytes] = None
         self._etag: Optional[str] = None
 
         # Build CDN URL from SHA256 hash of client secret
@@ -72,11 +72,6 @@ class StateFetcher:
     def account_id(self) -> Optional[str]:
         """Return the current cached account ID."""
         return self._account_id
-
-    @property
-    def raw_cdn_bytes(self) -> Optional[bytes]:
-        """Return raw encrypted CDN bytes, or None if unencrypted."""
-        return self._raw_cdn_bytes
 
     def _get_client(self) -> httpx.Client:
         """Get or create the HTTP client."""
@@ -110,9 +105,6 @@ class StateFetcher:
 
             # Handle 304 Not Modified - return cached state
             if response.status_code == 304:
-                if self._encryption_key and self._raw_cdn_bytes is not None:
-                    logger.debug("State not modified (304), using cached state")
-                    return self._raw_cdn_bytes, "", False
                 if self._state is not None and self._account_id is not None:
                     logger.debug("State not modified (304), using cached state")
                     return self._state, self._account_id, False
@@ -128,16 +120,14 @@ class StateFetcher:
 
             self._etag = response.headers.get("ETag")
 
+            content = response.content
             if self._encryption_key:
-                self._raw_cdn_bytes = response.content
-                logger.info("Loaded encrypted resolver state, etag=%s", self._etag)
-                return self._raw_cdn_bytes, "", True
+                content = _decrypt_aes_gcm(content, self._encryption_key)
 
             state_request = SetResolverStateRequest()
-            state_request.ParseFromString(response.content)
+            state_request.ParseFromString(content)
             self._state = state_request.state
             self._account_id = state_request.account_id
-            self._raw_cdn_bytes = None
             logger.info(
                 "Loaded resolver state for account=%s, etag=%s",
                 self._account_id,
@@ -148,3 +138,13 @@ class StateFetcher:
         finally:
             if should_close:
                 client.close()
+
+
+def _decrypt_aes_gcm(data: bytes, hex_key: str) -> bytes:
+    key = bytes.fromhex(hex_key)
+    nonce_len = 12
+    if len(data) < nonce_len:
+        raise StateFetcherError("Encrypted state too short (missing nonce)")
+    nonce = data[:nonce_len]
+    ciphertext = data[nonce_len:]
+    return AESGCM(key).decrypt(nonce, ciphertext, None)

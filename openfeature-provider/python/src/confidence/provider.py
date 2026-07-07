@@ -217,12 +217,6 @@ class ConfidenceProvider(AbstractProvider):
         Raises:
             Exception: If initialization fails.
         """
-        if not self._encryption_key:
-            logger.warning(
-                "No encryption_key provided. Falling back to unencrypted state. "
-                "An encryption key will be required in an upcoming version."
-            )
-
         # Load WASM bytes if not provided
         if self._wasm_bytes is None:
             self._wasm_bytes = _load_wasm_from_resources()
@@ -252,11 +246,12 @@ class ConfidenceProvider(AbstractProvider):
         # Fetch initial state - don't fail if this fails, background thread will retry
         try:
             state, account_id, _ = self._state_fetcher.fetch()
-            sdk = types_pb2.Sdk(
-                id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
-                version=__version__,
-            )
-            if self._set_resolver_state(state, account_id, sdk):
+            if account_id:
+                sdk = types_pb2.Sdk(
+                    id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
+                    version=__version__,
+                )
+                self._resolver.set_resolver_state(state, account_id, sdk)
                 self._status = ProviderStatus.READY
                 self.emit_provider_ready(ProviderEventDetails())
                 logger.info("ConfidenceProvider initialized successfully")
@@ -318,18 +313,6 @@ class ConfidenceProvider(AbstractProvider):
                 logger.error("Failed to close materialization store: %s", e)
 
         logger.info("ConfidenceProvider shutdown complete")
-
-    def _set_resolver_state(self, state: bytes, account_id: str, sdk: object) -> bool:
-        if self._encryption_key and self._state_fetcher is not None:
-            cdn_bytes = getattr(self._state_fetcher, "raw_cdn_bytes", None)
-            if cdn_bytes is not None:
-                key_bytes = bytes.fromhex(self._encryption_key)
-                self._resolver.set_encrypted_resolver_state(cdn_bytes, key_bytes, sdk)
-                return True
-        if account_id:
-            self._resolver.set_resolver_state(state, account_id, sdk)
-            return True
-        return False
 
     def _resolve_typed(
         self,
@@ -806,17 +789,19 @@ class ConfidenceProvider(AbstractProvider):
 
             try:
                 state, account_id, changed = self._state_fetcher.fetch()
-                if changed:
+                if changed and account_id:
                     sdk = types_pb2.Sdk(
                         id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
                         version=__version__,
                     )
                     with self._resolver_lock:
-                        self._set_resolver_state(state, account_id, sdk)
+                        flushed_logs = self._resolver.flush_logs()
+                        self._resolver.set_resolver_state(state, account_id, sdk)
+                    if flushed_logs and self._flag_logger is not None:
+                        self._flag_logger.write(flushed_logs)
                     logger.debug("Resolver state updated")
 
-                has_state = self._encryption_key is not None or bool(account_id)
-                if has_state and self._status == ProviderStatus.NOT_READY:
+                if account_id and self._status == ProviderStatus.NOT_READY:
                     self._status = ProviderStatus.READY
                     self.emit_provider_ready(ProviderEventDetails())
                     logger.info("Provider recovered and is now READY")
