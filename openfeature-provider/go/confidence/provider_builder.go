@@ -88,9 +88,6 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
-	if config.EncryptionKey != "" {
-		providerOpts = append(providerOpts, WithEncryptionKey(config.EncryptionKey))
-	}
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }

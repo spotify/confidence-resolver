@@ -2,6 +2,8 @@ package confidence
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -27,8 +29,6 @@ type FlagsAdminStateFetcher struct {
 	encryptionKey    string
 	etag             atomic.Value // stores string
 	rawResolverState atomic.Value // stores []byte
-	rawCdnBytes      atomic.Value // stores []byte — set when CDN response is encrypted
-	encrypted        atomic.Bool
 	accountID        atomic.Value // stores string
 	HTTPClient       *http.Client // Exported for testing
 	logger           *slog.Logger
@@ -100,17 +100,6 @@ func (f *FlagsAdminStateFetcher) Reload(ctx context.Context) error {
 	return f.fetchAndUpdateStateIfChanged(ctx)
 }
 
-// RawCdnBytes returns the raw encrypted CDN bytes, or nil if unencrypted.
-func (f *FlagsAdminStateFetcher) RawCdnBytes() []byte {
-	if !f.encrypted.Load() {
-		return nil
-	}
-	if v := f.rawCdnBytes.Load(); v != nil {
-		return v.([]byte)
-	}
-	return nil
-}
-
 // Provide implements the StateProvider interface
 // Returns the latest resolver state and account ID, fetching it if needed
 // On error, returns cached state (if available) to maintain availability
@@ -168,22 +157,40 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 	etag := resp.Header.Get("ETag")
 
 	if f.encryptionKey != "" {
-		f.rawCdnBytes.Store(bytes)
-		f.encrypted.Store(true)
-		f.etag.Store(etag)
-		f.logger.Debug("Loaded encrypted resolver state", "etag", etag)
-		return nil
+		plaintext, err := decryptAesGcm(bytes, f.encryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt resolver state: %w", err)
+		}
+		bytes = plaintext
 	}
 
-	// Unencrypted path: parse protobuf as before
 	stateRequest := &wasm.SetResolverStateRequest{}
 	if err := proto.Unmarshal(bytes, stateRequest); err != nil {
 		return fmt.Errorf("failed to decode resolver state: %w", err)
 	}
 	f.accountID.Store(stateRequest.AccountId)
 	f.rawResolverState.Store(stateRequest.State)
-	f.encrypted.Store(false)
 	f.etag.Store(etag)
 	f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
 	return nil
+}
+
+func decryptAesGcm(data []byte, hexKey string) ([]byte, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid encryption key: %w", err)
+	}
+	block, err := aes.NewCipher(keyBytes)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return nil, fmt.Errorf("encrypted state too short (missing nonce)")
+	}
+	return gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
 }

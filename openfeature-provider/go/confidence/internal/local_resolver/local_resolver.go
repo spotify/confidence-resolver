@@ -19,7 +19,6 @@ type LocalResolverFactory interface {
 
 type LocalResolver interface {
 	SetResolverState(*wasm.SetResolverStateRequest) error
-	SetEncryptedResolverState(*wasm.SetEncryptedResolverStateRequest) error
 	ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error)
 	RegisterResolve(*wasm.RegisterResolveRequest)
 	ApplyFlags(*resolver.ApplyFlagsRequest) error

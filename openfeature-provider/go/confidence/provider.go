@@ -2,7 +2,6 @@ package confidence
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,7 +32,6 @@ type Option func(*providerOptions)
 type providerOptions struct {
 	statePollInterval time.Duration
 	logPollInterval   time.Duration
-	encryptionKey     string
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -50,13 +48,6 @@ func WithLogPollInterval(d time.Duration) Option {
 	}
 }
 
-// WithEncryptionKey sets the hex-encoded AES-256 encryption key for decrypting CDN state.
-func WithEncryptionKey(key string) Option {
-	return func(o *providerOptions) {
-		o.encryptionKey = key
-	}
-}
-
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
@@ -65,7 +56,6 @@ type LocalResolverProvider struct {
 	stateProvider     StateProvider
 	flagLogger        FlagLogger
 	clientSecret      string
-	encryptionKey     string
 	logger            *slog.Logger
 	cancelFunc        context.CancelFunc
 	wg                sync.WaitGroup
@@ -117,7 +107,6 @@ func NewLocalResolverProvider(
 		stateProvider:     stateProvider,
 		flagLogger:        flagLogger,
 		clientSecret:      clientSecret,
-		encryptionKey:     options.encryptionKey,
 		logger:            logger,
 		statePollInterval: statePollInterval,
 		logPollInterval:   logPollInterval,
@@ -456,10 +445,6 @@ func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
 // Init initializes the provider (part of StateHandler interface)
 // Fetches initial state and starts background tasks for state updates and log flushing
 func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationContext) (err error) {
-	if p.encryptionKey == "" {
-		p.logger.Warn("No EncryptionKey provided. Falling back to unencrypted state. An encryption key will be required in an upcoming version.")
-	}
-
 	ctx := context.Background()
 	defer func() {
 		if r := recover(); r != nil {
@@ -493,12 +478,20 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 		return fmt.Errorf("failed to fetch initial state: %w", err)
 	}
 
-	sdk := &resolvertypes.Sdk{
-		Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
-		Version: Version,
+	if accountId == "" {
+		p.logger.Error("AccountID is empty in the fetched state, this should not happen")
+		return fmt.Errorf("AccountID is empty in the initial state")
 	}
 
-	if err := p.setResolverState(initialState, accountId, sdk); err != nil {
+	setResolverStateRequest := &wasm.SetResolverStateRequest{
+		State:     initialState,
+		AccountId: accountId,
+		Sdk: &resolvertypes.Sdk{
+			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+			Version: Version,
+		},
+	}
+	if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
 		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
 		return fmt.Errorf("failed to initialize resolver: %w", err)
 	}
@@ -508,33 +501,6 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 
 	p.logger.Info("Provider initialized successfully")
 	return nil
-}
-
-func (p *LocalResolverProvider) setResolverState(state []byte, accountId string, sdk *resolvertypes.Sdk) error {
-	if p.encryptionKey != "" {
-		if fetcher, ok := p.stateProvider.(*FlagsAdminStateFetcher); ok {
-			if cdnBytes := fetcher.RawCdnBytes(); cdnBytes != nil {
-				keyBytes, err := hex.DecodeString(p.encryptionKey)
-				if err != nil {
-					return fmt.Errorf("invalid encryption key: %w", err)
-				}
-				return p.resolver.SetEncryptedResolverState(&wasm.SetEncryptedResolverStateRequest{
-					EncryptedState: cdnBytes,
-					EncryptionKey:  keyBytes,
-					Sdk:            sdk,
-				})
-			}
-		}
-	}
-
-	if accountId == "" {
-		return fmt.Errorf("AccountID is empty in the state")
-	}
-	return p.resolver.SetResolverState(&wasm.SetResolverStateRequest{
-		State:     state,
-		AccountId: accountId,
-		Sdk:       sdk,
-	})
 }
 
 // Shutdown closes the provider and cleans up resources (part of StateHandler interface)
@@ -605,11 +571,24 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 					continue
 				}
 
-				sdk := &resolvertypes.Sdk{
-					Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
-					Version: Version,
+				if accountId == "" {
+					p.logger.Error("AccountID inside fetched state is empty, skipping this state update attempt")
+					continue
 				}
-				if err := p.setResolverState(state, accountId, sdk); err != nil {
+
+				if err := p.resolver.FlushAllLogs(); err != nil {
+					p.logger.Error("Failed to flush logs before state update", "error", err)
+				}
+
+				setResolverStateRequest := &wasm.SetResolverStateRequest{
+					State:     state,
+					AccountId: accountId,
+					Sdk: &resolvertypes.Sdk{
+						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+						Version: Version,
+					},
+				}
+				if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
 					p.logger.Error("Failed to update state", "error", err)
 				}
 			case <-ctx.Done():

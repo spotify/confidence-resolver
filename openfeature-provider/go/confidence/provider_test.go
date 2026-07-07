@@ -477,10 +477,6 @@ func (m *mockResolverAPIForInit) SetResolverState(request *wasm.SetResolverState
 	return nil
 }
 
-func (m *mockResolverAPIForInit) SetEncryptedResolverState(_ *wasm.SetEncryptedResolverStateRequest) error {
-	return nil
-}
-
 func (m *mockResolverAPIForInit) Close(ctx context.Context) error {
 	if m.closeFunc != nil {
 		m.closeFunc(ctx)
@@ -623,9 +619,8 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error when accountID is empty")
 	}
-	expected := "failed to initialize resolver: AccountID is empty in the state"
-	if err.Error() != expected {
-		t.Errorf("Expected %q, got: %v", expected, err)
+	if err.Error() != "AccountID is empty in the initial state" {
+		t.Errorf("Expected specific error message, got: %v", err)
 	}
 }
 

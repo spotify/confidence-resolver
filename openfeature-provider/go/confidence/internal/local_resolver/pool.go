@@ -108,13 +108,6 @@ func (s *PooledResolver) SetResolverState(request *wasm.SetResolverStateRequest)
 	})
 }
 
-// SetEncryptedResolverState implements LocalResolver.
-func (s *PooledResolver) SetEncryptedResolverState(request *wasm.SetEncryptedResolverStateRequest) error {
-	return s.maintenance(func(lr LocalResolver) error {
-		return lr.SetEncryptedResolverState(request)
-	})
-}
-
 // FlushAllLogs implements LocalResolver.
 func (s *PooledResolver) FlushAllLogs() error {
 	return s.maintenance(func(lr LocalResolver) error {
