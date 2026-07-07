@@ -7,6 +7,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,7 +31,11 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   private final String encryptionKey;
   private final HttpClientFactory httpClientFactory;
   private final AtomicReference<String> etagHolder = new AtomicReference<>();
-  private final AtomicReference<byte[]> rawStateHolder = new AtomicReference<>();
+  private final AtomicReference<byte[]> rawResolverStateHolder =
+      new AtomicReference<>(
+          com.spotify.confidence.sdk.flags.admin.v1.ResolverState.newBuilder()
+              .build()
+              .toByteArray());
   private String accountId = "";
 
   public FlagsAdminStateFetcher(
@@ -40,7 +47,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
 
   @Override
   public byte[] provide() {
-    return rawStateHolder.get();
+    return rawResolverStateHolder.get();
   }
 
   @Override
@@ -57,13 +64,9 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
     }
   }
 
-  boolean isEncrypted() {
-    return encryptionKey != null;
-  }
-
   private void fetchAndUpdateStateIfChanged() {
     final String hash = sha256Hex(clientSecret);
-    final var cdnUrl = CDN_BASE_URL + hash + (isEncrypted() ? ".enc" : "");
+    final var cdnUrl = CDN_BASE_URL + hash + (encryptionKey != null ? ".enc" : "");
     try {
       final HttpURLConnection conn = httpClientFactory.create(cdnUrl);
       final String previousEtag = etagHolder.get();
@@ -75,21 +78,39 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
       }
       final String etag = conn.getHeaderField("etag");
       try (final InputStream stream = conn.getInputStream()) {
-        final byte[] bytes = stream.readAllBytes();
+        byte[] bytes = stream.readAllBytes();
 
-        if (isEncrypted()) {
-          rawStateHolder.set(bytes);
-        } else {
-          final var stateRequest =
-              com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
-          this.accountId = stateRequest.getAccountId();
-          rawStateHolder.set(stateRequest.getState().toByteArray());
+        if (encryptionKey != null) {
+          bytes = decryptAesGcm(bytes, encryptionKey);
         }
+
+        final var stateRequest =
+            com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
+        this.accountId = stateRequest.getAccountId();
+        rawResolverStateHolder.set(stateRequest.getState().toByteArray());
         etagHolder.set(etag);
       }
-      logger.info("Loaded resolver state (encrypted={}, etag={})", isEncrypted(), etag);
+      logger.info("Loaded resolver state for account={}, etag={}", accountId, etag);
     } catch (IOException e) {
       throw new RuntimeException(e);
+    }
+  }
+
+  private static byte[] decryptAesGcm(byte[] data, String hexKey) {
+    try {
+      final byte[] key = java.util.HexFormat.of().parseHex(hexKey);
+      final int nonceLen = 12;
+      if (data.length < nonceLen) {
+        throw new IllegalArgumentException("Encrypted state too short (missing nonce)");
+      }
+      final var cipher = Cipher.getInstance("AES/GCM/NoPadding");
+      cipher.init(
+          Cipher.DECRYPT_MODE,
+          new SecretKeySpec(key, "AES"),
+          new GCMParameterSpec(128, data, 0, nonceLen));
+      return cipher.doFinal(data, nonceLen, data.length - nonceLen);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to decrypt resolver state", e);
     }
   }
 

@@ -19,8 +19,6 @@ interface LocalResolver {
    */
   void setResolverState(byte[] state, String accountId, Sdk sdk);
 
-  void setEncryptedResolverState(byte[] encryptedState, byte[] encryptionKey, Sdk sdk);
-
   /**
    * Resolves flags. The returned stage completes when all resolution (including any store I/O for
    * materializations) has finished.

@@ -52,7 +52,6 @@ class WasmLocalResolver implements LocalResolver {
 
   // api
   private final ExportFunction wasmMsgGuestSetResolverState;
-  private final ExportFunction wasmMsgGuestSetEncryptedResolverState;
   private final ExportFunction wasmMsgGuestRegisterResolve;
   private final ExportFunction wasmMsgBoundedFlushLogs;
   private final ExportFunction wasmMsgBoundedFlushAssign;
@@ -85,8 +84,6 @@ class WasmLocalResolver implements LocalResolver {
     wasmMsgAlloc = instance.export("wasm_msg_alloc");
     wasmMsgFree = instance.export("wasm_msg_free");
     wasmMsgGuestSetResolverState = instance.export("wasm_msg_guest_set_resolver_state");
-    wasmMsgGuestSetEncryptedResolverState =
-        instance.export("wasm_msg_guest_set_encrypted_resolver_state");
     wasmMsgGuestRegisterResolve = instance.export("wasm_msg_guest_register_resolve");
     wasmMsgBoundedFlushLogs = instance.export("wasm_msg_guest_bounded_flush_logs");
     wasmMsgBoundedFlushAssign = instance.export("wasm_msg_guest_bounded_flush_assign");
@@ -128,30 +125,6 @@ class WasmLocalResolver implements LocalResolver {
               .toByteArray();
       final int addr = transfer(request);
       final int respPtr = (int) wasmMsgGuestSetResolverState.apply(addr)[0];
-      consumeResponse(respPtr, Messages.Void::parseFrom);
-    } finally {
-      lock.unlock();
-    }
-  }
-
-  @Override
-  public void setEncryptedResolverState(byte[] encryptedState, byte[] encryptionKey, Sdk sdk) {
-    lock.lock();
-    try {
-      final var builder =
-          Messages.SetEncryptedResolverStateRequest.newBuilder()
-              .setEncryptedState(ByteString.copyFrom(encryptedState))
-              .setEncryptionKey(ByteString.copyFrom(encryptionKey));
-      if (sdk != null) {
-        builder.setSdk(sdk);
-      }
-      final byte[] request =
-          Messages.Request.newBuilder()
-              .setData(ByteString.copyFrom(builder.build().toByteArray()))
-              .build()
-              .toByteArray();
-      final int addr = transfer(request);
-      final int respPtr = (int) wasmMsgGuestSetEncryptedResolverState.apply(addr)[0];
       consumeResponse(respPtr, Messages.Void::parseFrom);
     } finally {
       lock.unlock();

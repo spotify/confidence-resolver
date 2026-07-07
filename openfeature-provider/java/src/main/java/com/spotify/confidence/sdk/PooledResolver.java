@@ -73,11 +73,6 @@ class PooledResolver implements LocalResolver {
   }
 
   @Override
-  public void setEncryptedResolverState(byte[] encryptedState, byte[] encryptionKey, Sdk sdk) {
-    maintenance(lr -> lr.setEncryptedResolverState(encryptedState, encryptionKey, sdk));
-  }
-
-  @Override
   public void flushAllLogs() {
     maintenance(LocalResolver::flushAllLogs);
   }

@@ -168,11 +168,6 @@ class MaterializingResolver implements LocalResolver {
   }
 
   @Override
-  public void setEncryptedResolverState(byte[] encryptedState, byte[] encryptionKey, Sdk sdk) {
-    delegate.setEncryptedResolverState(encryptedState, encryptionKey, sdk);
-  }
-
-  @Override
   public void registerResolve(RegisterResolveRequest request) {
     delegate.registerResolve(request);
   }
