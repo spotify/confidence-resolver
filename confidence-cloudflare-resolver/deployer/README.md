@@ -17,7 +17,7 @@ From the **root of the repository**, run:
 docker build --target confidence-cloudflare-resolver.deployer -t <YOUR_IMAGE_NAME> .
 ```
 
-A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-deployer:latest`.
+A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-deployer:latest` for both `linux/amd64` and `linux/arm64`.
 
 ## Prerequisites
 
