@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.11.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.10.6...confidence-cloudflare-resolver-v0.11.0) (2026-07-08)
+
+
+### Features
+
+* **cloudflare:** add sticky assignment support via KV store ([#464](https://github.com/spotify/confidence-resolver/issues/464)) ([ef8aaaa](https://github.com/spotify/confidence-resolver/commit/ef8aaaa84296dfa51c4a3186ff6bf6731cb55332))
+* **cloudflare:** decrypt encrypted CDN state before embedding ([#462](https://github.com/spotify/confidence-resolver/issues/462)) ([218546d](https://github.com/spotify/confidence-resolver/commit/218546d69ff8f9fc4f1fe86aa1d56979f12428e8))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.19.0 to 0.19.1
+
 ## [0.10.6](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.10.5...confidence-cloudflare-resolver-v0.10.6) (2026-06-17)
 
 

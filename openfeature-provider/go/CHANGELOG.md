@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.19.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.18.0...openfeature-provider/go/v0.19.0) (2026-07-08)
+
+
+### Features
+
+* **go:** support encrypted CDN resolver state ([#459](https://github.com/spotify/confidence-resolver/issues/459)) ([0602dc9](https://github.com/spotify/confidence-resolver/commit/0602dc92e5a1ca76cb102bfdeaf4c4b289c86102))
+* **providers:** retry flag log writes and improve error reporting ([#453](https://github.com/spotify/confidence-resolver/issues/453)) ([781533c](https://github.com/spotify/confidence-resolver/commit/781533ccd176d2795efad3d6b40de855f5a0770a))
+* **wasm:** add encrypted CDN state decryption support ([#456](https://github.com/spotify/confidence-resolver/issues/456)) ([694c453](https://github.com/spotify/confidence-resolver/commit/694c453789d9b508a37b006c362711deb6b73413))
+
+
+### Bug Fixes
+
+* **providers:** flush logs before state update to reduce WASM memory growth ([#469](https://github.com/spotify/confidence-resolver/issues/469)) ([633b269](https://github.com/spotify/confidence-resolver/commit/633b2695e50e7ffff5a3d3b0140fe7bb200ceead))
+* **resolver:** bucket-match materialized assignments with duplicate variants ([#345](https://github.com/spotify/confidence-resolver/issues/345)) ([daf56cf](https://github.com/spotify/confidence-resolver/commit/daf56cfb4e520a84a9e97518b28d80ca3ee4b25a))
+
+
+### Reverts
+
+* **wasm:** remove encrypted CDN state decryption support ([#476](https://github.com/spotify/confidence-resolver/issues/476)) ([569fe5c](https://github.com/spotify/confidence-resolver/commit/569fe5c6783b6d8ebd4ee9390009bba73b12e411))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.5 to 0.3.0
+
 ## [0.18.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.17.1...openfeature-provider/go/v0.18.0) (2026-06-17)
 
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.6.1...openfeature-provider/rust-v0.7.0) (2026-07-08)
+
+
+### Features
+
+* **rust:** support encrypted CDN resolver state ([#461](https://github.com/spotify/confidence-resolver/issues/461)) ([abdae52](https://github.com/spotify/confidence-resolver/commit/abdae52ded4fae9d93d6ef3d0cc0318d7de82d79))
+
+
+### Bug Fixes
+
+* **rust:** return None when path traverses through non-struct leaf ([#467](https://github.com/spotify/confidence-resolver/issues/467)) ([2a955e0](https://github.com/spotify/confidence-resolver/commit/2a955e0e9c6ec427aede25994fe9f932b27847a3))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.19.0 to 0.19.1
+
 ## [0.6.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.6.0...openfeature-provider/rust-v0.6.1) (2026-06-17)
 
 
