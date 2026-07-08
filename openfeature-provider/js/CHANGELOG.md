@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.16.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.15.2...openfeature-provider-js-v0.16.0) (2026-07-08)
+
+
+### Features
+
+* **js:** decrypt CDN state on host instead of in WASM ([#475](https://github.com/spotify/confidence-resolver/issues/475)) ([99d0f29](https://github.com/spotify/confidence-resolver/commit/99d0f29c60161eb2840d45949b655909a1434973))
+* **js:** publish flag evaluations to window global for session recording ([#445](https://github.com/spotify/confidence-resolver/issues/445)) ([475195b](https://github.com/spotify/confidence-resolver/commit/475195bb6ce3a4c274399193d50cc926bf12d4ba))
+* **js:** support encrypted CDN resolver state ([#457](https://github.com/spotify/confidence-resolver/issues/457)) ([eb37c72](https://github.com/spotify/confidence-resolver/commit/eb37c72d8f22619abb50cbae8fede8ce74c87ea1))
+
+
+### Bug Fixes
+
+* **providers:** flush logs before state update to reduce WASM memory growth ([#469](https://github.com/spotify/confidence-resolver/issues/469)) ([633b269](https://github.com/spotify/confidence-resolver/commit/633b2695e50e7ffff5a3d3b0140fe7bb200ceead))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.5 to 0.3.0
+
 ## [0.15.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.15.1...openfeature-provider-js-v0.15.2) (2026-06-17)
 
 

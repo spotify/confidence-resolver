@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.9.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.8.0...openfeature-provider-python-v0.9.0) (2026-07-08)
+
+
+### Features
+
+* **providers:** retry flag log writes and improve error reporting ([#453](https://github.com/spotify/confidence-resolver/issues/453)) ([781533c](https://github.com/spotify/confidence-resolver/commit/781533ccd176d2795efad3d6b40de855f5a0770a))
+* **python:** support encrypted CDN resolver state ([#460](https://github.com/spotify/confidence-resolver/issues/460)) ([bad2799](https://github.com/spotify/confidence-resolver/commit/bad2799e4277446e181b09ad7dcb22e6182f11f2))
+
+
+### Bug Fixes
+
+* **providers:** flush logs before state update to reduce WASM memory growth ([#469](https://github.com/spotify/confidence-resolver/issues/469)) ([633b269](https://github.com/spotify/confidence-resolver/commit/633b2695e50e7ffff5a3d3b0140fe7bb200ceead))
+
+
+### Reverts
+
+* **wasm:** remove encrypted CDN state decryption support ([#476](https://github.com/spotify/confidence-resolver/issues/476)) ([569fe5c](https://github.com/spotify/confidence-resolver/commit/569fe5c6783b6d8ebd4ee9390009bba73b12e411))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.5 to 0.3.0
+
 ## [0.8.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.7.1...openfeature-provider-python-v0.8.0) (2026-06-17)
 
 

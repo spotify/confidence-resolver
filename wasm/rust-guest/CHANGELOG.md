@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.0](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.2.5...rust-guest-v0.3.0) (2026-07-08)
+
+
+### Features
+
+* **wasm:** add encrypted CDN state decryption support ([#456](https://github.com/spotify/confidence-resolver/issues/456)) ([694c453](https://github.com/spotify/confidence-resolver/commit/694c453789d9b508a37b006c362711deb6b73413))
+
+
+### Reverts
+
+* **wasm:** remove encrypted CDN state decryption support ([#476](https://github.com/spotify/confidence-resolver/issues/476)) ([569fe5c](https://github.com/spotify/confidence-resolver/commit/569fe5c6783b6d8ebd4ee9390009bba73b12e411))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.19.0 to 0.19.1
+
 ## [0.2.5](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.2.4...rust-guest-v0.2.5) (2026-06-17)
 
 

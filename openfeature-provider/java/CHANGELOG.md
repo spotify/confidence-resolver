@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.16.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.15.2...openfeature-provider-java-v0.16.0) (2026-07-08)
+
+
+### Features
+
+* **java:** support encrypted CDN resolver state ([#458](https://github.com/spotify/confidence-resolver/issues/458)) ([4cc56f5](https://github.com/spotify/confidence-resolver/commit/4cc56f542d0e352155cfa1ed1e0215fd0376be42))
+* **providers:** retry flag log writes and improve error reporting ([#453](https://github.com/spotify/confidence-resolver/issues/453)) ([781533c](https://github.com/spotify/confidence-resolver/commit/781533ccd176d2795efad3d6b40de855f5a0770a))
+
+
+### Bug Fixes
+
+* **providers:** flush logs before state update to reduce WASM memory growth ([#469](https://github.com/spotify/confidence-resolver/issues/469)) ([633b269](https://github.com/spotify/confidence-resolver/commit/633b2695e50e7ffff5a3d3b0140fe7bb200ceead))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.2.5 to 0.3.0
+
 ## [0.15.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.15.1...openfeature-provider-java-v0.15.2) (2026-06-17)
 
 
