@@ -21,12 +21,6 @@ message SetResolverStateRequest {
     Sdk sdk = 3;
 }
 
-message SetEncryptedResolverStateRequest {
-    bytes encrypted_state = 1;
-    bytes encryption_key = 2;
-    Sdk sdk = 3;
-}
-
 message ResolveSimpleRequest {
     string client_secret = 1;
     google.protobuf.Struct evaluation_context = 2;

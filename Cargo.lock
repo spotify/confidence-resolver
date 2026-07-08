@@ -2018,7 +2018,6 @@ dependencies = [
 name = "rust-guest"
 version = "0.2.5"
 dependencies = [
- "aes-gcm",
  "arc-swap",
  "bytes",
  "confidence_resolver",
