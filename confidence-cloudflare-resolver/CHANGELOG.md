@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.11.0...confidence-cloudflare-resolver-v0.11.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **cloudflare:** create arm64 release ([#477](https://github.com/spotify/confidence-resolver/issues/477)) ([ffdee31](https://github.com/spotify/confidence-resolver/commit/ffdee31b304e1705723e7fed6a714fef11d74301))
+
 ## [0.11.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.10.6...confidence-cloudflare-resolver-v0.11.0) (2026-07-08)
 
 
