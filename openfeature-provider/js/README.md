@@ -46,6 +46,27 @@ You'll need a **client secret** from Confidence to use this provider.
 
 ---
 
+## Encryption
+
+The provider supports encrypting the flag state to protect your flag rules and targeting segments at rest and in transit. The state is decrypted only when loaded into the resolver.
+
+**📖 See the [Integration Guide: Encryption](../INTEGRATION_GUIDE.md#encryption)** for background and migration details.
+
+Pass the encryption key when creating the provider:
+
+```ts
+const provider = createConfidenceServerProvider({
+  flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+  encryptionKey: process.env.CONFIDENCE_ENCRYPTION_KEY!,
+});
+```
+
+The encryption key is available in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients), next to your client credentials.
+
+> **⚠️ Upcoming change:** Encryption will be made **mandatory** in a future SDK release. We will communicate a timeline and migration path before legacy provider versions are affected. We strongly recommend enabling it now.
+
+---
+
 ## Quick start (Node)
 
 ```ts
@@ -135,6 +156,7 @@ if (details.errorCode) {
 ## Options
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
+- `encryptionKey` (string, optional): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients). Will be required in a future release (see [Encryption](#encryption)).
 - `initializeTimeout` (number, optional): Max ms to wait for initial state fetch. Defaults to 30_000.
 - `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
