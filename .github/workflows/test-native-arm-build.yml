@@ -58,7 +58,7 @@ jobs:
           touch "$RUNNER_TEMP/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@ea165f8d65b6db9a6b7e75b195db6a7b2b0bb44e # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: deployer-digest-${{ matrix.runner }}
           path: ${{ runner.temp }}/digests/*
