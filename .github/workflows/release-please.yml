@@ -45,6 +45,61 @@ jobs:
   publish-cloudflare-deployer-image:
     needs: release
     if: ${{ needs.release.outputs.cloudflare_resolver_release_created == 'true' || inputs.force_cloudflare_deploy == true }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          target: confidence-cloudflare-resolver.deployer
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+          platforms: ${{ matrix.platform }}
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/confidence-cloudflare-deployer,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p $RUNNER_TEMP/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deployer-digest-${{ matrix.runner }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-cloudflare-deployer-manifest:
+    needs: [release, publish-cloudflare-deployer-image]
+    if: ${{ needs.release.outputs.cloudflare_resolver_release_created == 'true' || inputs.force_cloudflare_deploy == true }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,11 +115,12 @@ jobs:
           echo "CCR_VERSION=$VERSION" >> $GITHUB_ENV
           echo "CCR_TAG_NAME=confidence-cloudflare-resolver-v$VERSION" >> $GITHUB_ENV
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: deployer-digest-*
+          merge-multiple: true
 
       - name: Log in to GHCR
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
@@ -82,18 +138,12 @@ jobs:
             type=raw,value=${{ env.CCR_TAG_NAME }}
             type=raw,value=latest
 
-      - name: Build and push deployer image
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
-        with:
-          context: .
-          target: confidence-cloudflare-resolver.deployer
-          push: true
-          build-args: |
-            COMMIT_SHA=${{ github.sha }}
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/${{ github.repository_owner }}/confidence-cloudflare-deployer@sha256:%s ' *)
 
   publish-java-provider-release:
     needs: release
