@@ -36,6 +36,27 @@ You'll need a **client secret** from Confidence to use this provider.
 - Creating a test flag for verification
 - Best practices for credential storage
 
+## Encryption
+
+The provider supports encrypting the flag state to protect your flag rules and targeting segments at rest and in transit. The state is decrypted only when loaded into the resolver.
+
+**📖 See the [Integration Guide: Encryption](../INTEGRATION_GUIDE.md#encryption)** for background and migration details.
+
+Pass the encryption key via `LocalProviderConfig`:
+
+```java
+LocalProviderConfig config = LocalProviderConfig.builder()
+    .encryptionKey("your-encryption-key") // Get from Confidence Admin view
+    .build();
+
+OpenFeatureLocalResolveProvider provider =
+    new OpenFeatureLocalResolveProvider(config, "your-client-secret");
+```
+
+The encryption key is available in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients), next to your client credentials.
+
+> **⚠️ Upcoming change:** Encryption will be made **mandatory** in a future SDK release. We will communicate a timeline and migration path before legacy provider versions are affected. We strongly recommend enabling it now.
+
 ## Quick Start
 
 ```java
@@ -122,6 +143,7 @@ Use `LocalProviderConfig.builder()` to configure the provider:
 
 ```java
 LocalProviderConfig config = LocalProviderConfig.builder()
+    .encryptionKey("your-encryption-key") // Encryption key for decrypting flag state (will be required in a future release)
     .resolverPoolSize(4) // Number of WASM resolver instances (default: 2). Increase for higher concurrency.
     .build();
 

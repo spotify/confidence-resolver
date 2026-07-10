@@ -13,9 +13,10 @@ For language-specific installation and quick start instructions, see your provid
 ## Table of Contents
 
 1. [Getting Your Credentials](#getting-your-credentials)
-2. [Error Handling](#error-handling)
-3. [Sticky Assignments](#sticky-assignments)
-4. [Deferred Apply and Resolve Token Security](#deferred-apply-and-resolve-token-security)
+2. [Encryption](#encryption)
+3. [Error Handling](#error-handling)
+4. [Sticky Assignments](#sticky-assignments)
+5. [Deferred Apply and Resolve Token Security](#deferred-apply-and-resolve-token-security)
 
 ---
 
@@ -26,6 +27,38 @@ Before integrating any Confidence provider, you'll need a **client secret** from
 1. Log into the Confidence dashboard
 2. In the **Clients** section, create a new client secret for the client you intend to use (or start by creating a new client)
 3. Make sure to select **Backend** as integration type. Never expose your Backend client secret outside your organization
+
+---
+
+## Encryption
+
+The flag state downloaded by local-resolve providers contains your flag rules and targeting segments. To protect this data at rest and in transit, Confidence supports **encrypting the flag state**. The state is decrypted only when it is loaded into the resolver component inside the provider — it is never stored or transmitted in plaintext.
+
+### Getting Your Encryption Key
+
+The encryption key is available in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients), next to the client credentials for your integration.
+
+### Migration
+
+Encryption support was introduced in the following provider versions:
+
+| Provider | Version | Package |
+|----------|---------|---------|
+| JavaScript | `0.16.0` | `@spotify-confidence/openfeature-server-provider-local` |
+| Java | `0.16.0` | `com.spotify.confidence:openfeature-provider-local` |
+| Go | `0.19.0` | `github.com/spotify/confidence-resolver/openfeature-provider/go` |
+| Python | `0.9.0` | `confidence-openfeature-provider` |
+| Rust | `0.7.0` | `spotify-confidence-openfeature-provider-local` |
+
+We strongly recommend enabling encryption now by passing the encryption key when creating your provider. See your provider's README for the exact configuration:
+
+- [JavaScript](js/README.md#encryption)
+- [Java](java/README.md#encryption)
+- [Go](go/README.md#encryption)
+- [Python](python/README.md#encryption)
+- [Rust](rust/README.md#encryption)
+
+> **⚠️ Upcoming change:** Encryption will be made **mandatory** in a future SDK release. We will communicate a timeline and migration path before legacy (unencrypted) provider versions are affected. Adopting encryption now ensures a smooth transition when that happens.
 
 ---
 
