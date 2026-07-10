@@ -3,18 +3,20 @@ import { OpenFeature } from '@openfeature/server-sdk';
 import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { readFileSync } from 'node:fs';
 import { WasmResolver } from './WasmResolver';
+import { WasmStateResolver } from './WasmStateResolver';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
 const module = new WebAssembly.Module(moduleBytes);
 
 describe.each([
-  { name: 'unencrypted', encryptionKey: undefined },
-  { name: 'encrypted', encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY },
-])('ConfidenceServerProvider E2E ($name)', ({ name, encryptionKey }) => {
-  const resolver = new WasmResolver(module);
+  { name: 'unencrypted', encryptionKey: undefined, useCompiledStates: true },
+  { name: 'encrypted', encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY, useCompiledStates: false },
+])('ConfidenceServerProvider E2E ($name)', ({ name, encryptionKey, useCompiledStates }) => {
+  const resolver = useCompiledStates ? new WasmStateResolver() : new WasmResolver(module);
   const provider = new ConfidenceServerProviderLocal(resolver, {
     flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
     encryptionKey,
+    useCompiledStates
   });
 
   beforeAll(async () => {
@@ -84,10 +86,11 @@ describe.each([
 });
 
 describe('ConfidenceServerProvider E2E (sticky)', () => {
-  const resolver = new WasmResolver(module);
+  const resolver = new WasmStateResolver();
   const provider = new ConfidenceServerProviderLocal(resolver, {
     flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
     materializationStore: 'CONFIDENCE_REMOTE_STORE',
+    useCompiledStates: true
   });
 
   beforeAll(async () => {

@@ -1,6 +1,7 @@
 import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
 import { LocalResolver } from './LocalResolver';
 import { WasmResolver } from './WasmResolver';
+import { WasmStateResolver } from './WasmStateResolver';
 export type { MaterializationStore } from './materialization';
 export type { SnapshotConfig } from './ConfidenceServerProviderLocal';
 
@@ -12,6 +13,9 @@ let resolver: Promise<LocalResolver> | null = null;
 export type ProviderOptionsExt = ProviderOptions;
 
 export function createConfidenceServerProvider(options: ProviderOptions): ConfidenceServerProviderLocal {
+  if (options.useCompiledStates) {
+    return new ConfidenceServerProviderLocal(new WasmStateResolver(), options);
+  }
   if (!resolver) {
     resolver = createResolver();
   }

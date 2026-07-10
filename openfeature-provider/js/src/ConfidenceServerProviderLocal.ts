@@ -44,6 +44,7 @@ export interface ProviderOptions {
   flushInterval?: number;
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
+  useCompiledStates?: boolean;
 }
 
 /**
@@ -82,10 +83,13 @@ export class ConfidenceServerProviderLocal implements Provider {
     if (!Number.isInteger(this.flushInterval) || this.flushInterval < 1000) {
       throw new Error(`flushInterval must be an integer >= 1000 (1s), currently: ${this.flushInterval}`);
     }
+    const stateBaseUrl = options.useCompiledStates
+      ? 'http://localhost:8080/module-state'
+      : 'https://confidence-resolver-state-cdn.spotifycdn.com';
     this.fetch = Fetch.create(
       [
         withRouter({
-          'https://confidence-resolver-state-cdn.spotifycdn.com/*': [
+          [`${stateBaseUrl}/*`]: [
             withRetry({
               maxAttempts: Infinity,
               baseInterval: 500,
@@ -304,7 +308,10 @@ export class ConfidenceServerProviderLocal implements Provider {
     const hashHex = await sha256Hex(this.options.flagClientSecret);
     const { encryptionKey } = this.options;
     const cdnPath = encryptionKey ? `${hashHex}.enc` : hashHex;
-    const cdnUrl = `https://confidence-resolver-state-cdn.spotifycdn.com/${cdnPath}`;
+    const baseUrl = this.options.useCompiledStates
+      ? 'http://localhost:8080/module-state'
+      : 'https://confidence-resolver-state-cdn.spotifycdn.com';
+    const cdnUrl = `${baseUrl}/${cdnPath}`;
 
     const headers = new Headers();
     if (this.stateEtag) {

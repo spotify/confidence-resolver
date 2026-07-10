@@ -1,0 +1,215 @@
+syntax = "proto3";
+
+package state_module;
+
+import "google/protobuf/struct.proto";
+
+// ============================================================================
+// Resolve API
+// ============================================================================
+
+// Request to resolve flags via the resolve_flags entry point
+message ResolveFlagsRequest {
+  repeated string flags = 1;
+  google.protobuf.Struct evaluation_context = 2;
+  string client_secret = 3;
+  bool apply = 4;
+}
+
+// Response from resolve_flags
+message ResolveFlagsResponse {
+  repeated ResolvedFlag resolved_flags = 1;
+
+  bytes resolve_token = 2;
+
+  repeated Materialization.Record materialization_to_read = 4;
+  repeated Materialization.Record materialization_to_write = 5;
+}
+
+message ResolveProcessResponse {
+  oneof result {
+    ResolveFlagsResponse resolved = 1;
+    SuspendedResolveProcess suspended = 2;
+  }
+}
+
+message SuspendedResolveProcess {
+  uint32 process_id = 1;
+  repeated Materialization.Record materialization_to_read = 2;
+}
+
+// A single resolved flag - wire-compatible with confidence.flags.resolver.v1.ResolvedFlag
+message ResolvedFlag {
+  // Flag name (e.g., "flags/my-flag")
+  string flag = 1;
+
+  // Variant name (e.g., "flags/my-flag/variants/control")
+  string variant = 2;
+
+  // Resolved value as a struct (the "value: T" field)
+  google.protobuf.Struct value = 3;
+
+  // Reason for the resolution
+  ResolveReason reason = 5;
+
+  // Whether this flag should be applied (for shouldApply tracking)
+  bool should_apply = 6;
+}
+
+// ============================================================================
+// Apply API (for deferred apply tracking)
+// ============================================================================
+
+// Wire-compatible with confidence.flags.resolver.v1.ApplyFlagsRequest
+message ApplyRequest {
+  // Flags to mark as applied (field 1 = reference's repeated AppliedFlag flags)
+  repeated AppliedFlag applied_flags = 1;
+  // field 2: client_secret in reference — host concern, skipped
+  // Token from ResolveResponse (field 3 = reference's resolve_token)
+  bytes resolve_token = 3;
+  // Client wall-clock at send, for skew correction
+  Timestamp send_time = 4;
+  // field 5: sdk in reference — host concern, skipped
+  message AppliedFlag {
+    string flag = 1;
+    Timestamp apply_time = 2;
+  }
+}
+
+
+
+// ============================================================================
+// Materialization (sticky assignments)
+// ============================================================================
+
+message Materialization {
+  repeated Record records = 1;
+
+  // This message is used both as a query and a result when reading materializations.
+  message Record {
+    string unit = 1;
+    string materialization = 2;
+    string rule = 3;
+    string variant = 4;
+  }
+}
+
+// ============================================================================
+// Common types
+// ============================================================================
+
+// Reason for the resolution - wire-compatible with confidence.flags.resolver.v1.ResolveReason
+enum ResolveReason {
+  RESOLVE_REASON_UNSPECIFIED = 0;
+  RESOLVE_REASON_MATCH = 1;
+  RESOLVE_REASON_NO_SEGMENT_MATCH = 2;
+  RESOLVE_REASON_NO_TREATMENT_MATCH = 3;
+  RESOLVE_REASON_FLAG_ARCHIVED = 4;
+  RESOLVE_REASON_TARGETING_KEY_ERROR = 5;
+  RESOLVE_REASON_ERROR = 6;
+  RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE = 7;
+  RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED = 8;
+}
+
+// Error codes (matches ErrorCode in provider API)
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_PROVIDER_NOT_READY = 1;
+  ERROR_CODE_PROVIDER_FATAL = 2;
+  ERROR_CODE_FLAG_NOT_FOUND = 3;
+  ERROR_CODE_TYPE_MISMATCH = 4;
+  ERROR_CODE_GENERAL = 5;
+  ERROR_CODE_CYCLE_DETECTED = 6;
+}
+
+// ============================================================================
+// Logging
+// ============================================================================
+
+message WriteLogsPayload {
+  repeated fixed64 parts = 1;  // packed Slices into the buffer
+}
+
+message WriteFlagLogsRequest {
+  repeated FlagAssigned flag_assigned = 1;
+  repeated FlagResolveInfo flag_resolve_info = 4;
+}
+
+message ClientInfo {
+  string client = 1;
+  string client_credential = 2;
+}
+
+message FlagAssigned {
+  string resolve_id = 10;
+  ClientInfo client_info = 3;
+  repeated AppliedFlag flags = 15;
+
+  message AppliedFlag {
+    string flag = 1;
+    string targeting_key = 2;
+    string targeting_key_selector = 3;
+    oneof assignment {
+      AssignmentInfo assignment_match = 4;
+      DefaultAssignment default_assignment = 5;
+    }
+    string assignment_id = 6;
+    string rule = 7;
+    repeated FallthroughAssignment fallthrough_assignments = 8;
+    Timestamp apply_time = 9;
+  }
+  
+  message AssignmentInfo {
+    string segment = 1;
+    string variant = 2;
+  }
+  
+  message DefaultAssignment {
+    DefaultAssignmentReason reason = 1;
+
+    enum DefaultAssignmentReason {
+      DEFAULT_ASSIGNMENT_REASON_UNSPECIFIED = 0;
+      NO_SEGMENT_MATCH = 1;
+      NO_TREATMENT_MATCH = 2;
+      FLAG_ARCHIVED = 3;
+    }
+  }
+  
+}  
+
+
+message FallthroughAssignment {
+  string rule = 1;
+  string assignment_id = 2;
+  string targeting_key = 3;
+  string targeting_key_selector = 4;
+}
+
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+message FlagResolveInfo {
+  string flag = 1;
+  repeated VariantResolveInfo variant_resolve_info = 2;
+  repeated RuleResolveInfo rule_resolve_info = 3;
+
+  message VariantResolveInfo {
+    string variant = 1;
+    int64 count = 3;
+  }
+  
+  message RuleResolveInfo {
+    string rule = 1;
+    int64 count = 2;
+    repeated AssignmentResolveInfo assignment_resolve_info = 3;
+  }
+  
+  message AssignmentResolveInfo {
+    string assignment_id = 1;
+    int64 count = 2;
+  }
+}
+
+

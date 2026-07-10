@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
 import { WasmResolver } from './WasmResolver';
+import { WasmStateResolver } from './WasmStateResolver';
 import { LocalResolver } from './LocalResolver';
 export type { MaterializationStore } from './materialization';
 export type { SnapshotConfig } from './ConfidenceServerProviderLocal';
@@ -14,6 +15,9 @@ export function createConfidenceServerProvider({
   wasmPath,
   ...options
 }: ProviderOptionsExt): ConfidenceServerProviderLocal {
+  if (options.useCompiledStates) {
+    return new ConfidenceServerProviderLocal(new WasmStateResolver(), options);
+  }
   if (!resolver) {
     resolver = createResolver(wasmPath ?? require.resolve('./confidence_resolver.wasm'));
   }
