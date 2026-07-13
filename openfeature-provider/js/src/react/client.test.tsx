@@ -135,7 +135,13 @@ describe('useFlag', () => {
 
     it('calls apply on mount when shouldApply is true', () => {
       const bundle = createTestBundle({
-        'my-flag': { value: { value: true }, reason: 'MATCH', variant: 'x', shouldApply: true },
+        'my-flag': {
+          value: { value: true },
+          reason: 'MATCH',
+          variant: 'x',
+          shouldApply: true,
+          assignmentOrigin: 'flags/my-flag/rules/rule1',
+        },
       });
 
       renderHook(() => useFlag('my-flag.value', false), {
@@ -144,7 +150,10 @@ describe('useFlag', () => {
 
       expect(mockApply).toHaveBeenCalledTimes(1);
       expect(mockApply).toHaveBeenCalledWith('my-flag');
-      expect((window as any).__confidence?.flags?.['flags/my-flag']).toEqual({ variant: 'x' });
+      expect((window as any).__confidence?.flags?.['flags/my-flag']).toEqual({
+        variant: 'x',
+        assignmentOrigin: 'flags/my-flag/rules/rule1',
+      });
     });
 
     it('does not publish flag evaluation when variant is missing', () => {

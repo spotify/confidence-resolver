@@ -77,6 +77,7 @@ describe.each([
       flagMetadata: {},
       value: 3.6,
       shouldApply: true,
+      assignmentOrigin: 'flags/web-sdk-e2e-flag/rules/zphggscnfdpvcp4jy5ui',
     };
 
     expect(await client.getNumberDetails('web-sdk-e2e-flag.obj.double', 1, ctx)).toEqual(expectedObject);

@@ -1707,6 +1707,7 @@ impl<'a> TryFrom<&ResolvedValue<'a>> for flags_resolver::ResolvedFlag {
             flag: value.flag.name.clone(),
             reason: value.inner.reason,
             should_apply: value.should_apply(),
+            assignment_origin: value.inner.rule.clone(),
             ..Default::default()
         };
 

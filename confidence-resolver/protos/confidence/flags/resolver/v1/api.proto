@@ -182,4 +182,7 @@ message ResolvedFlag {
 
   // Determines whether the flag should be applied in the clients
  bool should_apply = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // The origin of the assignment, e.g. the rule name.
+  string assignment_origin = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
 }

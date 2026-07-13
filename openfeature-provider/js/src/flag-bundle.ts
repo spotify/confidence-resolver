@@ -23,13 +23,14 @@ export const decodeToken: (base64: string) => Uint8Array = bytesFromBase64;
 
 export function create({ resolveId, resolveToken, resolvedFlags }: ResolveFlagsResponse): FlagBundle {
   const flags = Object.fromEntries(
-    resolvedFlags.map(({ flag, reason, variant, value, shouldApply }) => {
+    resolvedFlags.map(({ flag, reason, variant, value, shouldApply, assignmentOrigin }) => {
       const name = flag.slice(FLAG_PREFIX.length);
       const details: ResolutionDetails<FlagObject | null> = {
         reason: convertReason(reason),
         variant,
         value: value ?? null,
         shouldApply,
+        assignmentOrigin,
       };
       return [name, details];
     }),

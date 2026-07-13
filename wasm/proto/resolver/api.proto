@@ -80,6 +80,9 @@ message ResolvedFlag {
 
   // The reason to why the flag could be resolved or not.
   rust_guest.ResolveReason reason = 5;
+
+  // The origin of the assignment, e.g. the rule name.
+  string assignment_origin = 7;
 }
 
 // Request for resolving flags with sticky (materialized) assignments

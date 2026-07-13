@@ -4114,5 +4114,28 @@
         "expectError": null
       }
     }
+  },
+  {
+    "name": "assignment_origin_is_matched_rule_name",
+    "resolveRequest": {
+      "flags": ["flags/simple-flag"],
+      "evaluationContext": { "targeting_key": "user1", "country": "SE" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true,
+            "assignmentOrigin": "flags/simple-flag/rules/rule1"
+          }
+        ],
+        "expectError": null
+      }
+    }
   }
 ]
