@@ -87,9 +87,9 @@ message ResolverState {
 
   repeated BloomFilter bloom_filters = 10;
 
-  // The destination for flag log data.
-  // Default (UNSPECIFIED) is treated as EDGE for backwards compatibility.
-  LogDestination log_destination = 11;
+  // The destinations for flag log data. Logs are sent to all listed destinations.
+  // When empty, defaults to EDGE for backwards compatibility.
+  repeated LogDestination log_destinations = 11;
 
   enum LogDestination {
     LOG_DESTINATION_UNSPECIFIED = 0;

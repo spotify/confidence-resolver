@@ -26,17 +26,12 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             };
 
             let bucket = ctx.env.bucket("FLAG_LOGS_BUCKET")?;
-            let now = js_sys::Date::new_0();
-            let year = now.get_utc_full_year();
-            let month = now.get_utc_month() + 1;
-            let day = now.get_utc_date();
-            let hour = now.get_utc_hours();
-            let timestamp_ms = now.get_time() as u64;
+            let timestamp_ms = js_sys::Date::new_0().get_time() as u64;
             let request_id = uuid::Uuid::new_v4();
 
             let key = format!(
-                "flag-logs/{}/date={:04}-{:02}-{:02}/hour={:02}/{}_{}.ndjson",
-                account_id, year, month, day, hour, timestamp_ms, request_id
+                "{}_{}_{}.ndjson",
+                account_id, timestamp_ms, request_id
             );
 
             let mut lines = Vec::new();
