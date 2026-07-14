@@ -452,17 +452,16 @@ pub async fn consume_flag_logs_queue(
             update_prometheus_kv(&kv, &req).await;
         }
 
-        let destination_url = log_destination_url(&RESOLVER_STATE.log_destination);
-        let account_id = match RESOLVER_STATE.log_destination {
-            LogDestination::Edge => None,
-            _ => Some(CDN_STATE_REQUEST.account_id.as_str()),
-        };
-        send_flags_logs(
-            CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(),
-            req,
-            destination_url,
-            account_id,
-        ).await?;
+        let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
+        let account_id = CDN_STATE_REQUEST.account_id.as_str();
+        for dest in &RESOLVER_STATE.log_destinations {
+            let destination_url = log_destination_url(dest);
+            let acct = match dest {
+                LogDestination::Edge => None,
+                _ => Some(account_id),
+            };
+            let _ = send_flags_logs(client_secret, &req, destination_url, acct).await;
+        }
     }
 
     Ok(())
@@ -506,7 +505,7 @@ fn log_destination_url(dest: &LogDestination) -> &'static str {
 
 async fn send_flags_logs(
     client_secret: &str,
-    message: WriteFlagLogsRequest,
+    message: &WriteFlagLogsRequest,
     destination_url: &str,
     account_id: Option<&str>,
 ) -> Result<Response> {

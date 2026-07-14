@@ -211,7 +211,7 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
         bitsets,
         bloom_filters,
         sdk: None,
-        log_destination: LogDestination::Edge,
+        log_destinations: vec![LogDestination::Edge],
     }
 }
 
