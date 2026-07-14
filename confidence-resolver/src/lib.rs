@@ -125,6 +125,22 @@ impl Account {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogDestination {
+    #[default]
+    Edge,
+    Cloudflare,
+}
+
+impl From<i32> for LogDestination {
+    fn from(v: i32) -> Self {
+        match v {
+            2 => LogDestination::Cloudflare,
+            _ => LogDestination::Edge,
+        }
+    }
+}
+
 fn mask_secret(s: &str) -> String {
     let len = s.len();
     if len <= 6 {
@@ -150,6 +166,7 @@ pub struct ResolverState {
     pub bitsets: HashMap<String, bv::BitVec<u8, bv::Lsb0>>,
     pub bloom_filters: HashMap<String, BloomFilter>,
     pub sdk: Option<flags_resolver::Sdk>,
+    pub log_destination: LogDestination,
 }
 impl ResolverState {
     pub fn from_proto(
@@ -212,6 +229,8 @@ impl ResolverState {
             }
         }
 
+        let log_destination = LogDestination::from(state_pb.log_destination);
+
         Ok(ResolverState {
             secrets,
             flags,
@@ -219,6 +238,7 @@ impl ResolverState {
             bitsets,
             bloom_filters,
             sdk,
+            log_destination,
         })
     }
 
@@ -3940,6 +3960,7 @@ mod tests {
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
 
         (segment, state)
@@ -3985,6 +4006,7 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
 
         let client = Client {
@@ -4061,6 +4083,7 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
 
         let client = Client {
@@ -4132,6 +4155,7 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
 
         let client = Client {
@@ -4713,6 +4737,7 @@ mod tests {
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
 
         let context_json = r#"{"targeting_key": "roug", "user": {"email": "test@example.com"}}"#;
@@ -4811,6 +4836,7 @@ mod tests {
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
         (state, flag_name, SECRET.to_string())
     }
@@ -5036,6 +5062,7 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
 
         let context_json = r#"{"country": "SE"}"#;
@@ -5090,6 +5117,7 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
 
         let context_json = r#"{"country": "SE"}"#;
@@ -5142,6 +5170,7 @@ mod tests {
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
             sdk: None,
+            log_destination: LogDestination::Edge,
         };
 
         let context_json = r#"{"visitor_id": "some-visitor"}"#;
