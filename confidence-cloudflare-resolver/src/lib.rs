@@ -5,7 +5,7 @@ use confidence_resolver::{
     proto::{confidence, google::Struct},
     resolve_logger,
     telemetry::{self, TelemetrySnapshot},
-    AccountResolver, FlagToApply, Host, ResolvedValue, ResolverState,
+    AccountResolver, FlagToApply, Host, LogDestination, ResolvedValue, ResolverState,
 };
 use worker::*;
 
@@ -452,7 +452,17 @@ pub async fn consume_flag_logs_queue(
             update_prometheus_kv(&kv, &req).await;
         }
 
-        send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
+        let destination_url = log_destination_url(&RESOLVER_STATE.log_destination);
+        let account_id = match RESOLVER_STATE.log_destination {
+            LogDestination::Edge => None,
+            _ => Some(CDN_STATE_REQUEST.account_id.as_str()),
+        };
+        send_flags_logs(
+            CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(),
+            req,
+            destination_url,
+            account_id,
+        ).await?;
     }
 
     Ok(())
@@ -487,19 +497,32 @@ async fn update_prometheus_kv(kv: &kv::KvStore, req: &WriteFlagLogsRequest) {
     }
 }
 
-async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {
-    let resolve_url = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
+fn log_destination_url(dest: &LogDestination) -> &'static str {
+    match dest {
+        LogDestination::Edge => "https://resolver.confidence.dev/v1/clientFlagLogs:write",
+        LogDestination::Cloudflare => "https://confidence-flag-log-ingest.spotify-confidence.workers.dev/v1/flagLogs:ingest",
+    }
+}
+
+async fn send_flags_logs(
+    client_secret: &str,
+    message: WriteFlagLogsRequest,
+    destination_url: &str,
+    account_id: Option<&str>,
+) -> Result<Response> {
     let mut init = RequestInit::new();
     let headers = Headers::new();
     headers.set("Content-Type", "application/json")?;
     headers.set("Authorization", &format!("ClientSecret {}", client_secret))?;
+    if let Some(account) = account_id {
+        headers.set("X-Confidence-Account", account)?;
+    }
     init.with_headers(headers);
     init.with_method(Method::Post);
     let json = serde_json::to_string(&message)?;
     init.with_body(Some(json.into()));
-    let request = Request::new_with_init(resolve_url, &init)?;
-    let response = Fetch::Request(request).send().await;
-    response
+    let request = Request::new_with_init(destination_url, &init)?;
+    Fetch::Request(request).send().await
 }
 
 impl ResponseExt for Response {

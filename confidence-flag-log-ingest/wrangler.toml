@@ -1,0 +1,10 @@
+name = "confidence-flag-log-ingest"
+main = "build/worker/shim.mjs"
+compatibility_date = "2025-01-28"
+
+[observability]
+enabled = true
+
+[[r2_buckets]]
+binding = "FLAG_LOGS_BUCKET"
+bucket_name = "confidence-flag-logs"
