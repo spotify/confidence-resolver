@@ -93,7 +93,7 @@ message ResolverState {
 
   enum LogDestination {
     LOG_DESTINATION_UNSPECIFIED = 0;
-    LOG_DESTINATION_EDGE = 1;
+    LOG_DESTINATION_SPOTIFY_EDGE = 1;
     LOG_DESTINATION_CLOUDFLARE = 2;
   }
 
