@@ -18,14 +18,12 @@ use crate::error::{Error, Result};
 /// CDN base URL for fetching resolver state.
 const CDN_BASE_URL: &str = "https://confidence-resolver-state-cdn.spotifycdn.com";
 
-/// SetResolverStateRequest message from the CDN.
-/// This is a simple protobuf message containing the state and account ID.
 #[derive(Clone, PartialEq, Message)]
-pub struct SetResolverStateRequest {
+pub struct ClientResolverState {
     #[prost(bytes = "bytes", tag = "1")]
     pub state: Bytes,
     #[prost(string, tag = "2")]
-    pub account_id: String,
+    pub account: String,
 }
 
 /// State fetcher that retrieves resolver state from the CDN.
@@ -124,17 +122,17 @@ impl StateFetcher {
             raw_bytes
         };
 
-        let request = SetResolverStateRequest::decode(proto_bytes).map_err(|e| {
-            Error::StateParse(format!("Failed to decode SetResolverStateRequest: {}", e))
+        let request = ClientResolverState::decode(proto_bytes).map_err(|e| {
+            Error::StateParse(format!("Failed to decode ClientResolverState: {}", e))
         })?;
 
         let state_pb = ResolverStatePb::decode(request.state)
             .map_err(|e| Error::StateParse(format!("Failed to decode ResolverState: {}", e)))?;
 
-        let state = ResolverState::from_proto(state_pb, &request.account_id, self.sdk.clone())
+        let state = ResolverState::from_proto(state_pb, &request.account, self.sdk.clone())
             .map_err(|e| Error::StateParse(format!("Failed to create ResolverState: {:?}", e)))?;
 
-        Ok(Some((state, request.account_id)))
+        Ok(Some((state, request.account)))
     }
 
     /// Decrypt AES-256-GCM encrypted state (Tink NO_PREFIX format).
@@ -330,11 +328,11 @@ mod tests {
         let key = Some(hex::decode(hex_key.trim()).unwrap());
 
         let decrypted = StateFetcher::decrypt(&encrypted, &key).unwrap();
-        let request = SetResolverStateRequest::decode(decrypted.as_slice()).unwrap();
-        assert_eq!(request.account_id, "confidence-test");
+        let request = ClientResolverState::decode(decrypted.as_slice()).unwrap();
+        assert_eq!(request.account, "confidence-test");
 
         let state_pb = ResolverStatePb::decode(request.state).unwrap();
-        let state = ResolverState::from_proto(state_pb, &request.account_id, None).unwrap();
+        let state = ResolverState::from_proto(state_pb, &request.account, None).unwrap();
         assert!(!state.flags.is_empty());
     }
 

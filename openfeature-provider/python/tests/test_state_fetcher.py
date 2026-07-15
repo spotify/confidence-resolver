@@ -6,8 +6,8 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-from confidence.proto.confidence.wasm.messages_pb2 import (
-    SetResolverStateRequest,
+from confidence.proto.confidence.flags.admin.v1.resolver_pb2 import (
+    ClientResolverState,
 )
 from confidence.state_fetcher import StateFetcher
 
@@ -63,10 +63,10 @@ class TestReloadSuccess:
         test_account_id = "test-account-123"
 
         # Create protobuf response
-        state_request = SetResolverStateRequest()
-        state_request.state = test_state
-        state_request.account_id = test_account_id
-        response_bytes = state_request.SerializeToString()
+        client_state = ClientResolverState()
+        client_state.state = test_state
+        client_state.account = test_account_id
+        response_bytes = client_state.SerializeToString()
 
         # Mock the HTTP response
         httpx_mock.add_response(
@@ -95,10 +95,10 @@ class TestReloadNotModified:
         test_account_id = "test-account-123"
 
         # Create protobuf response
-        state_request = SetResolverStateRequest()
-        state_request.state = test_state
-        state_request.account_id = test_account_id
-        response_bytes = state_request.SerializeToString()
+        client_state = ClientResolverState()
+        client_state.state = test_state
+        client_state.account = test_account_id
+        response_bytes = client_state.SerializeToString()
 
         cdn_url = get_cdn_url(client_secret)
 
@@ -178,10 +178,10 @@ class TestEtagSentOnSecondRequest:
         test_account_id = "test-account-123"
 
         # Create protobuf response
-        state_request = SetResolverStateRequest()
-        state_request.state = test_state
-        state_request.account_id = test_account_id
-        response_bytes = state_request.SerializeToString()
+        client_state = ClientResolverState()
+        client_state.state = test_state
+        client_state.account = test_account_id
+        response_bytes = client_state.SerializeToString()
 
         cdn_url = get_cdn_url(client_secret)
 

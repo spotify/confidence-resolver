@@ -11,7 +11,6 @@ import (
 	"time"
 
 	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -78,16 +77,16 @@ func TestFlagsAdminStateFetcher_GetAccountID(t *testing.T) {
 
 // TestFlagsAdminStateFetcher_Reload_Success tests successful state fetching from CDN
 func TestFlagsAdminStateFetcher_Reload_Success(t *testing.T) {
-	// Create a test HTTP server that serves SetResolverStateRequest
+	// Create a test HTTP server that serves ClientResolverState
 	testState := &adminv1.ResolverState{
 		Flags: []*adminv1.Flag{
 			{Name: "flags/test-flag"},
 		},
 	}
 	testStateBytes, _ := proto.Marshal(testState)
-	stateRequest := &wasm.SetResolverStateRequest{
+	stateRequest := &adminv1.ClientResolverState{
 		State:     testStateBytes,
-		AccountId: "test-account-123",
+		Account: "test-account-123",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
 
@@ -135,9 +134,9 @@ func TestFlagsAdminStateFetcher_Reload_NotModified(t *testing.T) {
 		{Name: "flags/test-flag"},
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
-	stateRequest := &wasm.SetResolverStateRequest{
+	stateRequest := &adminv1.ClientResolverState{
 		State:     testStateBytes,
-		AccountId: "test-account",
+		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
 
@@ -221,9 +220,9 @@ func TestFlagsAdminStateFetcher_Provide(t *testing.T) {
 		{Name: "flags/test-flag"},
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
-	stateRequest := &wasm.SetResolverStateRequest{
+	stateRequest := &adminv1.ClientResolverState{
 		State:     testStateBytes,
-		AccountId: "test-account",
+		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
 
@@ -259,9 +258,9 @@ func TestFlagsAdminStateFetcher_Provide_ReturnsStateOnError(t *testing.T) {
 		{Name: "flags/test-flag"},
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
-	stateRequest := &wasm.SetResolverStateRequest{
+	stateRequest := &adminv1.ClientResolverState{
 		State:     testStateBytes,
-		AccountId: "test-account",
+		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
 

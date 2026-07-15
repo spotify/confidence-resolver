@@ -16,6 +16,15 @@ option java_outer_classname = "ResolverProto";
 // Annotations and metadata fields removed for minimal dependencies
 // Only fields needed for flag resolution are included
 
+// The resolver state for operating a flags resolver but sliced to only contain what is needed for a specific client
+message ClientResolverState {
+  // The serialized ResolverState proto
+  bytes state = 1;
+
+  // The account the referenced state belongs to
+  string account = 2;
+}
+
 // The full state for operating a flags resolver
 message ResolverState {
   // All active flags

@@ -10,8 +10,8 @@ from typing import Optional, Tuple
 
 import httpx
 
-from confidence.proto.confidence.wasm.messages_pb2 import (
-    SetResolverStateRequest,
+from confidence.proto.confidence.flags.admin.v1.resolver_pb2 import (
+    ClientResolverState,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,10 +124,10 @@ class StateFetcher:
             if self._encryption_key:
                 content = _decrypt_aes_gcm(content, self._encryption_key)
 
-            state_request = SetResolverStateRequest()
-            state_request.ParseFromString(content)
-            self._state = state_request.state
-            self._account_id = state_request.account_id
+            client_state = ClientResolverState()
+            client_state.ParseFromString(content)
+            self._state = client_state.state
+            self._account_id = client_state.account
             logger.info(
                 "Loaded resolver state for account=%s, etag=%s",
                 self._account_id,

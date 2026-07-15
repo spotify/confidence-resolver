@@ -4,7 +4,7 @@ import { WasmResolver } from './WasmResolver';
 import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { advanceTimersUntil, NetworkMock } from './test-helpers';
 import { WriteFlagLogsRequest } from './proto/test-only';
-import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import { ClientResolverState } from './proto/confidence/flags/admin/v1/resolver';
 
 vi.mock(import('./hash'), async () => {
   const { sha256Hex } = await import('./test-helpers');
@@ -32,9 +32,9 @@ describe('flagbundle resolve telemetry', () => {
 
     net.cdn.state.handler = () =>
       new Response(
-        SetResolverStateRequest.encode({
+        ClientResolverState.encode({
           state: stateBytes,
-          accountId: 'confidence-test',
+          account: 'confidence-test',
         }).finish(),
       );
 
