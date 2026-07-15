@@ -35,7 +35,7 @@ pub struct SetResolverStateRequest {
     pub state: Bytes,
     #[prost(string, tag = "2")]
     pub account_id: String,
-    #[prost(int32, repeated, tag = "3")]
+    #[prost(int32, repeated, tag = "4")]
     pub log_destinations: Vec<i32>,
 }
 
