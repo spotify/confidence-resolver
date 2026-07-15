@@ -85,7 +85,7 @@ func TestFlagsAdminStateFetcher_Reload_Success(t *testing.T) {
 	}
 	testStateBytes, _ := proto.Marshal(testState)
 	stateRequest := &adminv1.ClientResolverState{
-		State:     testStateBytes,
+		State:   testStateBytes,
 		Account: "test-account-123",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
@@ -135,7 +135,7 @@ func TestFlagsAdminStateFetcher_Reload_NotModified(t *testing.T) {
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
 	stateRequest := &adminv1.ClientResolverState{
-		State:     testStateBytes,
+		State:   testStateBytes,
 		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
@@ -221,7 +221,7 @@ func TestFlagsAdminStateFetcher_Provide(t *testing.T) {
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
 	stateRequest := &adminv1.ClientResolverState{
-		State:     testStateBytes,
+		State:   testStateBytes,
 		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
@@ -259,7 +259,7 @@ func TestFlagsAdminStateFetcher_Provide_ReturnsStateOnError(t *testing.T) {
 	}}
 	testStateBytes, _ := proto.Marshal(testState)
 	stateRequest := &adminv1.ClientResolverState{
-		State:     testStateBytes,
+		State:   testStateBytes,
 		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
