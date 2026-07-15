@@ -166,7 +166,6 @@ pub struct ResolverState {
     pub bitsets: HashMap<String, bv::BitVec<u8, bv::Lsb0>>,
     pub bloom_filters: HashMap<String, BloomFilter>,
     pub sdk: Option<flags_resolver::Sdk>,
-    pub log_destinations: Vec<LogDestination>,
 }
 impl ResolverState {
     pub fn from_proto(
@@ -229,18 +228,6 @@ impl ResolverState {
             }
         }
 
-        let log_destinations: Vec<LogDestination> = state_pb
-            .log_destinations
-            .iter()
-            .map(|&v| LogDestination::from(v))
-            .filter(|d| *d != LogDestination::Edge)
-            .collect();
-        let log_destinations = if log_destinations.is_empty() {
-            vec![LogDestination::Edge]
-        } else {
-            log_destinations
-        };
-
         Ok(ResolverState {
             secrets,
             flags,
@@ -248,7 +235,6 @@ impl ResolverState {
             bitsets,
             bloom_filters,
             sdk,
-            log_destinations,
         })
     }
 
@@ -3970,7 +3956,6 @@ mod tests {
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
 
         (segment, state)
@@ -4016,7 +4001,6 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
 
         let client = Client {
@@ -4093,7 +4077,6 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
 
         let client = Client {
@@ -4165,7 +4148,6 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
 
         let client = Client {
@@ -4747,7 +4729,6 @@ mod tests {
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
 
         let context_json = r#"{"targeting_key": "roug", "user": {"email": "test@example.com"}}"#;
@@ -4846,7 +4827,6 @@ mod tests {
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
         (state, flag_name, SECRET.to_string())
     }
@@ -5072,7 +5052,6 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
 
         let context_json = r#"{"country": "SE"}"#;
@@ -5127,7 +5106,6 @@ mod tests {
             bitsets,
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
 
         let context_json = r#"{"country": "SE"}"#;
@@ -5180,7 +5158,6 @@ mod tests {
             bitsets: HashMap::new(),
             bloom_filters: HashMap::new(),
             sdk: None,
-            log_destinations: vec![LogDestination::Edge],
         };
 
         let context_json = r#"{"visitor_id": "some-visitor"}"#;

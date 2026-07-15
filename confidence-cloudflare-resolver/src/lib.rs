@@ -32,7 +32,9 @@ pub struct ClientResolverState {
     #[prost(bytes = "bytes", tag = "1")]
     pub state: Bytes,
     #[prost(string, tag = "2")]
-    pub account: String,
+    pub account_id: String,
+    #[prost(int32, repeated, tag = "4")]
+    pub log_destinations: Vec<i32>,
 }
 
 /// The CDN response containing both the state and account_id
@@ -62,11 +64,21 @@ static CDN_STATE_REQUEST: Lazy<ClientResolverState> = Lazy::new(|| {
         .expect("Failed to decode ClientResolverState from CDN state")
 });
 
+static LOG_DESTINATIONS: Lazy<Vec<LogDestination>> = Lazy::new(|| {
+    let raw = &CDN_STATE_REQUEST.log_destinations;
+    let parsed: Vec<LogDestination> = raw.iter().map(|&v| LogDestination::from(v)).collect();
+    if parsed.is_empty() {
+        vec![LogDestination::Edge]
+    } else {
+        parsed
+    }
+});
+
 static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
     let cdn_request = &*CDN_STATE_REQUEST;
     ResolverState::from_proto(
         cdn_request.state.to_vec().try_into().unwrap(),
-        &cdn_request.account,
+        &cdn_request.account_id,
         None,
     )
     .unwrap()
@@ -488,7 +500,7 @@ pub async fn consume_flag_logs_queue(
 
         let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
         let account_id = CDN_STATE_REQUEST.account_id.as_str();
-        for dest in &RESOLVER_STATE.log_destinations {
+        for dest in LOG_DESTINATIONS.iter() {
             let destination_url = log_destination_url(dest);
             let acct = match dest {
                 LogDestination::Edge => None,
