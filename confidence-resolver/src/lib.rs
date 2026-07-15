@@ -125,6 +125,22 @@ impl Account {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogDestination {
+    #[default]
+    Edge,
+    Cloudflare,
+}
+
+impl From<i32> for LogDestination {
+    fn from(v: i32) -> Self {
+        match v {
+            2 => LogDestination::Cloudflare,
+            _ => LogDestination::Edge,
+        }
+    }
+}
+
 fn mask_secret(s: &str) -> String {
     let len = s.len();
     if len <= 6 {

@@ -87,6 +87,12 @@ message ResolverState {
 
   repeated BloomFilter bloom_filters = 10;
 
+  enum LogDestination {
+    LOG_DESTINATION_UNSPECIFIED = 0;
+    LOG_DESTINATION_SPOTIFY_EDGE = 1;
+    LOG_DESTINATION_CLOUDFLARE = 2;
+  }
+
   // A bloom filter for a materialized segment, delivered to local resolvers.
   // The raw bit array is extracted from Guava's BloomFilter serialization format.
   message BloomFilter {

@@ -5,7 +5,7 @@ use confidence_resolver::{
     proto::{confidence, google::Struct},
     resolve_logger,
     telemetry::{self, TelemetrySnapshot},
-    AccountResolver, FlagToApply, Host, ResolvedValue, ResolverState,
+    AccountResolver, FlagToApply, Host, LogDestination, ResolvedValue, ResolverState,
 };
 use worker::*;
 
@@ -35,6 +35,8 @@ pub struct SetResolverStateRequest {
     pub state: Bytes,
     #[prost(string, tag = "2")]
     pub account_id: String,
+    #[prost(int32, repeated, tag = "4")]
+    pub log_destinations: Vec<i32>,
 }
 
 /// The CDN response containing both the state and account_id
@@ -61,6 +63,16 @@ static CONFIDENCE_CLIENT_SECRET: OnceLock<String> = OnceLock::new();
 static CDN_STATE_REQUEST: Lazy<SetResolverStateRequest> = Lazy::new(|| {
     SetResolverStateRequest::decode(Bytes::from_static(CDN_STATE_BYTES))
         .expect("Failed to decode SetResolverStateRequest from CDN state")
+});
+
+static LOG_DESTINATIONS: Lazy<Vec<LogDestination>> = Lazy::new(|| {
+    let raw = &CDN_STATE_REQUEST.log_destinations;
+    let parsed: Vec<LogDestination> = raw.iter().map(|&v| LogDestination::from(v)).collect();
+    if parsed.is_empty() {
+        vec![LogDestination::Edge]
+    } else {
+        parsed
+    }
 });
 
 static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
@@ -452,7 +464,16 @@ pub async fn consume_flag_logs_queue(
             update_prometheus_kv(&kv, &req).await;
         }
 
-        send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
+        let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
+        let account_id = CDN_STATE_REQUEST.account_id.as_str();
+        for dest in LOG_DESTINATIONS.iter() {
+            let destination_url = log_destination_url(dest);
+            let acct = match dest {
+                LogDestination::Edge => None,
+                _ => Some(account_id),
+            };
+            let _ = send_flags_logs(client_secret, &req, destination_url, acct).await;
+        }
     }
 
     Ok(())
@@ -487,19 +508,32 @@ async fn update_prometheus_kv(kv: &kv::KvStore, req: &WriteFlagLogsRequest) {
     }
 }
 
-async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {
-    let resolve_url = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
+fn log_destination_url(dest: &LogDestination) -> &'static str {
+    match dest {
+        LogDestination::Edge => "https://resolver.confidence.dev/v1/clientFlagLogs:write",
+        LogDestination::Cloudflare => "https://confidence-flag-log-ingest.spotify-confidence.workers.dev/v1/flagLogs:ingest",
+    }
+}
+
+async fn send_flags_logs(
+    client_secret: &str,
+    message: &WriteFlagLogsRequest,
+    destination_url: &str,
+    account_id: Option<&str>,
+) -> Result<Response> {
     let mut init = RequestInit::new();
     let headers = Headers::new();
     headers.set("Content-Type", "application/json")?;
     headers.set("Authorization", &format!("ClientSecret {}", client_secret))?;
+    if let Some(account) = account_id {
+        headers.set("X-Confidence-Account", account)?;
+    }
     init.with_headers(headers);
     init.with_method(Method::Post);
     let json = serde_json::to_string(&message)?;
     init.with_body(Some(json.into()));
-    let request = Request::new_with_init(resolve_url, &init)?;
-    let response = Fetch::Request(request).send().await;
-    response
+    let request = Request::new_with_init(destination_url, &init)?;
+    Fetch::Request(request).send().await
 }
 
 impl ResponseExt for Response {
