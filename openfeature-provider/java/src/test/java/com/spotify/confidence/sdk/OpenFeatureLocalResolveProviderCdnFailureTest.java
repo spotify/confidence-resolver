@@ -106,7 +106,7 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
                         .toPath());
 
             final var clientState =
-                com.spotify.confidence.sdk.flags.admin.v1.ResolverProto.ClientResolverState.newBuilder()
+                com.spotify.confidence.sdk.flags.admin.v1.ClientResolverState.newBuilder()
                     .setState(com.google.protobuf.ByteString.copyFrom(rawState))
                     .setAccount(ACCOUNT_NAME)
                     .build();

@@ -85,7 +85,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         }
 
         final var clientState =
-            com.spotify.confidence.sdk.flags.admin.v1.ResolverProto.ClientResolverState.parseFrom(bytes);
+            com.spotify.confidence.sdk.flags.admin.v1.ClientResolverState.parseFrom(bytes);
         this.accountId = clientState.getAccount();
         rawResolverStateHolder.set(clientState.getState().toByteArray());
         etagHolder.set(etag);
