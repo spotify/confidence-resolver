@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
@@ -87,8 +88,11 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		materializationStore = newRemoteMaterializationStore(resolverv1.NewInternalFlagLoggerServiceClient(conn), config.ClientSecret)
 	}
 
+	initLabels := map[string]string{
+		"encryption": strconv.FormatBool(config.EncryptionKey != ""),
+	}
 	resolverSupplier := func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, config.ResolverPoolSize)
+		return lr.NewLocalResolverWithLabels(ctx, logSink, config.ResolverPoolSize, initLabels)
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)

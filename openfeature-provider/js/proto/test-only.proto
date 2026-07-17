@@ -35,6 +35,14 @@ message TelemetryData {
 
   string resolver_version = 8;
 
+  repeated ProviderInitRate provider_init_rate = 9;
+
+  message ProviderInitRate {
+    uint32 count = 1;
+    reserved 2; // status — tbd
+    map<string, string> labels = 3;
+  }
+
   message ResolveLatency {
     uint32 sum = 1;
     uint32 count = 2;

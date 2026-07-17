@@ -44,6 +44,14 @@ message WriteFlagLogsResponse {}
 message TelemetryData {
   // Information about the SDK/provider
   Sdk sdk = 2;
+
+  repeated ProviderInitRate provider_init_rate = 9;
+
+  message ProviderInitRate {
+    uint32 count = 1;
+    reserved 2; // status — tbd
+    map<string, string> labels = 3;
+  }
 }
 
 message ClientInfo {

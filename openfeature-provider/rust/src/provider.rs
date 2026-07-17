@@ -1,6 +1,6 @@
 //! OpenFeature provider implementation for Confidence.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -168,16 +168,20 @@ impl ConfidenceProvider {
         let client = client_builder.build();
 
         let sdk = provider_sdk();
+        let encryption_enabled = options.encryption_key.is_some();
         let state_fetcher = Arc::new(StateFetcher::new(
             client.clone(),
             options.client_secret.clone(),
             Some(sdk.clone()),
             options.encryption_key,
         ));
+        let init_labels =
+            BTreeMap::from([("encryption".to_string(), encryption_enabled.to_string())]);
         let log_manager = Arc::new(LogManager::new(
             client.clone(),
             options.client_secret.clone(),
             sdk,
+            init_labels,
         ));
 
         // Create materialization store if configured
