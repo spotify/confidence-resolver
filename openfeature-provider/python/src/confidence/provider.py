@@ -32,7 +32,11 @@ from confidence.materialization import (
     VariantReadResult,
     VariantWriteOp,
 )
-from confidence.proto.confidence.flags.resolver.v1 import api_pb2, types_pb2
+from confidence.proto.confidence.flags.resolver.v1 import (
+    api_pb2,
+    internal_api_pb2,
+    types_pb2,
+)
 from confidence.proto.confidence.wasm import wasm_api_pb2
 from confidence.state_fetcher import StateFetcher
 from confidence.version import __version__
@@ -152,6 +156,10 @@ class ConfidenceProvider(AbstractProvider):
         """
         self._client_secret = client_secret
         self._encryption_key = encryption_key
+        self._init_labels: Dict[str, str] = {
+            "encryption": str(bool(encryption_key)).lower()
+        }
+        self._first_flush = True
         self._state_poll_interval = state_poll_interval
         self._log_poll_interval = log_poll_interval
         self._assign_poll_interval = assign_poll_interval
@@ -300,7 +308,7 @@ class ConfidenceProvider(AbstractProvider):
         # Flush final logs
         if self._resolver is not None:
             try:
-                log_data = self._resolver.flush_logs()
+                log_data = self._append_init(self._resolver.flush_logs())
                 if log_data and self._flag_logger is not None:
                     self._flag_logger.write(log_data)
             except Exception as e:
@@ -744,6 +752,19 @@ class ConfidenceProvider(AbstractProvider):
         except Exception as e:
             logger.error("Failed to write materializations: %s", e)
 
+    def _append_init(self, log_data: bytes) -> bytes:
+        if self._first_flush and log_data:
+            self._first_flush = False
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.ParseFromString(log_data)
+            init_rate = request.telemetry_data.provider_init_rate.add()
+            init_rate.count = 1
+            for k, v in self._init_labels.items():
+                init_rate.labels[k] = v
+            return request.SerializeToString()
+        self._first_flush = False
+        return log_data
+
     def _flush_assigned(self) -> None:
         """Flush assigned logs."""
         if self._resolver is None or self._flag_logger is None:
@@ -804,6 +825,7 @@ class ConfidenceProvider(AbstractProvider):
                     with self._resolver_lock:
                         flushed_logs = self._resolver.flush_logs()
                         self._resolver.set_resolver_state(state, account_id, sdk)
+                    flushed_logs = self._append_init(flushed_logs)
                     if flushed_logs and self._flag_logger is not None:
                         self._flag_logger.write(flushed_logs)
                     logger.debug("Resolver state updated")
@@ -831,6 +853,7 @@ class ConfidenceProvider(AbstractProvider):
                 try:
                     with self._resolver_lock:
                         log_data = self._resolver.flush_logs()
+                    log_data = self._append_init(log_data)
                     if log_data and self._flag_logger is not None:
                         self._flag_logger.write(log_data)
                 except Exception as e:

@@ -18,10 +18,12 @@ import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
+import com.spotify.confidence.sdk.flags.resolver.v1.TelemetryData;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,6 +51,8 @@ class WasmLocalResolver implements LocalResolver {
   private final ExportFunction wasmMsgAlloc;
   private final ExportFunction wasmMsgFree;
   private final Consumer<WriteFlagLogsRequest> logSink;
+  private final Map<String, String> initLabels;
+  private boolean firstFlush = true;
 
   // api
   private final ExportFunction wasmMsgGuestSetResolverState;
@@ -60,8 +64,9 @@ class WasmLocalResolver implements LocalResolver {
   private final ExportFunction wasmMsgGuestPrometheusSnapshot;
   private final ReentrantLock lock = new ReentrantLock();
 
-  public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
+  public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink, Map<String, String> initLabels) {
     this.logSink = logSink;
+    this.initLabels = initLabels;
     this.instanceId = String.valueOf(INSTANCE_COUNTER.getAndIncrement());
     instance =
         Instance.builder(ConfidenceResolverModule.load())
@@ -192,7 +197,21 @@ class WasmLocalResolver implements LocalResolver {
       final var voidRequest = Messages.Void.getDefaultInstance();
       final var reqPtr = transferRequest(voidRequest);
       final var respPtr = (int) wasmMsgBoundedFlushLogs.apply(reqPtr)[0];
-      final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
+      var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
+      if (firstFlush) {
+        firstFlush = false;
+        request =
+            request.toBuilder()
+                .setTelemetryData(
+                    request.getTelemetryData().toBuilder()
+                        .addProviderInitRate(
+                            TelemetryData.ProviderInitRate.newBuilder()
+                                .setCount(1)
+                                .putAllLabels(initLabels)
+                                .build())
+                        .build())
+                .build();
+      }
       if (!isEmptyLogRequest(request)) {
         logSink.accept(request);
       }
@@ -279,9 +298,8 @@ class WasmLocalResolver implements LocalResolver {
       final Messages.Response response = Messages.Response.parseFrom(consume(addr));
       if (response.hasError()) {
         throw new RuntimeException(response.getError());
-      } else {
-        return codec.apply(response.getData().toByteArray());
       }
+      return codec.apply(response.getData().toByteArray());
     } catch (InvalidProtocolBufferException e) {
       throw new RuntimeException(e);
     }
@@ -350,4 +368,5 @@ class WasmLocalResolver implements LocalResolver {
 
     T apply(byte[] data) throws InvalidProtocolBufferException;
   }
+
 }

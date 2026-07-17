@@ -44,7 +44,16 @@ type localResolverImpl struct {
 }
 
 func NewLocalResolverWithPoolSize(ctx context.Context, logSink LogSink, poolSize int) LocalResolver {
-	factory := NewWasmResolverFactory(logSink)
+	return NewLocalResolverWithLabels(ctx, logSink, poolSize, nil)
+}
+
+func NewLocalResolverWithLabels(ctx context.Context, logSink LogSink, poolSize int, initLabels map[string]string) LocalResolver {
+	var factory LocalResolverFactory
+	if len(initLabels) > 0 {
+		factory = NewWasmResolverFactoryWithLabels(logSink, initLabels)
+	} else {
+		factory = NewWasmResolverFactory(logSink)
+	}
 	factory = NewRecoveringResolverFactory(factory)
 	if poolSize <= 0 {
 		poolSize = DefaultPoolSize

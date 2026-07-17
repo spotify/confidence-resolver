@@ -112,6 +112,8 @@ message WriteFlagAssignedResponse {
 // consumers everything needed to reconstruct bucket boundaries and resample
 // between different histogram configurations if needed.
 message TelemetryData {
+  reserved 1; // was: int64 dropped_events
+
   // Information about the SDK/provider
   Sdk sdk = 2 [
     (google.api.field_behavior) = OPTIONAL
@@ -127,6 +129,14 @@ message TelemetryData {
   // Version of the embedded resolver (e.g. "0.14.0").
   // Set from the confidence-resolver crate version at build time.
   string resolver_version = 8;
+
+  repeated ProviderInitRate provider_init_rate = 9;
+
+  message ProviderInitRate {
+    uint32 count = 1;
+    reserved 2; // status — tbd
+    map<string, string> labels = 3;
+  }
 
   message ResolveLatency {
     // Delta sum of observed values since the last flush.
