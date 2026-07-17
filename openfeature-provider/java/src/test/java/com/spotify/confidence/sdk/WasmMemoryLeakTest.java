@@ -10,6 +10,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -32,7 +33,7 @@ class WasmMemoryLeakTest {
 
   @Test
   void wasmMemoryStableOnRepeatedResolveCalls() {
-    WasmLocalResolver resolver = new WasmLocalResolver(request -> {});
+    WasmLocalResolver resolver = new WasmLocalResolver(request -> {}, Map.of());
     resolver.setResolverState(ResolveTest.exampleStateBytes, "account", null);
 
     ResolveProcessRequest request =

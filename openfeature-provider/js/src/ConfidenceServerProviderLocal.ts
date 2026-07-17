@@ -77,6 +77,8 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly stateUpdateInterval: number;
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
+  private readonly initLabels: Record<string, string>;
+  private firstFlush = true;
   private stateEtag: string | null = null;
   private logDestinations: LogDestination[] = [];
   private accountId = '';
@@ -164,6 +166,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     } else {
       this.materializationStore = null;
     }
+    this.initLabels = { encryption: options.encryptionKey ? 'true' : 'false' };
   }
 
   async initialize(context?: EvaluationContext): Promise<void> {
@@ -375,8 +378,17 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   // TODO should this return success/failure, or even throw?
   async flush(signal?: AbortSignal): Promise<void> {
-    const writeFlagLogRequest = this.resolver.flushLogs();
+    let writeFlagLogRequest = this.resolver.flushLogs();
     if (writeFlagLogRequest.length > 0) {
+      if (this.firstFlush) {
+        this.firstFlush = false;
+        const decoded = WriteFlagLogsRequest.decode(writeFlagLogRequest);
+        if (!decoded.telemetryData) {
+          decoded.telemetryData = { providerInitRate: [] };
+        }
+        decoded.telemetryData!.providerInitRate = [{ count: 1, labels: this.initLabels }];
+        writeFlagLogRequest = WriteFlagLogsRequest.encode(decoded).finish();
+      }
       await this.sendFlagLogs(writeFlagLogRequest, signal);
     }
   }

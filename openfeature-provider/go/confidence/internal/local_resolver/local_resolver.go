@@ -58,11 +58,24 @@ func NewLocalResolverWithPoolSize(ctx context.Context, logSink LogSink, poolSize
 }
 
 func NewLocalResolver(ctx context.Context, logSink LogSink, cfg LocalResolverConfig) LocalResolver {
+	return newLocalResolver(ctx, logSink, cfg, nil)
+}
+
+func NewLocalResolverWithLabels(ctx context.Context, logSink LogSink, cfg LocalResolverConfig, initLabels map[string]string) LocalResolver {
+	return newLocalResolver(ctx, logSink, cfg, initLabels)
+}
+
+func newLocalResolver(ctx context.Context, logSink LogSink, cfg LocalResolverConfig, initLabels map[string]string) LocalResolver {
 	poolSize := cfg.PoolSize
 	if poolSize <= 0 {
 		poolSize = DefaultPoolSize
 	}
-	factory := NewWasmResolverFactory(logSink, cfg.UseWasmInterpreter)
+	var factory LocalResolverFactory
+	if len(initLabels) > 0 {
+		factory = NewWasmResolverFactoryWithLabels(logSink, cfg.UseWasmInterpreter, initLabels)
+	} else {
+		factory = NewWasmResolverFactory(logSink, cfg.UseWasmInterpreter)
+	}
 	factory = NewRecoveringResolverFactory(factory)
 	return &localResolverImpl{
 		PooledResolver: *NewPooledResolver(poolSize, factory.New),
