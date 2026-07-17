@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
@@ -104,7 +105,10 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		materializationStore = newRemoteMaterializationStore(resolverv1.NewInternalFlagLoggerServiceClient(conn), config.ClientSecret)
 	}
 
-	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter)
+	initLabels := map[string]string{
+		"encryption": strconv.FormatBool(config.EncryptionKey != ""),
+	}
+	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.DisableExposureCollection)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
@@ -131,7 +135,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	if materializationStore == nil {
 		materializationStore = newUnsupportedMaterializationStore()
 	}
-	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter)
+	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, nil)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false, config.DisableExposureCollection)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
@@ -139,13 +143,13 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	return provider, nil
 }
 
-func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool) func(context.Context, lr.LogSink) lr.LocalResolver {
+func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels map[string]string) func(context.Context, lr.LogSink) lr.LocalResolver {
 	cfg := lr.LocalResolverConfig{
 		PoolSize:           poolSize,
 		UseWasmInterpreter: useWasmInterpreter,
 	}
 	return func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolver(ctx, logSink, cfg)
+		return lr.NewLocalResolverWithLabels(ctx, logSink, cfg, initLabels)
 	}
 }
 

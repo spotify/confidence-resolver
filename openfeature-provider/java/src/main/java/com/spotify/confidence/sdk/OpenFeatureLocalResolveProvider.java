@@ -20,6 +20,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -162,6 +163,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         new GrpcWasmFlagLogger(
             clientSecret, config.getChannelFactory(), config.getHttpClientFactory());
     this.flagLogger = wasmFlagLogger;
+    final Map<String, String> initLabels =
+        Map.of("encryption", String.valueOf(config.getEncryptionKey() != null));
     final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
     final LocalResolver inner =
         new PooledResolver(
@@ -172,7 +175,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                         new WasmLocalResolver(
                             flagLogger::write,
                             config.isEnableApplyDedup(),
-                            config.isDisableExposureCollection())));
+                            config.isDisableExposureCollection(),
+                            initLabels)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -231,7 +235,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                 new RecoveringResolver(
                     () ->
                         new WasmLocalResolver(
-                            wasmFlagLogger::write, enableApplyDedup, disableExposureCollection)));
+                            wasmFlagLogger::write,
+                            enableApplyDedup,
+                            disableExposureCollection,
+                            Map.of())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 

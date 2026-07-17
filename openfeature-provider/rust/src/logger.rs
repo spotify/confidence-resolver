@@ -1,13 +1,17 @@
 //! Log management for sending flag logs to the Confidence API.
 
 use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use prost::Message;
 use reqwest_middleware::ClientWithMiddleware;
 use tokio::sync::RwLock;
 
 use confidence_resolver::assign_logger::AssignLogger;
-use confidence_resolver::proto::confidence::flags::resolver::v1::{Sdk, WriteFlagLogsRequest};
+use confidence_resolver::proto::confidence::flags::resolver::v1::{
+    telemetry_data::ProviderInitRate, Sdk, WriteFlagLogsRequest,
+};
 use confidence_resolver::resolve_logger::ResolveLogger;
 
 use crate::error::Result;
@@ -156,19 +160,25 @@ fn encode_ingest_request(account_id: &str, batch: &[u8]) -> Vec<u8> {
 pub struct LogManager {
     sender: LogSender,
     sdk: Sdk,
+    init_labels: BTreeMap<String, String>,
+    first_flush: AtomicBool,
 }
 
 impl LogManager {
+    /// Create a new log manager with the given client, client secret, and SDK identity.
     pub fn new(
         client: ClientWithMiddleware,
         client_secret: String,
         sdk: Sdk,
         account_id: Arc<RwLock<Option<String>>>,
         destinations: Arc<RwLock<Vec<LogDestination>>>,
+        init_labels: BTreeMap<String, String>,
     ) -> Self {
         Self {
             sender: LogSender::new(client, client_secret, account_id, destinations),
             sdk,
+            init_labels,
+            first_flush: AtomicBool::new(true),
         }
     }
 
@@ -183,6 +193,12 @@ impl LogManager {
 
         let mut td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
         td.sdk = Some(self.sdk.clone());
+        if self.first_flush.swap(false, Ordering::Relaxed) {
+            td.provider_init_rate.push(ProviderInitRate {
+                count: 1,
+                labels: self.init_labels.clone(),
+            });
+        }
         request.telemetry_data = Some(td);
 
         let encoded = request.encode_to_vec();
