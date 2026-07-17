@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.19.1...confidence_resolver-v0.20.0) (2026-07-17)
+
+
+### Features
+
+* add assignment_origin to ResolvedFlag ([#472](https://github.com/spotify/confidence-resolver/issues/472)) ([353a4e3](https://github.com/spotify/confidence-resolver/commit/353a4e3ff890706d522681cd359848d5a0472b1a))
+
 ## [0.19.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.19.0...confidence_resolver-v0.19.1) (2026-07-08)
 
 

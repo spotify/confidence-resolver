@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.16.0...openfeature-provider-js-v0.17.0) (2026-07-17)
+
+
+### Features
+
+* add assignment_origin to ResolvedFlag ([#472](https://github.com/spotify/confidence-resolver/issues/472)) ([353a4e3](https://github.com/spotify/confidence-resolver/commit/353a4e3ff890706d522681cd359848d5a0472b1a))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.3.0 to 0.3.1
+
 ## [0.16.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.15.2...openfeature-provider-js-v0.16.0) (2026-07-08)
 
 
