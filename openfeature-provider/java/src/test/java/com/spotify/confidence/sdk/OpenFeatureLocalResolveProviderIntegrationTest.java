@@ -68,13 +68,13 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
                     new File(getClass().getResource("/resolver_state_current.pb").getPath())
                         .toPath());
 
-            // Wrap it in a SetResolverStateRequest as the CDN does
-            final var stateRequest =
-                com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.newBuilder()
+            // Wrap it in a ClientResolverState as the CDN does
+            final var clientState =
+                com.spotify.confidence.sdk.flags.admin.v1.ClientResolverState.newBuilder()
                     .setState(com.google.protobuf.ByteString.copyFrom(rawState))
-                    .setAccountId(ACCOUNT_NAME)
+                    .setAccount(ACCOUNT_NAME)
                     .build();
-            final byte[] responseBytes = stateRequest.toByteArray();
+            final byte[] responseBytes = clientState.toByteArray();
 
             exchange.getResponseHeaders().set("Content-Type", "application/octet-stream");
             exchange.getResponseHeaders().set("ETag", "\"test-etag\"");

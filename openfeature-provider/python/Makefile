@@ -84,7 +84,8 @@ proto: $(INSTALL_STAMP)
 		--python_out=src/confidence/proto \
 		--grpc_python_out=src/confidence/proto \
 		../proto/confidence/flags/resolver/v1/*.proto \
-		../proto/confidence/wasm/*.proto
+		../proto/confidence/wasm/*.proto \
+		../proto/confidence/flags/admin/v1/*.proto
 
 # Copy WASM file (alias for compatibility)
 wasm: $(RESOURCES_WASM)

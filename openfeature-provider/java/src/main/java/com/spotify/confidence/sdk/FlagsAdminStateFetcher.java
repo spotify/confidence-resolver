@@ -84,10 +84,10 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
           bytes = decryptAesGcm(bytes, encryptionKey);
         }
 
-        final var stateRequest =
-            com.spotify.confidence.sdk.wasm.Messages.SetResolverStateRequest.parseFrom(bytes);
-        this.accountId = stateRequest.getAccountId();
-        rawResolverStateHolder.set(stateRequest.getState().toByteArray());
+        final var clientState =
+            com.spotify.confidence.sdk.flags.admin.v1.ClientResolverState.parseFrom(bytes);
+        this.accountId = clientState.getAccount();
+        rawResolverStateHolder.set(clientState.getState().toByteArray());
         etagHolder.set(etag);
       }
       logger.info("Loaded resolver state for account={}, etag={}", accountId, etag);

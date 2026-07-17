@@ -16,6 +16,7 @@ import {
   readResultsToMaterializationRecords,
 } from './materialization';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import { ClientResolverState } from './proto/confidence/flags/admin/v1/resolver';
 import FlagBundleType, * as FlagBundle from './flag-bundle';
 import { ErrorCode, ResolutionDetails } from './types';
 
@@ -329,9 +330,14 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
 
     const plaintext = encryptionKey ? await decryptAesGcm(bytes, hexToBytes(encryptionKey)) : bytes;
-    const stateRequest = SetResolverStateRequest.decode(plaintext);
-    stateRequest.sdk = sdk;
-    this.resolver.setResolverState(stateRequest);
+    const clientState = ClientResolverState.decode(plaintext);
+    this.resolver.setResolverState(
+      SetResolverStateRequest.create({
+        state: clientState.state,
+        accountId: clientState.account,
+        sdk,
+      }),
+    );
   }
 
   // TODO should this return success/failure, or even throw?

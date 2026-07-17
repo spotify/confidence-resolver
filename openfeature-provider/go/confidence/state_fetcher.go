@@ -14,7 +14,6 @@ import (
 	"time"
 
 	admin "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -164,14 +163,14 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 		bytes = plaintext
 	}
 
-	stateRequest := &wasm.SetResolverStateRequest{}
-	if err := proto.Unmarshal(bytes, stateRequest); err != nil {
+	clientState := &admin.ClientResolverState{}
+	if err := proto.Unmarshal(bytes, clientState); err != nil {
 		return fmt.Errorf("failed to decode resolver state: %w", err)
 	}
-	f.accountID.Store(stateRequest.AccountId)
-	f.rawResolverState.Store(stateRequest.State)
+	f.accountID.Store(clientState.Account)
+	f.rawResolverState.Store(clientState.State)
 	f.etag.Store(etag)
-	f.logger.Debug("Loaded resolver state", "etag", etag, "account", stateRequest.AccountId)
+	f.logger.Debug("Loaded resolver state", "etag", etag, "account", clientState.Account)
 	return nil
 }
 

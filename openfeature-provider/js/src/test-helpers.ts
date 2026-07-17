@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import { abortableSleep, isObject, TimeUnit } from './util';
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
+import { ClientResolverState } from './proto/confidence/flags/admin/v1/resolver';
 
 type PayloadFactory = (req: Request) => BodyInit | null;
 type ByteStream = ReadableStream<Uint8Array<ArrayBuffer>>;
@@ -132,9 +132,9 @@ class CdnServerMock extends ServerMock {
   readonly state: EndpointMock;
   constructor() {
     const state = new EndpointMock(() =>
-      SetResolverStateRequest.encode({
+      ClientResolverState.encode({
         state: new Uint8Array(100), // Empty state for testing
-        accountId: '<account>',
+        account: '<account>',
       }).finish(),
     );
     // CDN serves state at any path (using client secret as path)

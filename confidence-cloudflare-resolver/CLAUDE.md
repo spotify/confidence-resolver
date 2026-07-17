@@ -62,7 +62,7 @@ RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo build --target wasm32-unknow
 ## Compile-Time Data
 
 Two files are embedded at compile time from `../../data/`:
-- `resolver_state_current.pb` — Protobuf-encoded `SetResolverStateRequest` containing resolver state + account ID
+- `resolver_state_current.pb` — Protobuf-encoded `ClientResolverState` containing resolver state + account ID
 - `encryption_key` — Base64-encoded encryption key for resolve tokens
 
 ## Deployer

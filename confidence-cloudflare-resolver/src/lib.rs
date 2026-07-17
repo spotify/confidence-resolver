@@ -27,14 +27,12 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::{
 use confidence_resolver::Client;
 use once_cell::sync::Lazy;
 
-/// SetResolverStateRequest message from the CDN.
-/// This matches the protobuf message format returned by the CDN.
 #[derive(Clone, PartialEq, Message)]
-pub struct SetResolverStateRequest {
+pub struct ClientResolverState {
     #[prost(bytes = "bytes", tag = "1")]
     pub state: Bytes,
     #[prost(string, tag = "2")]
-    pub account_id: String,
+    pub account: String,
 }
 
 /// The CDN response containing both the state and account_id
@@ -58,16 +56,16 @@ static FLAGS_LOGS_QUEUE: OnceLock<Queue> = OnceLock::new();
 static CONFIDENCE_CLIENT_SECRET: OnceLock<String> = OnceLock::new();
 
 /// Parsed CDN state request containing both state and account_id
-static CDN_STATE_REQUEST: Lazy<SetResolverStateRequest> = Lazy::new(|| {
-    SetResolverStateRequest::decode(Bytes::from_static(CDN_STATE_BYTES))
-        .expect("Failed to decode SetResolverStateRequest from CDN state")
+static CDN_STATE_REQUEST: Lazy<ClientResolverState> = Lazy::new(|| {
+    ClientResolverState::decode(Bytes::from_static(CDN_STATE_BYTES))
+        .expect("Failed to decode ClientResolverState from CDN state")
 });
 
 static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
     let cdn_request = &*CDN_STATE_REQUEST;
     ResolverState::from_proto(
         cdn_request.state.to_vec().try_into().unwrap(),
-        &cdn_request.account_id,
+        &cdn_request.account,
         None,
     )
     .unwrap()
