@@ -4,6 +4,7 @@ import { WasmResolver } from './WasmResolver';
 import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { advanceTimersUntil, NetworkMock } from './test-helpers';
 import { ClientResolverState } from './proto/confidence/flags/admin/v1/resolver';
+import { WriteFlagLogsRequest } from './proto/test-only';
 
 vi.mock(import('./hash'), async () => {
   const { sha256Hex } = await import('./test-helpers');
@@ -80,6 +81,34 @@ describe('read-only mode', () => {
     await advanceTimersUntil(provider.onClose());
 
     expect(flagLogRequests).toBe(0);
+  });
+
+  it('drains the WASM log buffer in read-only mode (no unbounded queue)', async () => {
+    const module = new WebAssembly.Module(moduleBytes);
+    const resolver = new WasmResolver(module);
+    const provider = new ConfidenceServerProviderLocal(resolver, {
+      flagClientSecret: CLIENT_SECRET,
+      fetch: net.fetch,
+      readOnly: true,
+    });
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    flagLogRequests = 0;
+
+    for (let i = 0; i < 5; i++) {
+      await provider.resolve({ targetingKey: `visitor-${i}` }, ['tutorial-feature'], true);
+    }
+
+    // flush() sends nothing in read-only mode but must still drain the WASM buffer.
+    await advanceTimersUntil(provider.flush());
+    expect(flagLogRequests).toBe(0);
+
+    // A direct flush afterwards should find the buffer already drained.
+    const leftover = WriteFlagLogsRequest.decode(resolver.flushLogs());
+    expect(leftover.flagResolveInfo.length).toBe(0);
+    expect(leftover.clientResolveInfo.length).toBe(0);
+    expect(leftover.flagAssigned.length).toBe(0);
+
+    await advanceTimersUntil(provider.onClose());
   });
 
   it('still sends flag logs when read-only is disabled (sanity)', async () => {
