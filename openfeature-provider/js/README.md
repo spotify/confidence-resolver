@@ -161,6 +161,7 @@ if (details.errorCode) {
 - `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
 - `fetch` (optional): Custom `fetch` implementation. Required for Node < 18; for Node 18+ you can omit.
+- `readOnly` (boolean, optional): When `true`, the provider resolves flag values without sending any data back to Confidence — no apply signals, no resolve/assignment logs, and no telemetry. Flag exposures are not recorded, so experiment metrics are unaffected. Useful for previewing flag values without generating traffic. Defaults to `false`.
 
 The provider periodically:
 

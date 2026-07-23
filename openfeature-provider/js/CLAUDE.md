@@ -34,8 +34,13 @@ interface ProviderOptions {
   flushInterval?: number; // ms between log flushes (default: 15000)
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
+  readOnly?: boolean; // resolve values only; no apply/logs/telemetry sent (default: false)
 }
 ```
+
+When `readOnly` is `true`, resolves are forced to `apply=false`, `applyFlag()` is a
+no-op, `registerResolve()` telemetry is skipped, and `flush()`/`flushAssigned()` still
+drain the WASM log buffers (to bound memory) but never POST to `clientFlagLogs:write`.
 
 ## Build & Test
 

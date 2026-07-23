@@ -45,6 +45,13 @@ export interface ProviderOptions {
   flushInterval?: number;
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
+  /**
+   * When true, the provider resolves flag values without sending any data back to
+   * Confidence: no apply signals, no resolve/assignment logs, and no telemetry.
+   * Flag exposures will not be recorded, so experiment metrics are unaffected.
+   * Defaults to false.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -64,6 +71,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly stateUpdateInterval: number;
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
+  private readonly readOnly: boolean;
   private stateEtag: string | null = null;
 
   private get resolver(): LocalResolver {
@@ -83,6 +91,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     if (!Number.isInteger(this.flushInterval) || this.flushInterval < 1000) {
       throw new Error(`flushInterval must be an integer >= 1000 (1s), currently: ${this.flushInterval}`);
     }
+    this.readOnly = options.readOnly ?? false;
     this.fetch = Fetch.create(
       [
         withRouter({
@@ -187,10 +196,12 @@ export class ConfidenceServerProviderLocal implements Provider {
       return FlagBundle.error(ErrorCode.GENERAL, String(err));
     } finally {
       const latencyUs = Math.round((performance.now() - startMs) * 1000);
-      try {
-        this.resolver.registerResolve({ reason, latencyUs });
-      } catch {
-        // best-effort telemetry
+      if (!this.readOnly) {
+        try {
+          this.resolver.registerResolve({ reason, latencyUs });
+        } catch {
+          // best-effort telemetry
+        }
       }
     }
   }
@@ -199,7 +210,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     const resolveRequest = {
       flags: flagNames.map(name => `flags/${name}`),
       evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
-      apply,
+      apply: this.readOnly ? false : apply,
       clientSecret: this.options.flagClientSecret,
       sdk: {
         id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
@@ -250,10 +261,12 @@ export class ConfidenceServerProviderLocal implements Provider {
           reason = reasonStringToEnum(result.reason);
         }
       }
-      try {
-        this.resolver.registerResolve({ reason, latencyUs });
-      } catch {
-        // best-effort telemetry
+      if (!this.readOnly) {
+        try {
+          this.resolver.registerResolve({ reason, latencyUs });
+        } catch {
+          // best-effort telemetry
+        }
       }
 
       return result;
@@ -342,7 +355,11 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   // TODO should this return success/failure, or even throw?
   async flush(signal?: AbortSignal): Promise<void> {
+    // Drain the WASM buffer even in read-only mode to bound memory, but don't send.
     const writeFlagLogRequest = this.resolver.flushLogs();
+    if (this.readOnly) {
+      return;
+    }
     if (writeFlagLogRequest.length > 0) {
       await this.sendFlagLogs(writeFlagLogRequest, signal);
     }
@@ -350,6 +367,9 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   private async flushAssigned(): Promise<void> {
     const writeFlagLogRequest = this.resolver.flushAssigned();
+    if (this.readOnly) {
+      return;
+    }
     if (writeFlagLogRequest.length > 0) {
       await this.sendFlagLogs(writeFlagLogRequest);
     }
@@ -455,6 +475,9 @@ export class ConfidenceServerProviderLocal implements Provider {
    * @param flagName - Name of the flag to apply
    */
   applyFlag(resolveToken: string, flagName: string): void {
+    if (this.readOnly) {
+      return;
+    }
     const request = {
       flags: [
         {
