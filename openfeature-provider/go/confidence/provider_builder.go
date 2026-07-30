@@ -3,9 +3,7 @@ package confidence
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -22,7 +20,7 @@ const confidenceDomain = "edge-grpc.spotify.com"
 type ProviderConfig struct {
 	ClientSecret                  string
 	EncryptionKey                 string // Optional: hex-encoded AES-256 key for decrypting CDN state
-	Logger                        *slog.Logger
+	Logger                        Logger
 	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
 	MaterializationStore          MaterializationStore // Optional
 	UseRemoteMaterializationStore bool                 // set to true to use a Remote lookup for materializations. Requires that MaterializationStore is nil.
@@ -41,7 +39,7 @@ type ProviderTestConfig struct {
 	StateProvider        StateProvider
 	FlagLogger           FlagLogger
 	ClientSecret         string
-	Logger               *slog.Logger
+	Logger               Logger
 	MaterializationStore MaterializationStore // Optional
 	StatePollInterval    time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
@@ -60,9 +58,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 
 	logger := config.Logger
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+		logger = &noopLogger{}
 	}
 
 	if config.EncryptionKey == "" {
@@ -109,7 +105,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	initLabels := map[string]string{
 		"encryption": strconv.FormatBool(config.EncryptionKey != ""),
 	}
-	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
+	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, logger, initLabels)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.DisableExposureCollection)
 	providerOpts = append(providerOpts,
@@ -131,16 +127,14 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 
 	logger := config.Logger
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+		logger = &noopLogger{}
 	}
 
 	materializationStore := config.MaterializationStore
 	if materializationStore == nil {
 		materializationStore = newUnsupportedMaterializationStore()
 	}
-	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, nil)
+	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, logger, nil)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false, config.DisableExposureCollection)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
@@ -148,10 +142,11 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	return provider, nil
 }
 
-func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels map[string]string) func(context.Context, lr.LogSink) lr.LocalResolver {
+func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, logger Logger, initLabels map[string]string) func(context.Context, lr.LogSink) lr.LocalResolver {
 	cfg := lr.LocalResolverConfig{
 		PoolSize:           poolSize,
 		UseWasmInterpreter: useWasmInterpreter,
+		Logger:             logger,
 	}
 	return func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
 		return newProviderTelemetryResolver(

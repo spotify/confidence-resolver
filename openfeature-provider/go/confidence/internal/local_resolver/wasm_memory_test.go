@@ -14,7 +14,7 @@ import (
 // does not free the guest's request allocation, memory leaks accumulate and
 // eventually force WASM memory.grow.
 func TestWasmMemoryStableOnRepeatedResolveCalls(t *testing.T) {
-	factory := NewWasmResolverFactory(NoOpLogSink, false)
+	factory := NewWasmResolverFactory(NoOpLogSink, newLoggerForTest(t), false)
 	defer factory.Close(context.Background())
 
 	resolver := factory.New()

@@ -11,7 +11,7 @@ import (
 
 func setupBenchResolver(b *testing.B, useInterpreter bool) (LocalResolver, *wasm.ResolveProcessRequest) {
 	b.Helper()
-	factory := NewWasmResolverFactory(NoOpLogSink, useInterpreter)
+	factory := NewWasmResolverFactory(NoOpLogSink, &noopLogger{}, useInterpreter)
 	b.Cleanup(func() { _ = factory.Close(context.Background()) })
 
 	resolver := factory.New()

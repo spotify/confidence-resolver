@@ -12,7 +12,7 @@ import (
 // A resolve on a closed instance must end in a recoverable panic, never in a
 // nil fn.Call (in production that dies as a silent SIGSEGV, exit 139).
 func TestResolveOnClosedInstancePanics(t *testing.T) {
-	factory := NewWasmResolverFactory(NoOpLogSink, false)
+	factory := NewWasmResolverFactory(NoOpLogSink, newLoggerForTest(t), false)
 	defer factory.Close(context.Background())
 
 	resolver := factory.New()

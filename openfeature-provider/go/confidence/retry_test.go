@@ -1,22 +1,20 @@
-package confidence_test
+package confidence
 
 import (
 	"context"
-	"log/slog"
 	"net"
-	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
-	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+
+	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 )
 
 func TestRetryOnUnavailable(t *testing.T) {
@@ -36,7 +34,7 @@ func TestRetryOnUnavailable(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -44,7 +42,7 @@ func TestRetryOnUnavailable(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -72,7 +70,7 @@ func TestNoRetryOnPermissionDenied(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -80,7 +78,7 @@ func TestNoRetryOnPermissionDenied(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -109,7 +107,7 @@ func TestAllRetriesExhausted(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -117,7 +115,7 @@ func TestAllRetriesExhausted(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -146,7 +144,7 @@ func TestShutdownDuringRetries(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -154,7 +152,7 @@ func TestShutdownDuringRetries(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -186,7 +184,7 @@ func TestTransportHooksPreserveRetry(t *testing.T) {
 	t.Cleanup(srv.Stop)
 
 	baseOpts := []grpc.DialOption{
-		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	}
 	opts := append([]grpc.DialOption{}, baseOpts...)
 	opts = append(opts,
@@ -203,7 +201,7 @@ func TestTransportHooksPreserveRetry(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -232,7 +230,7 @@ func TestMultipleWritesWithRetryConfig(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -240,7 +238,7 @@ func TestMultipleWritesWithRetryConfig(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	for i := 0; i < 5; i++ {
 		logger.Write(&resolverv1.WriteFlagLogsRequest{

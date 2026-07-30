@@ -6,18 +6,17 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
-
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
 // instanceCounter is a package-level counter for auto-assigning unique instance IDs.
@@ -39,6 +38,7 @@ func NoOpLogSink(logs *resolverv1.WriteFlagLogsRequest) {}
 type WasmResolver struct {
 	instance   api.Module
 	logSink    LogSink
+	logger     Logger
 	mu         *sync.Mutex
 	instanceID string
 	fnCache    sync.Map
@@ -74,14 +74,14 @@ func (r *WasmResolver) ResolveProcess(request *wasm.ResolveProcessRequest) (*was
 
 func (r *WasmResolver) RegisterResolve(request *wasm.RegisterResolveRequest) {
 	if err := r.call("wasm_msg_guest_register_resolve", request, nil); err != nil {
-		slog.Warn("Failed to register resolve telemetry", "error", err)
+		r.logger.Warn("Failed to register resolve telemetry", "error", err)
 	}
 }
 
 func (r *WasmResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
 	if err := r.call("wasm_msg_guest_apply_flags", request, nil); err != nil {
 		// Apply is best-effort logging — surface the failure but don't propagate.
-		slog.Warn("Failed to apply flags", "error", err)
+		r.logger.Warn("Failed to apply flags", "error", err)
 	}
 	return nil
 }
@@ -112,7 +112,7 @@ func (r *WasmResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics b
 	}
 	resp := &wasm.PrometheusSnapshotResponse{}
 	if err := r.call("wasm_msg_guest_prometheus_snapshot", req, resp); err != nil {
-		slog.Warn("prometheus snapshot failed", "error", err)
+		r.logger.Warn("prometheus snapshot failed", "error", err)
 		return ""
 	}
 	return resp.GetText()
@@ -164,6 +164,7 @@ type WasmResolverFactory struct {
 	runtime wazero.Runtime
 	module  wazero.CompiledModule
 	logSink LogSink
+	logger  Logger
 }
 
 var _ LocalResolverFactory = (*WasmResolverFactory)(nil)
@@ -188,7 +189,8 @@ func transferResponseError(inst api.Module, errMsg string) uint32 {
 	return transfer(inst, mustMarshal(resp))
 }
 
-func NewWasmResolverFactory(logSink LogSink, useInterpreter bool) LocalResolverFactory {
+func NewWasmResolverFactory(logSink LogSink, logger Logger, useInterpreter bool) LocalResolverFactory {
+	logger = defaultLogger(logger)
 	ctx := context.Background()
 	var runtime wazero.Runtime
 	if useInterpreter {
@@ -217,6 +219,7 @@ func NewWasmResolverFactory(logSink LogSink, useInterpreter bool) LocalResolverF
 		runtime: runtime,
 		module:  module,
 		logSink: logSink,
+		logger:  logger,
 	}
 }
 
@@ -231,6 +234,7 @@ func (wrf *WasmResolverFactory) New() LocalResolver {
 	return &WasmResolver{
 		instance:   instance,
 		logSink:    wrf.logSink,
+		logger:     wrf.logger,
 		mu:         &sync.Mutex{},
 		instanceID: fmt.Sprintf("%d", id),
 	}
