@@ -2,7 +2,6 @@ package confidence
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 )
 
@@ -30,7 +29,7 @@ type inMemoryMaterializationStore struct {
 	// storage: unit -> materialization -> data
 	storage map[string]map[string]*materializationData
 	mu      sync.RWMutex
-	logger  *slog.Logger
+	logger  Logger
 	// call tracking for tests
 	readCalls  [][]ReadOp
 	writeCalls [][]WriteOp
@@ -42,9 +41,9 @@ type materializationData struct {
 }
 
 // newInMemoryMaterializationStore creates a new in-memory materialization store.
-func newInMemoryMaterializationStore(logger *slog.Logger) *inMemoryMaterializationStore {
+func newInMemoryMaterializationStore(logger Logger) *inMemoryMaterializationStore {
 	if logger == nil {
-		logger = slog.Default()
+		logger = &noopLogger{}
 	}
 	return &inMemoryMaterializationStore{
 		storage: make(map[string]map[string]*materializationData),
@@ -55,7 +54,7 @@ func newInMemoryMaterializationStore(logger *slog.Logger) *inMemoryMaterializati
 // newInMemoryMaterializationStoreWithInclusions creates a store pre-populated with inclusion data.
 // This is useful for testing materialized segment criterion evaluation.
 // The initialInclusions map structure is: unit -> materialization -> included
-func newInMemoryMaterializationStoreWithInclusions(logger *slog.Logger, initialInclusions map[string]map[string]bool) *inMemoryMaterializationStore {
+func newInMemoryMaterializationStoreWithInclusions(logger Logger, initialInclusions map[string]map[string]bool) *inMemoryMaterializationStore {
 	store := newInMemoryMaterializationStore(logger)
 
 	store.mu.Lock()

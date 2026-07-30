@@ -2,10 +2,8 @@ package confidence
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -24,10 +22,8 @@ const flagLogsTargetingKey = "test-a"
 func TestFlagLogs_ShouldSuccessfullySendToRealBackend(t *testing.T) {
 	ctx := context.Background()
 
-	// Create a custom logger that captures log messages (Debug level to capture all logs)
-	var logBuffer logCaptureBuffer
-	captureHandler := slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug})
-	logger := slog.New(captureHandler)
+	// Create a custom logger that captures log messages
+	logger := newRecorderLogger()
 
 	// Create a real provider with real gRPC connection
 	provider, err := NewProvider(ctx, ProviderConfig{
@@ -64,7 +60,7 @@ func TestFlagLogs_ShouldSuccessfullySendToRealBackend(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify the logs contain success message and no errors
-	logs := logBuffer.String()
+	logs := logger.String()
 	if strings.Contains(logs, "Failed to write flag logs") {
 		t.Errorf("Backend returned error - found 'Failed to write flag logs' in logs:\n%s", logs)
 	}
@@ -73,22 +69,4 @@ func TestFlagLogs_ShouldSuccessfullySendToRealBackend(t *testing.T) {
 	}
 
 	t.Log("Successfully sent WriteFlagLogs to real Confidence backend")
-}
-
-// logCaptureBuffer is a thread-safe buffer for capturing log output
-type logCaptureBuffer struct {
-	mu  sync.Mutex
-	buf strings.Builder
-}
-
-func (b *logCaptureBuffer) Write(p []byte) (n int, err error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *logCaptureBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
 }

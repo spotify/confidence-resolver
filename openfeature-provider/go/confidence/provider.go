@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -56,7 +55,7 @@ type LocalResolverProvider struct {
 	stateProvider     StateProvider
 	flagLogger        FlagLogger
 	clientSecret      string
-	logger            *slog.Logger
+	logger            Logger
 	cancelFunc        context.CancelFunc
 	wg                sync.WaitGroup
 	mu                sync.Mutex
@@ -76,14 +75,12 @@ func NewLocalResolverProvider(
 	stateProvider StateProvider,
 	flagLogger FlagLogger,
 	clientSecret string,
-	logger *slog.Logger,
+	logger Logger,
 	opts ...Option,
 ) *LocalResolverProvider {
 	// Create a default logger if none provided
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+		logger = &noopLogger{}
 	}
 
 	// Apply options
@@ -630,7 +627,7 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 
 // getStatePollInterval gets the state poll interval from environment or returns default
 // Deprecated: Use ProviderConfig.StatePollInterval instead. Environment variable support will be removed in a future version.
-func getStatePollInterval(logger *slog.Logger) time.Duration {
+func getStatePollInterval(logger Logger) time.Duration {
 	if envVal := os.Getenv("CONFIDENCE_STATE_POLL_INTERVAL_SECONDS"); envVal != "" {
 		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
 			if logger != nil {
@@ -644,7 +641,7 @@ func getStatePollInterval(logger *slog.Logger) time.Duration {
 
 // getLogPollInterval gets the log poll interval from environment or returns default
 // Deprecated: Use ProviderConfig.LogPollInterval instead. Environment variable support will be removed in a future version.
-func getLogPollInterval(logger *slog.Logger) time.Duration {
+func getLogPollInterval(logger Logger) time.Duration {
 	if envVal := os.Getenv("CONFIDENCE_LOG_POLL_INTERVAL_SECONDS"); envVal != "" {
 		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
 			if logger != nil {
