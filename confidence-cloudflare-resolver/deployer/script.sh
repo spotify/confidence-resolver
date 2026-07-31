@@ -143,9 +143,6 @@ else
     fi
 fi
 
-# Write key to compile-time embed (empty if key lives only as a runtime secret)
-echo -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" > data/encryption_key
-
 RESPONSE_FILE="data/resolver_state_current.pb"
 ETAG_TOML=""
 ALLOWED_ORIGIN_TOML=""
@@ -343,12 +340,6 @@ add_wrangler_deploy_args_from_lines() {
 
 # Verify all required files
 check_file "data/resolver_state_current.pb"
-# Note: encryption_key may be empty, so we just check it exists
-if [ ! -f "data/encryption_key" ]; then
-    echo "❌ Error: data/encryption_key was not created!" >&2
-    exit 1
-fi
-
 echo "🚀 All files successfully created and verified"
 
 cd confidence-cloudflare-resolver
@@ -601,7 +592,6 @@ export PATH="/usr/local/cargo/bin:$PATH"
 echo "📁 Verifying data files before build..."
 ls -la ../data/
 echo "📁 resolver_state_current.pb size: $(wc -c < ../data/resolver_state_current.pb) bytes"
-echo "📁 encryption_key size: $(wc -c < ../data/encryption_key) bytes"
 
 # Debug: check wasm-bindgen
 echo "🔧 Checking wasm-bindgen..."
@@ -647,10 +637,12 @@ if test -z "$NO_DEPLOY"; then
      # Store encryption key as a Cloudflare Worker secret (persists across deploys)
      if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then
          echo "🔐 Storing RESOLVE_TOKEN_ENCRYPTION_KEY as worker secret..."
+         SECRET_BODY=$(jq -n --arg text "$RESOLVE_TOKEN_ENCRYPTION_KEY" \
+             '{"name": "RESOLVE_TOKEN_ENCRYPTION_KEY", "text": $text, "type": "secret_text"}')
          SECRET_PUT_RESP=$(curl -sS -w "%{http_code}" -X PUT \
              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
              -H "Content-Type: application/json" \
-             -d "{\"name\": \"RESOLVE_TOKEN_ENCRYPTION_KEY\", \"text\": \"${RESOLVE_TOKEN_ENCRYPTION_KEY}\", \"type\": \"secret_text\"}" \
+             -d "$SECRET_BODY" \
              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
          SECRET_PUT_STATUS="${SECRET_PUT_RESP: -3}"
          if [ "$SECRET_PUT_STATUS" = "200" ] || [ "$SECRET_PUT_STATUS" = "201" ]; then
