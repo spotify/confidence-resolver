@@ -37,7 +37,6 @@ pub struct ClientResolverState {
 
 /// The CDN response containing both the state and account_id
 const CDN_STATE_BYTES: &[u8] = include_bytes!("../../data/resolver_state_current.pb");
-const ENCRYPTION_KEY_BASE64: &str = include_str!("../../data/encryption_key");
 
 use confidence::flags::resolver::v1::Sdk;
 use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
@@ -54,6 +53,8 @@ const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8"
 static FLAGS_LOGS_QUEUE: OnceLock<Queue> = OnceLock::new();
 
 static CONFIDENCE_CLIENT_SECRET: OnceLock<String> = OnceLock::new();
+
+static RESOLVE_TOKEN_KEY: OnceLock<Bytes> = OnceLock::new();
 
 /// Parsed CDN state request containing both state and account_id
 static CDN_STATE_REQUEST: Lazy<ClientResolverState> = Lazy::new(|| {
@@ -127,6 +128,30 @@ fn set_client_secret(env: &Env) {
     }
 }
 
+fn init_resolve_token_key(env: &Env) {
+    let _ = RESOLVE_TOKEN_KEY.get_or_init(|| {
+        let s = env
+            .secret("RESOLVE_TOKEN_ENCRYPTION_KEY")
+            .map(|s| s.to_string())
+            .or_else(|_| env.var("RESOLVE_TOKEN_ENCRYPTION_KEY").map(|v| v.to_string()))
+            .expect("RESOLVE_TOKEN_ENCRYPTION_KEY is not configured");
+        let key = Bytes::from(
+            STANDARD
+                .decode(s.trim())
+                .expect("RESOLVE_TOKEN_ENCRYPTION_KEY is not valid base64"),
+        );
+        console_log!("[init] RESOLVE_TOKEN_ENCRYPTION_KEY loaded ({} bytes)", key.len());
+        key
+    });
+}
+
+fn resolve_token_key() -> Bytes {
+    RESOLVE_TOKEN_KEY
+        .get()
+        .expect("RESOLVE_TOKEN_ENCRYPTION_KEY not initialized")
+        .clone()
+}
+
 fn sdk_info() -> Sdk {
     Sdk {
         sdk: Some(confidence::flags::resolver::v1::sdk::Sdk::Id(
@@ -178,6 +203,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     }
 
     set_client_secret(&env);
+    init_resolve_token_key(&env);
 
     let allowed_origin_env = env
         .var("ALLOWED_ORIGIN")
@@ -257,7 +283,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                     "flags:resolve" => {
                         FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
-                        let mut resolver_request: ResolveFlagsRequest =
+                        let resolver_request: ResolveFlagsRequest =
                             match from_slice(&body_bytes) {
                                 Ok(req) => req,
                                 Err(e) => {
@@ -268,8 +294,15 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     .with_cors_headers(&allowed_origin);
                                 }
                             };
-                        // Default apply to true for Cloudflare resolver
-                        resolver_request.apply = true;
+
+                        console_log!(
+                            "[resolve] apply={}, flags={:?}, context keys={:?}",
+                            resolver_request.apply,
+                            resolver_request.flags,
+                            resolver_request.evaluation_context.as_ref().map(|c| c.fields.keys().collect::<Vec<_>>()),
+                        );
+
+                        let encryption_key = resolve_token_key();
                         let evaluation_context = resolver_request
                             .evaluation_context
                             .clone()
@@ -284,7 +317,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         let (reasons, resp) = match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
-                            &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
+                            &encryption_key,
                         ) {
                             Ok(resolver) => {
                                 let process_request = if mat_kv.is_some() {
@@ -300,6 +333,24 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     &resolver, process_request, mat_kv.as_ref(),
                                 ).await {
                                     Ok((response, writes)) => {
+                                        console_log!(
+                                            "[resolve] resolved {} flags, resolve_id={}, resolve_token={} bytes",
+                                            response.resolved_flags.len(),
+                                            response.resolve_id,
+                                            response.resolve_token.len(),
+                                        );
+                                        for rf in &response.resolved_flags {
+                                            console_log!(
+                                                "[resolve]   flag={} variant={} reason={:?}",
+                                                rf.flag, rf.variant, rf.reason(),
+                                            );
+                                        }
+                                        if !response.resolve_token.is_empty() {
+                                            console_log!(
+                                                "[resolve] resolve_token present (apply=false flow), base64 len={}",
+                                                STANDARD.encode(&response.resolve_token).len(),
+                                            );
+                                        }
                                         if !writes.is_empty() {
                                             MAT_WRITES.with(|f| {
                                                 *f.borrow_mut() = Some(writes);
@@ -371,26 +422,42 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         };
 
-                        // This resolver forces apply=true at resolve time and
-                        // returns no resolve token. Some SDKs still send a background
+                        console_log!(
+                            "[apply] received apply request with {} flags, resolve_token={} bytes",
+                            apply_flag_req.flags.len(),
+                            apply_flag_req.resolve_token.len(),
+                        );
+                        for af in &apply_flag_req.flags {
+                            console_log!("[apply]   flag={}", af.flag);
+                        }
+
+                        // SDKs that resolved with apply=true send a background
                         // apply with an empty token — nothing to do.
                         if apply_flag_req.resolve_token.is_empty() {
+                            console_log!("[apply] empty resolve_token, skipping (apply=true flow)");
                             return Response::from_json(&ApplyFlagsResponse::default())?
                                 .with_cors_headers(&allowed_origin);
                         }
 
+                        let encryption_key = resolve_token_key();
+                        console_log!("[apply] decrypting resolve_token...");
                         match state.get_resolver::<H>(
                             &apply_flag_req.client_secret,
                             Struct::default(),
-                            &Bytes::from(STANDARD.decode(ENCRYPTION_KEY_BASE64).unwrap()),
+                            &encryption_key,
                         ) {
                             Ok(resolver) => match resolver.apply_flags(&apply_flag_req) {
-                                Ok(()) => Response::from_json(&ApplyFlagsResponse::default()),
+                                Ok(()) => {
+                                    console_log!("[apply] success — assignments logged");
+                                    Response::from_json(&ApplyFlagsResponse::default())
+                                }
                                 Err(msg) => {
+                                    console_log!("[apply] error: {}", msg);
                                     Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                                 }
                             },
                             Err(msg) => {
+                                console_log!("[apply] resolver error: {}", msg);
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                             }
                         }

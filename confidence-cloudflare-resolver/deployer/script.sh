@@ -31,11 +31,8 @@ if test -z "$CLOUDFLARE_API_TOKEN"; then
     exit 1
 fi
 
-# Default RESOLVE_TOKEN_ENCRYPTION_KEY to empty if not set
-if test -z "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
-    RESOLVE_TOKEN_ENCRYPTION_KEY=""
-    echo "⚠️ RESOLVE_TOKEN_ENCRYPTION_KEY not set, using empty value"
-fi
+# RESOLVE_TOKEN_ENCRYPTION_KEY is resolved after the worker name and account ID
+# are determined (see the auto-generation block below).
 
 if test -z "$CONFIDENCE_CLIENT_SECRET"; then
     echo "CONFIDENCE_CLIENT_SECRET must be set"
@@ -115,6 +112,40 @@ if test -n "$CLOUDFLARE_ACCOUNT_ID"; then
 fi
 
 mkdir -p data
+
+# --- Resolve Token Encryption Key ---
+# Auto-generate if not provided and no existing secret on the worker.
+# The key is stored as a Cloudflare Worker secret so it persists across deploys.
+SET_SECRET_AFTER_DEPLOY=""
+if test -n "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
+    echo "🔐 RESOLVE_TOKEN_ENCRYPTION_KEY provided"
+    SET_SECRET_AFTER_DEPLOY="true"
+else
+    echo "🔍 Checking for existing RESOLVE_TOKEN_ENCRYPTION_KEY secret on worker '$WORKER_NAME'..."
+    SECRETS_RESP=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets" 2>/dev/null) || SECRETS_RESP="000"
+    SECRETS_STATUS="${SECRETS_RESP: -3}"
+    SECRETS_BODY="${SECRETS_RESP%???}"
+
+    HAS_SECRET="false"
+    if [ "$SECRETS_STATUS" = "200" ] && command -v jq >/dev/null 2>&1; then
+        HAS_SECRET=$(printf "%s" "$SECRETS_BODY" | jq -r '[.result[] | select(.name == "RESOLVE_TOKEN_ENCRYPTION_KEY")] | length > 0' 2>/dev/null || echo "false")
+    fi
+
+    if [ "$HAS_SECRET" = "true" ]; then
+        echo "✅ Existing RESOLVE_TOKEN_ENCRYPTION_KEY secret found on worker"
+    else
+        echo "🔑 Auto-generating RESOLVE_TOKEN_ENCRYPTION_KEY..."
+        RESOLVE_TOKEN_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(16).toString('base64'))")
+        SET_SECRET_AFTER_DEPLOY="true"
+        echo "✅ Generated encryption key for resolve tokens"
+    fi
+fi
+
+# Write key to compile-time embed (empty if key lives only as a runtime secret)
+echo -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" > data/encryption_key
+
 RESPONSE_FILE="data/resolver_state_current.pb"
 ETAG_TOML=""
 ALLOWED_ORIGIN_TOML=""
@@ -231,8 +262,6 @@ else
     rm -f "$TMP_HEADER"
     exit 1
 fi
-
-echo -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" > data/encryption_key
 
 # Function to check if a file exists and is not empty
 check_file() {
@@ -615,6 +644,23 @@ add_wrangler_deploy_args_from_lines "WRANGLER_DEPLOY_ARGS" "$WRANGLER_DEPLOY_ARG
 if test -z "$NO_DEPLOY"; then
      wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"
 
+     # Store encryption key as a Cloudflare Worker secret (persists across deploys)
+     if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then
+         echo "🔐 Storing RESOLVE_TOKEN_ENCRYPTION_KEY as worker secret..."
+         SECRET_PUT_RESP=$(curl -sS -w "%{http_code}" -X PUT \
+             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+             -H "Content-Type: application/json" \
+             -d "{\"name\": \"RESOLVE_TOKEN_ENCRYPTION_KEY\", \"text\": \"${RESOLVE_TOKEN_ENCRYPTION_KEY}\", \"type\": \"secret_text\"}" \
+             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
+         SECRET_PUT_STATUS="${SECRET_PUT_RESP: -3}"
+         if [ "$SECRET_PUT_STATUS" = "200" ] || [ "$SECRET_PUT_STATUS" = "201" ]; then
+             echo "✅ RESOLVE_TOKEN_ENCRYPTION_KEY stored as worker secret"
+         else
+             echo "⚠️ Could not store encryption key as worker secret (HTTP $SECRET_PUT_STATUS)"
+             echo "   The key is embedded in the worker binary for this deployment."
+             echo "   To persist across deploys, set RESOLVE_TOKEN_ENCRYPTION_KEY explicitly."
+         fi
+     fi
 else
      echo "NO_DEPLOY is set, skipping deploy"
 fi

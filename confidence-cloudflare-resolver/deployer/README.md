@@ -55,7 +55,7 @@ The deployer automatically:
 | `CLOUDFLARE_ACCOUNT_ID`              | Required only if the API token has access to multiple accounts                                                                                    |
 | `CONFIDENCE_RESOLVER_STATE_URL`      | Custom resolver state URL (overrides default URL to Confidence CDN)                                                                               |
 | `CONFIDENCE_RESOLVER_ALLOWED_ORIGIN` | Configure allowed origins for CORS                                                                                                                |
-| `RESOLVE_TOKEN_ENCRYPTION_KEY`       | AES-128 key (base64 encoded) used to encrypt resolve tokens when `apply=false`. Not needed since the resolver defaults `apply` to `true`          |
+| `RESOLVE_TOKEN_ENCRYPTION_KEY`       | AES-128 key (base64-encoded, 16 bytes). Used to encrypt resolve tokens for `apply=false`. Auto-generated on first deploy if not provided, and stored as a Cloudflare Worker secret |
 | `FORCE_DEPLOY`                       | Force re-deploy regardless of state changes                                                                                                       |
 | `NO_DEPLOY`                          | Build only, skip deployment                                                                                                                       |
 | `WORKER_NAME_PREFIX`                 | Prefix for worker and queue names. Deploys as `<prefix>-confidence-cloudflare-resolver` with queue `<prefix>-flag-logs-queue` (auto-created)     |
@@ -214,8 +214,18 @@ Each assignment is stored as a separate KV entry keyed by `mat:{unit}:{materiali
 
 Without `ENABLE_STICKY_ASSIGNMENTS`, sticky assignments are disabled and flags requiring them will return "flag not found".
 
+## Deferred Apply (`apply=false`)
+
+The resolver supports deferred apply: when a client sends `apply=false`, the resolve response includes an encrypted resolve token instead of immediately logging the exposure. The client later sends this token to the `/v1/flags:apply` endpoint to record the exposure at the time the flag value was actually shown to the user.
+
+An AES-128 encryption key is required for this flow. The deployer manages the key automatically:
+
+1. If `RESOLVE_TOKEN_ENCRYPTION_KEY` is provided, it is used and stored as a Cloudflare Worker secret.
+2. If not provided, the deployer checks if a secret already exists on the worker from a previous deploy.
+3. If no secret exists, a random key is generated and stored as a Cloudflare Worker secret.
+
+The key persists across deploys via Cloudflare's secret storage. To rotate the key, set `RESOLVE_TOKEN_ENCRYPTION_KEY` to a new value — tokens encrypted with the old key will no longer be valid.
+
 ## Limitations
 
-* **Immediate apply**: The Cloudflare resolver forces `apply=true` on every resolve request, regardless of what the client SDK sends. This means:
-  * Flag exposures are logged immediately at resolve time, before the flag value is rendered or shown to the user.
-  * No resolve token is returned to the client, so the SDK's deferred apply mechanism is effectively disabled — apply calls from the SDK are accepted but silently discarded.
+* **No runtime state updates** — Flag rules only update on redeployment.
