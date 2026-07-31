@@ -1633,20 +1633,6 @@
           }
         ],
         "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [
-          {
-            "flag": "flags/empty-range-flag",
-            "reason": "RESOLVE_REASON_MATCH",
-            "variant": "on",
-            "value": {
-              "enabled": true
-            },
-            "shouldApply": true
-          }
-        ],
-        "expectError": null
       }
     }
   },
