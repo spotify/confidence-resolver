@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.20.0...openfeature-provider/go/v0.20.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **openfeature-provider/go:** release with synced WASM module ([#504](https://github.com/spotify/confidence-resolver/issues/504)) ([c2e729d](https://github.com/spotify/confidence-resolver/commit/c2e729d70bb1ba81c94bf7b9ce00e6fce85543dc))
+
 ## [0.20.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.19.0...openfeature-provider/go/v0.20.0) (2026-08-03)
 
 
