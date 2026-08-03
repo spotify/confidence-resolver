@@ -194,6 +194,107 @@ func TestFlagsAdminStateFetcher_Reload_NotModified(t *testing.T) {
 	}
 }
 
+// TestFlagsAdminStateFetcher_Reload_IfModifiedSinceFallback tests that
+// date-based caching still works when ETag validation is broken (e.g. a proxy
+// strips or rewrites If-None-Match)
+func TestFlagsAdminStateFetcher_Reload_IfModifiedSinceFallback(t *testing.T) {
+	const lastModified = "Mon, 03 Aug 2026 12:00:00 GMT"
+	requestCount := 0
+	testState := &adminv1.ResolverState{Flags: []*adminv1.Flag{
+		{Name: "flags/test-flag"},
+	}}
+	testStateBytes, _ := proto.Marshal(testState)
+	stateRequest := &adminv1.ClientResolverState{
+		State:   testStateBytes,
+		Account: "test-account",
+	}
+	stateBytes, _ := proto.Marshal(stateRequest)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+
+		// Ignore If-None-Match entirely; only honor If-Modified-Since
+		if r.Header.Get("If-Modified-Since") == lastModified {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+
+		w.Header().Set("ETag", "test-etag")
+		w.Header().Set("Last-Modified", lastModified)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(stateBytes)
+	}))
+	defer server.Close()
+
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher.HTTPClient = &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: &testTransport{testServerURL: server.URL},
+	}
+	ctx := context.Background()
+
+	if err := fetcher.Reload(ctx); err != nil {
+		t.Errorf("Expected no error on first reload, got %v", err)
+	}
+	if err := fetcher.Reload(ctx); err != nil {
+		t.Errorf("Expected no error on second reload, got %v", err)
+	}
+
+	if requestCount != 2 {
+		t.Errorf("Expected 2 HTTP requests, got %d", requestCount)
+	}
+	if lm := fetcher.lastModified.Load(); lm == nil || lm.(string) != lastModified {
+		t.Error("Expected Last-Modified to be stored")
+	}
+}
+
+// TestFlagsAdminStateFetcher_Reload_NoValidators tests that no conditional
+// headers are sent when the server never returned ETag or Last-Modified
+func TestFlagsAdminStateFetcher_Reload_NoValidators(t *testing.T) {
+	testState := &adminv1.ResolverState{Flags: []*adminv1.Flag{
+		{Name: "flags/test-flag"},
+	}}
+	testStateBytes, _ := proto.Marshal(testState)
+	stateRequest := &adminv1.ClientResolverState{
+		State:   testStateBytes,
+		Account: "test-account",
+	}
+	stateBytes, _ := proto.Marshal(stateRequest)
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if requestCount > 1 {
+			if _, present := r.Header["If-None-Match"]; present {
+				t.Error("Expected no If-None-Match header when no ETag was received")
+			}
+			if _, present := r.Header["If-Modified-Since"]; present {
+				t.Error("Expected no If-Modified-Since header when no Last-Modified was received")
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(stateBytes)
+	}))
+	defer server.Close()
+
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher.HTTPClient = &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: &testTransport{testServerURL: server.URL},
+	}
+	ctx := context.Background()
+
+	if err := fetcher.Reload(ctx); err != nil {
+		t.Errorf("Expected no error on first reload, got %v", err)
+	}
+	if err := fetcher.Reload(ctx); err != nil {
+		t.Errorf("Expected no error on second reload, got %v", err)
+	}
+	if requestCount != 2 {
+		t.Errorf("Expected 2 HTTP requests, got %d", requestCount)
+	}
+}
+
 // TestFlagsAdminStateFetcher_Reload_Error tests error handling
 func TestFlagsAdminStateFetcher_Reload_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
