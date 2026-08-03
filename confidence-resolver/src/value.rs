@@ -170,6 +170,10 @@ fn evaluate_range_rule(
     range_rule: &targeting::RangeRule,
     context_value: &targeting::Value,
 ) -> bool {
+    if range_rule.start.is_none() && range_rule.end.is_none() {
+        return false;
+    }
+
     let after_start = match &range_rule.start {
         Some(targeting::range_rule::Start::StartInclusive(start_inclusive)) => {
             start_inclusive.lte(context_value)
