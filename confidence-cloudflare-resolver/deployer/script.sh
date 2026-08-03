@@ -21,6 +21,7 @@ WRANGLER_DEPLOY_ARGS_FILE=${WRANGLER_DEPLOY_ARGS_FILE:=}
 WRANGLER_DEPLOY_TAG=${WRANGLER_DEPLOY_TAG:=}
 WRANGLER_DEPLOY_MESSAGE=${WRANGLER_DEPLOY_MESSAGE:=}
 ENABLE_STICKY_ASSIGNMENTS=${ENABLE_STICKY_ASSIGNMENTS:=}
+FORCE_APPLY=${FORCE_APPLY:=}
 INITIAL_WORKDIR="$(pwd)"
 
 # CDN base URL for fetching resolver state
@@ -540,15 +541,25 @@ if [ -n "$CONFIDENCE_CLIENT_SECRET" ]; then
     CLIENT_SECRET_TOML=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
 fi
 
+# Validate FORCE_APPLY if provided (worker defaults to true when unset)
+if [ -n "$FORCE_APPLY" ]; then
+    FORCE_APPLY=$(printf '%s' "$FORCE_APPLY" | tr '[:upper:]' '[:lower:]')
+    if [ "$FORCE_APPLY" != "true" ] && [ "$FORCE_APPLY" != "false" ]; then
+        echo "❌ FORCE_APPLY must be \"true\" or \"false\", got: $FORCE_APPLY" >&2
+        exit 1
+    fi
+fi
+
 # Update [vars] table with ALLOWED_ORIGIN, RESOLVER_STATE_ETAG and RESOLVER_VERSION, without duplicating the table
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ]; then
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^DEPLOYER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" '
+    sed -i.tmp '/^FORCE_APPLY *= *.*$/d' wrangler.toml || true
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -557,6 +568,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (etag != "") print "RESOLVER_STATE_ETAG = \"" etag "\""
                 if (version != "") print "DEPLOYER_VERSION = \"" version "\""
                 if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
+                if (force_apply != "") print "FORCE_APPLY = \"" force_apply "\""
                 inserted=1
             }
         }
@@ -572,6 +584,9 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     fi
     if [ -n "$CLIENT_SECRET_TOML" ]; then
         echo "✅ CONFIDENCE_CLIENT_SECRET set in wrangler.toml"
+    fi
+    if [ -n "$FORCE_APPLY" ]; then
+        echo "✅ FORCE_APPLY set to \"$FORCE_APPLY\" in wrangler.toml"
     fi
 fi
 

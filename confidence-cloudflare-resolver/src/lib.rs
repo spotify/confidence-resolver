@@ -208,6 +208,15 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .map(|var| var.to_string())
         .unwrap_or("*".to_string()); // Fallback to "*" if the variable is not set
 
+    // When true (the default), every resolve is treated as apply=true so
+    // assignments are logged at resolve time. Deployments that want the
+    // deferred-apply flow (SDKs resolving with apply=false and calling
+    // flags:apply later) opt out by setting FORCE_APPLY = "false".
+    let force_apply = env
+        .var("FORCE_APPLY")
+        .map(|var| !var.to_string().trim().eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
+
     // Optional env var containing the resolver state ETag for this deployment
     let state_etag_env = env
         .var("RESOLVER_STATE_ETAG")
@@ -281,7 +290,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                     "flags:resolve" => {
                         FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
-                        let resolver_request: ResolveFlagsRequest =
+                        let mut resolver_request: ResolveFlagsRequest =
                             match from_slice(&body_bytes) {
                                 Ok(req) => req,
                                 Err(e) => {
@@ -292,6 +301,9 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     .with_cors_headers(&allowed_origin);
                                 }
                             };
+                        if force_apply {
+                            resolver_request.apply = true;
+                        }
 
                         let encryption_key = resolve_token_key();
                         let evaluation_context = resolver_request
@@ -323,11 +335,17 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 match resolve_with_sticky(
                                     &resolver, process_request, mat_kv.as_ref(),
                                 ).await {
-                                    Ok((response, writes)) => {
+                                    Ok((mut response, writes)) => {
                                         if !writes.is_empty() {
                                             MAT_WRITES.with(|f| {
                                                 *f.borrow_mut() = Some(writes);
                                             });
+                                        }
+                                        // Flags are already applied; an empty
+                                        // token makes SDK background applies
+                                        // hit the no-op path in flags:apply.
+                                        if force_apply {
+                                            response.resolve_token = Default::default();
                                         }
                                         let reasons: Vec<ResolveReason> = response
                                             .resolved_flags

@@ -67,6 +67,7 @@ The deployer automatically:
 | `ENABLE_METRICS`                     | Set to create a KV namespace and enable the `/metrics` Prometheus endpoint. Requires a [KV store](https://developers.cloudflare.com/kv/platform/pricing/) |
 | `ENABLE_STICKY_ASSIGNMENTS`          | Set to create a KV namespace and enable sticky assignments for experiments. Requires a [KV store](https://developers.cloudflare.com/kv/platform/pricing/) |
 | `MATERIALIZATION_TTL_SECONDS`        | TTL in seconds for sticky assignment KV entries. Omit for no expiration |
+| `FORCE_APPLY`                        | Defaults to `true`: every resolve is treated as `apply=true` and assignments are logged at resolve time. Set to `false` to respect the `apply` value sent by SDKs (deferred-apply flow via `flags:apply`) |
 
 ### Extending Wrangler Configuration
 
