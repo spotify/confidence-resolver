@@ -24,6 +24,8 @@ go mod tidy
 - Go 1.24+
 - OpenFeature Go SDK 1.16.0+
 
+> **Note:** Use v0.20.1 or later; the v0.20.0 tag shipped with an out-of-sync embedded WASM module.
+
 ## Getting Your Credentials
 
 You'll need a **client secret** from Confidence to use this provider.
