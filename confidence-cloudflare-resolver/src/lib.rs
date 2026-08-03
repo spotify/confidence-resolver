@@ -335,17 +335,11 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 match resolve_with_sticky(
                                     &resolver, process_request, mat_kv.as_ref(),
                                 ).await {
-                                    Ok((mut response, writes)) => {
+                                    Ok((response, writes)) => {
                                         if !writes.is_empty() {
                                             MAT_WRITES.with(|f| {
                                                 *f.borrow_mut() = Some(writes);
                                             });
-                                        }
-                                        // Flags are already applied; an empty
-                                        // token makes SDK background applies
-                                        // hit the no-op path in flags:apply.
-                                        if force_apply {
-                                            response.resolve_token = Default::default();
                                         }
                                         let reasons: Vec<ResolveReason> = response
                                             .resolved_flags
