@@ -1,6 +1,7 @@
 package confidence
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -498,7 +499,7 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 	}
 
 	// Start background tasks for state updates and log flushing
-	p.startScheduledTasks(ctx)
+	p.startScheduledTasks(ctx, initialState, accountId)
 
 	p.logger.Info("Provider initialized successfully")
 	return nil
@@ -550,7 +551,7 @@ func (p *LocalResolverProvider) Shutdown() {
 }
 
 // startScheduledTasks starts the background tasks for state fetching and log polling
-func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
+func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, appliedState []byte, appliedAccountId string) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	p.mu.Lock()
 	p.cancelFunc = cancel
@@ -578,6 +579,13 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 					continue
 				}
 
+				// Skip the WASM state update if nothing changed (e.g. the fetch
+				// was answered with 304 Not Modified). Re-ingesting identical
+				// state churns the WASM heap for no benefit (#455).
+				if accountId == appliedAccountId && bytes.Equal(state, appliedState) {
+					continue
+				}
+
 				// Flush logs before state update to reduce WASM heap fragmentation (#455)
 				if err := p.resolver.FlushAllLogs(); err != nil {
 					p.logger.Error("Failed to flush logs before state update", "error", err)
@@ -594,7 +602,10 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 				}
 				if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
 					p.logger.Error("Failed to update state", "error", err)
+					continue
 				}
+				appliedState = state
+				appliedAccountId = accountId
 			case <-ctx.Done():
 				return
 			}
