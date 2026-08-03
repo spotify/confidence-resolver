@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.19.0...openfeature-provider/go/v0.20.0) (2026-08-03)
+
+
+### Features
+
+* add assignment_origin to ResolvedFlag ([#472](https://github.com/spotify/confidence-resolver/issues/472)) ([353a4e3](https://github.com/spotify/confidence-resolver/commit/353a4e3ff890706d522681cd359848d5a0472b1a))
+
+
+### Bug Fixes
+
+* **openfeature-provider/go:** send If-Modified-Since when fetching state ([#500](https://github.com/spotify/confidence-resolver/issues/500)) ([f3c96af](https://github.com/spotify/confidence-resolver/commit/f3c96afbce5322849f663d33b0cb2a0dee257d99))
+* **openfeature-provider/go:** skip WASM state update when state unchanged ([#502](https://github.com/spotify/confidence-resolver/issues/502)) ([334cd5f](https://github.com/spotify/confidence-resolver/commit/334cd5febc7ff73d53a7dbe29359ae50ca453045))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.3.0 to 0.3.1
+
 ## [0.19.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.18.0...openfeature-provider/go/v0.19.0) (2026-07-08)
 
 

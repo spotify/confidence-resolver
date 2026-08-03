@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.11.1...confidence-cloudflare-resolver-v0.12.0) (2026-08-03)
+
+
+### Features
+
+* **cloudflare:** add FORCE_APPLY option to control apply behavior ([#501](https://github.com/spotify/confidence-resolver/issues/501)) ([75a93f2](https://github.com/spotify/confidence-resolver/commit/75a93f220f4615271d088e55c8d4475671a810e3))
+* **cloudflare:** support deferred apply with auto-managed encryption key ([#496](https://github.com/spotify/confidence-resolver/issues/496)) ([498dd2a](https://github.com/spotify/confidence-resolver/commit/498dd2a64bfe440e259d1918dff94d615c2f64e2))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.19.1 to 0.20.0
+
 ## [0.11.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.11.0...confidence-cloudflare-resolver-v0.11.1) (2026-07-08)
 
 
