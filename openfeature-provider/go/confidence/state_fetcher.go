@@ -27,6 +27,7 @@ type FlagsAdminStateFetcher struct {
 	clientSecret     string
 	encryptionKey    string
 	etag             atomic.Value // stores string
+	lastModified     atomic.Value // stores string
 	rawResolverState atomic.Value // stores []byte
 	accountID        atomic.Value // stores string
 	HTTPClient       *http.Client // Exported for testing
@@ -126,9 +127,15 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 		return err
 	}
 
-	// Add If-None-Match header if we have a previous ETag
-	if previousEtag := f.etag.Load(); previousEtag != nil {
-		req.Header.Set("If-None-Match", previousEtag.(string))
+	// Add If-None-Match header if we have a previous ETag. Also send
+	// If-Modified-Since as a fallback: some network paths (e.g. proxies that
+	// rewrite or strip ETags) break ETag validation while date-based
+	// validation still works.
+	if previousEtag, ok := f.etag.Load().(string); ok && previousEtag != "" {
+		req.Header.Set("If-None-Match", previousEtag)
+	}
+	if lastModified, ok := f.lastModified.Load().(string); ok && lastModified != "" {
+		req.Header.Set("If-Modified-Since", lastModified)
 	}
 
 	resp, err := f.HTTPClient.Do(req)
@@ -170,6 +177,7 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 	f.accountID.Store(clientState.Account)
 	f.rawResolverState.Store(clientState.State)
 	f.etag.Store(etag)
+	f.lastModified.Store(resp.Header.Get("Last-Modified"))
 	f.logger.Debug("Loaded resolver state", "etag", etag, "account", clientState.Account)
 	return nil
 }
