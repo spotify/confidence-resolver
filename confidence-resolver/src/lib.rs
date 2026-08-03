@@ -980,11 +980,15 @@ impl<'a, H: Host> AccountResolver<'a, H> {
 
         let assignments = resolve_token.assignments;
 
-        // ensure that all flags are present before we start sending events
+        // Apply is best-effort: a flag in the request that is not present in the
+        // resolve token is ignored rather than failing the whole batch. This can
+        // happen with version/schema skew or a client that applies a flag that
+        // wasn't assigned; dropping the entire batch would lose the exposures for
+        // the flags that did match.
         let mut assigned_flags: Vec<FlagToApply> = Vec::with_capacity(request.flags.len());
         for applied_flag in &request.flags {
             let Some(assigned_flag) = assignments.get(&applied_flag.flag) else {
-                return Err("Flag in resolve token does not match flag in request".to_string());
+                continue;
             };
             let Some(apply_time) = applied_flag.apply_time.as_ref() else {
                 return Err(format!("Missing apply time for flag {}", applied_flag.flag));
@@ -2506,7 +2510,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_flags_with_wrong_flag_fails() {
+    fn test_apply_flags_with_wrong_flag_is_ignored() {
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
             "confidence-demo-june",
@@ -2552,17 +2556,130 @@ mod tests {
             sdk: None,
         };
 
+        // Applying a flag that is not in the resolve token is a no-op, not an error.
         let apply_result = resolver.apply_flags(&apply_request);
         assert!(
-            apply_result.is_err(),
-            "apply_flags should fail when applying a flag that wasn't resolved"
+            apply_result.is_ok(),
+            "apply_flags should ignore flags that are not in the resolve token"
         );
-        assert!(
-            apply_result
-                .unwrap_err()
-                .contains("Flag in resolve token does not match"),
-            "Error message should indicate flag mismatch"
+    }
+
+    #[test]
+    fn test_apply_flags_mixed_known_and_unknown_flags() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        struct AssignLogEntry {
+            flag: String,
+        }
+
+        struct TestLogger {
+            assign_logs: std::sync::Mutex<Vec<AssignLogEntry>>,
+        }
+
+        impl Host for TestLogger {
+            fn log_resolve(
+                _resolve_id: &str,
+                _evaluation_context: &Struct,
+                _values: &[ResolvedValue<'_>],
+                _client: &Client,
+            ) {
+            }
+
+            fn log_assign(
+                _resolve_id: &str,
+                assigned_flag: &[FlagToApply],
+                _client: &Client,
+                _sdk: &Option<Sdk>,
+            ) {
+                let mut logs = TestLogger::get_instance()
+                    .assign_logs
+                    .try_lock()
+                    .expect("mutex is locked or poisoned");
+                assigned_flag.iter().for_each(|f| {
+                    logs.push(AssignLogEntry {
+                        flag: f.assigned_flag.flag.clone(),
+                    });
+                });
+            }
+        }
+
+        impl TestLogger {
+            fn get_instance() -> &'static TestLogger {
+                static INSTANCE: std::sync::OnceLock<TestLogger> = std::sync::OnceLock::new();
+                INSTANCE.get_or_init(|| TestLogger {
+                    assign_logs: std::sync::Mutex::new(Vec::new()),
+                })
+            }
+
+            fn get_logs() -> Vec<AssignLogEntry> {
+                TestLogger::get_instance()
+                    .assign_logs
+                    .lock()
+                    .unwrap()
+                    .drain(..)
+                    .collect()
+            }
+        }
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, TestLogger> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec!["flags/tutorial-feature".to_string()],
+            apply: false,
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let response: ResolveFlagsResponse = resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
+
+        let now = Timestamp {
+            seconds: 1704067200,
+            nanos: 0,
+        };
+
+        // Apply a batch containing one flag that is in the token and one that isn't.
+        let apply_request = flags_resolver::ApplyFlagsRequest {
+            flags: vec![
+                flags_resolver::AppliedFlag {
+                    flag: "flags/tutorial-feature".to_string(),
+                    apply_time: Some(now.clone()),
+                },
+                flags_resolver::AppliedFlag {
+                    flag: "flags/wrong-flag".to_string(),
+                    apply_time: Some(now.clone()),
+                },
+            ],
+            client_secret: SECRET.to_string(),
+            resolve_token: response.resolve_token,
+            send_time: Some(now),
+            sdk: None,
+        };
+
+        let apply_result = resolver.apply_flags(&apply_request);
+        assert!(apply_result.is_ok(), "apply_flags should succeed");
+
+        // Only the flag present in the token should have been logged as assigned.
+        let logs = TestLogger::get_logs();
+        assert_eq!(
+            logs.len(),
+            1,
+            "only the flag present in the resolve token should be applied"
         );
+        assert_eq!(logs[0].flag, "flags/tutorial-feature");
     }
 
     #[test]
