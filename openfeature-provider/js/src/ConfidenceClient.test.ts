@@ -123,22 +123,50 @@ describe('ConfidenceClient', () => {
       expect(JSON.parse(JSON.stringify(bundle)).resolveToken).toBe('AQIDBP8=');
     });
 
-    it('rejects on HTTP errors, surfacing the resolver diagnostic', async () => {
+    it('returns an errored bundle on HTTP errors, surfacing the resolver diagnostic', async () => {
       const fetchImpl = mockTransport(undefined, {
         status: 500,
         statusText: 'Internal Server Error',
         body: 'client secret not found: requested=te***et, available=[ab***cd]',
       });
-      await expect(client(fetchImpl).resolve(['promo-banner'], {})).rejects.toThrow(
-        /500 Internal Server Error - client secret not found/,
-      );
+      const bundle = await client(fetchImpl).resolve(['promo-banner'], {});
+
+      expect(bundle.errorCode).toBe(ErrorCode.GENERAL);
+      expect(bundle.errorMessage).toMatch(/500 Internal Server Error - client secret not found/);
+      expect(bundle.flags).toEqual({});
     });
 
-    it('rejects on transport errors', async () => {
+    it('returns an errored bundle on transport errors', async () => {
       const fetchImpl = vi.fn(async () => {
         throw new Error('connect ECONNREFUSED');
       }) as unknown as typeof fetch;
-      await expect(client(fetchImpl).resolve(['promo-banner'], {})).rejects.toThrow('connect ECONNREFUSED');
+      const bundle = await client(fetchImpl).resolve(['promo-banner'], {});
+
+      expect(bundle.errorCode).toBe(ErrorCode.GENERAL);
+      expect(bundle.errorMessage).toMatch('connect ECONNREFUSED');
+    });
+
+    it('returns an errored bundle on a malformed response body', async () => {
+      const fetchImpl = vi.fn(async () => new Response('not json', { status: 200 })) as unknown as typeof fetch;
+      const bundle = await client(fetchImpl).resolve(['promo-banner'], {});
+
+      expect(bundle.errorCode).toBe(ErrorCode.GENERAL);
+    });
+
+    it('errored bundles evaluate to the default with an ERROR reason', async () => {
+      const fetchImpl = vi.fn(async () => {
+        throw new Error('connect ECONNREFUSED');
+      }) as unknown as typeof fetch;
+      // The bundle is still plain JSON, so the failure reaches a browser
+      // labelled as an error rather than as a missing flag.
+      const forwarded = JSON.parse(JSON.stringify(await client(fetchImpl).resolve(['promo-banner'], {})));
+
+      expect(evaluate(forwarded, 'promo-banner.text', 'fallback')).toMatchObject({
+        reason: 'ERROR',
+        errorCode: ErrorCode.GENERAL,
+        value: 'fallback',
+        shouldApply: false,
+      });
     });
 
     it('normalizes trailing slashes on the base url', async () => {

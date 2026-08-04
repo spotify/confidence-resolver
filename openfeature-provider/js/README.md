@@ -263,8 +263,12 @@ Notes:
 
 - `apply` defaults to `true` on `resolve`, so naive usage never silently loses
   exposure data. Deferred apply is the explicit opt-in shown above.
-- `resolve` and `apply` **reject** on transport and HTTP errors — the caller
-  decides the fallback. `evaluate` never throws.
+- `resolve` **never rejects**: on a transport, HTTP or decoding failure it
+  returns an errored bundle (`errorCode`, `errorMessage`, no flags), which
+  `evaluate` turns into the default value with an `ERROR` reason. Because the
+  bundle is still plain JSON, the failure forwards to the browser correctly
+  labelled. Check `bundle.errorCode` if you want to branch on it. `apply` does
+  reject on transport and HTTP errors.
 - Skip `apply` for flags whose `shouldApply` is `false` (e.g. archived flags);
   an apply is meaningless for them.
 - A resolve token only permits applying the flags it was resolved for; naming

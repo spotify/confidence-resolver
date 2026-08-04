@@ -103,11 +103,14 @@ describe('ConfidenceClient E2E (resolve)', () => {
   );
 
   it(
-    'rejects with the resolver diagnostic for an unknown client secret',
+    'returns an errored bundle carrying the resolver diagnostic for an unknown client secret',
     async () => {
       const bogus = new ConfidenceClient({ flagClientSecret: 'not-a-real-client-secret' });
 
-      await expect(bogus.resolve([FLAG], CONTEXT, { apply: false })).rejects.toThrow(/flags:resolve failed: 4\d\d/);
+      const bundle = await bogus.resolve([FLAG], CONTEXT, { apply: false });
+
+      expect(bundle.errorMessage).toMatch(/flags:resolve failed: 4\d\d/);
+      expect(evaluate(bundle, FLAG, 'fallback')).toMatchObject({ reason: 'ERROR', value: 'fallback' });
     },
     TIMEOUT,
   );

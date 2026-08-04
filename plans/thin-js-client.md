@@ -201,10 +201,17 @@ the TanStack Start version in use; the shape above is illustrative.)
 
 - **`apply` defaults to `true`** on resolve. The safe default: naive usage
   never silently loses exposure data. Deferred apply is the explicit opt-in.
-- **`resolve` rejects** on transport/HTTP errors — the caller decides the
-  fallback. **`evaluate` never throws** — it returns the default with an
-  ERROR reason (standard flag-SDK behavior), so rendering code stays
-  branch-free.
+- **Neither `resolve` nor `evaluate` throws.** A transport/HTTP/decoding
+  failure makes `resolve` return an *errored bundle* (`errorCode`,
+  `errorMessage`, no flags) rather than reject, and `evaluate` returns the
+  default with an ERROR reason (standard flag-SDK behavior), so rendering code
+  stays branch-free. The errored bundle matters beyond convenience: it is still
+  plain JSON, so the failure forwards to the browser correctly labelled — a
+  caller catching a rejection would have to invent a fallback bundle, and the
+  obvious inventions (`null`, an empty bundle) mislabel the failure as
+  FLAG_NOT_FOUND. Callers that want to branch check `bundle.errorCode`.
+  `apply` still rejects: it has no bundle to carry an error, and callers
+  fire-and-forget it anyway.
 - **Stateless by construction.** No initialize, no close, no timers. All
   state (flag definitions, sticky assignments, log shipping) lives in the
   resolver Worker.

@@ -1,7 +1,7 @@
 import { ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { SdkId } from './proto/confidence/flags/resolver/v1/types';
 import FlagBundleType, * as FlagBundle from './flag-bundle';
-import type { JsonValue, ResolutionDetails } from './types';
+import { ErrorCode, type JsonValue, type ResolutionDetails } from './types';
 import { logger } from './logger';
 import { VERSION } from './version';
 
@@ -57,18 +57,28 @@ export class ConfidenceClient {
    * `{ apply: false }` to defer exposure to an explicit {@link apply} call;
    * the returned bundle then carries a resolve token to apply against.
    *
-   * Rejects on transport and HTTP errors — the caller decides the fallback.
+   * Never rejects. A transport, HTTP or decoding failure yields an errored
+   * bundle instead: `evaluate` then returns defaults with an `ERROR` reason,
+   * and because the bundle is still plain JSON the failure travels to the
+   * browser correctly labelled. Callers that want to branch can check
+   * `errorCode` on the bundle.
    */
   async resolve(flagNames: string[], context: Context, options?: { apply?: boolean }): Promise<FlagBundleType> {
-    const request = ResolveFlagsRequest.create({
-      flags: flagNames.map(name => FLAG_PREFIX + name),
-      evaluationContext: context,
-      apply: options?.apply ?? true,
-      clientSecret: this.clientSecret,
-      sdk: SDK,
-    });
-    const response = await this.post('/v1/flags:resolve', ResolveFlagsRequest.toJSON(request));
-    return FlagBundle.create(ResolveFlagsResponse.fromJSON(await response.json()));
+    try {
+      const request = ResolveFlagsRequest.create({
+        flags: flagNames.map(name => FLAG_PREFIX + name),
+        evaluationContext: context,
+        apply: options?.apply ?? true,
+        clientSecret: this.clientSecret,
+        sdk: SDK,
+      });
+      const response = await this.post('/v1/flags:resolve', ResolveFlagsRequest.toJSON(request));
+      return FlagBundle.create(ResolveFlagsResponse.fromJSON(await response.json()));
+    } catch (err) {
+      // Named once here; `evaluate` would otherwise report it per flag.
+      logger.warn('Resolve failed, returning an errored bundle. %s', String(err));
+      return FlagBundle.error(ErrorCode.GENERAL, String(err));
+    }
   }
 
   /**
