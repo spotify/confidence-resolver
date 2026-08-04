@@ -1,21 +1,27 @@
-# Thin Confidence client for edge resolution — proposal
+# Thin Confidence client for edge resolution
 
-**Status:** Draft
-**Working name:** `ConfidenceClient` (naming open)
+**Status:** Implemented
+**Name:** `ConfidenceClient`
+**Scope:** `openfeature-provider/js` only (other languages may follow the same
+shape later)
+
+**Implementation:** `openfeature-provider/js/src/ConfidenceClient.ts` (client and
+`evaluate`), `src/index.remote.ts` (entry point), `src/ConfidenceClient.test.ts`
+(unit, mocked transport), `src/ConfidenceClient.e2e.test.ts` (against the live
+`resolver.confidence.dev`).
 
 ## Background
 
 A common deployment runs flag resolution on Cloudflare: an application Worker
-calls a dedicated Confidence resolver Worker (same colo, sub-millisecond).
-Until now that resolver has hardcoded `apply = true` — every resolve
-immediately counts as an exposure.
+calls a dedicated Confidence resolver Worker (same colo, sub-millisecond). That
+resolver used to hardcode `apply = true` — every resolve immediately counted as
+an exposure.
 
-The goal is to split that: **resolve server-side, apply client-side** — an
+The goal was to split that: **resolve server-side, apply client-side** — an
 exposure should only be recorded when a flag actually affects what a user sees.
-The resolver-side change is ready (a pending PR makes the resolver respect the
-`apply` flag in the request and return a resolve token when `apply=false`).
-What's missing is an SDK on the application side that will actually send the
-applies.
+The resolver side landed first (`498dd2a6`: the resolver respects the `apply`
+flag in the request and returns a resolve token when `apply=false`). This
+document covers the application-side SDK that sends the applies.
 
 The existing online SDK is the wrong tool for this. It is built around a
 long-lived, stateful client — caching, context mutation, apply-on-access —
@@ -23,7 +29,7 @@ which fights the per-request execution model of a Worker, and it has no good
 story for carrying a resolve token from a server-side resolve to a client-side
 apply.
 
-## Proposal
+## Design
 
 A thin, stateless flag client with three operations — `resolve`, `evaluate`,
 `apply` — over plain `fetch`. No lifecycle, no background work, no state:
@@ -55,15 +61,17 @@ interface ConfidenceClientOptions {
 class ConfidenceClient {
   constructor(options: ConfidenceClientOptions);
 
-  /** Resolve one or more flags. apply defaults to true (resolve counts as
-   *  exposure); pass apply: false to defer exposure to an explicit apply(). */
+  /** Resolve the named flags — or all flags, when the array is empty. apply
+   *  defaults to true (resolve counts as exposure); pass apply: false to
+   *  defer exposure to an explicit apply(). */
   resolve(
-    flagNames: string[],
+    flagNames: string[], // [] resolves all flags
     context: Context,
     options?: { apply?: boolean },
   ): Promise<FlagBundle>;
 
-  /** Record exposure for flags from an earlier resolve(..., {apply: false}). */
+  /** Record exposure for flags from an earlier resolve(..., {apply: false}).
+   *  Every name must be covered by the token. */
   apply(resolveToken: string, flagNames: string | string[]): Promise<void>;
 }
 
@@ -202,6 +210,8 @@ the TanStack Start version in use; the shape above is illustrative.)
   resolver Worker.
 - **`shouldApply`** on each flag tells the front end whether an apply is
   warranted, so it doesn't send pointless applies for e.g. archived flags.
+- **`apply` is scoped to its token.** A resolve token only permits applying the
+  flags it was minted for; naming any other flag rejects the call in full.
 - **`evaluate(bundle, key, default)` is pure and tiny** — the browser bundle
   for a front end that only evaluates and applies stays minimal. The
   implementation already exists in the SDK (`flag-bundle.ts`); this is a
@@ -225,19 +235,30 @@ is *mandatory* rather than a choice.
 
 ## Dependencies & sequencing
 
-1. Resolver PR: respect `apply` from the request; return the resolve token
-   when `apply=false`. (The apply endpoint itself already works — it only
-   short-circuits today because forced-apply resolves return an empty token.)
-2. This client, published. Packaging — new package vs. an entry point of an
-   existing one — is a Confidence-internal concern; the API above is the
-   contract.
-3. Optional: a dedicated SDK id for the thin client in resolve telemetry, so
-   its traffic is distinguishable.
+- [x] Resolver: respects `apply` from the request and returns the resolve token
+      when `apply=false` (`498dd2a6`). The apply endpoint already worked — it
+      only short-circuited because forced-apply resolves return an empty token.
+- [x] This client. Built as an entry point of the existing package rather than a
+      new one, so it reuses the generated protos and `flag-bundle.ts` while
+      shipping neither WASM nor OpenFeature (~9 kB gzipped).
+- [ ] A dedicated SDK id for the thin client in resolve telemetry, so its
+      traffic is distinguishable from the WASM-backed local provider. It reports
+      `SDK_ID_JS_LOCAL_SERVER_PROVIDER` today — see the `TODO` in
+      `ConfidenceClient.ts`. Additive proto change.
 
-## Open questions
+## Settled questions
 
-- Naming and packaging; relationship to the planned resolver-abstraction
-  refactor (`plans/resolver-abstraction.md`) — this client is intended to be
-  the fetch-backed face of that design, not a fork of it.
-- Exact context spelling (`targeting_key` passthrough vs. OpenFeature's
-  `targetingKey`) — leaning passthrough, it's the wire format.
+- **Naming and packaging** — kept `ConfidenceClient`; shipped as `./remote` on
+  the existing package.
+- **Context spelling** — passthrough. `targeting_key`, the wire format, not
+  OpenFeature's `targetingKey`.
+
+## Still open
+
+- The dedicated SDK id, above.
+- Token-only applies, above — would remove the need to proxy applies at all.
+- An integration test against the resolver Worker under `wrangler dev`. Deferred:
+  it belongs beside the Worker in `confidence-cloudflare-resolver`, and running
+  it in CI means adding `wrangler`, `worker-build` and a pinned
+  `wasm-bindgen-cli` to a Docker stage. The e2e test against
+  `resolver.confidence.dev` covers the same wire contract meanwhile.
