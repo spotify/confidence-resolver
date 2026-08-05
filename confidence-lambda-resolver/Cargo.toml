@@ -1,0 +1,37 @@
+[package]
+name = "confidence-lambda-resolver"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+publish = false
+
+[package.metadata.release]
+release = false
+
+[[bin]]
+name = "resolver"
+path = "src/resolver.rs"
+
+[[bin]]
+name = "consumer"
+path = "src/consumer.rs"
+
+[dependencies]
+confidence_resolver = { path = "../confidence-resolver", version = "0.20.0" }
+
+lambda_http = "0.13"
+lambda_runtime = "0.13"
+aws-sdk-sqs = "1.92"
+aws-sdk-dynamodb = "1.103"
+aws-config = { version = "1.8", features = ["behavior-version-latest"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+prost = "0.13"
+bytes = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+base64 = "0.22"
+async-trait = "0.1"
+http = "1"

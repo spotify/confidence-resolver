@@ -80,6 +80,17 @@ clean:
 js-build:
 	$(MAKE) -C openfeature-provider/js build
 
+# Build Lambda deployer image using main Dockerfile
+.PHONY: build-lambda-deployer
+build-lambda-deployer:
+	@echo "Building Lambda deployer image..."
+	@docker build \
+		--target confidence-lambda-resolver.deployer \
+		--build-arg COMMIT_SHA=$$(git rev-parse HEAD) \
+		-t confidence-lambda-deployer:latest \
+		.
+	@echo "Lambda deployer image built: confidence-lambda-deployer:latest"
+
 .PHONY: go-bench js-bench
 go-bench:
 	@status=0; \

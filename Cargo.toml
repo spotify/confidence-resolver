@@ -6,6 +6,7 @@ members = [
     "wasm/rust-guest",
     "confidence-resolver",
     "confidence-cloudflare-resolver",
+    "confidence-lambda-resolver",
     "openfeature-provider/java",
     "openfeature-provider/js",
     "openfeature-provider/go",

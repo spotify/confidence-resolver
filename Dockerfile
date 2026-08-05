@@ -43,6 +43,7 @@ FROM rust-base AS rust-deps
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/Cargo.toml ./confidence-resolver/
 COPY confidence-cloudflare-resolver/Cargo.toml ./confidence-cloudflare-resolver/
+COPY confidence-lambda-resolver/Cargo.toml ./confidence-lambda-resolver/
 COPY wasm-msg/Cargo.toml ./wasm-msg/
 COPY wasm/rust-guest/Cargo.toml ./wasm/rust-guest/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
@@ -73,7 +74,12 @@ RUN mkdir -p confidence-resolver/src && \
     mkdir -p wasm/rust-guest/src && \
     echo "pub fn dummy() {}" > wasm/rust-guest/src/lib.rs && \
     mkdir -p openfeature-provider/rust/src && \
-    echo "pub fn dummy() {}" > openfeature-provider/rust/src/lib.rs
+    echo "pub fn dummy() {}" > openfeature-provider/rust/src/lib.rs && \
+    mkdir -p confidence-lambda-resolver/src && \
+    echo "fn main() {}" > confidence-lambda-resolver/src/resolver.rs && \
+    echo "fn main() {}" > confidence-lambda-resolver/src/consumer.rs && \
+    echo "" > confidence-lambda-resolver/src/common.rs && \
+    echo "" > confidence-lambda-resolver/src/materialization.rs
 
 # Build dependencies (this layer will be cached)
 RUN cargo build -p confidence_resolver --release 
@@ -268,6 +274,88 @@ RUN chmod +x confidence-cloudflare-resolver/deployer/script.sh
 
 # Default command runs the deployer script
 CMD ["./confidence-cloudflare-resolver/deployer/script.sh"]
+
+# ==============================================================================
+# Lambda Resolver - Build native ARM binary for AWS Lambda
+# ==============================================================================
+FROM rust-base AS lambda-base
+
+# Install Rust 1.91+ (required by AWS SDK) and aarch64 cross-compilation tools
+RUN rustup toolchain install 1.91.0 && \
+    rustup target add aarch64-unknown-linux-gnu --toolchain 1.91.0 && \
+    apk add --no-cache gcc-aarch64-none-elf
+
+# Copy workspace manifests and lock
+COPY Cargo.toml Cargo.lock ./
+COPY confidence-resolver/Cargo.toml ./confidence-resolver/
+COPY confidence-lambda-resolver/Cargo.toml ./confidence-lambda-resolver/
+COPY confidence-cloudflare-resolver/Cargo.toml ./confidence-cloudflare-resolver/
+COPY wasm-msg/Cargo.toml ./wasm-msg/
+COPY wasm/rust-guest/Cargo.toml ./wasm/rust-guest/
+COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
+COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
+COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
+COPY openfeature-provider/rust/Cargo.toml ./openfeature-provider/rust/
+COPY openfeature-provider/python/Cargo.toml ./openfeature-provider/python/
+
+# Copy proto and build.rs files
+COPY confidence-resolver/protos ./confidence-resolver/protos/
+COPY confidence-resolver/build.rs ./confidence-resolver/
+COPY wasm-msg/proto ./wasm-msg/proto/
+COPY wasm-msg/build.rs ./wasm-msg/
+COPY wasm/proto ./wasm/proto/
+COPY wasm/rust-guest/build.rs ./wasm/rust-guest/
+COPY openfeature-provider/rust/build.rs ./openfeature-provider/rust/
+COPY openfeature-provider/proto/ ./openfeature-provider/proto/
+
+FROM lambda-base AS confidence-lambda-resolver.build
+
+# Copy full source (resolver + lambda resolver + data)
+COPY confidence-resolver/ ./confidence-resolver/
+COPY confidence-lambda-resolver/ ./confidence-lambda-resolver/
+COPY data/ ./data/
+
+WORKDIR /workspace
+ENV RUSTUP_TOOLCHAIN=1.91.0
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-none-elf-gcc
+RUN cargo build --release --target aarch64-unknown-linux-gnu -p confidence-lambda-resolver
+
+# ==============================================================================
+# Lint Lambda Resolver
+# ==============================================================================
+FROM confidence-lambda-resolver.build AS confidence-lambda-resolver.lint
+
+RUN cargo clippy --release --target aarch64-unknown-linux-gnu -p confidence-lambda-resolver -- -D warnings
+
+# ==============================================================================
+# Extract Lambda artifacts
+# ==============================================================================
+FROM scratch AS confidence-lambda-resolver.artifact
+
+COPY --from=confidence-lambda-resolver.build /workspace/target/aarch64-unknown-linux-gnu/release/resolver /resolver
+COPY --from=confidence-lambda-resolver.build /workspace/target/aarch64-unknown-linux-gnu/release/consumer /consumer
+
+# ==============================================================================
+# Lambda Deployer - Runtime image for deploying to AWS Lambda
+# ==============================================================================
+FROM confidence-lambda-resolver.build AS confidence-lambda-resolver.deployer
+
+RUN apk add --no-cache jq bash curl zip
+
+# Install AWS CLI v2
+RUN apk add --no-cache aws-cli
+
+ARG COMMIT_SHA=""
+ENV COMMIT_SHA=${COMMIT_SHA}
+
+WORKDIR /workspace
+
+# Clean sample data
+RUN rm -rf data/*
+
+RUN chmod +x confidence-lambda-resolver/deployer/script.sh
+
+CMD ["./confidence-lambda-resolver/deployer/script.sh"]
 
 # ==============================================================================
 # OpenFeature Provider (TypeScript) - Build and test
