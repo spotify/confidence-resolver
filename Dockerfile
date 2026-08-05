@@ -106,6 +106,7 @@ COPY --from=rust-deps /workspace/target /workspace/target
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
+COPY confidence-lambda-resolver/Cargo.toml ./confidence-lambda-resolver/
 COPY wasm-msg/ ./wasm-msg/
 COPY wasm/rust-guest/ ./wasm/rust-guest/
 COPY wasm/proto/ ./wasm/proto/
@@ -178,6 +179,7 @@ COPY --from=rust-deps /workspace/target /workspace/target
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
+COPY confidence-lambda-resolver/Cargo.toml ./confidence-lambda-resolver/
 COPY wasm-msg/ ./wasm-msg/
 COPY wasm/rust-guest/ ./wasm/rust-guest/
 COPY wasm/proto/ ./wasm/proto/
