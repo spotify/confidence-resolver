@@ -327,20 +327,32 @@ if ! aws lambda get-function-url-config --function-name "$LAMBDA_FUNCTION_NAME" 
         --auth-type NONE \
         --cors '{"AllowOrigins":["*"],"AllowMethods":["*"],"AllowHeaders":["*"]}' \
         --region "$AWS_REGION" > /dev/null 2>&1; then
-
-        aws lambda add-permission \
-            --function-name "$LAMBDA_FUNCTION_NAME" \
-            --statement-id FunctionURLAllowPublicAccess \
-            --action lambda:InvokeFunctionUrl \
-            --principal "*" \
-            --function-url-auth-type NONE \
-            --region "$AWS_REGION" > /dev/null 2>&1
         log "Function URL created"
     else
         log "WARNING: Could not create Function URL (account may restrict public Lambda URLs)"
         log "The resolver can still be invoked via aws lambda invoke or API Gateway"
     fi
 fi
+
+# Ensure both permissions for public Function URL access.
+# lambda:InvokeFunctionUrl — required by the Function URL auth layer
+# lambda:InvokeFunction — required by some AWS accounts with strict policies
+for SID_ACTION in "FunctionURLAllowPublicAccess:lambda:InvokeFunctionUrl" "FunctionURLAllowPublicInvoke:lambda:InvokeFunction"; do
+    SID="${SID_ACTION%%:*}"
+    ACTION="${SID_ACTION#*:}"
+    if ! aws lambda get-policy --function-name "$LAMBDA_FUNCTION_NAME" --region "$AWS_REGION" 2>/dev/null \
+        | jq -r '.Policy' 2>/dev/null | grep -q "\"$SID\""; then
+        PERM_ARGS=(
+            --function-name "$LAMBDA_FUNCTION_NAME"
+            --statement-id "$SID"
+            --action "$ACTION"
+            --principal "*"
+            --region "$AWS_REGION"
+        )
+        [ "$ACTION" = "lambda:InvokeFunctionUrl" ] && PERM_ARGS+=(--function-url-auth-type NONE)
+        aws lambda add-permission "${PERM_ARGS[@]}" > /dev/null 2>&1 && log "Added permission: $SID" || true
+    fi
+done
 
 # --- Deploy consumer Lambda ---
 CONSUMER_ENV=$(jq -n \
