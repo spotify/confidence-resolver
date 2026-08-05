@@ -17,6 +17,12 @@
       "changelog-path": "CHANGELOG.md",
       "initial-version": "0.1.0"
     },
+    "confidence-lambda-resolver": {
+      "path": "confidence-lambda-resolver",
+      "release-type": "rust",
+      "changelog-path": "CHANGELOG.md",
+      "initial-version": "0.1.0"
+    },
     "wasm-msg": {
       "path": "wasm-msg",
       "release-type": "rust",
