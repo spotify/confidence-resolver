@@ -9,12 +9,8 @@ publish = false
 release = false
 
 [[bin]]
-name = "resolver"
-path = "src/resolver.rs"
-
-[[bin]]
-name = "consumer"
-path = "src/consumer.rs"
+name = "bootstrap"
+path = "src/main.rs"
 
 [dependencies]
 confidence_resolver = { path = "../confidence-resolver", version = "0.20.0" }

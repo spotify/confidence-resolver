@@ -230,40 +230,34 @@ fi
 log "Building Lambda binaries..."
 cd "$WORKSPACE_ROOT"
 
-# Prefer cargo-lambda (handles cross-compilation via zig), fall back to cargo cross-compile
+# Single binary dispatches via HANDLER_MODE env var (like Cloudflare Worker's fetch vs queue)
 if command -v cargo-lambda &>/dev/null; then
     RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-1.91.0}" cargo lambda build \
         --release --arm64 -p confidence-lambda-resolver
-    RESOLVER_BIN="$WORKSPACE_ROOT/target/lambda/resolver/bootstrap"
-    CONSUMER_BIN="$WORKSPACE_ROOT/target/lambda/consumer/bootstrap"
+    BOOTSTRAP_BIN="$WORKSPACE_ROOT/target/lambda/bootstrap/bootstrap"
 else
     cargo build --release --target aarch64-unknown-linux-gnu -p confidence-lambda-resolver
-    RESOLVER_BIN="$WORKSPACE_ROOT/target/aarch64-unknown-linux-gnu/release/resolver"
-    CONSUMER_BIN="$WORKSPACE_ROOT/target/aarch64-unknown-linux-gnu/release/consumer"
+    BOOTSTRAP_BIN="$WORKSPACE_ROOT/target/aarch64-unknown-linux-gnu/release/bootstrap"
 fi
 log "Build complete"
 
 # ---------------------------------------------------------------------------
-# 10. Package
+# 10. Package (same binary for both Lambda functions)
 # ---------------------------------------------------------------------------
 DEPLOY_DIR=$(mktemp -d)
-
-cp "$RESOLVER_BIN" "$DEPLOY_DIR/bootstrap"
-(cd "$DEPLOY_DIR" && zip -j resolver.zip bootstrap)
+cp "$BOOTSTRAP_BIN" "$DEPLOY_DIR/bootstrap"
+(cd "$DEPLOY_DIR" && zip -j lambda.zip bootstrap)
 rm "$DEPLOY_DIR/bootstrap"
 
-cp "$CONSUMER_BIN" "$DEPLOY_DIR/bootstrap"
-(cd "$DEPLOY_DIR" && zip -j consumer.zip bootstrap)
-rm "$DEPLOY_DIR/bootstrap"
-
-log "Packaged: resolver=$(wc -c < "$DEPLOY_DIR/resolver.zip" | tr -d ' ')B, consumer=$(wc -c < "$DEPLOY_DIR/consumer.zip" | tr -d ' ')B"
+LAMBDA_ZIP="$DEPLOY_DIR/lambda.zip"
+log "Packaged: $(wc -c < "$LAMBDA_ZIP" | tr -d ' ')B"
 
 # ---------------------------------------------------------------------------
 # 11. Deploy (unless NO_DEPLOY is set)
 # ---------------------------------------------------------------------------
 if [ -n "$NO_DEPLOY" ]; then
     log "NO_DEPLOY is set. Skipping deployment."
-    log "Artifacts: $DEPLOY_DIR/resolver.zip, $DEPLOY_DIR/consumer.zip"
+    log "Artifact: $LAMBDA_ZIP"
     exit 0
 fi
 
@@ -277,6 +271,7 @@ ENV_VARS=$(jq -n \
     --arg metrics "$METRICS_TABLE_ENV" \
     --arg mats "$MATERIALIZATIONS_TABLE_ENV" \
     '{Variables: {
+        HANDLER_MODE: "resolver",
         CONFIDENCE_CLIENT_SECRET: $secret,
         ALLOWED_ORIGIN: $origin,
         RESOLVER_STATE_ETAG: $etag,
@@ -291,7 +286,7 @@ log "Deploying resolver Lambda: $LAMBDA_FUNCTION_NAME"
 if aws lambda get-function --function-name "$LAMBDA_FUNCTION_NAME" --region "$AWS_REGION" &>/dev/null; then
     aws lambda update-function-code \
         --function-name "$LAMBDA_FUNCTION_NAME" \
-        --zip-file "fileb://$DEPLOY_DIR/resolver.zip" \
+        --zip-file "fileb://$LAMBDA_ZIP" \
         --architectures arm64 \
         --region "$AWS_REGION" > /dev/null
     aws lambda wait function-updated --function-name "$LAMBDA_FUNCTION_NAME" --region "$AWS_REGION"
@@ -310,7 +305,7 @@ else
         --handler bootstrap \
         --architectures arm64 \
         --role "$LAMBDA_ROLE_ARN" \
-        --zip-file "fileb://$DEPLOY_DIR/resolver.zip" \
+        --zip-file "fileb://$LAMBDA_ZIP" \
         --environment "$ENV_VARS" \
         --memory-size "$LAMBDA_MEMORY_MB" \
         --timeout "$LAMBDA_TIMEOUT" \
@@ -359,6 +354,7 @@ CONSUMER_ENV=$(jq -n \
     --arg secret "$CONFIDENCE_CLIENT_SECRET" \
     --arg metrics "$METRICS_TABLE_ENV" \
     '{Variables: {
+        HANDLER_MODE: "consumer",
         CONFIDENCE_CLIENT_SECRET: $secret
     } + (if $metrics != "" then {DYNAMODB_METRICS_TABLE: $metrics} else {} end)
     }')
@@ -367,7 +363,7 @@ log "Deploying consumer Lambda: $CONSUMER_FUNCTION_NAME"
 if aws lambda get-function --function-name "$CONSUMER_FUNCTION_NAME" --region "$AWS_REGION" &>/dev/null; then
     aws lambda update-function-code \
         --function-name "$CONSUMER_FUNCTION_NAME" \
-        --zip-file "fileb://$DEPLOY_DIR/consumer.zip" \
+        --zip-file "fileb://$LAMBDA_ZIP" \
         --architectures arm64 \
         --region "$AWS_REGION" > /dev/null
     aws lambda wait function-updated --function-name "$CONSUMER_FUNCTION_NAME" --region "$AWS_REGION"
@@ -386,7 +382,7 @@ else
         --handler bootstrap \
         --architectures arm64 \
         --role "$LAMBDA_ROLE_ARN" \
-        --zip-file "fileb://$DEPLOY_DIR/consumer.zip" \
+        --zip-file "fileb://$LAMBDA_ZIP" \
         --environment "$CONSUMER_ENV" \
         --memory-size "$LAMBDA_MEMORY_MB" \
         --timeout 30 \

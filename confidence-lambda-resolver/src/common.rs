@@ -104,6 +104,7 @@ pub fn sdk_info() -> Sdk {
     Sdk {
         sdk: Some(
             confidence_resolver::proto::confidence::flags::resolver::v1::sdk::Sdk::Id(
+                // TODO: add SDK_ID_LAMBDA_RESOLVER to types.proto
                 confidence_resolver::proto::confidence::flags::resolver::v1::SdkId::CloudflareResolver as i32,
             ),
         ),

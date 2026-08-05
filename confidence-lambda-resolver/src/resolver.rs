@@ -1,16 +1,10 @@
-#[allow(dead_code)]
-mod common;
-#[allow(dead_code)]
-mod materialization;
-
 use std::sync::OnceLock;
 use std::time::Instant;
 
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_sqs::Client as SqsClient;
-use lambda_http::{run, service_fn, Body, Error, Request, Response};
+use lambda_http::{service_fn, Body, Error, Request, Response};
 use serde_json::{from_slice, json};
-use tracing_subscriber::EnvFilter;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
     resolve_process_response, ApplyFlagsRequest, ApplyFlagsResponse, MaterializationRecord,
@@ -20,11 +14,11 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::{
 use confidence_resolver::proto::google::Struct;
 use confidence_resolver::telemetry;
 
-use common::{
-    add_cors_headers, env_var, env_var_opt, sdk_info, LambdaHost,
-    CONFIDENCE_CLIENT_SECRET, ENCRYPTION_KEY, FLAG_LOG, PROMETHEUS_CONTENT_TYPE, RESOLVER_STATE,
+use crate::common::{
+    add_cors_headers, env_var, env_var_opt, sdk_info, LambdaHost, CONFIDENCE_CLIENT_SECRET,
+    ENCRYPTION_KEY, FLAG_LOG, PROMETHEUS_CONTENT_TYPE, RESOLVER_STATE,
 };
-use materialization::{
+use crate::materialization::{
     materialization_records_to_read_ops, materialization_records_to_write_ops,
     read_results_to_materialization_records, DynamoDbMaterializationStore, MaterializationStore,
 };
@@ -35,15 +29,7 @@ static DYNAMO_CLIENT: OnceLock<DynamoClient> = OnceLock::new();
 static METRICS_TABLE: OnceLock<String> = OnceLock::new();
 static MATERIALIZATION_STORE: OnceLock<DynamoDbMaterializationStore> = OnceLock::new();
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .json()
-        .with_target(false)
-        .without_time()
-        .init();
-
+pub async fn run() -> Result<(), Error> {
     let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
 
     let _ = SQS_CLIENT.set(SqsClient::new(&config));
@@ -67,11 +53,10 @@ async fn main() -> Result<(), Error> {
         let _ = CONFIDENCE_CLIENT_SECRET.set(secret);
     }
 
-    // Force initialization of resolver state during Lambda init phase
     let _ = &*RESOLVER_STATE;
     tracing::info!("resolver state initialized");
 
-    run(service_fn(handler)).await
+    lambda_http::run(service_fn(handler)).await
 }
 
 async fn handler(req: Request) -> Result<Response<Body>, Error> {
@@ -97,7 +82,6 @@ async fn handler(req: Request) -> Result<Response<Body>, Error> {
             .body(Body::Text("Not found".to_string()))?),
     };
 
-    // Ship flag logs to SQS asynchronously
     let flag_log = FLAG_LOG.with(|f| f.borrow_mut().take());
     if let (Some(log), Some(sqs), Some(url)) =
         (flag_log, SQS_CLIENT.get(), SQS_QUEUE_URL.get())

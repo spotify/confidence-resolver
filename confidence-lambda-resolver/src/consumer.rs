@@ -1,16 +1,17 @@
-#[allow(dead_code)]
-mod common;
-#[allow(dead_code)]
-mod materialization;
+use std::sync::OnceLock;
 
-use lambda_runtime::{service_fn, Error, LambdaEvent};
+use lambda_runtime::{service_fn, LambdaEvent};
 use serde::Deserialize;
-use tracing_subscriber::EnvFilter;
 
 use confidence_resolver::flag_logger;
 use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
 
-use common::{env_var_opt, send_flags_logs, update_prometheus_dynamo, CONFIDENCE_CLIENT_SECRET};
+use crate::common::{
+    env_var_opt, send_flags_logs, update_prometheus_dynamo, CONFIDENCE_CLIENT_SECRET,
+};
+
+static DYNAMO_CLIENT: OnceLock<aws_sdk_dynamodb::Client> = OnceLock::new();
+static METRICS_TABLE: OnceLock<String> = OnceLock::new();
 
 #[derive(Deserialize)]
 struct SqsEvent {
@@ -23,23 +24,21 @@ struct SqsRecord {
     body: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .json()
-        .with_target(false)
-        .without_time()
-        .init();
-
+pub async fn run() -> Result<(), lambda_runtime::Error> {
     if let Some(secret) = env_var_opt("CONFIDENCE_CLIENT_SECRET") {
         let _ = CONFIDENCE_CLIENT_SECRET.set(secret);
+    }
+
+    if let Some(table) = env_var_opt("DYNAMODB_METRICS_TABLE") {
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        let _ = DYNAMO_CLIENT.set(aws_sdk_dynamodb::Client::new(&config));
+        let _ = METRICS_TABLE.set(table);
     }
 
     lambda_runtime::run(service_fn(handler)).await
 }
 
-async fn handler(event: LambdaEvent<SqsEvent>) -> Result<(), Error> {
+async fn handler(event: LambdaEvent<SqsEvent>) -> Result<(), lambda_runtime::Error> {
     let (sqs_event, _context) = event.into_parts();
 
     let logs: Vec<WriteFlagLogsRequest> = sqs_event
@@ -54,10 +53,8 @@ async fn handler(event: LambdaEvent<SqsEvent>) -> Result<(), Error> {
 
     let req = flag_logger::aggregate_batch(logs);
 
-    if let Some(table) = env_var_opt("DYNAMODB_METRICS_TABLE") {
-        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-        let dynamo = aws_sdk_dynamodb::Client::new(&config);
-        update_prometheus_dynamo(&dynamo, &table, &req).await;
+    if let (Some(client), Some(table)) = (DYNAMO_CLIENT.get(), METRICS_TABLE.get()) {
+        update_prometheus_dynamo(client, table, &req).await;
     }
 
     if let Some(secret) = CONFIDENCE_CLIENT_SECRET.get() {

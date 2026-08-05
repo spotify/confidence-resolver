@@ -334,8 +334,7 @@ RUN cargo clippy --release --target aarch64-unknown-linux-gnu -p confidence-lamb
 # ==============================================================================
 FROM scratch AS confidence-lambda-resolver.artifact
 
-COPY --from=confidence-lambda-resolver.build /workspace/target/aarch64-unknown-linux-gnu/release/resolver /resolver
-COPY --from=confidence-lambda-resolver.build /workspace/target/aarch64-unknown-linux-gnu/release/consumer /consumer
+COPY --from=confidence-lambda-resolver.build /workspace/target/aarch64-unknown-linux-gnu/release/bootstrap /bootstrap
 
 # ==============================================================================
 # Lambda Deployer - Runtime image for deploying to AWS Lambda
