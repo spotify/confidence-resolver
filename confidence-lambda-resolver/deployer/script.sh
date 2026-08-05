@@ -9,8 +9,9 @@
 # 4. Builds the resolver and consumer Lambda binaries
 # 5. Packages and deploys to AWS Lambda
 #
-# The IAM role (LAMBDA_ROLE_ARN) must be pre-created by the customer.
-# It needs: AWSLambdaBasicExecutionRole + sqs:SendMessage/ReceiveMessage/DeleteMessage
+# The IAM role is auto-created if LAMBDA_ROLE_ARN is not provided.
+# To use a pre-existing role, set LAMBDA_ROLE_ARN. The role needs:
+# AWSLambdaBasicExecutionRole + sqs:SendMessage/ReceiveMessage/DeleteMessage
 # + dynamodb:GetItem/PutItem/BatchGetItem/BatchWriteItem (if metrics/materializations enabled).
 set -euo pipefail
 
@@ -56,6 +57,31 @@ log "Validating AWS credentials..."
 CALLER_IDENTITY=$(aws sts get-caller-identity --region "$AWS_REGION" 2>&1) || die "AWS credentials invalid"
 ACCOUNT_ID=$(echo "$CALLER_IDENTITY" | jq -r '.Account')
 log "AWS credentials OK (account: $ACCOUNT_ID, region: $AWS_REGION)"
+
+# Auto-create IAM role if not provided (like Cloudflare deployer auto-creates queues/KV)
+ROLE_NAME="${LAMBDA_FUNCTION_NAME}-role"
+if [ -z "$LAMBDA_ROLE_ARN" ]; then
+    LAMBDA_ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" \
+        --query 'Role.Arn' --output text 2>/dev/null || echo "")
+fi
+if [ -z "$LAMBDA_ROLE_ARN" ] || [ "$LAMBDA_ROLE_ARN" = "None" ]; then
+    log "Creating IAM role: $ROLE_NAME"
+    LAMBDA_ROLE_ARN=$(aws iam create-role \
+        --role-name "$ROLE_NAME" \
+        --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' \
+        --query 'Role.Arn' --output text)
+    aws iam attach-role-policy \
+        --role-name "$ROLE_NAME" \
+        --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    aws iam put-role-policy \
+        --role-name "$ROLE_NAME" \
+        --policy-name "${ROLE_NAME}-permissions" \
+        --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["sqs:SendMessage","sqs:ReceiveMessage","sqs:DeleteMessage","sqs:GetQueueAttributes"],"Resource":"*"},{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:BatchGetItem","dynamodb:BatchWriteItem","dynamodb:Query"],"Resource":"*"}]}'
+    log "Created role: $LAMBDA_ROLE_ARN (waiting for propagation...)"
+    sleep 10
+else
+    log "Using IAM role: $LAMBDA_ROLE_ARN"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Compute CDN URL from client secret hash
@@ -298,7 +324,7 @@ if aws lambda get-function --function-name "$LAMBDA_FUNCTION_NAME" --region "$AW
         --region "$AWS_REGION" > /dev/null
     aws lambda wait function-updated --function-name "$LAMBDA_FUNCTION_NAME" --region "$AWS_REGION"
 else
-    [ -z "$LAMBDA_ROLE_ARN" ] && die "LAMBDA_ROLE_ARN required for first deploy"
+    [ -z "$LAMBDA_ROLE_ARN" ] && die "LAMBDA_ROLE_ARN required for first deploy (auto-creation failed?)"
     aws lambda create-function \
         --function-name "$LAMBDA_FUNCTION_NAME" \
         --runtime provided.al2023 \
@@ -375,7 +401,7 @@ if aws lambda get-function --function-name "$CONSUMER_FUNCTION_NAME" --region "$
         --region "$AWS_REGION" > /dev/null
     aws lambda wait function-updated --function-name "$CONSUMER_FUNCTION_NAME" --region "$AWS_REGION"
 else
-    [ -z "$LAMBDA_ROLE_ARN" ] && die "LAMBDA_ROLE_ARN required for first deploy"
+    [ -z "$LAMBDA_ROLE_ARN" ] && die "LAMBDA_ROLE_ARN required for first deploy (auto-creation failed?)"
     aws lambda create-function \
         --function-name "$CONSUMER_FUNCTION_NAME" \
         --runtime provided.al2023 \
