@@ -16,6 +16,7 @@ use prost::Message;
 use serde_json::from_slice;
 use serde_json::json;
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use wasm_bindgen::JsCast;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
@@ -42,9 +43,40 @@ use confidence::flags::resolver::v1::Sdk;
 use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
 use std::sync::OnceLock;
 
+/// Upper bound on in-flight per-request flag logs. Entries can only linger if
+/// a request errors between logging and claiming its entry; clearing at the
+/// cap keeps the map bounded.
+const MAX_PENDING_FLAG_LOGS: usize = 256;
+
 thread_local! {
-    static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
-    static MAT_WRITES: RefCell<Option<Vec<MaterializationRecord>>> = const { RefCell::new(None) };
+    // Per-request flag logs keyed by resolve id. Requests in the same isolate
+    // run concurrently and interleave at await points, so a single shared slot
+    // would let one request overwrite another's log; keying by resolve id
+    // keeps each request's log isolated for its whole lifetime, including
+    // across the sticky-assignment suspend/resume await.
+    static FLAG_LOGS: RefCell<HashMap<String, WriteFlagLogsRequest>> =
+        RefCell::new(HashMap::new());
+    // Finished logs waiting to be queued after the response. A Vec, so if
+    // interleaved requests race to drain it the entries are sent by whichever
+    // request drains them instead of being dropped.
+    static FLAG_LOG_OUTBOX: RefCell<Vec<WriteFlagLogsRequest>> = const { RefCell::new(Vec::new()) };
+    static MAT_WRITES_OUTBOX: RefCell<Vec<MaterializationRecord>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Applies `update` to the pending flag log for `resolve_id`, creating the
+/// entry on first use.
+fn with_log_entry(resolve_id: &str, update: impl FnOnce(&mut WriteFlagLogsRequest)) {
+    FLAG_LOGS.with(|f| {
+        let mut map = f.borrow_mut();
+        if map.len() >= MAX_PENDING_FLAG_LOGS && !map.contains_key(resolve_id) {
+            console_log!(
+                "flag log map at capacity, clearing {} stale entries",
+                map.len()
+            );
+            map.clear();
+        }
+        update(map.entry(resolve_id.to_string()).or_default());
+    });
 }
 
 /// Prometheus exposition format content type (version 0.0.4).
@@ -82,21 +114,19 @@ struct H {}
 
 impl Host for H {
     fn log_resolve(
-        _resolve_id: &str,
+        resolve_id: &str,
         evaluation_context: &Struct,
         values: &[ResolvedValue<'_>],
         client: &Client,
     ) {
-        FLAG_LOG.with(|f| {
-            if let Some(req) = f.borrow_mut().as_mut() {
-                let (flag_infos, client_info) = resolve_logger::build_resolve_log(
-                    evaluation_context,
-                    client.client_credential_name.as_str(),
-                    values,
-                );
-                req.flag_resolve_info.extend(flag_infos);
-                req.client_resolve_info.push(client_info);
-            }
+        with_log_entry(resolve_id, |req| {
+            let (flag_infos, client_info) = resolve_logger::build_resolve_log(
+                evaluation_context,
+                client.client_credential_name.as_str(),
+                values,
+            );
+            req.flag_resolve_info.extend(flag_infos);
+            req.client_resolve_info.push(client_info);
         });
     }
 
@@ -106,16 +136,13 @@ impl Host for H {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        FLAG_LOG.with(|f| {
-            if let Some(req) = f.borrow_mut().as_mut() {
-                req.flag_assigned
-                    .push(assign_logger::build_flag_assigned(
-                        resolve_id,
-                        assigned_flags,
-                        client,
-                        sdk,
-                    ));
-            }
+        with_log_entry(resolve_id, |req| {
+            req.flag_assigned.push(assign_logger::build_flag_assigned(
+                resolve_id,
+                assigned_flags,
+                client,
+                sdk,
+            ));
         });
     }
 }
@@ -288,7 +315,6 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                 let path = ctx.param("path").unwrap();
                 match path.as_str() {
                     "flags:resolve" => {
-                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let mut resolver_request: ResolveFlagsRequest =
                             match from_slice(&body_bytes) {
@@ -317,7 +343,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
                         let mat_kv = ctx.env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
 
-                        let (reasons, resp) = match state.get_resolver::<H>(
+                        let (reasons, resolve_id, resp) = match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
                             &encryption_key,
@@ -337,30 +363,36 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 ).await {
                                     Ok((response, writes)) => {
                                         if !writes.is_empty() {
-                                            MAT_WRITES.with(|f| {
-                                                *f.borrow_mut() = Some(writes);
-                                            });
+                                            MAT_WRITES_OUTBOX
+                                                .with(|f| f.borrow_mut().extend(writes));
                                         }
                                         let reasons: Vec<ResolveReason> = response
                                             .resolved_flags
                                             .iter()
                                             .map(|f| f.reason())
                                             .collect();
-                                        (reasons, Response::from_json(&response)?
+                                        (reasons, Some(response.resolve_id.clone()),
+                                        Response::from_json(&response)?
                                             .with_cors_headers(&allowed_origin))
                                     }
                                     Err(msg) => {
-                                        (vec![ResolveReason::Error],
+                                        (vec![ResolveReason::Error], None,
                                         Response::error(msg, 500)?
                                             .with_cors_headers(&allowed_origin))
                                     }
                                 }
                             }
                             Err(msg) => {
-                                (vec![ResolveReason::Error],
+                                (vec![ResolveReason::Error], None,
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin))
                             }
                         };
+
+                        // Claim this request's log by its resolve id — keyed
+                        // per request, so nothing another in-flight request
+                        // does can touch it.
+                        let captured_log = resolve_id
+                            .and_then(|rid| FLAG_LOGS.with(|f| f.borrow_mut().remove(&rid)));
 
                         let elapsed_us = {
                             let scheduler = js_sys::Reflect::get(
@@ -385,16 +417,13 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
                         let mut td = telemetry::build_request_telemetry(elapsed_us, &reasons);
                         td.sdk = Some(sdk_info());
-                        FLAG_LOG.with(|f| {
-                            if let Some(req) = f.borrow_mut().as_mut() {
-                                req.telemetry_data = Some(td);
-                            }
-                        });
+                        let mut log = captured_log.unwrap_or_default();
+                        log.telemetry_data = Some(td);
+                        FLAG_LOG_OUTBOX.with(|f| f.borrow_mut().push(log));
 
                         resp
                     }
                     "flags:apply" => {
-                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let apply_flag_req: ApplyFlagsRequest = match from_slice(&body_bytes) {
                             Ok(req) => req,
@@ -415,7 +444,14 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         }
 
                         let encryption_key = resolve_token_key();
-                        match state.get_resolver::<H>(
+                        // apply_flags logs under the token's resolve id, which
+                        // this handler doesn't know upfront. The call is fully
+                        // synchronous (no interleaving possible inside it), so
+                        // a key diff around it identifies exactly the entries
+                        // this apply produced.
+                        let keys_before: HashSet<String> =
+                            FLAG_LOGS.with(|f| f.borrow().keys().cloned().collect());
+                        let resp = match state.get_resolver::<H>(
                             &apply_flag_req.client_secret,
                             Struct::default(),
                             &encryption_key,
@@ -429,7 +465,18 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             Err(msg) => {
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                             }
-                        }
+                        };
+                        let new_logs: Vec<WriteFlagLogsRequest> = FLAG_LOGS.with(|f| {
+                            let mut map = f.borrow_mut();
+                            let new_keys: Vec<String> = map
+                                .keys()
+                                .filter(|k| !keys_before.contains(*k))
+                                .cloned()
+                                .collect();
+                            new_keys.iter().filter_map(|k| map.remove(k)).collect()
+                        });
+                        FLAG_LOG_OUTBOX.with(|f| f.borrow_mut().extend(new_logs));
+                        resp
                     }
                     "telemetry:upload" => {
                         Response::ok("")?.with_cors_headers(&allowed_origin)
@@ -441,24 +488,37 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .run(req, env)
         .await;
 
-    // Use ctx.waitUntil to run logging and telemetry after response is returned.
-    let flag_log = FLAG_LOG.with(|f| f.borrow_mut().take());
-    ctx.wait_until(async move {
-        if let Some(req) = flag_log {
-            if let Ok(json) = serde_json::to_string(&req) {
-                if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
-                    let _ = queue.send(json).await;
+    // Drain the finished flag logs and queue them after the response is
+    // returned. The drain may pick up entries pushed by an interleaved
+    // request; they are sent all the same.
+    let pending_logs: Vec<WriteFlagLogsRequest> =
+        FLAG_LOG_OUTBOX.with(|f| f.borrow_mut().drain(..).collect());
+    if !pending_logs.is_empty() {
+        ctx.wait_until(async move {
+            for req in pending_logs {
+                match serde_json::to_string(&req) {
+                    Ok(json) => {
+                        if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
+                            if let Err(e) = queue.send(json).await {
+                                console_log!("flag log queue send failed: {:?}", e);
+                            }
+                        }
+                    }
+                    Err(e) => console_log!("flag log serialize failed: {:?}", e),
                 }
             }
-        }
-    });
+        });
+    }
 
     // Write sticky assignments to KV after response is returned.
-    let mat_writes = MAT_WRITES.with(|f| f.borrow_mut().take());
-    if let (Some(kv), Some(writes)) = (mat_kv_for_writes, mat_writes) {
-        ctx.wait_until(async move {
-            materialization::write_materializations(&kv, &writes, mat_ttl).await;
-        });
+    let mat_writes: Vec<MaterializationRecord> =
+        MAT_WRITES_OUTBOX.with(|f| f.borrow_mut().drain(..).collect());
+    if !mat_writes.is_empty() {
+        if let Some(kv) = mat_kv_for_writes {
+            ctx.wait_until(async move {
+                materialization::write_materializations(&kv, &mat_writes, mat_ttl).await;
+            });
+        }
     }
 
     response
@@ -473,10 +533,20 @@ pub async fn consume_flag_logs_queue(
     set_client_secret(&env);
 
     if let Ok(messages) = message_batch.messages() {
+        // A message that fails to parse is skipped instead of panicking the
+        // whole batch (a panic would retry and eventually drop all of it).
         let logs: Vec<WriteFlagLogsRequest> = messages
             .iter()
             .map(|m| m.body().clone())
-            .map(|s| serde_json::from_str::<WriteFlagLogsRequest>(s.as_str()).unwrap())
+            .filter_map(
+                |s| match serde_json::from_str::<WriteFlagLogsRequest>(s.as_str()) {
+                    Ok(log) => Some(log),
+                    Err(e) => {
+                        console_log!("flag log message parse failed, skipping: {:?}", e);
+                        None
+                    }
+                },
+            )
             .collect();
 
         let req = flag_logger::aggregate_batch(logs);
