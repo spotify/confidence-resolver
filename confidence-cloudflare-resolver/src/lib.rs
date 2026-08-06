@@ -64,18 +64,33 @@ thread_local! {
 }
 
 /// Applies `update` to the pending flag log for `resolve_id`, creating the
-/// entry on first use.
+/// entry on first use. If the map is over capacity (entries can linger when a
+/// request errors before claiming its entry), pending entries are moved to
+/// the outbox — they are still delivered, never dropped.
 fn with_log_entry(resolve_id: &str, update: impl FnOnce(&mut WriteFlagLogsRequest)) {
     FLAG_LOGS.with(|f| {
         let mut map = f.borrow_mut();
         if map.len() >= MAX_PENDING_FLAG_LOGS && !map.contains_key(resolve_id) {
             console_log!(
-                "flag log map at capacity, clearing {} stale entries",
+                "flag log map at capacity, flushing {} entries to the outbox",
                 map.len()
             );
-            map.clear();
+            FLAG_LOG_OUTBOX.with(|o| o.borrow_mut().extend(map.drain().map(|(_, v)| v)));
         }
         update(map.entry(resolve_id.to_string()).or_default());
+    });
+}
+
+/// Seeds the resolver's RNG once per isolate with host entropy. Without this
+/// every isolate produces the same resolve-id sequence, so ids collide across
+/// isolates and downstream consumers that key on resolve id misbehave.
+fn seed_resolver_rng() {
+    static SEEDED: OnceLock<()> = OnceLock::new();
+    SEEDED.get_or_init(|| {
+        let hi = (js_sys::Math::random() * (u32::MAX as f64)) as u64;
+        let lo = (js_sys::Math::random() * (u32::MAX as f64)) as u64;
+        let seed = (hi << 32) ^ lo ^ (js_sys::Date::now() as u64);
+        confidence_resolver::seed_rng(seed);
     });
 }
 
@@ -229,6 +244,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
     set_client_secret(&env);
     init_resolve_token_key(&env);
+    seed_resolver_rng();
 
     let allowed_origin_env = env
         .var("ALLOWED_ORIGIN")
@@ -531,6 +547,7 @@ pub async fn consume_flag_logs_queue(
     _ctx: Context,
 ) -> Result<()> {
     set_client_secret(&env);
+    seed_resolver_rng();
 
     if let Ok(messages) = message_batch.messages() {
         // A message that fails to parse is skipped instead of panicking the
