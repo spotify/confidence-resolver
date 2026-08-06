@@ -2,6 +2,7 @@ import { OpenFeature } from '@openfeature/server-sdk';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { applyHandler } from './api';
+import { CONFIDENCE_PROVIDER_NAME } from '../types';
 import { __resetKeyCacheForTests, sealResolveToken } from './token';
 
 function makeReqRes(
@@ -67,7 +68,7 @@ describe('applyHandler', () => {
   it('returns 400 when the resolveToken cannot be opened', async () => {
     // Register a real-shaped provider so the 503 branch doesn't shortcut.
     OpenFeature.setProvider({
-      metadata: { name: 'ConfidenceServerProviderLocal' },
+      metadata: { name: CONFIDENCE_PROVIDER_NAME },
       applyFlag: vi.fn(),
     } as never);
     const handler = applyHandler();
@@ -79,7 +80,7 @@ describe('applyHandler', () => {
   it('skips applyFlag and returns 204 when the opened token is empty (error bundle)', async () => {
     const applyFlag = vi.fn();
     OpenFeature.setProvider({
-      metadata: { name: 'ConfidenceServerProviderLocal' },
+      metadata: { name: CONFIDENCE_PROVIDER_NAME },
       applyFlag,
     } as never);
     const sealed = sealResolveToken(''); // FlagBundle.error() ships resolveToken: ''
@@ -93,7 +94,7 @@ describe('applyHandler', () => {
   it('calls applyFlag on success and returns 204', async () => {
     const applyFlag = vi.fn();
     OpenFeature.setProvider({
-      metadata: { name: 'ConfidenceServerProviderLocal' },
+      metadata: { name: CONFIDENCE_PROVIDER_NAME },
       applyFlag,
     } as never);
     const sealed = sealResolveToken('the-real-token');

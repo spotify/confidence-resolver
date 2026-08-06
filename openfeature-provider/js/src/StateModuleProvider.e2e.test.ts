@@ -1,23 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { OpenFeature } from '@openfeature/server-sdk';
-import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
-import { readFileSync } from 'node:fs';
-import { WasmResolver } from './WasmResolver';
-import { WasmStateResolver } from './WasmStateResolver';
+import { StateModuleProvider } from './StateModuleProvider';
 
-const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
-const module = new WebAssembly.Module(moduleBytes);
-
-describe.each([
-  { name: 'unencrypted', encryptionKey: undefined, useCompiledStates: true },
-  { name: 'encrypted', encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY, useCompiledStates: false },
-])('ConfidenceServerProvider E2E ($name)', ({ name, encryptionKey, useCompiledStates }) => {
-  const resolver = useCompiledStates ? new WasmStateResolver() : new WasmResolver(module);
-  const provider = new ConfidenceServerProviderLocal(resolver, {
-    flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
-    encryptionKey,
-    useCompiledStates
-  });
+// these assertions are unchanged from the host-side resolver they replaced
+describe('ConfidenceServerProvider E2E', () => {
+  const name = 'compiled-state';
+  const provider = new StateModuleProvider({ flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET! });
 
   beforeAll(async () => {
     await OpenFeature.setProviderAndWait(`e2e-${name}`, provider);
@@ -86,11 +74,9 @@ describe.each([
 });
 
 describe('ConfidenceServerProvider E2E (sticky)', () => {
-  const resolver = new WasmStateResolver();
-  const provider = new ConfidenceServerProviderLocal(resolver, {
+  const provider = new StateModuleProvider({
     flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
     materializationStore: 'CONFIDENCE_REMOTE_STORE',
-    useCompiledStates: true
   });
 
   beforeAll(async () => {

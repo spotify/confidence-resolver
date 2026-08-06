@@ -1,10 +1,11 @@
 import {
   ResolveFlagsRequest,
-  ResolveFlagsResponse,
   ResolveProcessResponse,
   ApplyRequest,
+  EvaluateRequest,
   Materialization,
   Materialization_Record,
+  ResolutionDetails,
   WriteLogsPayload,
 } from './proto/state_module/api';
 import { getLogger } from './logger';
@@ -43,7 +44,11 @@ export interface StateModuleOptions {
  * reuse the underlying memory.
  */
 export interface LogChunks extends Iterable<Uint8Array> {
-  /** Releases the payload back to the module. Idempotent; iteration afterwards throws. */
+  /**
+   * Hands the payload back to the module. Idempotent; iteration afterwards
+   * throws. Not a plain free(): the payload allocation carries ownership data
+   * for the parts beyond its length, and only ack_logs releases those too.
+   */
   free(): void;
   /** Concatenates all chunks into one host-owned buffer. */
   copy(): Uint8Array;
@@ -91,7 +96,7 @@ class LogPayload implements LogChunks {
   free(): void {
     if (this.freed) return;
     this.freed = true;
-    this.exports.free(this.ptr);
+    this.exports.ack_logs(packSlice(this.ptr, this.len));
   }
 }
 
@@ -105,6 +110,8 @@ interface StateModuleExports {
   resolve_process_discard: (process: number) => void;
   apply_flags: (request: bigint) => number;
   flush_logs: () => void;
+  ack_logs: (payload: bigint) => void;
+  evaluate: (response: bigint, request: bigint) => bigint;
 }
 
 // byte ranges cross the wasm boundary as a single i64: pointer in the low
@@ -118,6 +125,56 @@ function unpackSlice(slice: bigint): { ptr: number; len: number } {
     ptr: Number(slice & 0xffffffffn),
     len: Number((slice >> 32n) & 0xffffffffn),
   };
+}
+
+function varint(value: number): number[] {
+  const bytes: number[] = [];
+  let rest = value;
+  while (rest > 0x7f) {
+    bytes.push((rest & 0x7f) | 0x80);
+    rest >>>= 7;
+  }
+  bytes.push(rest);
+  return bytes;
+}
+
+/**
+ * A resolve response left in module memory, so `evaluate` can read it in
+ * place. The module borrows the buffer — evaluate any number of flag keys
+ * against one handle — and the host frees it with close().
+ *
+ * Holding a handle across an await is safe: a concurrent call may grow module
+ * memory, which detaches JS views but never moves an allocation, so the
+ * pointer stays valid. A handle does NOT survive a state update, since that
+ * builds a new module with its own memory.
+ */
+export class ResolveHandle {
+  private closed = false;
+
+  constructor(private readonly module: StateModule, private readonly slice: bigint) {}
+
+  /** Decodes a copy of the borrowed response; the handle stays open. */
+  decode(): ResolveProcessResponse {
+    this.check();
+    return ResolveProcessResponse.decode(this.module.view(this.slice));
+  }
+
+  /** Evaluates one flag key against the borrowed response. */
+  evaluate(request: EvaluateRequest): ResolutionDetails {
+    this.check();
+    return this.module.evaluate(this.slice, request);
+  }
+
+  /** Releases the response buffer. Idempotent; use afterwards throws. */
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.module.release(this.slice);
+  }
+
+  private check(): void {
+    if (this.closed) throw new Error('resolve handle used after close');
+  }
 }
 
 /**
@@ -151,32 +208,34 @@ export class StateModule {
 
   /**
    * Single-shot resolve. Omitting `materializations` runs in discovery mode:
-   * the response's materializationToRead lists the records the flags would need.
+   * the response's materializationToRead lists the records the flags would
+   * need, and flags that need them resolve with MATERIALIZATION_NOT_SUPPORTED.
    */
-  resolveFlags(request: ResolveFlagsRequest, materializations?: Materialization_Record[]): ResolveFlagsResponse {
+  resolve(request: ResolveFlagsRequest, materializations?: Materialization_Record[]): ResolveHandle {
     const reqSlice = this.writeToModule(ResolveFlagsRequest.encode(request).finish());
     const matSlice = this.encodeMaterializations(materializations);
-    return ResolveFlagsResponse.decode(this.readFromModule(this.exports.resolve_flags(reqSlice, matSlice)));
+    return new ResolveHandle(this, this.wrapInEnvelope(this.exports.resolve_flags(reqSlice, matSlice)));
   }
 
   /**
-   * First half of a two-phase resolve: returns either a final response, or a
-   * suspended process with the materialization records the host must fetch.
-   * A suspended process holds module memory until resumed or discarded.
+   * First half of a two-phase resolve: the handle decodes to either a final
+   * response, or a suspended process with the materialization records the
+   * host must fetch. A suspended process holds module memory until resumed or
+   * discarded — independently of the returned handle.
    */
-  resolveProcessStart(request: ResolveFlagsRequest): ResolveProcessResponse {
+  resolveStart(request: ResolveFlagsRequest): ResolveHandle {
     const reqSlice = this.writeToModule(ResolveFlagsRequest.encode(request).finish());
-    return ResolveProcessResponse.decode(this.readFromModule(this.exports.resolve_process_start(reqSlice)));
+    return new ResolveHandle(this, this.exports.resolve_process_start(reqSlice));
   }
 
-  /** Completes a suspended resolve with the fetched records, consuming the process handle. */
-  resolveProcessResume(processId: number, materializations: Materialization_Record[]): ResolveFlagsResponse {
+  /** Completes a suspended resolve with the fetched records, consuming the process id. */
+  resolveResume(processId: number, materializations: Materialization_Record[]): ResolveHandle {
     const matSlice = this.encodeMaterializations(materializations);
-    return ResolveFlagsResponse.decode(this.readFromModule(this.exports.resolve_process_resume(processId, matSlice)));
+    return new ResolveHandle(this, this.wrapInEnvelope(this.exports.resolve_process_resume(processId, matSlice)));
   }
 
   /** Abandons a suspended process and frees its context. */
-  resolveProcessDiscard(processId: number): void {
+  resolveDiscard(processId: number): void {
     this.exports.resolve_process_discard(processId);
   }
 
@@ -189,6 +248,48 @@ export class StateModule {
   /** Serializes pending telemetry and delivers it through the onLogs callback. */
   flushLogs(): void {
     this.exports.flush_logs();
+  }
+
+  /**
+   * Evaluates one flag key against a borrowed response. Called through
+   * {@link ResolveHandle}, which owns the response lifetime.
+   */
+  evaluate(response: bigint, request: EvaluateRequest): ResolutionDetails {
+    const reqSlice = this.writeToModule(EvaluateRequest.encode(request).finish());
+    return ResolutionDetails.decode(this.readFromModule(this.exports.evaluate(response, reqSlice)));
+  }
+
+  /** Copies a borrowed slice out of module memory without freeing it. */
+  view(slice: bigint): Uint8Array {
+    if (slice === 0n) return new Uint8Array(0);
+    const { ptr, len } = unpackSlice(slice);
+    return new Uint8Array(this.exports.memory.buffer, ptr, len).slice();
+  }
+
+  /** Frees a slice the host owns. */
+  release(slice: bigint): void {
+    if (slice === 0n) return;
+    this.exports.free(unpackSlice(slice).ptr);
+  }
+
+  // resolve_flags and resolve_process_resume return a bare ResolveFlagsResponse,
+  // but evaluate takes the ResolveProcessResponse envelope, and the two are not
+  // distinguishable on the wire (both length-delimited field 1). Prepend the
+  // `resolved` tag + length in module memory rather than round-tripping the
+  // bytes through the host.
+  private wrapInEnvelope(bare: bigint): bigint {
+    if (bare === 0n) return 0n;
+    const { ptr, len } = unpackSlice(bare);
+    const header = [0x0a, ...varint(len)];
+    const size = header.length + len;
+    // alloc may grow memory, so take the view after it
+    const envPtr = this.exports.alloc(size);
+    if (envPtr === 0) throw new Error('wasm alloc returned null');
+    const memory = new Uint8Array(this.exports.memory.buffer);
+    memory.set(header, envPtr);
+    memory.copyWithin(envPtr + header.length, ptr, ptr + len);
+    this.exports.free(ptr);
+    return packSlice(envPtr, size);
   }
 
   // copy bytes into module memory via alloc, return the packed slice;

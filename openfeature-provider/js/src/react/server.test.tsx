@@ -6,14 +6,13 @@ import { OpenFeature } from '@openfeature/server-sdk';
 import type { Provider, EvaluationContext } from '@openfeature/server-sdk';
 import React from 'react';
 import { ConfidenceProvider } from './server';
-import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
+import type { StateModuleProvider } from '../StateModuleProvider';
+import { CONFIDENCE_PROVIDER_NAME } from '../types';
 
-// Mock provider that matches ConfidenceServerProviderLocal's metadata
-function createMockConfidenceProvider(
-  overrides: Partial<ConfidenceServerProviderLocal> = {},
-): ConfidenceServerProviderLocal {
+// Mock provider that matches the Confidence provider's metadata
+function createMockConfidenceProvider(overrides: Partial<StateModuleProvider> = {}): StateModuleProvider {
   return {
-    metadata: { name: 'ConfidenceServerProviderLocal' },
+    metadata: { name: CONFIDENCE_PROVIDER_NAME },
     resolve: vi.fn().mockResolvedValue({
       flags: { 'test-flag': { value: true, reason: 'MATCH' } },
       resolveToken: 'test-token',
@@ -26,10 +25,10 @@ function createMockConfidenceProvider(
     resolveNumberEvaluation: vi.fn(),
     resolveObjectEvaluation: vi.fn(),
     ...overrides,
-  } as unknown as ConfidenceServerProviderLocal;
+  } as unknown as StateModuleProvider;
 }
 
-// Mock provider that is NOT ConfidenceServerProviderLocal
+// Mock provider that is NOT StateModuleProvider
 function createMockOtherProvider(): Provider {
   return {
     metadata: { name: 'SomeOtherProvider' },
@@ -52,7 +51,7 @@ describe('ConfidenceProvider', () => {
   });
 
   describe('provider validation', () => {
-    it('warns and returns children when default provider is not ConfidenceServerProviderLocal', async () => {
+    it('warns and returns children when default provider is not a Confidence provider', async () => {
       const otherProvider = createMockOtherProvider();
       await OpenFeature.setProviderAndWait(otherProvider);
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -64,13 +63,13 @@ describe('ConfidenceProvider', () => {
       });
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
+        expect.stringContaining('ConfidenceProvider requires a Confidence provider'),
       );
       expect(result).toBeDefined();
       warnSpy.mockRestore();
     });
 
-    it('warns and returns children when named provider is not ConfidenceServerProviderLocal', async () => {
+    it('warns and returns children when named provider is not a Confidence provider', async () => {
       const otherProvider = createMockOtherProvider();
       await OpenFeature.setProviderAndWait('my-provider', otherProvider);
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -82,7 +81,7 @@ describe('ConfidenceProvider', () => {
       });
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
+        expect.stringContaining('ConfidenceProvider requires a Confidence provider'),
       );
       expect(result).toBeDefined();
       warnSpy.mockRestore();
@@ -97,7 +96,7 @@ describe('ConfidenceProvider', () => {
       });
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
+        expect.stringContaining('ConfidenceProvider requires a Confidence provider'),
       );
       expect(result).toBeDefined();
       warnSpy.mockRestore();

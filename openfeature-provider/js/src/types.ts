@@ -1,3 +1,10 @@
+/**
+ * Provider name the React and Pages Router integrations narrow on. It lives
+ * here rather than in the provider module so those entry points can identify
+ * a provider with a type-only import, keeping it out of their bundle graph.
+ */
+export const CONFIDENCE_PROVIDER_NAME = 'ConfidenceStateModuleProvider';
+
 export type ResolutionReason =
   | 'ERROR'
   | 'FLAG_ARCHIVED'

@@ -1,8 +1,8 @@
 import type FlagBundleType from '../flag-bundle';
-import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
+import type { StateModuleProvider } from '../StateModuleProvider';
 
 export type FlagBundle = FlagBundleType;
-export type ConfidenceProvider = ConfidenceServerProviderLocal;
+export type ConfidenceProvider = StateModuleProvider;
 
 /**
  * Server-to-client transport payload returned from `withConfidence` and

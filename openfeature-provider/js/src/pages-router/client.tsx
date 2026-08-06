@@ -52,7 +52,7 @@ export function ConfidencePagesProvider({
           // eslint-disable-next-line no-console
           console.warn(
             `[Confidence] apply failed: ${res.status} ${res.statusText}. ` +
-              `Mount applyHandler at ${apiPath} and ensure a ConfidenceServerProviderLocal is registered.`,
+              `Mount applyHandler at ${apiPath} and ensure a Confidence provider is registered.`,
           );
         }
       } catch (err) {

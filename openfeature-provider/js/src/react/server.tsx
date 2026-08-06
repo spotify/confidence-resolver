@@ -5,23 +5,20 @@ import {
   type EvaluationDetails,
   type JsonValue,
 } from '@openfeature/server-sdk';
-import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
+import type { StateModuleProvider } from '../StateModuleProvider';
 import { ConfidenceClientProvider } from './client';
 import { devWarn } from '../util';
 import type FlagBundleType from '../flag-bundle';
 import * as FlagBundle from '../flag-bundle';
-import { ErrorCode } from '../types';
+import { CONFIDENCE_PROVIDER_NAME, ErrorCode } from '../types';
 
 type FlagBundle = FlagBundleType;
 
-const PROVIDER_NAME = 'ConfidenceServerProviderLocal';
-
-function isConfidenceServerProviderLocal(provider: Provider): provider is ConfidenceServerProviderLocal {
-  if (provider?.metadata?.name !== PROVIDER_NAME) {
+function isConfidenceProvider(provider: Provider): provider is StateModuleProvider {
+  if (provider?.metadata?.name !== CONFIDENCE_PROVIDER_NAME) {
     devWarn(
-      `ConfidenceProvider requires a ConfidenceServerProviderLocal, but got ${
-        provider?.metadata?.name ?? 'undefined'
-      }. ` + 'Make sure you have registered the provider with OpenFeature before rendering.',
+      `ConfidenceProvider requires a Confidence provider, but got ${provider?.metadata?.name ?? 'undefined'}. ` +
+        'Make sure you have registered the provider with OpenFeature before rendering.',
     );
     return false;
   }
@@ -50,7 +47,7 @@ export interface ConfidenceProviderProps {
  * Flags are resolved **without** logging exposure. Exposure is logged when client
  * components call the hooks (automatically on mount, or manually via `expose()`).
  *
- * Must be used with a `ConfidenceServerProviderLocal` registered with OpenFeature.
+ * Must be used with a Confidence provider registered with OpenFeature.
  *
  * @example
  * ```tsx
@@ -84,12 +81,12 @@ export async function ConfidenceProvider({
   const provider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
   let bundle: FlagBundle;
-  if (isConfidenceServerProviderLocal(provider)) {
+  if (isConfidenceProvider(provider)) {
     bundle = await provider.resolve(context, flags);
   } else {
     bundle = FlagBundle.error(
       ErrorCode.GENERAL,
-      `The registered OpenFeatureProvider (${providerName}) is not a ConfidenceServerProviderLocal: ${
+      `The registered OpenFeatureProvider (${providerName}) is not a Confidence provider: ${
         provider?.metadata?.name ?? 'undefined'
       }`,
     );
@@ -100,7 +97,7 @@ export async function ConfidenceProvider({
 
     const serverProvider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
 
-    if (!bundle.errorCode && isConfidenceServerProviderLocal(serverProvider)) {
+    if (!bundle.errorCode && isConfidenceProvider(serverProvider)) {
       serverProvider.applyFlag(bundle.resolveToken, flagName);
     }
   }
@@ -158,14 +155,14 @@ export async function getFlagDetails<T extends JsonValue>(
   providerName?: string,
 ): Promise<EvaluationDetails<T>> {
   const provider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
-  if (!isConfidenceServerProviderLocal(provider)) {
+  if (!isConfidenceProvider(provider)) {
     return {
       flagKey,
       flagMetadata: {},
       value: defaultValue,
       reason: 'ERROR',
       errorCode: ErrorCode.GENERAL,
-      errorMessage: 'Provider is not a ConfidenceServerProviderLocal',
+      errorMessage: 'Provider is not a Confidence provider',
     };
   }
   const details = await provider.evaluate(flagKey, defaultValue, context);

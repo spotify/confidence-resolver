@@ -25,29 +25,11 @@ const reactBase = defineConfig({
 });
 
 export default defineConfig([
-  // Default: inlined WASM as data URL (works everywhere)
+  // Single universal entry: state modules are fetched at runtime, so there is
+  // no wasm binary to inline, copy or locate per platform.
   {
-    entry: './src/index.inlined.ts',
+    entry: './src/index.ts',
     platform: 'neutral',
-    inputOptions: {
-      moduleTypes: {
-        '.wasm': 'dataurl',
-      },
-    },
-    ...base,
-  },
-  // ./node: uses fs.readFile (traditional Node.js)
-  {
-    entry: './src/index.node.ts',
-    platform: 'node',
-    copy: ['../../wasm/confidence_resolver.wasm'],
-    ...base,
-  },
-  // ./fetch: uses fetch + URL (Deno, Bun, browsers with good bundlers)
-  {
-    entry: './src/index.fetch.ts',
-    platform: 'neutral',
-    copy: ['../../wasm/confidence_resolver.wasm'],
     ...base,
   },
   // React server component

@@ -2,6 +2,10 @@ syntax = "proto3";
 
 package state_module;
 
+option java_package = "com.spotify.confidence.wasm.api";
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/statemodule";
+option java_multiple_files = true;
+
 import "google/protobuf/struct.proto";
 
 // ============================================================================
@@ -49,11 +53,73 @@ message ResolvedFlag {
   // Resolved value as a struct (the "value: T" field)
   google.protobuf.Struct value = 3;
 
+  // Schema of the flag value
+  FlagSchema.StructFlagSchema flag_schema = 4;
+
   // Reason for the resolution
   ResolveReason reason = 5;
 
   // Whether this flag should be applied (for shouldApply tracking)
   bool should_apply = 6;
+}
+
+// Wire-compatible with confidence.flags.types.v1.FlagSchema
+message FlagSchema {
+  oneof schema_type {
+    StructFlagSchema struct_schema = 1;
+    ListFlagSchema list_schema = 2;
+    IntFlagSchema int_schema = 3;
+    DoubleFlagSchema double_schema = 4;
+    StringFlagSchema string_schema = 5;
+    BoolFlagSchema bool_schema = 6;
+  }
+  message StructFlagSchema {
+    map<string, FlagSchema> schema = 1;
+  }
+  message DoubleFlagSchema {}
+  message IntFlagSchema {}
+  message StringFlagSchema {}
+  message BoolFlagSchema {}
+  message ListFlagSchema {
+    FlagSchema element_schema = 1;
+  }
+}
+
+// ============================================================================
+// Evaluation API (provider hosts — see plans/wasm-evaluate.md)
+// ============================================================================
+
+message EvaluateRequest {
+  // "my-flag" or "my-flag.path.to.field" — no "flags/" prefix, split on '.'.
+  string flag_key = 1;
+
+  // The caller's default. Gives the expected shape (see the plan's Expected
+  // cursor) and is echoed back as ResolutionDetails.value on every error path.
+  google.protobuf.Value default_value = 2;
+
+  // Optional caller-intent refinement. proto Value cannot express int-vs-
+  // double (a number_value 42 default matches either), so strongly typed
+  // hosts (Java resolveIntegerEvaluation etc.) pass the precise expected
+  // schema here; dynamically typed hosts omit it and the expected shape is
+  // derived from default_value alone.
+  FlagSchema expected_schema = 3;
+}
+
+message ResolutionDetails {
+  // Always set: the merged value on success, the echoed default on error.
+  // Hosts decode this unconditionally — no host-side fallback logic.
+  google.protobuf.Value value = 1;
+  string variant = 2;
+
+  // The underlying resolve reason when known (kept honest even on some
+  // errors, e.g. MATERIALIZATION_NOT_SUPPORTED); RESOLVE_REASON_ERROR
+  // otherwise. Host rule: OpenFeature reason string = error_code set
+  // ? "ERROR" : map(reason).
+  ResolveReason reason = 3;
+
+  ErrorCode error_code = 4;      // UNSPECIFIED on success
+  string error_message = 5;
+  bool should_apply = 6;         // false on all error paths
 }
 
 // ============================================================================
@@ -127,12 +193,66 @@ enum ErrorCode {
 // ============================================================================
 
 message WriteLogsPayload {
-  repeated fixed64 parts = 1;  // packed Slices into the buffer
+  // Packed Slices; concatenating their bytes yields a WriteFlagLogsRequest.
+  // The payload allocation privately carries ownership data for the parts
+  // beyond these bytes — hosts must hand the payload back to ack_logs
+  // (not free) when done.
+  repeated fixed64 parts = 1;
 }
 
 message WriteFlagLogsRequest {
   repeated FlagAssigned flag_assigned = 1;
+  repeated ClientResolveInfo client_resolve_info = 3;
   repeated FlagResolveInfo flag_resolve_info = 4;
+}
+
+// Mirrors the reference's WriteResolveInfoRequest.ClientResolveInfo
+// (confidence/flags/admin/v1/types.proto) — field numbers and types must
+// stay wire-compatible. client/client_credential coincide with ClientInfo,
+// so the compiled per-client ClientInfo blob embeds raw as the prefix of a
+// serialized entry.
+message ClientResolveInfo {
+  string client = 1;
+  string client_credential = 2;
+  repeated EvaluationContextSchemaInstance schema = 3;
+}
+
+message EvaluationContextSchemaInstance {
+  map<string, SchemaFieldKind> schema = 1;
+  map<string, ContextFieldSemanticType> semantic_types = 2;
+  // seen_values = 3 (FieldValueSampler) deferred — see todo.md.
+}
+
+// Reference EvaluationContextSchemaField.Kind values.
+enum SchemaFieldKind {
+  KIND_UNSPECIFIED = 0;
+  NULL_KIND = 1;
+  NUMBER_KIND = 2;
+  STRING_KIND = 3;
+  BOOL_KIND = 4;
+}
+
+// Reference ContextFieldSemanticType, restricted to the variants the
+// sampler guesses (enum_type = 2 and entity_reference = 3 are never
+// derived from a context).
+message ContextFieldSemanticType {
+  oneof type {
+    CountrySemanticType country = 1;
+    VersionSemanticType version = 4;
+    DateSemanticType date = 5;
+    TimestampSemanticType timestamp = 6;
+  }
+
+  message CountrySemanticType {
+    CountryFormat format = 1;
+    enum CountryFormat {
+      COUNTRY_FORMAT_UNSPECIFIED = 0;
+      TWO_LETTER_ISO_CODE = 1;
+    }
+  }
+  message VersionSemanticType {}
+  message DateSemanticType {}
+  message TimestampSemanticType {}
 }
 
 message ClientInfo {

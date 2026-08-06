@@ -40,7 +40,7 @@ function providerMissingBundle(providerName?: string): ConfidencePageProps {
     ErrorCode.GENERAL,
     `OpenFeature provider${
       providerName ? ` "${providerName}"` : ''
-    } is not a ConfidenceServerProviderLocal. Register one with OpenFeature.setProviderAndWait — typically in instrumentation.ts.`,
+    } is not a Confidence provider. Register one with OpenFeature.setProviderAndWait — typically in instrumentation.ts.`,
   );
 }
 

@@ -7,21 +7,14 @@ ROOT := $(realpath $(CURDIR)/../..)
 INSTALL_STAMP := .install.stamp
 BUILD_STAMP := .build.stamp
 GEN_DIR := src/proto
-GEN_TS := $(GEN_DIR)/test-only.ts $(GEN_DIR)/confidence/wasm/messages.ts $(GEN_DIR)/confidence/wasm/wasm_api.ts $(GEN_DIR)/confidence/flags/resolver/v1/types.ts $(GEN_DIR)/confidence/flags/resolver/v1/api.ts $(GEN_DIR)/confidence/flags/resolver/v1/internal_api.ts $(GEN_DIR)/confidence/flags/types/v1/types.ts
-PROTO_SRC := proto/test-only.proto $(ROOT)/openfeature-provider/proto/confidence/wasm/messages.proto $(ROOT)/openfeature-provider/proto/confidence/wasm/wasm_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/types.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/internal_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/types/v1/types.proto
+GEN_TS := $(GEN_DIR)/confidence/wasm/messages.ts $(GEN_DIR)/confidence/wasm/wasm_api.ts $(GEN_DIR)/confidence/flags/resolver/v1/types.ts $(GEN_DIR)/confidence/flags/resolver/v1/api.ts $(GEN_DIR)/confidence/flags/resolver/v1/internal_api.ts $(GEN_DIR)/confidence/flags/types/v1/types.ts
+PROTO_SRC := $(ROOT)/openfeature-provider/proto/confidence/wasm/messages.proto $(ROOT)/openfeature-provider/proto/confidence/wasm/wasm_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/types.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/internal_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/types/v1/types.proto
 SRC := $(shell find src -name '*.ts')
 CONFIG := package.json yarn.lock tsconfig.json tsdown.config.ts vitest.config.ts
-WASM_ARTIFACT := $(ROOT)/wasm/confidence_resolver.wasm
+# No wasm artifact to build: the resolver state is itself a compiled wasm
+# module, fetched at runtime. Building this package needs no Rust toolchain.
 
-.PHONY: install build test clean 
-
-# Always build wasm if not in docker
-ifneq ($(IN_DOCKER_BUILD),1)
-.PHONY: build-wasm
-build-wasm:
-	@$(MAKE) -C $(ROOT) wasm/confidence_resolver.wasm
-$(BUILD_STAMP): | build-wasm
-endif
+.PHONY: install build test clean
 
 # Install dependencies only when package manifests change
 $(INSTALL_STAMP): package.json yarn.lock
@@ -33,7 +26,7 @@ $(GEN_TS): $(PROTO_SRC) $(INSTALL_STAMP)
 	@mkdir -p $(GEN_DIR)
 	yarn proto:gen
 
-$(BUILD_STAMP): $(WASM_ARTIFACT) $(INSTALL_STAMP) $(GEN_TS) $(SRC) $(CONFIG)
+$(BUILD_STAMP): $(INSTALL_STAMP) $(GEN_TS) $(SRC) $(CONFIG)
 	yarn build
 	@touch $@
 
@@ -41,12 +34,12 @@ install: $(INSTALL_STAMP) $(GEN_TS)
 
 build: $(BUILD_STAMP)
 
-test: $(WASM_ARTIFACT) $(INSTALL_STAMP) $(GEN_TS)
+test: $(INSTALL_STAMP) $(GEN_TS)
 	yarn format:check
 	yarn typecheck
 	yarn test --run --exclude='**/*.e2e.test.ts'
 
-test-e2e: $(WASM_ARTIFACT) $(INSTALL_STAMP) $(GEN_TS)
+test-e2e: $(INSTALL_STAMP) $(GEN_TS)
 	yarn test --run e2e.test
 
 bench-local: $(BUILD_STAMP)
