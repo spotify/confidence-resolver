@@ -69,9 +69,6 @@ static LOG_DESTINATIONS: Lazy<Vec<LogDestination>> = Lazy::new(|| {
     let parsed: Vec<LogDestination> = raw.iter().map(|&v| LogDestination::from(v)).collect();
     if parsed.is_empty() {
         vec![LogDestination::Edge]
-    } else if parsed.contains(&LogDestination::Cloudflare) {
-        // Cloudflare ingestor handles forwarding to BQ; skip Edge to avoid duplicates
-        vec![LogDestination::Cloudflare]
     } else {
         parsed
     }
@@ -503,13 +500,36 @@ pub async fn consume_flag_logs_queue(
 
         let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
         let account_id = CDN_STATE_REQUEST.account_id.as_str();
-        for dest in LOG_DESTINATIONS.iter() {
-            let destination_url = log_destination_url(dest);
-            let acct = match dest {
-                LogDestination::Edge => None,
-                _ => Some(account_id),
-            };
-            let _ = send_flags_logs(client_secret, &req, destination_url, acct).await;
+        let destinations = &*LOG_DESTINATIONS;
+
+        // When both destinations are configured, Cloudflare is always primary
+        // and Edge is the fallback on failure. Single destination sends to
+        // that destination only.
+        let has_cloudflare = destinations.contains(&LogDestination::Cloudflare);
+        let has_edge = destinations.contains(&LogDestination::Edge);
+
+        let (primary, fallback) = if has_cloudflare && has_edge {
+            (LogDestination::Cloudflare, Some(LogDestination::Edge))
+        } else {
+            (destinations[0], None)
+        };
+
+        let primary_url = log_destination_url(&primary);
+        let primary_acct = match primary {
+            LogDestination::Edge => None,
+            _ => Some(account_id),
+        };
+        let result = send_flags_logs(client_secret, &req, primary_url, primary_acct).await;
+
+        if let Some(fb) = fallback {
+            if result.is_err() || result.as_ref().is_ok_and(|r| r.status_code() >= 400) {
+                let fb_url = log_destination_url(&fb);
+                let fb_acct = match fb {
+                    LogDestination::Edge => None,
+                    _ => Some(account_id),
+                };
+                let _ = send_flags_logs(client_secret, &req, fb_url, fb_acct).await;
+            }
         }
     }
 
