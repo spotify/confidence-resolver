@@ -545,7 +545,7 @@ async fn update_prometheus_kv(kv: &kv::KvStore, req: &WriteFlagLogsRequest) {
 fn log_destination_url(dest: &LogDestination) -> &'static str {
     match dest {
         LogDestination::Edge => "https://resolver.confidence.dev/v1/clientFlagLogs:write",
-        LogDestination::Cloudflare => "https://confidence-flag-log-ingest.spotify-confidence.workers.dev/v1/flagLogs:ingest",
+        LogDestination::Cloudflare => "https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest",
     }
 }
 
@@ -557,17 +557,46 @@ async fn send_flags_logs(
 ) -> Result<Response> {
     let mut init = RequestInit::new();
     let headers = Headers::new();
-    headers.set("Content-Type", "application/json")?;
     headers.set("Authorization", &format!("ClientSecret {}", client_secret))?;
-    if let Some(account) = account_id {
-        headers.set("X-Confidence-Account", account)?;
-    }
-    init.with_headers(headers);
     init.with_method(Method::Post);
-    let json = serde_json::to_string(&message)?;
-    init.with_body(Some(json.into()));
+
+    if let Some(account) = account_id {
+        // Cloudflare ingestor: encode as IngestFlagLogsRequest protobuf
+        let mut batch_buf = Vec::new();
+        confidence_resolver::encode_message(message, &mut batch_buf);
+
+        let account_bytes = account.as_bytes();
+        let mut body = Vec::new();
+        // field 1: string account_id, tag = 0x0a
+        body.push(0x0a);
+        encode_varint(account_bytes.len() as u64, &mut body);
+        body.extend_from_slice(account_bytes);
+        // field 2: WriteFlagLogsRequest batch, tag = 0x12
+        body.push(0x12);
+        encode_varint(batch_buf.len() as u64, &mut body);
+        body.extend_from_slice(&batch_buf);
+
+        headers.set("Content-Type", "application/protobuf")?;
+        init.with_headers(headers);
+        init.with_body(Some(body.into()));
+    } else {
+        // Edge: send as JSON
+        headers.set("Content-Type", "application/json")?;
+        init.with_headers(headers);
+        let json = serde_json::to_string(message)?;
+        init.with_body(Some(json.into()));
+    }
+
     let request = Request::new_with_init(destination_url, &init)?;
     Fetch::Request(request).send().await
+}
+
+fn encode_varint(mut value: u64, buf: &mut Vec<u8>) {
+    while value >= 0x80 {
+        buf.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    buf.push(value as u8);
 }
 
 impl ResponseExt for Response {
