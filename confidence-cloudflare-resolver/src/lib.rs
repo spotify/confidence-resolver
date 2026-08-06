@@ -69,6 +69,9 @@ static LOG_DESTINATIONS: Lazy<Vec<LogDestination>> = Lazy::new(|| {
     let parsed: Vec<LogDestination> = raw.iter().map(|&v| LogDestination::from(v)).collect();
     if parsed.is_empty() {
         vec![LogDestination::Edge]
+    } else if parsed.contains(&LogDestination::Cloudflare) {
+        // Cloudflare ingestor handles forwarding to BQ; skip Edge to avoid duplicates
+        vec![LogDestination::Cloudflare]
     } else {
         parsed
     }
