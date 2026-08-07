@@ -45,8 +45,54 @@ use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRe
 use std::sync::OnceLock;
 
 thread_local! {
+    // Side channel for the `Host` logging callbacks, which are static methods
+    // with no way to reach their caller. Only ever `Some` inside `with_log`.
     static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
-    static MAT_WRITES: RefCell<Option<Vec<MaterializationRecord>>> = const { RefCell::new(None) };
+}
+
+/// Queues one request's flag log. Called via `Context::wait_until`, so it runs
+/// after the response has been returned.
+async fn queue_flag_log(log: WriteFlagLogsRequest) {
+    match serde_json::to_string(&log) {
+        Ok(json) => {
+            if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
+                if let Err(e) = queue.send(json).await {
+                    console_log!("flag log queue send failed: {:?}", e);
+                }
+            }
+        }
+        Err(e) => console_log!("flag log serialize failed: {:?}", e),
+    }
+}
+
+/// Runs `f` with `log` installed as the destination for the `Host` logging
+/// callbacks, then moves whatever they wrote back into `log`. Call it once per
+/// entry into the resolver; repeated calls accumulate into the same `log`.
+fn with_log<T>(log: &mut WriteFlagLogsRequest, f: impl FnOnce() -> T) -> T {
+    FLAG_LOG.with(|slot| {
+        let local = RefCell::new(Some(std::mem::take(log)));
+        slot.swap(&local);
+        let result = f();
+        slot.swap(&local);
+        *log = local.into_inner().unwrap_or_default();
+        result
+    })
+}
+
+/// Seeds the resolver's RNG once per isolate with host entropy. Without this
+/// every isolate produces the same resolve-id sequence, so ids collide across
+/// isolates and downstream consumers that key on resolve id misbehave.
+fn seed_resolver_rng() {
+    static SEEDED: OnceLock<()> = OnceLock::new();
+    SEEDED.get_or_init(|| {
+        let seed = getrandom::u64().unwrap_or_else(|e| {
+            console_log!("host entropy unavailable, using weak seed: {:?}", e);
+            let hi = (js_sys::Math::random() * (u32::MAX as f64)) as u64;
+            let lo = (js_sys::Math::random() * (u32::MAX as f64)) as u64;
+            (hi << 32) ^ lo ^ (js_sys::Date::now() as u64)
+        });
+        confidence_resolver::seed_rng(seed);
+    });
 }
 
 /// Prometheus exposition format content type (version 0.0.4).
@@ -174,13 +220,15 @@ fn sdk_info() -> Sdk {
 /// Resolve flags with sticky assignment support via the suspend/resume cycle.
 ///
 /// If the resolver suspends (needs materialization data), reads from KV and resumes.
-/// Returns the resolved response and any materialization writes to persist.
+/// Returns the resolved response and any materialization writes to persist, and
+/// accumulates whatever the resolver logged into `log`.
 async fn resolve_with_sticky(
     resolver: &AccountResolver<'_, H>,
     request: ResolveProcessRequest,
     kv: Option<&kv::KvStore>,
+    log: &mut WriteFlagLogsRequest,
 ) -> std::result::Result<(ResolveFlagsResponse, Vec<MaterializationRecord>), String> {
-    let response = resolver.resolve_flags(request)?;
+    let response = with_log(log, || resolver.resolve_flags(request))?;
 
     match response.result {
         Some(resolve_process_response::Result::Resolved(r)) => Ok((
@@ -192,7 +240,7 @@ async fn resolve_with_sticky(
             let records =
                 materialization::read_materializations(kv, &s.materializations_to_read).await;
             let resume = ResolveProcessRequest::resume(records, s.state);
-            let resumed = resolver.resolve_flags(resume)?;
+            let resumed = with_log(log, || resolver.resolve_flags(resume))?;
             resumed
                 .into_resolved()
                 .ok_or_else(|| "Still suspended after resume".to_string())
@@ -214,6 +262,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
     set_client_secret(&env);
     init_resolve_token_key(&env);
+    seed_resolver_rng();
 
     let allowed_origin_env = env
         .var("ALLOWED_ORIGIN")
@@ -245,16 +294,16 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         return Response::ok("")?.with_cors_headers(&allowed_origin_env);
     }
 
-    let mat_kv_for_writes = env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
     let mat_ttl: Option<u64> = env
         .var("MATERIALIZATION_TTL_SECONDS")
         .ok()
         .and_then(|v| v.to_string().parse().ok());
 
     let state = &RESOLVER_STATE;
+    let event_ctx = &ctx;
     let router = Router::new();
 
-    let response = router
+    router
         .get_async("/metrics", |req, ctx| {
             let allowed_origin = allowed_origin_env.clone();
             async move {
@@ -296,11 +345,13 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         // so we use "*path" to match the whole path and do the matching in the handler
         .post_async("/v1/*path", |mut req, ctx| {
             let allowed_origin = allowed_origin_env.clone();
+            // `event_ctx` is borrowed from `main`'s scope, like `state` above,
+            // so each handler schedules its own post-response work directly
+            // rather than parking it somewhere shared for `main` to pick up.
             async move {
                 let path = ctx.param("path").unwrap();
                 match path.as_str() {
                     "flags:resolve" => {
-                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let mut resolver_request: ResolveFlagsRequest =
                             match from_slice(&body_bytes) {
@@ -329,6 +380,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
                         let mat_kv = ctx.env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
 
+                        let mut log = WriteFlagLogsRequest::default();
                         let (reasons, resp) = match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
@@ -345,13 +397,20 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     )
                                 };
                                 match resolve_with_sticky(
-                                    &resolver, process_request, mat_kv.as_ref(),
+                                    &resolver, process_request, mat_kv.as_ref(), &mut log,
                                 ).await {
                                     Ok((response, writes)) => {
+                                        // Write sticky assignments to KV
+                                        // without blocking the response.
                                         if !writes.is_empty() {
-                                            MAT_WRITES.with(|f| {
-                                                *f.borrow_mut() = Some(writes);
-                                            });
+                                            if let Some(kv) = mat_kv.clone() {
+                                                event_ctx.wait_until(async move {
+                                                    materialization::write_materializations(
+                                                        &kv, &writes, mat_ttl,
+                                                    )
+                                                    .await;
+                                                });
+                                            }
                                         }
                                         let reasons: Vec<ResolveReason> = response
                                             .resolved_flags
@@ -397,16 +456,12 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
                         let mut td = telemetry::build_request_telemetry(elapsed_us, &reasons);
                         td.sdk = Some(sdk_info());
-                        FLAG_LOG.with(|f| {
-                            if let Some(req) = f.borrow_mut().as_mut() {
-                                req.telemetry_data = Some(td);
-                            }
-                        });
+                        log.telemetry_data = Some(td);
+                        event_ctx.wait_until(queue_flag_log(log));
 
                         resp
                     }
                     "flags:apply" => {
-                        FLAG_LOG.with(|f| *f.borrow_mut() = Some(WriteFlagLogsRequest::default()));
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let apply_flag_req: ApplyFlagsRequest = match from_slice(&body_bytes) {
                             Ok(req) => req,
@@ -427,21 +482,30 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         }
 
                         let encryption_key = resolve_token_key();
-                        match state.get_resolver::<H>(
+                        let mut log = WriteFlagLogsRequest::default();
+                        let resp = match state.get_resolver::<H>(
                             &apply_flag_req.client_secret,
                             Struct::default(),
                             &encryption_key,
                         ) {
-                            Ok(resolver) => match resolver.apply_flags(&apply_flag_req) {
-                                Ok(()) => Response::from_json(&ApplyFlagsResponse::default()),
-                                Err(msg) => {
-                                    Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
+                            Ok(resolver) => {
+                                match with_log(&mut log, || resolver.apply_flags(&apply_flag_req)) {
+                                    Ok(()) => Response::from_json(&ApplyFlagsResponse::default()),
+                                    Err(msg) => Response::error(msg, 500)?
+                                        .with_cors_headers(&allowed_origin),
                                 }
-                            },
+                            }
                             Err(msg) => {
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                             }
+                        };
+                        // Unlike resolve there is no telemetry to attach, so
+                        // skip queueing when the apply logged nothing (an
+                        // errored apply).
+                        if log != WriteFlagLogsRequest::default() {
+                            event_ctx.wait_until(queue_flag_log(log));
                         }
+                        resp
                     }
                     "telemetry:upload" => {
                         Response::ok("")?.with_cors_headers(&allowed_origin)
@@ -451,29 +515,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
             }
         })
         .run(req, env)
-        .await;
-
-    // Use ctx.waitUntil to run logging and telemetry after response is returned.
-    let flag_log = FLAG_LOG.with(|f| f.borrow_mut().take());
-    ctx.wait_until(async move {
-        if let Some(req) = flag_log {
-            if let Ok(json) = serde_json::to_string(&req) {
-                if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
-                    let _ = queue.send(json).await;
-                }
-            }
-        }
-    });
-
-    // Write sticky assignments to KV after response is returned.
-    let mat_writes = MAT_WRITES.with(|f| f.borrow_mut().take());
-    if let (Some(kv), Some(writes)) = (mat_kv_for_writes, mat_writes) {
-        ctx.wait_until(async move {
-            materialization::write_materializations(&kv, &writes, mat_ttl).await;
-        });
-    }
-
-    response
+        .await
 }
 
 #[event(queue)]
@@ -483,12 +525,23 @@ pub async fn consume_flag_logs_queue(
     _ctx: Context,
 ) -> Result<()> {
     set_client_secret(&env);
+    seed_resolver_rng();
 
     if let Ok(messages) = message_batch.messages() {
+        // A message that fails to parse is skipped instead of panicking the
+        // whole batch (a panic would retry and eventually drop all of it).
         let logs: Vec<WriteFlagLogsRequest> = messages
             .iter()
             .map(|m| m.body().clone())
-            .map(|s| serde_json::from_str::<WriteFlagLogsRequest>(s.as_str()).unwrap())
+            .filter_map(
+                |s| match serde_json::from_str::<WriteFlagLogsRequest>(s.as_str()) {
+                    Ok(log) => Some(log),
+                    Err(e) => {
+                        console_log!("flag log message parse failed, skipping: {:?}", e);
+                        None
+                    }
+                },
+            )
             .collect();
 
         let req = flag_logger::aggregate_batch(logs);
