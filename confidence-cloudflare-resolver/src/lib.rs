@@ -83,9 +83,12 @@ fn with_log<T>(log: &mut WriteFlagLogsRequest, f: impl FnOnce() -> T) -> T {
 fn seed_resolver_rng() {
     static SEEDED: OnceLock<()> = OnceLock::new();
     SEEDED.get_or_init(|| {
-        let hi = (js_sys::Math::random() * (u32::MAX as f64)) as u64;
-        let lo = (js_sys::Math::random() * (u32::MAX as f64)) as u64;
-        let seed = (hi << 32) ^ lo ^ (js_sys::Date::now() as u64);
+        let seed = getrandom::u64().unwrap_or_else(|e| {
+            console_log!("host entropy unavailable, using weak seed: {:?}", e);
+            let hi = (js_sys::Math::random() * (u32::MAX as f64)) as u64;
+            let lo = (js_sys::Math::random() * (u32::MAX as f64)) as u64;
+            (hi << 32) ^ lo ^ (js_sys::Date::now() as u64)
+        });
         confidence_resolver::seed_rng(seed);
     });
 }
