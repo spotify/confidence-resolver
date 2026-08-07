@@ -16,7 +16,6 @@ use prost::Message;
 use serde_json::from_slice;
 use serde_json::json;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
 use wasm_bindgen::JsCast;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
@@ -43,42 +42,39 @@ use confidence::flags::resolver::v1::Sdk;
 use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
 use std::sync::OnceLock;
 
-/// Upper bound on in-flight per-request flag logs. Entries can only linger if
-/// a request errors between logging and claiming its entry; clearing at the
-/// cap keeps the map bounded.
-const MAX_PENDING_FLAG_LOGS: usize = 256;
-
 thread_local! {
-    // Per-request flag logs keyed by resolve id. Requests in the same isolate
-    // run concurrently and interleave at await points, so a single shared slot
-    // would let one request overwrite another's log; keying by resolve id
-    // keeps each request's log isolated for its whole lifetime, including
-    // across the sticky-assignment suspend/resume await.
-    static FLAG_LOGS: RefCell<HashMap<String, WriteFlagLogsRequest>> =
-        RefCell::new(HashMap::new());
-    // Finished logs waiting to be queued after the response. A Vec, so if
-    // interleaved requests race to drain it the entries are sent by whichever
-    // request drains them instead of being dropped.
-    static FLAG_LOG_OUTBOX: RefCell<Vec<WriteFlagLogsRequest>> = const { RefCell::new(Vec::new()) };
-    static MAT_WRITES_OUTBOX: RefCell<Vec<MaterializationRecord>> = const { RefCell::new(Vec::new()) };
+    // Side channel for the `Host` logging callbacks, which are static methods
+    // with no way to reach their caller. Only ever `Some` inside `with_log`.
+    static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
 }
 
-/// Applies `update` to the pending flag log for `resolve_id`, creating the
-/// entry on first use. If the map is over capacity (entries can linger when a
-/// request errors before claiming its entry), pending entries are moved to
-/// the outbox — they are still delivered, never dropped.
-fn with_log_entry(resolve_id: &str, update: impl FnOnce(&mut WriteFlagLogsRequest)) {
-    FLAG_LOGS.with(|f| {
-        let mut map = f.borrow_mut();
-        if map.len() >= MAX_PENDING_FLAG_LOGS && !map.contains_key(resolve_id) {
-            console_log!(
-                "flag log map at capacity, flushing {} entries to the outbox",
-                map.len()
-            );
-            FLAG_LOG_OUTBOX.with(|o| o.borrow_mut().extend(map.drain().map(|(_, v)| v)));
+/// Queues one request's flag log. Called via `Context::wait_until`, so it runs
+/// after the response has been returned.
+async fn queue_flag_log(log: WriteFlagLogsRequest) {
+    match serde_json::to_string(&log) {
+        Ok(json) => {
+            if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
+                if let Err(e) = queue.send(json).await {
+                    console_log!("flag log queue send failed: {:?}", e);
+                }
+            }
         }
-        update(map.entry(resolve_id.to_string()).or_default());
-    });
+        Err(e) => console_log!("flag log serialize failed: {:?}", e),
+    }
+}
+
+/// Runs `f` with `log` installed as the destination for the `Host` logging
+/// callbacks, then moves whatever they wrote back into `log`. Call it once per
+/// entry into the resolver; repeated calls accumulate into the same `log`.
+fn with_log<T>(log: &mut WriteFlagLogsRequest, f: impl FnOnce() -> T) -> T {
+    FLAG_LOG.with(|slot| {
+        let local = RefCell::new(Some(std::mem::take(log)));
+        slot.swap(&local);
+        let result = f();
+        slot.swap(&local);
+        *log = local.into_inner().unwrap_or_default();
+        result
+    })
 }
 
 /// Seeds the resolver's RNG once per isolate with host entropy. Without this
@@ -129,19 +125,21 @@ struct H {}
 
 impl Host for H {
     fn log_resolve(
-        resolve_id: &str,
+        _resolve_id: &str,
         evaluation_context: &Struct,
         values: &[ResolvedValue<'_>],
         client: &Client,
     ) {
-        with_log_entry(resolve_id, |req| {
-            let (flag_infos, client_info) = resolve_logger::build_resolve_log(
-                evaluation_context,
-                client.client_credential_name.as_str(),
-                values,
-            );
-            req.flag_resolve_info.extend(flag_infos);
-            req.client_resolve_info.push(client_info);
+        FLAG_LOG.with(|f| {
+            if let Some(req) = f.borrow_mut().as_mut() {
+                let (flag_infos, client_info) = resolve_logger::build_resolve_log(
+                    evaluation_context,
+                    client.client_credential_name.as_str(),
+                    values,
+                );
+                req.flag_resolve_info.extend(flag_infos);
+                req.client_resolve_info.push(client_info);
+            }
         });
     }
 
@@ -151,13 +149,16 @@ impl Host for H {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        with_log_entry(resolve_id, |req| {
-            req.flag_assigned.push(assign_logger::build_flag_assigned(
-                resolve_id,
-                assigned_flags,
-                client,
-                sdk,
-            ));
+        FLAG_LOG.with(|f| {
+            if let Some(req) = f.borrow_mut().as_mut() {
+                req.flag_assigned
+                    .push(assign_logger::build_flag_assigned(
+                        resolve_id,
+                        assigned_flags,
+                        client,
+                        sdk,
+                    ));
+            }
         });
     }
 }
@@ -204,13 +205,15 @@ fn sdk_info() -> Sdk {
 /// Resolve flags with sticky assignment support via the suspend/resume cycle.
 ///
 /// If the resolver suspends (needs materialization data), reads from KV and resumes.
-/// Returns the resolved response and any materialization writes to persist.
+/// Returns the resolved response and any materialization writes to persist, and
+/// accumulates whatever the resolver logged into `log`.
 async fn resolve_with_sticky(
     resolver: &AccountResolver<'_, H>,
     request: ResolveProcessRequest,
     kv: Option<&kv::KvStore>,
+    log: &mut WriteFlagLogsRequest,
 ) -> std::result::Result<(ResolveFlagsResponse, Vec<MaterializationRecord>), String> {
-    let response = resolver.resolve_flags(request)?;
+    let response = with_log(log, || resolver.resolve_flags(request))?;
 
     match response.result {
         Some(resolve_process_response::Result::Resolved(r)) => Ok((
@@ -222,7 +225,7 @@ async fn resolve_with_sticky(
             let records =
                 materialization::read_materializations(kv, &s.materializations_to_read).await;
             let resume = ResolveProcessRequest::resume(records, s.state);
-            let resumed = resolver.resolve_flags(resume)?;
+            let resumed = with_log(log, || resolver.resolve_flags(resume))?;
             resumed
                 .into_resolved()
                 .ok_or_else(|| "Still suspended after resume".to_string())
@@ -276,16 +279,16 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         return Response::ok("")?.with_cors_headers(&allowed_origin_env);
     }
 
-    let mat_kv_for_writes = env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
     let mat_ttl: Option<u64> = env
         .var("MATERIALIZATION_TTL_SECONDS")
         .ok()
         .and_then(|v| v.to_string().parse().ok());
 
     let state = &RESOLVER_STATE;
+    let event_ctx = &ctx;
     let router = Router::new();
 
-    let response = router
+    router
         .get_async("/metrics", |req, ctx| {
             let allowed_origin = allowed_origin_env.clone();
             async move {
@@ -327,6 +330,9 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         // so we use "*path" to match the whole path and do the matching in the handler
         .post_async("/v1/*path", |mut req, ctx| {
             let allowed_origin = allowed_origin_env.clone();
+            // `event_ctx` is borrowed from `main`'s scope, like `state` above,
+            // so each handler schedules its own post-response work directly
+            // rather than parking it somewhere shared for `main` to pick up.
             async move {
                 let path = ctx.param("path").unwrap();
                 match path.as_str() {
@@ -359,7 +365,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
                         let mat_kv = ctx.env.kv("CONFIDENCE_MATERIALIZATIONS_KV").ok();
 
-                        let (reasons, resolve_id, resp) = match state.get_resolver::<H>(
+                        let mut log = WriteFlagLogsRequest::default();
+                        let (reasons, resp) = match state.get_resolver::<H>(
                             &resolver_request.client_secret,
                             evaluation_context,
                             &encryption_key,
@@ -375,40 +382,41 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     )
                                 };
                                 match resolve_with_sticky(
-                                    &resolver, process_request, mat_kv.as_ref(),
+                                    &resolver, process_request, mat_kv.as_ref(), &mut log,
                                 ).await {
                                     Ok((response, writes)) => {
+                                        // Write sticky assignments to KV
+                                        // without blocking the response.
                                         if !writes.is_empty() {
-                                            MAT_WRITES_OUTBOX
-                                                .with(|f| f.borrow_mut().extend(writes));
+                                            if let Some(kv) = mat_kv.clone() {
+                                                event_ctx.wait_until(async move {
+                                                    materialization::write_materializations(
+                                                        &kv, &writes, mat_ttl,
+                                                    )
+                                                    .await;
+                                                });
+                                            }
                                         }
                                         let reasons: Vec<ResolveReason> = response
                                             .resolved_flags
                                             .iter()
                                             .map(|f| f.reason())
                                             .collect();
-                                        (reasons, Some(response.resolve_id.clone()),
-                                        Response::from_json(&response)?
+                                        (reasons, Response::from_json(&response)?
                                             .with_cors_headers(&allowed_origin))
                                     }
                                     Err(msg) => {
-                                        (vec![ResolveReason::Error], None,
+                                        (vec![ResolveReason::Error],
                                         Response::error(msg, 500)?
                                             .with_cors_headers(&allowed_origin))
                                     }
                                 }
                             }
                             Err(msg) => {
-                                (vec![ResolveReason::Error], None,
+                                (vec![ResolveReason::Error],
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin))
                             }
                         };
-
-                        // Claim this request's log by its resolve id — keyed
-                        // per request, so nothing another in-flight request
-                        // does can touch it.
-                        let captured_log = resolve_id
-                            .and_then(|rid| FLAG_LOGS.with(|f| f.borrow_mut().remove(&rid)));
 
                         let elapsed_us = {
                             let scheduler = js_sys::Reflect::get(
@@ -433,9 +441,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
                         let mut td = telemetry::build_request_telemetry(elapsed_us, &reasons);
                         td.sdk = Some(sdk_info());
-                        let mut log = captured_log.unwrap_or_default();
                         log.telemetry_data = Some(td);
-                        FLAG_LOG_OUTBOX.with(|f| f.borrow_mut().push(log));
+                        event_ctx.wait_until(queue_flag_log(log));
 
                         resp
                     }
@@ -460,38 +467,29 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         }
 
                         let encryption_key = resolve_token_key();
-                        // apply_flags logs under the token's resolve id, which
-                        // this handler doesn't know upfront. The call is fully
-                        // synchronous (no interleaving possible inside it), so
-                        // a key diff around it identifies exactly the entries
-                        // this apply produced.
-                        let keys_before: HashSet<String> =
-                            FLAG_LOGS.with(|f| f.borrow().keys().cloned().collect());
+                        let mut log = WriteFlagLogsRequest::default();
                         let resp = match state.get_resolver::<H>(
                             &apply_flag_req.client_secret,
                             Struct::default(),
                             &encryption_key,
                         ) {
-                            Ok(resolver) => match resolver.apply_flags(&apply_flag_req) {
-                                Ok(()) => Response::from_json(&ApplyFlagsResponse::default()),
-                                Err(msg) => {
-                                    Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
+                            Ok(resolver) => {
+                                match with_log(&mut log, || resolver.apply_flags(&apply_flag_req)) {
+                                    Ok(()) => Response::from_json(&ApplyFlagsResponse::default()),
+                                    Err(msg) => Response::error(msg, 500)?
+                                        .with_cors_headers(&allowed_origin),
                                 }
-                            },
+                            }
                             Err(msg) => {
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                             }
                         };
-                        let new_logs: Vec<WriteFlagLogsRequest> = FLAG_LOGS.with(|f| {
-                            let mut map = f.borrow_mut();
-                            let new_keys: Vec<String> = map
-                                .keys()
-                                .filter(|k| !keys_before.contains(*k))
-                                .cloned()
-                                .collect();
-                            new_keys.iter().filter_map(|k| map.remove(k)).collect()
-                        });
-                        FLAG_LOG_OUTBOX.with(|f| f.borrow_mut().extend(new_logs));
+                        // Unlike resolve there is no telemetry to attach, so
+                        // skip queueing when the apply logged nothing (an
+                        // errored apply).
+                        if log != WriteFlagLogsRequest::default() {
+                            event_ctx.wait_until(queue_flag_log(log));
+                        }
                         resp
                     }
                     "telemetry:upload" => {
@@ -502,42 +500,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
             }
         })
         .run(req, env)
-        .await;
-
-    // Drain the finished flag logs and queue them after the response is
-    // returned. The drain may pick up entries pushed by an interleaved
-    // request; they are sent all the same.
-    let pending_logs: Vec<WriteFlagLogsRequest> =
-        FLAG_LOG_OUTBOX.with(|f| f.borrow_mut().drain(..).collect());
-    if !pending_logs.is_empty() {
-        ctx.wait_until(async move {
-            for req in pending_logs {
-                match serde_json::to_string(&req) {
-                    Ok(json) => {
-                        if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
-                            if let Err(e) = queue.send(json).await {
-                                console_log!("flag log queue send failed: {:?}", e);
-                            }
-                        }
-                    }
-                    Err(e) => console_log!("flag log serialize failed: {:?}", e),
-                }
-            }
-        });
-    }
-
-    // Write sticky assignments to KV after response is returned.
-    let mat_writes: Vec<MaterializationRecord> =
-        MAT_WRITES_OUTBOX.with(|f| f.borrow_mut().drain(..).collect());
-    if !mat_writes.is_empty() {
-        if let Some(kv) = mat_kv_for_writes {
-            ctx.wait_until(async move {
-                materialization::write_materializations(&kv, &mat_writes, mat_ttl).await;
-            });
-        }
-    }
-
-    response
+        .await
 }
 
 #[event(queue)]
