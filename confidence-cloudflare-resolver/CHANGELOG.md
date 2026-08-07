@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.12.0...confidence-cloudflare-resolver-v0.12.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* **cloudflare:** make flag log capture per-request under concurrent requests ([#508](https://github.com/spotify/confidence-resolver/issues/508)) ([c03a657](https://github.com/spotify/confidence-resolver/commit/c03a657c0166e2ed110ec5fc7a34ce9df2a0f538))
+
 ## [0.12.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.11.1...confidence-cloudflare-resolver-v0.12.0) (2026-08-03)
 
 
