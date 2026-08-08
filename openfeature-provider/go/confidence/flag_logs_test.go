@@ -2,17 +2,16 @@ package confidence
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/open-feature/go-sdk/openfeature"
+
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
-
-	"github.com/open-feature/go-sdk/openfeature"
 )
 
 // Unit tests that verify WriteFlagLogs contains correct flag assignment data.
@@ -37,7 +36,7 @@ func setupFlagLogsUnitTest(t *testing.T) (*fl.CapturingFlagLogger, openfeature.I
 	capturingLogger := fl.NewCapturingFlagLogger()
 
 	// Create state provider that fetches from real Confidence service
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := newLoggerForTest(t)
 	stateProvider := NewFlagsAdminStateFetcher(unitTestClientSecret, logger)
 
 	// Fetch initial state
@@ -49,7 +48,7 @@ func setupFlagLogsUnitTest(t *testing.T) (*fl.CapturingFlagLogger, openfeature.I
 	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, logger, 2)
 	}, unsupportedMatStore)
 	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, capturingLogger, unitTestClientSecret, logger)
 

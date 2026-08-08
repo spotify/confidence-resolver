@@ -2,16 +2,15 @@ package confidence
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"testing"
 	"time"
 
-	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 	"google.golang.org/protobuf/proto"
+
+	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 )
 
 // testTransport is a custom RoundTripper that redirects all requests to a test server
@@ -31,7 +30,7 @@ func (t *testTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestNewFlagsAdminStateFetcher(t *testing.T) {
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 
 	if fetcher == nil {
 		t.Fatal("Expected fetcher to be created, got nil")
@@ -51,7 +50,7 @@ func TestNewFlagsAdminStateFetcher(t *testing.T) {
 }
 
 func TestFlagsAdminStateFetcher_GetRawState(t *testing.T) {
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 
 	// Initial state should be empty but not nil
 	state := fetcher.GetRawState()
@@ -61,7 +60,7 @@ func TestFlagsAdminStateFetcher_GetRawState(t *testing.T) {
 }
 
 func TestFlagsAdminStateFetcher_GetAccountID(t *testing.T) {
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 
 	// Initially empty
 	if fetcher.GetAccountID() != "" {
@@ -97,7 +96,7 @@ func TestFlagsAdminStateFetcher_Reload_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 	// Use custom transport to redirect to test server
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
@@ -162,7 +161,7 @@ func TestFlagsAdminStateFetcher_Reload_NotModified(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
@@ -302,7 +301,7 @@ func TestFlagsAdminStateFetcher_Reload_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
@@ -333,7 +332,7 @@ func TestFlagsAdminStateFetcher_Provide(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
@@ -380,7 +379,7 @@ func TestFlagsAdminStateFetcher_Provide_ReturnsStateOnError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
@@ -421,7 +420,7 @@ func TestFlagsAdminStateFetcher_HTTPTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher := NewFlagsAdminStateFetcher("test-client-secret", newLoggerForTest(t))
 	// Set short timeout for test
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   100 * time.Millisecond,

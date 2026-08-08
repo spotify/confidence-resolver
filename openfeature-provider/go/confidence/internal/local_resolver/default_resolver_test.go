@@ -5,17 +5,17 @@ import (
 	"os"
 	"testing"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var resolverFactory LocalResolverFactory
 
 func TestMain(m *testing.M) {
-	resolverFactory = DefaultResolverFactory(NoOpLogSink)
+	resolverFactory = DefaultResolverFactory(NoOpLogSink, &noopLogger{})
 	defer resolverFactory.Close(context.Background())
 	os.Exit(m.Run())
 }

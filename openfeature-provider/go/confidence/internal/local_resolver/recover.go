@@ -3,7 +3,6 @@ package local_resolver
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -15,15 +14,20 @@ import (
 // LocalResolver instances that auto-recover (recreate) on low-level panics.
 type RecoveringResolverFactory struct {
 	LocalResolverFactory
+	logger Logger
 }
 
-func NewRecoveringResolverFactory(inner LocalResolverFactory) *RecoveringResolverFactory {
-	return &RecoveringResolverFactory{inner}
+func NewRecoveringResolverFactory(inner LocalResolverFactory, logger Logger) *RecoveringResolverFactory {
+	return &RecoveringResolverFactory{
+		LocalResolverFactory: inner,
+		logger:               logger,
+	}
 }
 
 func (f *RecoveringResolverFactory) New() LocalResolver {
 	rr := &RecoveringResolver{
 		factory: f.LocalResolverFactory,
+		logger:  f.logger,
 	}
 	lr := f.LocalResolverFactory.New()
 	rr.current.Store(lr)
@@ -35,6 +39,7 @@ func (f *RecoveringResolverFactory) New() LocalResolver {
 // resolver can be reinitialized before use.
 type RecoveringResolver struct {
 	factory LocalResolverFactory
+	logger  Logger
 
 	current atomic.Value // holds LocalResolver
 	broken  atomic.Bool  // indicates an instance has panicked
@@ -103,7 +108,7 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 func (r *RecoveringResolver) RegisterResolve(request *wasm.RegisterResolveRequest) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			slog.Warn("RegisterResolve panicked, ignoring", "error", rec)
+			r.logger.Warn("RegisterResolve panicked, ignoring", "error", rec)
 		}
 	}()
 	if r.broken.Load() {
@@ -144,7 +149,7 @@ func (r *RecoveringResolver) FlushAssignLogs() (err error) {
 func (r *RecoveringResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics bool) string {
 	defer func() {
 		if rec := recover(); rec != nil {
-			slog.Warn("PrometheusSnapshot panicked, ignoring", "error", rec)
+			r.logger.Warn("PrometheusSnapshot panicked, ignoring", "error", rec)
 		}
 	}()
 	if r.broken.Load() {

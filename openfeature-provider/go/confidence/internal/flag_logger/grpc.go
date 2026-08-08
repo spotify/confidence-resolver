@@ -3,25 +3,25 @@ package flag_logger
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"google.golang.org/grpc/metadata"
+
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 )
 
 type GrpcFlagLogger struct {
 	stub         resolverv1.InternalFlagLoggerServiceClient
 	clientSecret string
-	logger       *slog.Logger
+	logger       Logger
 	wg           sync.WaitGroup
 	attempts     atomic.Int64
 	failures     atomic.Int64
 }
 
-func NewGrpcWasmFlagLogger(stub resolverv1.InternalFlagLoggerServiceClient, clientSecret string, logger *slog.Logger) *GrpcFlagLogger {
+func NewGrpcWasmFlagLogger(stub resolverv1.InternalFlagLoggerServiceClient, clientSecret string, logger Logger) *GrpcFlagLogger {
 	return &GrpcFlagLogger{
 		stub:         stub,
 		clientSecret: clientSecret,

@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -31,7 +30,7 @@ type FlagsAdminStateFetcher struct {
 	rawResolverState atomic.Value // stores []byte
 	accountID        atomic.Value // stores string
 	HTTPClient       *http.Client // Exported for testing
-	logger           *slog.Logger
+	logger           Logger
 }
 
 // Compile-time interface conformance check
@@ -40,7 +39,7 @@ var _ StateProvider = (*FlagsAdminStateFetcher)(nil)
 // NewFlagsAdminStateFetcher creates a new FlagsAdminStateFetcher
 func NewFlagsAdminStateFetcher(
 	clientSecret string,
-	logger *slog.Logger,
+	logger Logger,
 ) *FlagsAdminStateFetcher {
 	return NewFlagsAdminStateFetcherWithTransport(clientSecret, logger, http.DefaultTransport)
 }
@@ -48,7 +47,7 @@ func NewFlagsAdminStateFetcher(
 // NewFlagsAdminStateFetcherWithTransport creates a new FlagsAdminStateFetcher with a custom HTTP transport.
 func NewFlagsAdminStateFetcherWithTransport(
 	clientSecret string,
-	logger *slog.Logger,
+	logger Logger,
 	transport http.RoundTripper,
 ) *FlagsAdminStateFetcher {
 	return NewFlagsAdminStateFetcherWithEncryption(clientSecret, "", logger, transport)
@@ -58,7 +57,7 @@ func NewFlagsAdminStateFetcherWithTransport(
 func NewFlagsAdminStateFetcherWithEncryption(
 	clientSecret string,
 	encryptionKey string,
-	logger *slog.Logger,
+	logger Logger,
 	transport http.RoundTripper,
 ) *FlagsAdminStateFetcher {
 	f := &FlagsAdminStateFetcher{

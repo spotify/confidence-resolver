@@ -3,16 +3,15 @@ package confidence
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"os"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 const confidenceDomain = "edge-grpc.spotify.com"
@@ -20,7 +19,7 @@ const confidenceDomain = "edge-grpc.spotify.com"
 type ProviderConfig struct {
 	ClientSecret                  string
 	EncryptionKey                 string // Optional: hex-encoded AES-256 key for decrypting CDN state
-	Logger                        *slog.Logger
+	Logger                        Logger
 	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
 	MaterializationStore          MaterializationStore // Optional
 	UseRemoteMaterializationStore bool                 // set to true to use a Remote lookup for materializations. Requires that MaterializationStore is nil.
@@ -33,7 +32,7 @@ type ProviderTestConfig struct {
 	StateProvider        StateProvider
 	FlagLogger           FlagLogger
 	ClientSecret         string
-	Logger               *slog.Logger
+	Logger               Logger
 	MaterializationStore MaterializationStore // Optional
 	StatePollInterval    time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
@@ -47,9 +46,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 
 	logger := config.Logger
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+		logger = &noopLogger{}
 	}
 
 	if config.EncryptionKey == "" {
@@ -88,7 +85,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 
 	resolverSupplier := func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, config.ResolverPoolSize)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, logger, config.ResolverPoolSize)
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
@@ -107,9 +104,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 
 	logger := config.Logger
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+		logger = &noopLogger{}
 	}
 
 	materializationStore := config.MaterializationStore
@@ -117,7 +112,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 		materializationStore = newUnsupportedMaterializationStore()
 	}
 	resolverSupplier := func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, config.ResolverPoolSize)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, logger, config.ResolverPoolSize)
 	}
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)

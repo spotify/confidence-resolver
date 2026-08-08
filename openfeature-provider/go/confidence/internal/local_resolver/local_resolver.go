@@ -32,9 +32,9 @@ type LocalResolver interface {
 }
 
 // DefaultResolverFactory composes the default stack: Wasm -> Recovering -> Pooled(DefaultPoolSize)
-func DefaultResolverFactory(logSink LogSink) LocalResolverFactory {
-	base := NewWasmResolverFactory(logSink)
-	rcv := NewRecoveringResolverFactory(base)
+func DefaultResolverFactory(logSink LogSink, logger Logger) LocalResolverFactory {
+	base := NewWasmResolverFactory(logSink, logger)
+	rcv := NewRecoveringResolverFactory(base, logger)
 	return NewPooledResolverFactory(rcv, DefaultPoolSize)
 }
 
@@ -43,9 +43,9 @@ type localResolverImpl struct {
 	factory LocalResolverFactory
 }
 
-func NewLocalResolverWithPoolSize(ctx context.Context, logSink LogSink, poolSize int) LocalResolver {
-	factory := NewWasmResolverFactory(logSink)
-	factory = NewRecoveringResolverFactory(factory)
+func NewLocalResolverWithPoolSize(ctx context.Context, logSink LogSink, logger Logger, poolSize int) LocalResolver {
+	factory := NewWasmResolverFactory(logSink, logger)
+	factory = NewRecoveringResolverFactory(factory, logger)
 	if poolSize <= 0 {
 		poolSize = DefaultPoolSize
 	}

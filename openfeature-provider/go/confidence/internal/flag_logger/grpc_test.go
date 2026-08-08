@@ -1,18 +1,16 @@
 package flag_logger
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"log/slog"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"google.golang.org/grpc"
+
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 )
 
 // mockInternalFlagLoggerServiceClient is a mock implementation for testing
@@ -37,7 +35,7 @@ func (m *mockInternalFlagLoggerServiceClient) ClientWriteFlagLogs(ctx context.Co
 
 func TestNewGrpcWasmFlagLogger(t *testing.T) {
 	mockStub := &mockInternalFlagLoggerServiceClient{}
-	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", newLoggerForTest(t))
 
 	if logger == nil {
 		t.Fatal("Expected logger to be created, got nil")
@@ -56,7 +54,7 @@ func TestGrpcWasmFlagLogger_Write_Empty(t *testing.T) {
 		},
 	}
 
-	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", newLoggerForTest(t))
 
 	// Empty request should be skipped
 	request := &resolverv1.WriteFlagLogsRequest{}
@@ -82,7 +80,7 @@ func TestGrpcWasmFlagLogger_Write_SmallRequest(t *testing.T) {
 		},
 	}
 
-	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", newLoggerForTest(t))
 
 	// Create a small request (below chunk threshold)
 	request := &resolverv1.WriteFlagLogsRequest{
@@ -116,7 +114,7 @@ func TestGrpcWasmFlagLogger_ErrorHandling(t *testing.T) {
 		},
 	}
 
-	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", newLoggerForTest(t))
 
 	request := &resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: make([]*resolverv1.FlagAssigned, 10),
@@ -144,7 +142,7 @@ func TestGrpcWasmFlagLogger_Shutdown(t *testing.T) {
 		},
 	}
 
-	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := NewGrpcWasmFlagLogger(mockStub, "test-client-secret", newLoggerForTest(t))
 
 	// Send multiple requests
 	for i := 0; i < 5; i++ {
@@ -163,8 +161,7 @@ func TestGrpcWasmFlagLogger_Shutdown(t *testing.T) {
 }
 
 func TestGrpcWasmFlagLogger_FailureStats_NoLogOnSuccess(t *testing.T) {
-	var buf bytes.Buffer
-	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	testLogger := newWarningRecorderLogger()
 
 	mockStub := &mockInternalFlagLoggerServiceClient{
 		writeFlagLogsFunc: func(ctx context.Context, req *resolverv1.WriteFlagLogsRequest) (*resolverv1.WriteFlagLogsResponse, error) {
@@ -181,14 +178,13 @@ func TestGrpcWasmFlagLogger_FailureStats_NoLogOnSuccess(t *testing.T) {
 	}
 	logger.Shutdown()
 
-	if strings.Contains(buf.String(), "Flag log write failures") {
+	if strings.Contains(testLogger.String(), "Flag log write failures") {
 		t.Error("Expected no failure log when all writes succeed")
 	}
 }
 
 func TestGrpcWasmFlagLogger_FailureStats_LogOnFailures(t *testing.T) {
-	var buf bytes.Buffer
-	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	testLogger := newWarningRecorderLogger()
 
 	var callCount atomic.Int32
 	mockStub := &mockInternalFlagLoggerServiceClient{
@@ -210,15 +206,14 @@ func TestGrpcWasmFlagLogger_FailureStats_LogOnFailures(t *testing.T) {
 	}
 	logger.Shutdown()
 
-	output := buf.String()
+	output := testLogger.String()
 	if !strings.Contains(output, "Flag log write failures") {
 		t.Error("Expected failure log after window with errors")
 	}
 }
 
 func TestGrpcWasmFlagLogger_FailureStats_NoLogBeforeWindow(t *testing.T) {
-	var buf bytes.Buffer
-	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	testLogger := newWarningRecorderLogger()
 
 	mockStub := &mockInternalFlagLoggerServiceClient{
 		writeFlagLogsFunc: func(ctx context.Context, req *resolverv1.WriteFlagLogsRequest) (*resolverv1.WriteFlagLogsResponse, error) {
@@ -236,14 +231,13 @@ func TestGrpcWasmFlagLogger_FailureStats_NoLogBeforeWindow(t *testing.T) {
 	}
 	logger.Shutdown()
 
-	if strings.Contains(buf.String(), "Flag log write failures") {
+	if strings.Contains(testLogger.String(), "Flag log write failures") {
 		t.Error("Expected no failure log before window boundary")
 	}
 }
 
 func TestGrpcWasmFlagLogger_FailureStats_AllFail(t *testing.T) {
-	var buf bytes.Buffer
-	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	testLogger := newWarningRecorderLogger()
 
 	mockStub := &mockInternalFlagLoggerServiceClient{
 		writeFlagLogsFunc: func(ctx context.Context, req *resolverv1.WriteFlagLogsRequest) (*resolverv1.WriteFlagLogsResponse, error) {
@@ -260,7 +254,7 @@ func TestGrpcWasmFlagLogger_FailureStats_AllFail(t *testing.T) {
 	}
 	logger.Shutdown()
 
-	output := buf.String()
+	output := testLogger.String()
 	if !strings.Contains(output, "Flag log write failures") {
 		t.Error("Expected failure log after window with all failures")
 	}
