@@ -370,12 +370,19 @@ class MultiDestinationFlagLogger:
         primary = dests[0]
         try:
             self._send_to_destination(primary, request)
-        except Exception:
+        except Exception as e:
             if len(dests) > 1:
                 fallback = dests[1]
+                logger.warning(
+                    "Primary flag log destination failed (%s), trying fallback", e
+                )
                 try:
                     self._send_to_destination(fallback, request)
-                except Exception:
+                except Exception as fallback_error:
+                    logger.warning(
+                        "Fallback flag log destination also failed: %s",
+                        fallback_error,
+                    )
                     self._record_failure()
             else:
                 self._record_failure()

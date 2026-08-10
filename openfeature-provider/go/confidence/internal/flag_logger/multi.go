@@ -105,7 +105,7 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 				if i > 0 {
 					label = "fallback"
 				}
-				m.logger.Debug("Flag log send failed", "destination", dest, "role", label, "error", err)
+				m.logger.Warn("Flag log send failed", "destination", dest, "role", label, "error", err)
 				lastErr = err
 				continue // try next destination
 			}

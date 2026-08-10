@@ -64,6 +64,11 @@ impl LogSender {
 
         if let Some(fb) = fallback {
             if result.is_err() {
+                tracing::warn!(
+                    "primary flag log destination {:?} failed, trying fallback {:?}",
+                    primary,
+                    fb
+                );
                 let _ = self
                     .send_to_destination(fb, logs, account_id.as_deref())
                     .await;

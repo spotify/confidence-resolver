@@ -140,7 +140,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
     } catch (Exception primaryEx) {
       if (destinations.size() > 1) {
         final LogDestination fallback = destinations.get(1);
-        logger.debug("Primary destination {} failed, trying fallback {}", primary, fallback);
+        logger.warn("Primary destination {} failed, trying fallback {}", primary, fallback);
         try {
           sendToDestination(fallback, request);
           logger.debug(
@@ -149,7 +149,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
               request.getFlagAssignedCount());
         } catch (Exception fallbackEx) {
           failures.incrementAndGet();
-          logger.debug("Fallback destination {} also failed", fallback, fallbackEx);
+          logger.warn("Fallback destination {} also failed", fallback, fallbackEx);
         }
       } else {
         failures.incrementAndGet();
@@ -196,8 +196,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
 
       final int responseCode = conn.getResponseCode();
       if (responseCode < 200 || responseCode >= 300) {
-        throw new RuntimeException(
-            "Cloudflare ingest returned HTTP " + responseCode);
+        throw new RuntimeException("Cloudflare ingest returned HTTP " + responseCode);
       }
     } catch (RuntimeException e) {
       throw e;
