@@ -369,9 +369,7 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   private async sendFlagLogs(encodedWriteFlagLogRequest: Uint8Array, signal = this.main.signal): Promise<void> {
     const destinations =
-      this.logDestinations.length > 0
-        ? this.logDestinations
-        : [LogDestination.LOG_DESTINATION_SPOTIFY_EDGE];
+      this.logDestinations.length > 0 ? this.logDestinations : [LogDestination.LOG_DESTINATION_SPOTIFY_EDGE];
 
     for (let i = 0; i < destinations.length; i++) {
       const isLast = i === destinations.length - 1;
@@ -424,7 +422,9 @@ export class ConfidenceServerProviderLocal implements Provider {
       );
       if (!response.ok) {
         logger.error(
-          `Failed to write flag logs to Cloudflare: ${response.status} ${response.statusText} - ${await response.text()}`,
+          `Failed to write flag logs to Cloudflare: ${response.status} ${
+            response.statusText
+          } - ${await response.text()}`,
         );
         return false;
       }
