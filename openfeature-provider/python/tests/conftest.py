@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Optional, Protocol, Tuple
+from typing import List, Optional, Protocol, Tuple
 
 import pytest
 
@@ -77,8 +77,8 @@ class FlagLoggerProtocol(Protocol):
 class StateFetcherProtocol(Protocol):
     """Protocol for state fetching."""
 
-    def fetch(self) -> Tuple[bytes, str, bool]:
-        """Fetch state, account ID, and whether state changed."""
+    def fetch(self) -> Tuple[bytes, str, bool, List[int]]:
+        """Fetch state, account ID, whether state changed, and log destinations."""
         ...
 
     @property
@@ -109,16 +109,22 @@ class MockFlagLogger:
 class MockStateFetcher:
     """Mock state fetcher for testing."""
 
-    def __init__(self, state: bytes, account_id: str) -> None:
+    def __init__(
+        self,
+        state: bytes,
+        account_id: str,
+        log_destinations: Optional[List[int]] = None,
+    ) -> None:
         self._state = state
         self._account_id = account_id
+        self._log_destinations = log_destinations or []
         self.fetch_count = 0
 
-    def fetch(self) -> Tuple[bytes, str, bool]:
+    def fetch(self) -> Tuple[bytes, str, bool, List[int]]:
         self.fetch_count += 1
         # Always return changed=True for first fetch, False for subsequent
         changed = self.fetch_count == 1
-        return self._state, self._account_id, changed
+        return self._state, self._account_id, changed, self._log_destinations
 
     @property
     def state(self) -> Optional[bytes]:
@@ -127,6 +133,10 @@ class MockStateFetcher:
     @property
     def account_id(self) -> Optional[str]:
         return self._account_id
+
+    @property
+    def log_destinations(self) -> List[int]:
+        return self._log_destinations
 
 
 @pytest.fixture

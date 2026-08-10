@@ -78,7 +78,13 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	// Build HTTP transport using hooks and pass into state fetcher
 	transport := hooks.WrapHTTP(http.DefaultTransport)
 	stateProvider := NewFlagsAdminStateFetcherWithEncryption(config.ClientSecret, config.EncryptionKey, logger, transport)
-	flagLogger := fl.NewGrpcWasmFlagLogger(flagLoggerService, config.ClientSecret, logger)
+	flagLogger := fl.NewMultiDestinationFlagLogger(
+		flagLoggerService,
+		config.ClientSecret,
+		stateProvider.GetLogDestinations,
+		stateProvider.GetAccountID,
+		logger,
+	)
 	materializationStore := config.MaterializationStore
 	if materializationStore == nil {
 		materializationStore = newUnsupportedMaterializationStore()

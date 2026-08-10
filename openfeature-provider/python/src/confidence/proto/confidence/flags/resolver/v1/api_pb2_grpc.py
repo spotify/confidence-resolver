@@ -3,9 +3,9 @@
 import grpc
 import warnings
 
-from . import api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_api__pb2
+from confidence.flags.resolver.v1 import api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_api__pb2
 
-GRPC_GENERATED_VERSION = '1.78.0'
+GRPC_GENERATED_VERSION = '1.83.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class FlagResolverServiceStub(object):
+class FlagResolverServiceStub:
     """Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/api.proto
     and confidence-resolver/protos/confidence/flags/types/v1/types.proto
     Annotations removed for minimal dependencies
@@ -44,7 +44,7 @@ class FlagResolverServiceStub(object):
                 _registered_method=True)
 
 
-class FlagResolverServiceServicer(object):
+class FlagResolverServiceServicer:
     """Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/api.proto
     and confidence-resolver/protos/confidence/flags/types/v1/types.proto
     Annotations removed for minimal dependencies
@@ -80,7 +80,7 @@ def add_FlagResolverServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class FlagResolverService(object):
+class FlagResolverService:
     """Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/api.proto
     and confidence-resolver/protos/confidence/flags/types/v1/types.proto
     Annotations removed for minimal dependencies

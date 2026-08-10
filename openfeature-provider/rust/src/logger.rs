@@ -1,7 +1,10 @@
 //! Log management for sending flag logs to the Confidence API.
 
+use std::sync::Arc;
+
 use prost::Message;
 use reqwest_middleware::ClientWithMiddleware;
+use tokio::sync::RwLock;
 
 use confidence_resolver::assign_logger::AssignLogger;
 use confidence_resolver::proto::confidence::flags::resolver::v1::{Sdk, WriteFlagLogsRequest};
@@ -9,9 +12,11 @@ use confidence_resolver::resolve_logger::ResolveLogger;
 
 use crate::error::Result;
 use crate::host::{NativeHost, LAST_FLUSHED, TELEMETRY};
+use crate::state::LogDestination;
 
-/// API endpoint for flag logs.
-const FLAG_LOGS_URL: &str = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
+const EDGE_URL: &str = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
+const CLOUDFLARE_URL: &str =
+    "https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest";
 
 /// Target size for log batches (4 MB).
 const LOG_TARGET_BYTES: usize = 4 * 1024 * 1024;
@@ -20,44 +25,117 @@ const LOG_TARGET_BYTES: usize = 4 * 1024 * 1024;
 pub struct LogSender {
     client: ClientWithMiddleware,
     client_secret: String,
+    account_id: Arc<RwLock<Option<String>>>,
+    destinations: Arc<RwLock<Vec<LogDestination>>>,
 }
 
 impl LogSender {
-    /// Create a new log sender with the given client and client secret.
-    pub fn new(client: ClientWithMiddleware, client_secret: String) -> Self {
+    pub fn new(
+        client: ClientWithMiddleware,
+        client_secret: String,
+        account_id: Arc<RwLock<Option<String>>>,
+        destinations: Arc<RwLock<Vec<LogDestination>>>,
+    ) -> Self {
         Self {
             client,
             client_secret,
+            account_id,
+            destinations,
         }
     }
 
-    /// Send encoded flag logs to the API.
     pub async fn send(&self, logs: &[u8]) -> Result<()> {
         if logs.is_empty() {
             return Ok(());
         }
 
-        let response = self
-            .client
-            .post(FLAG_LOGS_URL)
-            .header("Content-Type", "application/x-protobuf")
-            .header(
-                "Authorization",
-                format!("ClientSecret {}", self.client_secret),
-            )
-            .body(logs.to_vec())
-            .send()
-            .await?;
+        let destinations = self.destinations.read().await.clone();
+        let account_id = self.account_id.read().await.clone();
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            tracing::error!("Failed to send flag logs: {} - {}", status, body);
-            // Don't return error for log sending failures to avoid disrupting flag evaluation
+        let (primary, fallback) = if destinations.len() >= 2 {
+            (destinations[0], Some(destinations[1]))
+        } else {
+            (destinations[0], None)
+        };
+
+        let result = self
+            .send_to_destination(primary, logs, account_id.as_deref())
+            .await;
+
+        if let Some(fb) = fallback {
+            if result.is_err() {
+                let _ = self
+                    .send_to_destination(fb, logs, account_id.as_deref())
+                    .await;
+            }
         }
 
         Ok(())
     }
+
+    async fn send_to_destination(
+        &self,
+        dest: LogDestination,
+        logs: &[u8],
+        account_id: Option<&str>,
+    ) -> std::result::Result<(), ()> {
+        let (url, body, content_type) = match dest {
+            LogDestination::Edge => (EDGE_URL, logs.to_vec(), "application/x-protobuf"),
+            LogDestination::Cloudflare => {
+                let acct = account_id.unwrap_or_default();
+                let body = encode_ingest_request(acct, logs);
+                (CLOUDFLARE_URL, body, "application/protobuf")
+            }
+        };
+
+        let response = self
+            .client
+            .post(url)
+            .header("Content-Type", content_type)
+            .header(
+                "Authorization",
+                format!("ClientSecret {}", self.client_secret),
+            )
+            .body(body)
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) if resp.status().is_success() => Ok(()),
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                tracing::error!("Failed to send flag logs to {:?}: {} - {}", dest, status, body);
+                Err(())
+            }
+            Err(e) => {
+                tracing::error!("Failed to send flag logs to {:?}: {}", dest, e);
+                Err(())
+            }
+        }
+    }
+}
+
+fn encode_ingest_request(account_id: &str, batch: &[u8]) -> Vec<u8> {
+    let account_bytes = account_id.as_bytes();
+    let mut body = Vec::new();
+    // field 1: string account_id (tag = 0x0a)
+    body.push(0x0a);
+    encode_varint(account_bytes.len() as u64, &mut body);
+    body.extend_from_slice(account_bytes);
+    // field 2: WriteFlagLogsRequest batch (tag = 0x12)
+    body.push(0x12);
+    encode_varint(batch.len() as u64, &mut body);
+    body.extend_from_slice(batch);
+    body
+}
+
+fn encode_varint(mut value: u64, buf: &mut Vec<u8>) {
+    while value >= 0x80 {
+        buf.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    buf.push(value as u8);
 }
 
 /// Log manager that coordinates flushing logs from the loggers.
@@ -67,10 +145,15 @@ pub struct LogManager {
 }
 
 impl LogManager {
-    /// Create a new log manager with the given client, client secret, and SDK identity.
-    pub fn new(client: ClientWithMiddleware, client_secret: String, sdk: Sdk) -> Self {
+    pub fn new(
+        client: ClientWithMiddleware,
+        client_secret: String,
+        sdk: Sdk,
+        account_id: Arc<RwLock<Option<String>>>,
+        destinations: Arc<RwLock<Vec<LogDestination>>>,
+    ) -> Self {
         Self {
-            sender: LogSender::new(client, client_secret),
+            sender: LogSender::new(client, client_secret, account_id, destinations),
             sdk,
         }
     }

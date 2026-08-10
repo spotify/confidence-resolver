@@ -30,6 +30,7 @@ type FlagsAdminStateFetcher struct {
 	lastModified     atomic.Value // stores string
 	rawResolverState atomic.Value // stores []byte
 	accountID        atomic.Value // stores string
+	logDestinations  atomic.Value // stores []admin.LogDestination
 	HTTPClient       *http.Client // Exported for testing
 	logger           *slog.Logger
 }
@@ -93,6 +94,15 @@ func (f *FlagsAdminStateFetcher) GetAccountID() string {
 		return accountID.(string)
 	}
 	return ""
+}
+
+// GetLogDestinations returns the log destinations from the CDN state.
+// Empty means default to SPOTIFY_EDGE.
+func (f *FlagsAdminStateFetcher) GetLogDestinations() []admin.LogDestination {
+	if dests := f.logDestinations.Load(); dests != nil {
+		return dests.([]admin.LogDestination)
+	}
+	return nil
 }
 
 // Reload fetches and updates the state if it has changed
@@ -176,9 +186,10 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 	}
 	f.accountID.Store(clientState.Account)
 	f.rawResolverState.Store(clientState.State)
+	f.logDestinations.Store(clientState.LogDestinations)
 	f.etag.Store(etag)
 	f.lastModified.Store(resp.Header.Get("Last-Modified"))
-	f.logger.Debug("Loaded resolver state", "etag", etag, "account", clientState.Account)
+	f.logger.Debug("Loaded resolver state", "etag", etag, "account", clientState.Account, "log_destinations", clientState.LogDestinations)
 	return nil
 }
 

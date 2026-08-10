@@ -16,6 +16,13 @@ option java_outer_classname = "ResolverProto";
 // Annotations and metadata fields removed for minimal dependencies
 // Only fields needed for flag resolution are included
 
+// Where flag logs should be sent
+enum LogDestination {
+  LOG_DESTINATION_UNSPECIFIED = 0;
+  LOG_DESTINATION_SPOTIFY_EDGE = 1;
+  LOG_DESTINATION_CLOUDFLARE = 2;
+}
+
 // The resolver state for operating a flags resolver but sliced to only contain what is needed for a specific client
 message ClientResolverState {
   // The serialized ResolverState proto
@@ -23,6 +30,10 @@ message ClientResolverState {
 
   // The account the referenced state belongs to
   string account = 2;
+
+  // Where flag logs should be sent. First entry is primary, second is fallback.
+  // Empty defaults to SPOTIFY_EDGE.
+  repeated LogDestination log_destinations = 4;
 }
 
 // The full state for operating a flags resolver

@@ -35,6 +35,7 @@ describe('flagbundle resolve telemetry', () => {
         ClientResolverState.encode({
           state: stateBytes,
           account: 'confidence-test',
+          logDestinations: [],
         }).finish(),
       );
 

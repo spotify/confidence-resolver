@@ -174,10 +174,13 @@ impl ConfidenceProvider {
             Some(sdk.clone()),
             options.encryption_key,
         ));
+        let shared_state = Arc::new(SharedState::new());
         let log_manager = Arc::new(LogManager::new(
             client.clone(),
             options.client_secret.clone(),
             sdk,
+            Arc::clone(&shared_state.account_id),
+            Arc::clone(&shared_state.log_destinations),
         ));
 
         // Create materialization store if configured
@@ -197,7 +200,7 @@ impl ConfidenceProvider {
         Ok(Self {
             metadata: ProviderMetadata::new("confidence-local-resolver"),
             client_secret: options.client_secret,
-            state: Arc::new(SharedState::new()),
+            state: shared_state,
             state_fetcher,
             log_manager,
             materialization_store,
@@ -222,8 +225,8 @@ impl ConfidenceProvider {
 
         // Fetch initial state
         let result = self.state_fetcher.fetch().await?;
-        if let Some((state, account_id)) = result {
-            self.state.update(state, account_id).await;
+        if let Some((state, account_id, destinations)) = result {
+            self.state.update(state, account_id, destinations).await;
         } else {
             return Err(Error::StateFetch("No state returned from CDN".to_string()));
         }
@@ -281,8 +284,8 @@ impl ConfidenceProvider {
                     _ = state_interval.tick() => {
                         // Fetch latest state
                         match state_fetcher.fetch().await {
-                            Ok(Some((new_state, account_id))) => {
-                                state.update(new_state, account_id).await;
+                            Ok(Some((new_state, account_id, destinations))) => {
+                                state.update(new_state, account_id, destinations).await;
                             }
                             Ok(None) => {
                                 // State unchanged (304)
@@ -1562,7 +1565,7 @@ mod tests {
 
         // Set minimal state (no flags configured)
         let (state, account_id) = create_minimal_state();
-        provider.state.update(state, account_id).await;
+        provider.state.update(state, account_id, vec![crate::state::LogDestination::Edge]).await;
 
         provider
     }

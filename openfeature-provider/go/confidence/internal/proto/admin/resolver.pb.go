@@ -23,6 +23,56 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Where flag logs should be sent
+type LogDestination int32
+
+const (
+	LogDestination_LOG_DESTINATION_UNSPECIFIED  LogDestination = 0
+	LogDestination_LOG_DESTINATION_SPOTIFY_EDGE LogDestination = 1
+	LogDestination_LOG_DESTINATION_CLOUDFLARE   LogDestination = 2
+)
+
+// Enum value maps for LogDestination.
+var (
+	LogDestination_name = map[int32]string{
+		0: "LOG_DESTINATION_UNSPECIFIED",
+		1: "LOG_DESTINATION_SPOTIFY_EDGE",
+		2: "LOG_DESTINATION_CLOUDFLARE",
+	}
+	LogDestination_value = map[string]int32{
+		"LOG_DESTINATION_UNSPECIFIED":  0,
+		"LOG_DESTINATION_SPOTIFY_EDGE": 1,
+		"LOG_DESTINATION_CLOUDFLARE":   2,
+	}
+)
+
+func (x LogDestination) Enum() *LogDestination {
+	p := new(LogDestination)
+	*p = x
+	return p
+}
+
+func (x LogDestination) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (LogDestination) Descriptor() protoreflect.EnumDescriptor {
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[0].Descriptor()
+}
+
+func (LogDestination) Type() protoreflect.EnumType {
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[0]
+}
+
+func (x LogDestination) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use LogDestination.Descriptor instead.
+func (LogDestination) EnumDescriptor() ([]byte, []int) {
+	return file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP(), []int{0}
+}
+
 // An account region
 type ResolverState_Region int32
 
@@ -60,11 +110,11 @@ func (x ResolverState_Region) String() string {
 }
 
 func (ResolverState_Region) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[0].Descriptor()
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[1].Descriptor()
 }
 
 func (ResolverState_Region) Type() protoreflect.EnumType {
-	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[0]
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[1]
 }
 
 func (x ResolverState_Region) Number() protoreflect.EnumNumber {
@@ -113,11 +163,11 @@ func (x Flag_State) String() string {
 }
 
 func (Flag_State) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[1].Descriptor()
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[2].Descriptor()
 }
 
 func (Flag_State) Type() protoreflect.EnumType {
-	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[1]
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[2]
 }
 
 func (x Flag_State) Number() protoreflect.EnumNumber {
@@ -198,11 +248,11 @@ func (x Condition_Comparison_Operator) String() string {
 }
 
 func (Condition_Comparison_Operator) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[2].Descriptor()
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[3].Descriptor()
 }
 
 func (Condition_Comparison_Operator) Type() protoreflect.EnumType {
-	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[2]
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[3]
 }
 
 func (x Condition_Comparison_Operator) Number() protoreflect.EnumNumber {
@@ -259,11 +309,11 @@ func (x Condition_ContextFieldComparison_Operator) String() string {
 }
 
 func (Condition_ContextFieldComparison_Operator) Descriptor() protoreflect.EnumDescriptor {
-	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[3].Descriptor()
+	return file_confidence_flags_admin_v1_resolver_proto_enumTypes[4].Descriptor()
 }
 
 func (Condition_ContextFieldComparison_Operator) Type() protoreflect.EnumType {
-	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[3]
+	return &file_confidence_flags_admin_v1_resolver_proto_enumTypes[4]
 }
 
 func (x Condition_ContextFieldComparison_Operator) Number() protoreflect.EnumNumber {
@@ -281,9 +331,12 @@ type ClientResolverState struct {
 	// The serialized ResolverState proto
 	State []byte `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
 	// The account the referenced state belongs to
-	Account       string `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Account string `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
+	// Where flag logs should be sent. First entry is primary, second is fallback.
+	// Empty defaults to SPOTIFY_EDGE.
+	LogDestinations []LogDestination `protobuf:"varint,4,rep,packed,name=log_destinations,json=logDestinations,proto3,enum=confidence.flags.admin.v1.LogDestination" json:"log_destinations,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ClientResolverState) Reset() {
@@ -328,6 +381,13 @@ func (x *ClientResolverState) GetAccount() string {
 		return x.Account
 	}
 	return ""
+}
+
+func (x *ClientResolverState) GetLogDestinations() []LogDestination {
+	if x != nil {
+		return x.LogDestinations
+	}
+	return nil
 }
 
 // The full state for operating a flags resolver
@@ -2102,10 +2162,11 @@ var File_confidence_flags_admin_v1_resolver_proto protoreflect.FileDescriptor
 
 const file_confidence_flags_admin_v1_resolver_proto_rawDesc = "" +
 	"\n" +
-	"(confidence/flags/admin/v1/resolver.proto\x12\x19confidence.flags.admin.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a%confidence/flags/types/v1/types.proto\x1a&confidence/flags/types/v1/target.proto\"E\n" +
+	"(confidence/flags/admin/v1/resolver.proto\x12\x19confidence.flags.admin.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a%confidence/flags/types/v1/types.proto\x1a&confidence/flags/types/v1/target.proto\"\x9b\x01\n" +
 	"\x13ClientResolverState\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\fR\x05state\x12\x18\n" +
-	"\aaccount\x18\x02 \x01(\tR\aaccount\"\x8d\x05\n" +
+	"\aaccount\x18\x02 \x01(\tR\aaccount\x12T\n" +
+	"\x10log_destinations\x18\x04 \x03(\x0e2).confidence.flags.admin.v1.LogDestinationR\x0flogDestinations\"\x8d\x05\n" +
 	"\rResolverState\x125\n" +
 	"\x05flags\x18\x01 \x03(\v2\x1f.confidence.flags.admin.v1.FlagR\x05flags\x12R\n" +
 	"\x13segments_no_bitsets\x18\x02 \x03(\v2\".confidence.flags.admin.v1.SegmentR\x11segmentsNoBitsets\x12O\n" +
@@ -2261,7 +2322,11 @@ const file_confidence_flags_admin_v1_resolver_proto_rawDesc = "" +
 	"\fClientSecret\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secretB\f\n" +
 	"\n" +
-	"credentialB\x9c\x01\n" +
+	"credential*s\n" +
+	"\x0eLogDestination\x12\x1f\n" +
+	"\x1bLOG_DESTINATION_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cLOG_DESTINATION_SPOTIFY_EDGE\x10\x01\x12\x1e\n" +
+	"\x1aLOG_DESTINATION_CLOUDFLARE\x10\x02B\x9c\x01\n" +
 	")com.spotify.confidence.sdk.flags.admin.v1B\rResolverProtoP\x01Z^github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/adminb\x06proto3"
 
 var (
@@ -2276,88 +2341,90 @@ func file_confidence_flags_admin_v1_resolver_proto_rawDescGZIP() []byte {
 	return file_confidence_flags_admin_v1_resolver_proto_rawDescData
 }
 
-var file_confidence_flags_admin_v1_resolver_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_confidence_flags_admin_v1_resolver_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_confidence_flags_admin_v1_resolver_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_confidence_flags_admin_v1_resolver_proto_goTypes = []any{
-	(ResolverState_Region)(0),                      // 0: confidence.flags.admin.v1.ResolverState.Region
-	(Flag_State)(0),                                // 1: confidence.flags.admin.v1.Flag.State
-	(Condition_Comparison_Operator)(0),             // 2: confidence.flags.admin.v1.Condition.Comparison.Operator
-	(Condition_ContextFieldComparison_Operator)(0), // 3: confidence.flags.admin.v1.Condition.ContextFieldComparison.Operator
-	(*ClientResolverState)(nil),                    // 4: confidence.flags.admin.v1.ClientResolverState
-	(*ResolverState)(nil),                          // 5: confidence.flags.admin.v1.ResolverState
-	(*Flag)(nil),                                   // 6: confidence.flags.admin.v1.Flag
-	(*Segment)(nil),                                // 7: confidence.flags.admin.v1.Segment
-	(*Condition)(nil),                              // 8: confidence.flags.admin.v1.Condition
-	(*Client)(nil),                                 // 9: confidence.flags.admin.v1.Client
-	(*ClientCredential)(nil),                       // 10: confidence.flags.admin.v1.ClientCredential
-	(*ResolverState_PackedBitset)(nil),             // 11: confidence.flags.admin.v1.ResolverState.PackedBitset
-	(*Flag_Variant)(nil),                           // 12: confidence.flags.admin.v1.Flag.Variant
-	(*Flag_Rule)(nil),                              // 13: confidence.flags.admin.v1.Flag.Rule
-	(*Flag_Rule_MaterializationSpec)(nil),          // 14: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec
-	(*Flag_Rule_AssignmentSpec)(nil),               // 15: confidence.flags.admin.v1.Flag.Rule.AssignmentSpec
-	(*Flag_Rule_Assignment)(nil),                   // 16: confidence.flags.admin.v1.Flag.Rule.Assignment
-	(*Flag_Rule_BucketRange)(nil),                  // 17: confidence.flags.admin.v1.Flag.Rule.BucketRange
-	(*Flag_Rule_MaterializationSpec_MaterializationReadMode)(nil), // 18: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.MaterializationReadMode
-	(*Flag_Rule_Assignment_VariantAssignment)(nil),                // 19: confidence.flags.admin.v1.Flag.Rule.Assignment.VariantAssignment
-	(*Flag_Rule_Assignment_FallthroughAssignment)(nil),            // 20: confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignment
-	(*Flag_Rule_Assignment_ClientDefaultAssignment)(nil),          // 21: confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignment
-	(*Segment_Allocation)(nil),                                    // 22: confidence.flags.admin.v1.Segment.Allocation
-	(*Segment_BitsetAllocation)(nil),                              // 23: confidence.flags.admin.v1.Segment.BitsetAllocation
-	(*Condition_True)(nil),                                        // 24: confidence.flags.admin.v1.Condition.True
-	(*Condition_False)(nil),                                       // 25: confidence.flags.admin.v1.Condition.False
-	(*Condition_And)(nil),                                         // 26: confidence.flags.admin.v1.Condition.And
-	(*Condition_Or)(nil),                                          // 27: confidence.flags.admin.v1.Condition.Or
-	(*Condition_Not)(nil),                                         // 28: confidence.flags.admin.v1.Condition.Not
-	(*Condition_Comparison)(nil),                                  // 29: confidence.flags.admin.v1.Condition.Comparison
-	(*Condition_ContextFieldComparison)(nil),                      // 30: confidence.flags.admin.v1.Condition.ContextFieldComparison
-	(*ClientCredential_ClientSecret)(nil),                         // 31: confidence.flags.admin.v1.ClientCredential.ClientSecret
-	(*types.FlagSchema_StructFlagSchema)(nil),                     // 32: confidence.flags.types.v1.FlagSchema.StructFlagSchema
-	(*types.Targeting)(nil),                                       // 33: confidence.flags.types.v1.Targeting
-	(*structpb.Struct)(nil),                                       // 34: google.protobuf.Struct
-	(*structpb.Value)(nil),                                        // 35: google.protobuf.Value
+	(LogDestination)(0),                            // 0: confidence.flags.admin.v1.LogDestination
+	(ResolverState_Region)(0),                      // 1: confidence.flags.admin.v1.ResolverState.Region
+	(Flag_State)(0),                                // 2: confidence.flags.admin.v1.Flag.State
+	(Condition_Comparison_Operator)(0),             // 3: confidence.flags.admin.v1.Condition.Comparison.Operator
+	(Condition_ContextFieldComparison_Operator)(0), // 4: confidence.flags.admin.v1.Condition.ContextFieldComparison.Operator
+	(*ClientResolverState)(nil),                    // 5: confidence.flags.admin.v1.ClientResolverState
+	(*ResolverState)(nil),                          // 6: confidence.flags.admin.v1.ResolverState
+	(*Flag)(nil),                                   // 7: confidence.flags.admin.v1.Flag
+	(*Segment)(nil),                                // 8: confidence.flags.admin.v1.Segment
+	(*Condition)(nil),                              // 9: confidence.flags.admin.v1.Condition
+	(*Client)(nil),                                 // 10: confidence.flags.admin.v1.Client
+	(*ClientCredential)(nil),                       // 11: confidence.flags.admin.v1.ClientCredential
+	(*ResolverState_PackedBitset)(nil),             // 12: confidence.flags.admin.v1.ResolverState.PackedBitset
+	(*Flag_Variant)(nil),                           // 13: confidence.flags.admin.v1.Flag.Variant
+	(*Flag_Rule)(nil),                              // 14: confidence.flags.admin.v1.Flag.Rule
+	(*Flag_Rule_MaterializationSpec)(nil),          // 15: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec
+	(*Flag_Rule_AssignmentSpec)(nil),               // 16: confidence.flags.admin.v1.Flag.Rule.AssignmentSpec
+	(*Flag_Rule_Assignment)(nil),                   // 17: confidence.flags.admin.v1.Flag.Rule.Assignment
+	(*Flag_Rule_BucketRange)(nil),                  // 18: confidence.flags.admin.v1.Flag.Rule.BucketRange
+	(*Flag_Rule_MaterializationSpec_MaterializationReadMode)(nil), // 19: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.MaterializationReadMode
+	(*Flag_Rule_Assignment_VariantAssignment)(nil),                // 20: confidence.flags.admin.v1.Flag.Rule.Assignment.VariantAssignment
+	(*Flag_Rule_Assignment_FallthroughAssignment)(nil),            // 21: confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignment
+	(*Flag_Rule_Assignment_ClientDefaultAssignment)(nil),          // 22: confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignment
+	(*Segment_Allocation)(nil),                                    // 23: confidence.flags.admin.v1.Segment.Allocation
+	(*Segment_BitsetAllocation)(nil),                              // 24: confidence.flags.admin.v1.Segment.BitsetAllocation
+	(*Condition_True)(nil),                                        // 25: confidence.flags.admin.v1.Condition.True
+	(*Condition_False)(nil),                                       // 26: confidence.flags.admin.v1.Condition.False
+	(*Condition_And)(nil),                                         // 27: confidence.flags.admin.v1.Condition.And
+	(*Condition_Or)(nil),                                          // 28: confidence.flags.admin.v1.Condition.Or
+	(*Condition_Not)(nil),                                         // 29: confidence.flags.admin.v1.Condition.Not
+	(*Condition_Comparison)(nil),                                  // 30: confidence.flags.admin.v1.Condition.Comparison
+	(*Condition_ContextFieldComparison)(nil),                      // 31: confidence.flags.admin.v1.Condition.ContextFieldComparison
+	(*ClientCredential_ClientSecret)(nil),                         // 32: confidence.flags.admin.v1.ClientCredential.ClientSecret
+	(*types.FlagSchema_StructFlagSchema)(nil),                     // 33: confidence.flags.types.v1.FlagSchema.StructFlagSchema
+	(*types.Targeting)(nil),                                       // 34: confidence.flags.types.v1.Targeting
+	(*structpb.Struct)(nil),                                       // 35: google.protobuf.Struct
+	(*structpb.Value)(nil),                                        // 36: google.protobuf.Value
 }
 var file_confidence_flags_admin_v1_resolver_proto_depIdxs = []int32{
-	6,  // 0: confidence.flags.admin.v1.ResolverState.flags:type_name -> confidence.flags.admin.v1.Flag
-	7,  // 1: confidence.flags.admin.v1.ResolverState.segments_no_bitsets:type_name -> confidence.flags.admin.v1.Segment
-	11, // 2: confidence.flags.admin.v1.ResolverState.bitsets:type_name -> confidence.flags.admin.v1.ResolverState.PackedBitset
-	9,  // 3: confidence.flags.admin.v1.ResolverState.clients:type_name -> confidence.flags.admin.v1.Client
-	10, // 4: confidence.flags.admin.v1.ResolverState.client_credentials:type_name -> confidence.flags.admin.v1.ClientCredential
-	0,  // 5: confidence.flags.admin.v1.ResolverState.region:type_name -> confidence.flags.admin.v1.ResolverState.Region
-	32, // 6: confidence.flags.admin.v1.Flag.schema:type_name -> confidence.flags.types.v1.FlagSchema.StructFlagSchema
-	12, // 7: confidence.flags.admin.v1.Flag.variants:type_name -> confidence.flags.admin.v1.Flag.Variant
-	1,  // 8: confidence.flags.admin.v1.Flag.state:type_name -> confidence.flags.admin.v1.Flag.State
-	13, // 9: confidence.flags.admin.v1.Flag.rules:type_name -> confidence.flags.admin.v1.Flag.Rule
-	33, // 10: confidence.flags.admin.v1.Segment.targeting:type_name -> confidence.flags.types.v1.Targeting
-	22, // 11: confidence.flags.admin.v1.Segment.allocation:type_name -> confidence.flags.admin.v1.Segment.Allocation
-	23, // 12: confidence.flags.admin.v1.Segment.bitset_allocation:type_name -> confidence.flags.admin.v1.Segment.BitsetAllocation
-	24, // 13: confidence.flags.admin.v1.Condition.true_condition:type_name -> confidence.flags.admin.v1.Condition.True
-	25, // 14: confidence.flags.admin.v1.Condition.false_condition:type_name -> confidence.flags.admin.v1.Condition.False
-	26, // 15: confidence.flags.admin.v1.Condition.and:type_name -> confidence.flags.admin.v1.Condition.And
-	27, // 16: confidence.flags.admin.v1.Condition.or:type_name -> confidence.flags.admin.v1.Condition.Or
-	28, // 17: confidence.flags.admin.v1.Condition.not:type_name -> confidence.flags.admin.v1.Condition.Not
-	29, // 18: confidence.flags.admin.v1.Condition.comparison:type_name -> confidence.flags.admin.v1.Condition.Comparison
-	30, // 19: confidence.flags.admin.v1.Condition.context_field_comparison:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison
-	31, // 20: confidence.flags.admin.v1.ClientCredential.client_secret:type_name -> confidence.flags.admin.v1.ClientCredential.ClientSecret
-	34, // 21: confidence.flags.admin.v1.Flag.Variant.value:type_name -> google.protobuf.Struct
-	15, // 22: confidence.flags.admin.v1.Flag.Rule.assignment_spec:type_name -> confidence.flags.admin.v1.Flag.Rule.AssignmentSpec
-	14, // 23: confidence.flags.admin.v1.Flag.Rule.materialization_spec:type_name -> confidence.flags.admin.v1.Flag.Rule.MaterializationSpec
-	18, // 24: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.mode:type_name -> confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.MaterializationReadMode
-	16, // 25: confidence.flags.admin.v1.Flag.Rule.AssignmentSpec.assignments:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment
-	19, // 26: confidence.flags.admin.v1.Flag.Rule.Assignment.variant:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.VariantAssignment
-	20, // 27: confidence.flags.admin.v1.Flag.Rule.Assignment.fallthrough:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignment
-	21, // 28: confidence.flags.admin.v1.Flag.Rule.Assignment.client_default:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignment
-	17, // 29: confidence.flags.admin.v1.Flag.Rule.Assignment.bucket_ranges:type_name -> confidence.flags.admin.v1.Flag.Rule.BucketRange
-	8,  // 30: confidence.flags.admin.v1.Condition.And.conditions:type_name -> confidence.flags.admin.v1.Condition
-	8,  // 31: confidence.flags.admin.v1.Condition.Or.conditions:type_name -> confidence.flags.admin.v1.Condition
-	8,  // 32: confidence.flags.admin.v1.Condition.Not.condition:type_name -> confidence.flags.admin.v1.Condition
-	2,  // 33: confidence.flags.admin.v1.Condition.Comparison.operator:type_name -> confidence.flags.admin.v1.Condition.Comparison.Operator
-	35, // 34: confidence.flags.admin.v1.Condition.Comparison.value:type_name -> google.protobuf.Value
-	3,  // 35: confidence.flags.admin.v1.Condition.ContextFieldComparison.operator:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison.Operator
-	36, // [36:36] is the sub-list for method output_type
-	36, // [36:36] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	0,  // 0: confidence.flags.admin.v1.ClientResolverState.log_destinations:type_name -> confidence.flags.admin.v1.LogDestination
+	7,  // 1: confidence.flags.admin.v1.ResolverState.flags:type_name -> confidence.flags.admin.v1.Flag
+	8,  // 2: confidence.flags.admin.v1.ResolverState.segments_no_bitsets:type_name -> confidence.flags.admin.v1.Segment
+	12, // 3: confidence.flags.admin.v1.ResolverState.bitsets:type_name -> confidence.flags.admin.v1.ResolverState.PackedBitset
+	10, // 4: confidence.flags.admin.v1.ResolverState.clients:type_name -> confidence.flags.admin.v1.Client
+	11, // 5: confidence.flags.admin.v1.ResolverState.client_credentials:type_name -> confidence.flags.admin.v1.ClientCredential
+	1,  // 6: confidence.flags.admin.v1.ResolverState.region:type_name -> confidence.flags.admin.v1.ResolverState.Region
+	33, // 7: confidence.flags.admin.v1.Flag.schema:type_name -> confidence.flags.types.v1.FlagSchema.StructFlagSchema
+	13, // 8: confidence.flags.admin.v1.Flag.variants:type_name -> confidence.flags.admin.v1.Flag.Variant
+	2,  // 9: confidence.flags.admin.v1.Flag.state:type_name -> confidence.flags.admin.v1.Flag.State
+	14, // 10: confidence.flags.admin.v1.Flag.rules:type_name -> confidence.flags.admin.v1.Flag.Rule
+	34, // 11: confidence.flags.admin.v1.Segment.targeting:type_name -> confidence.flags.types.v1.Targeting
+	23, // 12: confidence.flags.admin.v1.Segment.allocation:type_name -> confidence.flags.admin.v1.Segment.Allocation
+	24, // 13: confidence.flags.admin.v1.Segment.bitset_allocation:type_name -> confidence.flags.admin.v1.Segment.BitsetAllocation
+	25, // 14: confidence.flags.admin.v1.Condition.true_condition:type_name -> confidence.flags.admin.v1.Condition.True
+	26, // 15: confidence.flags.admin.v1.Condition.false_condition:type_name -> confidence.flags.admin.v1.Condition.False
+	27, // 16: confidence.flags.admin.v1.Condition.and:type_name -> confidence.flags.admin.v1.Condition.And
+	28, // 17: confidence.flags.admin.v1.Condition.or:type_name -> confidence.flags.admin.v1.Condition.Or
+	29, // 18: confidence.flags.admin.v1.Condition.not:type_name -> confidence.flags.admin.v1.Condition.Not
+	30, // 19: confidence.flags.admin.v1.Condition.comparison:type_name -> confidence.flags.admin.v1.Condition.Comparison
+	31, // 20: confidence.flags.admin.v1.Condition.context_field_comparison:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison
+	32, // 21: confidence.flags.admin.v1.ClientCredential.client_secret:type_name -> confidence.flags.admin.v1.ClientCredential.ClientSecret
+	35, // 22: confidence.flags.admin.v1.Flag.Variant.value:type_name -> google.protobuf.Struct
+	16, // 23: confidence.flags.admin.v1.Flag.Rule.assignment_spec:type_name -> confidence.flags.admin.v1.Flag.Rule.AssignmentSpec
+	15, // 24: confidence.flags.admin.v1.Flag.Rule.materialization_spec:type_name -> confidence.flags.admin.v1.Flag.Rule.MaterializationSpec
+	19, // 25: confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.mode:type_name -> confidence.flags.admin.v1.Flag.Rule.MaterializationSpec.MaterializationReadMode
+	17, // 26: confidence.flags.admin.v1.Flag.Rule.AssignmentSpec.assignments:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment
+	20, // 27: confidence.flags.admin.v1.Flag.Rule.Assignment.variant:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.VariantAssignment
+	21, // 28: confidence.flags.admin.v1.Flag.Rule.Assignment.fallthrough:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.FallthroughAssignment
+	22, // 29: confidence.flags.admin.v1.Flag.Rule.Assignment.client_default:type_name -> confidence.flags.admin.v1.Flag.Rule.Assignment.ClientDefaultAssignment
+	18, // 30: confidence.flags.admin.v1.Flag.Rule.Assignment.bucket_ranges:type_name -> confidence.flags.admin.v1.Flag.Rule.BucketRange
+	9,  // 31: confidence.flags.admin.v1.Condition.And.conditions:type_name -> confidence.flags.admin.v1.Condition
+	9,  // 32: confidence.flags.admin.v1.Condition.Or.conditions:type_name -> confidence.flags.admin.v1.Condition
+	9,  // 33: confidence.flags.admin.v1.Condition.Not.condition:type_name -> confidence.flags.admin.v1.Condition
+	3,  // 34: confidence.flags.admin.v1.Condition.Comparison.operator:type_name -> confidence.flags.admin.v1.Condition.Comparison.Operator
+	36, // 35: confidence.flags.admin.v1.Condition.Comparison.value:type_name -> google.protobuf.Value
+	4,  // 36: confidence.flags.admin.v1.Condition.ContextFieldComparison.operator:type_name -> confidence.flags.admin.v1.Condition.ContextFieldComparison.Operator
+	37, // [37:37] is the sub-list for method output_type
+	37, // [37:37] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_confidence_flags_admin_v1_resolver_proto_init() }
@@ -2391,7 +2458,7 @@ func file_confidence_flags_admin_v1_resolver_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_flags_admin_v1_resolver_proto_rawDesc), len(file_confidence_flags_admin_v1_resolver_proto_rawDesc)),
-			NumEnums:      4,
+			NumEnums:      5,
 			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,

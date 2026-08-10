@@ -3,9 +3,9 @@
 import grpc
 import warnings
 
-from . import internal_api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_internal__api__pb2
+from confidence.flags.resolver.v1 import internal_api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_internal__api__pb2
 
-GRPC_GENERATED_VERSION = '1.78.0'
+GRPC_GENERATED_VERSION = '1.83.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class InternalFlagLoggerServiceStub(object):
+class InternalFlagLoggerServiceStub:
     """Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/internal_api.proto
     Annotations removed for minimal dependencies
 
@@ -54,7 +54,7 @@ class InternalFlagLoggerServiceStub(object):
                 _registered_method=True)
 
 
-class InternalFlagLoggerServiceServicer(object):
+class InternalFlagLoggerServiceServicer:
     """Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/internal_api.proto
     Annotations removed for minimal dependencies
 
@@ -107,7 +107,7 @@ def add_InternalFlagLoggerServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class InternalFlagLoggerService(object):
+class InternalFlagLoggerService:
     """Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/internal_api.proto
     Annotations removed for minimal dependencies
 

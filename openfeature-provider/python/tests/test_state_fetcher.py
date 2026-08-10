@@ -76,11 +76,12 @@ class TestReloadSuccess:
         )
 
         fetcher = StateFetcher(client_secret)
-        state, account_id, changed = fetcher.fetch()
+        state, account_id, changed, log_destinations = fetcher.fetch()
 
         assert state == test_state
         assert account_id == test_account_id
         assert changed is True
+        assert log_destinations == []
         assert fetcher.state == test_state
         assert fetcher.account_id == test_account_id
 
@@ -110,7 +111,7 @@ class TestReloadNotModified:
         )
 
         fetcher = StateFetcher(client_secret)
-        state1, account_id1, changed1 = fetcher.fetch()
+        state1, account_id1, changed1, dests1 = fetcher.fetch()
 
         assert changed1 is True
 
@@ -120,12 +121,13 @@ class TestReloadNotModified:
             status_code=304,
         )
 
-        state2, account_id2, changed2 = fetcher.fetch()
+        state2, account_id2, changed2, dests2 = fetcher.fetch()
 
         # Should return cached values with changed=False
         assert state2 == state1
         assert account_id2 == account_id1
         assert changed2 is False
+        assert dests2 == dests1
 
 
 class TestReloadServerError:
