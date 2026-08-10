@@ -363,6 +363,74 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_log_destinations_empty_defaults_to_edge() {
+        let result = parse_log_destinations(&[]);
+        assert_eq!(result, vec![LogDestination::Edge]);
+    }
+
+    #[test]
+    fn test_parse_log_destinations_edge() {
+        let result = parse_log_destinations(&[1]);
+        assert_eq!(result, vec![LogDestination::Edge]);
+    }
+
+    #[test]
+    fn test_parse_log_destinations_cloudflare() {
+        let result = parse_log_destinations(&[2]);
+        assert_eq!(result, vec![LogDestination::Cloudflare]);
+    }
+
+    #[test]
+    fn test_parse_log_destinations_multiple() {
+        let result = parse_log_destinations(&[2, 1]);
+        assert_eq!(result, vec![LogDestination::Cloudflare, LogDestination::Edge]);
+    }
+
+    #[test]
+    fn test_log_destination_from_unknown_defaults_to_edge() {
+        assert_eq!(LogDestination::from(0), LogDestination::Edge);
+        assert_eq!(LogDestination::from(3), LogDestination::Edge);
+        assert_eq!(LogDestination::from(99), LogDestination::Edge);
+        assert_eq!(LogDestination::from(-1), LogDestination::Edge);
+    }
+
+    #[test]
+    fn test_client_resolver_state_decode_with_log_destinations() {
+        // Build a ClientResolverState with log_destinations at tag 4
+        let original = ClientResolverState {
+            state: Bytes::from(vec![0x01, 0x02, 0x03]),
+            account: "test-account".to_string(),
+            log_destinations: vec![2, 1],
+        };
+        let encoded = original.encode_to_vec();
+
+        let decoded = ClientResolverState::decode(Bytes::from(encoded)).unwrap();
+        assert_eq!(decoded.account, "test-account");
+        assert_eq!(decoded.log_destinations, vec![2, 1]);
+        assert_eq!(decoded.state, Bytes::from(vec![0x01, 0x02, 0x03]));
+    }
+
+    #[test]
+    fn test_client_resolver_state_decode_without_log_destinations() {
+        // When log_destinations is absent, it should default to empty vec
+        let original = ClientResolverState {
+            state: Bytes::from(vec![0x01]),
+            account: "acct".to_string(),
+            log_destinations: vec![],
+        };
+        let encoded = original.encode_to_vec();
+
+        let decoded = ClientResolverState::decode(Bytes::from(encoded)).unwrap();
+        assert_eq!(decoded.account, "acct");
+        assert!(decoded.log_destinations.is_empty());
+        // parse_log_destinations should then default to Edge
+        assert_eq!(
+            parse_log_destinations(&decoded.log_destinations),
+            vec![LogDestination::Edge]
+        );
+    }
+
+    #[test]
     fn test_decrypt_encrypted_state() {
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
         let hex_key = std::fs::read_to_string(data_dir().join("encryption_key_test.hex")).unwrap();

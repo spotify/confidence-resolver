@@ -199,3 +199,93 @@ fn has_logs(request: &WriteFlagLogsRequest) -> bool {
         || !request.flag_resolve_info.is_empty()
         || request.telemetry_data.is_some()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper to decode a varint from a byte slice, returning (value, bytes_consumed).
+    fn decode_varint(buf: &[u8]) -> (u64, usize) {
+        let mut value: u64 = 0;
+        let mut shift = 0;
+        for (i, &byte) in buf.iter().enumerate() {
+            value |= ((byte & 0x7f) as u64) << shift;
+            if byte & 0x80 == 0 {
+                return (value, i + 1);
+            }
+            shift += 7;
+        }
+        panic!("unterminated varint");
+    }
+
+    /// Decode the manually-encoded ingest request protobuf, returning (account_id, batch).
+    fn decode_ingest_fields(data: &[u8]) -> (String, Vec<u8>) {
+        let mut account_id = String::new();
+        let mut batch = Vec::new();
+        let mut pos = 0;
+
+        while pos < data.len() {
+            let tag_byte = data[pos];
+            pos += 1;
+            let field_number = tag_byte >> 3;
+            // wire type 2 (length-delimited)
+            let (len, consumed) = decode_varint(&data[pos..]);
+            pos += consumed;
+            let field_data = &data[pos..pos + len as usize];
+            pos += len as usize;
+
+            match field_number {
+                1 => account_id = String::from_utf8(field_data.to_vec()).unwrap(),
+                2 => batch = field_data.to_vec(),
+                _ => {}
+            }
+        }
+
+        (account_id, batch)
+    }
+
+    #[test]
+    fn test_encode_ingest_request_roundtrip() {
+        let account_id = "test-account-123";
+        let batch = vec![0x0a, 0x0b, 0x0c, 0x0d];
+
+        let encoded = encode_ingest_request(account_id, &batch);
+        let (decoded_account, decoded_batch) = decode_ingest_fields(&encoded);
+
+        assert_eq!(decoded_account, account_id);
+        assert_eq!(decoded_batch, batch);
+    }
+
+    #[test]
+    fn test_encode_ingest_request_empty_account_id() {
+        let encoded = encode_ingest_request("", &[0x01, 0x02]);
+        let (decoded_account, decoded_batch) = decode_ingest_fields(&encoded);
+
+        assert_eq!(decoded_account, "");
+        assert_eq!(decoded_batch, vec![0x01, 0x02]);
+    }
+
+    #[test]
+    fn test_encode_ingest_request_empty_batch() {
+        let encoded = encode_ingest_request("acct", &[]);
+        let (decoded_account, decoded_batch) = decode_ingest_fields(&encoded);
+
+        assert_eq!(decoded_account, "acct");
+        assert!(decoded_batch.is_empty());
+    }
+
+    #[test]
+    fn test_encode_varint_small() {
+        let mut buf = Vec::new();
+        encode_varint(5, &mut buf);
+        assert_eq!(buf, vec![0x05]);
+    }
+
+    #[test]
+    fn test_encode_varint_large() {
+        // 300 = 0b100101100 -> varint bytes: 0xAC 0x02
+        let mut buf = Vec::new();
+        encode_varint(300, &mut buf);
+        assert_eq!(buf, vec![0xAC, 0x02]);
+    }
+}
