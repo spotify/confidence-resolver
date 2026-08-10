@@ -77,10 +77,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   // TODO Maybe pass in a resolver factory, so that we can initialize it in initialize and transition to fatal if not.
-  constructor(
-    private resolverOrPromise: LocalResolver | Promise<LocalResolver>,
-    private options: ProviderOptions,
-  ) {
+  constructor(private resolverOrPromise: LocalResolver | Promise<LocalResolver>, private options: ProviderOptions) {
     this.stateUpdateInterval = options.stateUpdateInterval ?? DEFAULT_STATE_INTERVAL;
     if (!Number.isInteger(this.stateUpdateInterval) || this.stateUpdateInterval < 1000) {
       throw new Error(`stateUpdateInterval must be an integer >= 1000 (1s), currently: ${this.stateUpdateInterval}`);
