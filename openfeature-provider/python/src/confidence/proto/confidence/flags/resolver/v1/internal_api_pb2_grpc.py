@@ -5,7 +5,7 @@ import warnings
 
 from . import internal_api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_internal__api__pb2
 
-GRPC_GENERATED_VERSION = '1.78.0'
+GRPC_GENERATED_VERSION = '1.70.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in confidence/flags/resolver/v1/internal_api_pb2_grpc.py depends on'
+        + f' but the generated code in confidence/flags/resolver/v1/internal_api_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
