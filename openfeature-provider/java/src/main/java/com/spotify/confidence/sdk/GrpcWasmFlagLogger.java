@@ -176,10 +176,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
 
   private void sendToCloudflare(WriteFlagLogsRequest request) {
     final IngestFlagLogsRequest ingestRequest =
-        IngestFlagLogsRequest.newBuilder()
-            .setAccountId(accountId.get())
-            .setBatch(request)
-            .build();
+        IngestFlagLogsRequest.newBuilder().setAccountId(accountId.get()).setBatch(request).build();
     final byte[] body = ingestRequest.toByteArray();
 
     try {
