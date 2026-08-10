@@ -5,7 +5,7 @@ use confidence_resolver::{
     proto::{confidence, google::Struct},
     resolve_logger,
     telemetry::{self, TelemetrySnapshot},
-    AccountResolver, FlagToApply, Host, ResolvedValue, ResolverState,
+    AccountResolver, FlagToApply, Host, LogDestination, ResolvedValue, ResolverState,
 };
 use worker::*;
 
@@ -32,7 +32,9 @@ pub struct ClientResolverState {
     #[prost(bytes = "bytes", tag = "1")]
     pub state: Bytes,
     #[prost(string, tag = "2")]
-    pub account: String,
+    pub account_id: String,
+    #[prost(int32, repeated, tag = "4")]
+    pub log_destinations: Vec<i32>,
 }
 
 /// The CDN response containing both the state and account_id
@@ -108,11 +110,21 @@ static CDN_STATE_REQUEST: Lazy<ClientResolverState> = Lazy::new(|| {
         .expect("Failed to decode ClientResolverState from CDN state")
 });
 
+static LOG_DESTINATIONS: Lazy<Vec<LogDestination>> = Lazy::new(|| {
+    let raw = &CDN_STATE_REQUEST.log_destinations;
+    let parsed: Vec<LogDestination> = raw.iter().map(|&v| LogDestination::from(v)).collect();
+    if parsed.is_empty() {
+        vec![LogDestination::Edge]
+    } else {
+        parsed
+    }
+});
+
 static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
     let cdn_request = &*CDN_STATE_REQUEST;
     ResolverState::from_proto(
         cdn_request.state.to_vec().try_into().unwrap(),
-        &cdn_request.account,
+        &cdn_request.account_id,
         None,
     )
     .unwrap()
@@ -539,7 +551,33 @@ pub async fn consume_flag_logs_queue(
             update_prometheus_kv(&kv, &req).await;
         }
 
-        send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
+        let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
+        let account_id = CDN_STATE_REQUEST.account_id.as_str();
+        let destinations = &*LOG_DESTINATIONS;
+
+        let (primary, fallback) = if destinations.len() >= 2 {
+            (destinations[0], Some(destinations[1]))
+        } else {
+            (destinations[0], None)
+        };
+
+        let primary_url = log_destination_url(&primary);
+        let primary_acct = match primary {
+            LogDestination::Edge => None,
+            _ => Some(account_id),
+        };
+        let result = send_flags_logs(client_secret, &req, primary_url, primary_acct).await;
+
+        if let Some(fb) = fallback {
+            if result.is_err() || result.as_ref().is_ok_and(|r| r.status_code() >= 400) {
+                let fb_url = log_destination_url(&fb);
+                let fb_acct = match fb {
+                    LogDestination::Edge => None,
+                    _ => Some(account_id),
+                };
+                let _ = send_flags_logs(client_secret, &req, fb_url, fb_acct).await;
+            }
+        }
     }
 
     Ok(())
@@ -574,19 +612,61 @@ async fn update_prometheus_kv(kv: &kv::KvStore, req: &WriteFlagLogsRequest) {
     }
 }
 
-async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {
-    let resolve_url = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
+fn log_destination_url(dest: &LogDestination) -> &'static str {
+    match dest {
+        LogDestination::Edge => "https://resolver.confidence.dev/v1/clientFlagLogs:write",
+        LogDestination::Cloudflare => "https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest",
+    }
+}
+
+async fn send_flags_logs(
+    client_secret: &str,
+    message: &WriteFlagLogsRequest,
+    destination_url: &str,
+    account_id: Option<&str>,
+) -> Result<Response> {
     let mut init = RequestInit::new();
     let headers = Headers::new();
-    headers.set("Content-Type", "application/json")?;
     headers.set("Authorization", &format!("ClientSecret {}", client_secret))?;
-    init.with_headers(headers);
     init.with_method(Method::Post);
-    let json = serde_json::to_string(&message)?;
-    init.with_body(Some(json.into()));
-    let request = Request::new_with_init(resolve_url, &init)?;
-    let response = Fetch::Request(request).send().await;
-    response
+
+    if let Some(account) = account_id {
+        // Cloudflare ingestor: encode as IngestFlagLogsRequest protobuf
+        let mut batch_buf = Vec::new();
+        confidence_resolver::encode_message(message, &mut batch_buf);
+
+        let account_bytes = account.as_bytes();
+        let mut body = Vec::new();
+        // field 1: string account_id, tag = 0x0a
+        body.push(0x0a);
+        encode_varint(account_bytes.len() as u64, &mut body);
+        body.extend_from_slice(account_bytes);
+        // field 2: WriteFlagLogsRequest batch, tag = 0x12
+        body.push(0x12);
+        encode_varint(batch_buf.len() as u64, &mut body);
+        body.extend_from_slice(&batch_buf);
+
+        headers.set("Content-Type", "application/protobuf")?;
+        init.with_headers(headers);
+        init.with_body(Some(body.into()));
+    } else {
+        // Edge: send as JSON
+        headers.set("Content-Type", "application/json")?;
+        init.with_headers(headers);
+        let json = serde_json::to_string(message)?;
+        init.with_body(Some(json.into()));
+    }
+
+    let request = Request::new_with_init(destination_url, &init)?;
+    Fetch::Request(request).send().await
+}
+
+fn encode_varint(mut value: u64, buf: &mut Vec<u8>) {
+    while value >= 0x80 {
+        buf.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    buf.push(value as u8);
 }
 
 impl ResponseExt for Response {

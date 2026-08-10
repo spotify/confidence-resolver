@@ -76,7 +76,7 @@ RUN mkdir -p confidence-resolver/src && \
     echo "pub fn dummy() {}" > openfeature-provider/rust/src/lib.rs
 
 # Build dependencies (this layer will be cached)
-RUN cargo build -p confidence_resolver --release 
+RUN cargo build -p confidence_resolver --release
 
 # Build test dependencies including dev-dependencies (this layer will be cached)
 RUN cargo test -p confidence_resolver --lib --no-run --release 
