@@ -561,26 +561,83 @@ pub async fn consume_flag_logs_queue(
             (destinations[0], None)
         };
 
-        let primary_url = log_destination_url(&primary);
-        let primary_acct = match primary {
-            LogDestination::Edge => None,
-            _ => Some(account_id),
-        };
-        let result = send_flags_logs(client_secret, &req, primary_url, primary_acct).await;
-
-        if let Some(fb) = fallback {
-            if result.is_err() || result.as_ref().is_ok_and(|r| r.status_code() >= 400) {
-                let fb_url = log_destination_url(&fb);
-                let fb_acct = match fb {
-                    LogDestination::Edge => None,
-                    _ => Some(account_id),
+        match deliver_flag_logs(client_secret, account_id, &req, primary).await {
+            DeliveryOutcome::Delivered => {}
+            DeliveryOutcome::PermanentFailure(status) => {
+                // 4xx means the request itself is bad — the same payload would
+                // fail on the fallback and on every retry, so ack the batch.
+                console_log!(
+                    "flag log delivery to {:?} rejected with {}, dropping batch",
+                    primary,
+                    status
+                );
+            }
+            DeliveryOutcome::RetryableFailure(reason) => {
+                console_log!(
+                    "flag log delivery to {:?} failed ({}), trying fallback",
+                    primary,
+                    reason
+                );
+                let fallback_delivered = match fallback {
+                    Some(fb) => match deliver_flag_logs(client_secret, account_id, &req, fb).await
+                    {
+                        DeliveryOutcome::Delivered => true,
+                        outcome => {
+                            console_log!(
+                                "fallback flag log delivery to {:?} also failed: {:?}",
+                                fb,
+                                outcome
+                            );
+                            false
+                        }
+                    },
+                    None => false,
                 };
-                let _ = send_flags_logs(client_secret, &req, fb_url, fb_acct).await;
+                if !fallback_delivered {
+                    // Returning Err makes Cloudflare Queues redeliver the batch,
+                    // so a delivery outage doesn't silently drop logs. The
+                    // telemetry KV update above may run again on redelivery —
+                    // acceptable for metrics.
+                    return Err(worker::Error::RustError(
+                        "flag log delivery failed on all destinations".to_string(),
+                    ));
+                }
             }
         }
     }
 
     Ok(())
+}
+
+/// Outcome of a flag log delivery attempt.
+#[derive(Debug)]
+enum DeliveryOutcome {
+    Delivered,
+    /// 4xx response — retrying the same payload won't help.
+    PermanentFailure(u16),
+    /// Transport error or 5xx response — worth retrying elsewhere/later.
+    RetryableFailure(String),
+}
+
+async fn deliver_flag_logs(
+    client_secret: &str,
+    account_id: &str,
+    req: &WriteFlagLogsRequest,
+    dest: LogDestination,
+) -> DeliveryOutcome {
+    let url = log_destination_url(&dest);
+    let acct = match dest {
+        LogDestination::Edge => None,
+        _ => Some(account_id),
+    };
+    match send_flags_logs(client_secret, req, url, acct).await {
+        Ok(resp) if resp.status_code() < 400 => DeliveryOutcome::Delivered,
+        Ok(resp) if resp.status_code() < 500 => {
+            DeliveryOutcome::PermanentFailure(resp.status_code())
+        }
+        Ok(resp) => DeliveryOutcome::RetryableFailure(format!("HTTP {}", resp.status_code())),
+        Err(e) => DeliveryOutcome::RetryableFailure(format!("{:?}", e)),
+    }
 }
 
 /// Accumulate telemetry deltas from all isolates into a cumulative
@@ -619,6 +676,20 @@ fn log_destination_url(dest: &LogDestination) -> &'static str {
     }
 }
 
+/// Send a flag log batch to `destination_url`.
+///
+/// The Edge endpoint accepts the `WriteFlagLogsRequest` batch directly as
+/// JSON. The Cloudflare ingest worker instead expects an
+/// `IngestFlagLogsRequest` protobuf — a thin wrapper that adds the
+/// `account_id` (field 1) around the same `WriteFlagLogsRequest` batch
+/// (field 2), which the ingestor uses to partition storage per account.
+///
+/// The wrapper is encoded by hand rather than with a generated type: this
+/// crate is forced onto prost 0.13 by the `worker` dependency while
+/// `confidence_resolver` (which owns `WriteFlagLogsRequest`) is on prost
+/// 0.12, and the two `Message` traits are incompatible. The batch is encoded
+/// by the resolver crate via `encode_message`, and the two-field wrapper is
+/// simple enough to emit directly.
 async fn send_flags_logs(
     client_secret: &str,
     message: &WriteFlagLogsRequest,

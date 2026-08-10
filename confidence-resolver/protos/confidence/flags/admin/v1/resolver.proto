@@ -87,6 +87,11 @@ message ResolverState {
 
   repeated BloomFilter bloom_filters = 10;
 
+  // Where flag logs should be sent. Note: the `repeated LogDestination
+  // log_destinations` field lives on `ClientResolverState` (tag 4), the
+  // CDN envelope defined in the flags-admin repo — not on this message.
+  // Local resolvers read it from the CDN response. First entry is primary,
+  // second is fallback on delivery failure; empty defaults to SPOTIFY_EDGE.
   enum LogDestination {
     LOG_DESTINATION_UNSPECIFIED = 0;
     LOG_DESTINATION_SPOTIFY_EDGE = 1;
