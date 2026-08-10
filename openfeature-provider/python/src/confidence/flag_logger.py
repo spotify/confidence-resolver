@@ -303,11 +303,10 @@ class HttpFlagLogger:
 
 
 class MultiDestinationFlagLogger:
-    """Flag logger that routes logs to multiple destinations with fallback.
+    """Flag logger that routes logs with primary/fallback destinations.
 
-    The first destination is primary. If it fails, the second destination
-    is used as fallback. Destinations are determined by the log_destinations
-    from the CDN state.
+    Sends inline (not via child loggers' thread pools) so that failures
+    propagate and the fallback path actually triggers.
     """
 
     def __init__(
@@ -318,92 +317,127 @@ class MultiDestinationFlagLogger:
         grpc_channel: Optional[grpc.Channel] = None,
         http_client: Optional[httpx.Client] = None,
     ) -> None:
-        """Initialize the multi-destination flag logger.
-
-        Args:
-            client_secret: The Confidence client secret for authentication.
-            account_id: The account ID (needed for Cloudflare destination).
-            log_destinations: Ordered list of LogDestination enum values.
-                First is primary, second is fallback.
-            grpc_channel: Optional gRPC channel for testing.
-            http_client: Optional httpx.Client for testing.
-        """
         self._client_secret = client_secret
         self._account_id = account_id
-        self._grpc_channel = grpc_channel
-        self._http_client = http_client
+        self._destinations = list(log_destinations)
+        self._executor = ThreadPoolExecutor(max_workers=2)
+        self._stats_lock = threading.Lock()
+        self._attempts = 0
+        self._failures = 0
 
-        self._loggers = self._build_loggers(log_destinations)
+        if grpc_channel is not None:
+            self._grpc_channel = grpc_channel
+            self._owns_channel = False
+        else:
+            self._grpc_channel = grpc.secure_channel(
+                GRPC_TARGET,
+                grpc.ssl_channel_credentials(),
+                options=[("grpc.service_config", _RETRY_SERVICE_CONFIG)],
+            )
+            self._owns_channel = True
+        self._grpc_stub = internal_api_pb2_grpc.InternalFlagLoggerServiceStub(
+            self._grpc_channel
+        )
 
-    def _build_loggers(self, destinations: List[int]) -> List[FlagLogger]:
-        """Build logger instances for each destination.
-
-        Args:
-            destinations: List of LogDestination enum values.
-
-        Returns:
-            List of FlagLogger instances.
-        """
-        loggers: List[FlagLogger] = []
-        for dest in destinations:
-            if dest == LOG_DESTINATION_CLOUDFLARE:
-                loggers.append(
-                    HttpFlagLogger(
-                        client_secret=self._client_secret,
-                        account_id=self._account_id,
-                        http_client=self._http_client,
-                    )
-                )
-            elif dest == LOG_DESTINATION_SPOTIFY_EDGE:
-                loggers.append(
-                    GrpcFlagLogger(
-                        client_secret=self._client_secret,
-                        channel=self._grpc_channel,
-                    )
-                )
-            else:
-                logger.debug("Ignoring unknown log destination: %d", dest)
-        return loggers
+        if http_client is not None:
+            self._http_client = http_client
+            self._owns_http_client = False
+        else:
+            self._http_client = httpx.Client(timeout=30.0)
+            self._owns_http_client = True
 
     def write(self, request_bytes: bytes) -> None:
-        """Write flag logs to the primary destination, falling back on error.
-
-        Args:
-            request_bytes: Serialized WriteFlagLogsRequest proto bytes.
-        """
-        if not self._loggers:
+        if not request_bytes:
             return
-
-        # Primary destination
         try:
-            self._loggers[0].write(request_bytes)
-            return
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.ParseFromString(request_bytes)
         except Exception as e:
-            logger.warning("Primary flag log destination failed: %s", e)
+            logger.error("Failed to parse WriteFlagLogsRequest: %s", e)
+            return
+        if (
+            len(request.flag_assigned) == 0
+            and len(request.client_resolve_info) == 0
+            and len(request.flag_resolve_info) == 0
+        ):
+            return
+        self._executor.submit(self._send_with_failover, request)
 
-        # Fallback destinations
-        for fallback in self._loggers[1:]:
-            try:
-                fallback.write(request_bytes)
-                return
-            except Exception as e:
-                logger.warning("Fallback flag log destination failed: %s", e)
+    def _send_with_failover(
+        self, request: internal_api_pb2.WriteFlagLogsRequest
+    ) -> None:
+        dests = self._destinations or [LOG_DESTINATION_SPOTIFY_EDGE]
+        primary = dests[0]
+        try:
+            self._send_to_destination(primary, request)
+        except Exception:
+            if len(dests) > 1:
+                fallback = dests[1]
+                try:
+                    self._send_to_destination(fallback, request)
+                except Exception:
+                    self._record_failure()
+            else:
+                self._record_failure()
+
+    def _send_to_destination(
+        self, dest: int, request: internal_api_pb2.WriteFlagLogsRequest
+    ) -> None:
+        if dest == LOG_DESTINATION_CLOUDFLARE:
+            self._send_to_cloudflare(request)
+        else:
+            self._send_to_edge(request)
+
+    def _send_to_edge(
+        self, request: internal_api_pb2.WriteFlagLogsRequest
+    ) -> None:
+        metadata = [("authorization", f"ClientSecret {self._client_secret}")]
+        self._grpc_stub.ClientWriteFlagLogs(
+            request, metadata=metadata, timeout=30.0
+        )
+
+    def _send_to_cloudflare(
+        self, request: internal_api_pb2.WriteFlagLogsRequest
+    ) -> None:
+        ingest = internal_api_pb2.IngestFlagLogsRequest()
+        ingest.account_id = self._account_id
+        ingest.batch.CopyFrom(request)
+        body = ingest.SerializeToString()
+        response = self._http_client.post(
+            CLOUDFLARE_INGEST_URL,
+            content=body,
+            headers={
+                "Authorization": f"ClientSecret {self._client_secret}",
+                "Content-Type": "application/protobuf",
+            },
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"Cloudflare ingest returned HTTP {response.status_code}"
+            )
+
+    def _record_failure(self) -> None:
+        with self._stats_lock:
+            self._failures += 1
+            self._attempts += 1
+            if self._attempts % 10 == 0 and self._failures > 0:
+                logger.warning(
+                    "Flag log write failures: %d/10", self._failures
+                )
+                self._failures = 0
+
+    def update_destinations(self, destinations: List[int]) -> None:
+        self._destinations = list(destinations)
 
     def set_account_id(self, account_id: str) -> None:
-        """Update the account ID on any HttpFlagLogger children.
-
-        Args:
-            account_id: The new account ID.
-        """
         self._account_id = account_id
-        for lg in self._loggers:
-            if isinstance(lg, HttpFlagLogger):
-                lg.set_account_id(account_id)
 
     def shutdown(self) -> None:
-        """Shutdown all loggers and wait for pending writes to complete."""
-        for lg in self._loggers:
-            lg.shutdown()
+        self._executor.shutdown(wait=True)
+        if self._owns_channel:
+            self._grpc_channel.close()
+        if self._owns_http_client:
+            self._http_client.close()
 
 
 class NoOpFlagLogger:

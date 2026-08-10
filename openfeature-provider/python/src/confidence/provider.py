@@ -847,12 +847,18 @@ class ConfidenceProvider(AbstractProvider):
                     if flushed_logs and self._flag_logger is not None:
                         self._flag_logger.write(flushed_logs)
 
-                    # Update account ID on the logger if it supports it
-                    set_account = getattr(
-                        self._flag_logger, "set_account_id", None
-                    )
-                    if callable(set_account):
-                        set_account(account_id)
+                    # Update account ID and destinations on the logger
+                    if self._flag_logger is not None:
+                        set_account = getattr(
+                            self._flag_logger, "set_account_id", None
+                        )
+                        if callable(set_account):
+                            set_account(account_id)
+                        update_dests = getattr(
+                            self._flag_logger, "update_destinations", None
+                        )
+                        if callable(update_dests):
+                            update_dests(log_destinations)
 
                     logger.debug("Resolver state updated")
 

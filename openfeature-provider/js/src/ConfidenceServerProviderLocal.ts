@@ -415,7 +415,10 @@ export class ConfidenceServerProviderLocal implements Provider {
         {
           method: 'post',
           signal,
-          headers: { 'Content-Type': 'application/x-protobuf' },
+          headers: {
+            'Content-Type': 'application/x-protobuf',
+            Authorization: `ClientSecret ${this.options.flagClientSecret}`,
+          },
           body: ingestRequest as Uint8Array<ArrayBuffer>,
         },
       );
