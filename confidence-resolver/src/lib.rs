@@ -920,7 +920,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 .iter()
                 .map(|af| FlagToApply {
                     assigned_flag: af.clone(),
-                    skew_adjusted_applied_time: timestamp.clone(),
+                    skew_adjusted_applied_time: timestamp,
                 })
                 .collect();
 

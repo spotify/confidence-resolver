@@ -160,7 +160,7 @@ pub fn build_flag_assigned(
                     assignment_id: f.assignment_id.clone(),
                     rule: f.rule.clone(),
                     fallthrough_assignments: f.fallthrough_assignments.clone(),
-                    apply_time: Some(skew_adjusted_applied_time.clone()),
+                    apply_time: Some(*skew_adjusted_applied_time),
                     assignment,
                 }
             },
