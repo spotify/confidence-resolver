@@ -561,47 +561,34 @@ pub async fn consume_flag_logs_queue(
             (destinations[0], None)
         };
 
-        match deliver_flag_logs(client_secret, account_id, &req, primary).await {
-            DeliveryOutcome::Delivered => {}
-            DeliveryOutcome::PermanentFailure(status) => {
-                // 4xx means the request itself is bad — the same payload would
-                // fail on the fallback and on every retry, so ack the batch.
-                console_log!(
-                    "flag log delivery to {:?} rejected with {}, dropping batch",
-                    primary,
-                    status
-                );
-            }
-            DeliveryOutcome::RetryableFailure(reason) => {
-                console_log!(
-                    "flag log delivery to {:?} failed ({}), trying fallback",
-                    primary,
-                    reason
-                );
-                let fallback_delivered = match fallback {
-                    Some(fb) => match deliver_flag_logs(client_secret, account_id, &req, fb).await
-                    {
-                        DeliveryOutcome::Delivered => true,
-                        outcome => {
-                            console_log!(
-                                "fallback flag log delivery to {:?} also failed: {:?}",
-                                fb,
-                                outcome
-                            );
-                            false
-                        }
-                    },
-                    None => false,
-                };
-                if !fallback_delivered {
-                    // Returning Err makes Cloudflare Queues redeliver the batch,
-                    // so a delivery outage doesn't silently drop logs. The
-                    // telemetry KV update above may run again on redelivery —
-                    // acceptable for metrics.
-                    return Err(worker::Error::RustError(
-                        "flag log delivery failed on all destinations".to_string(),
-                    ));
-                }
+        if let Err(reason) = deliver_flag_logs(client_secret, account_id, &req, primary).await {
+            console_log!(
+                "flag log delivery to {:?} failed ({}), trying fallback",
+                primary,
+                reason
+            );
+            let fallback_delivered = match fallback {
+                Some(fb) => match deliver_flag_logs(client_secret, account_id, &req, fb).await {
+                    Ok(()) => true,
+                    Err(fb_reason) => {
+                        console_log!(
+                            "fallback flag log delivery to {:?} also failed: {}",
+                            fb,
+                            fb_reason
+                        );
+                        false
+                    }
+                },
+                None => false,
+            };
+            if !fallback_delivered {
+                // Returning Err makes Cloudflare Queues redeliver the batch,
+                // so a delivery outage doesn't silently drop logs. The
+                // telemetry KV update above may run again on redelivery —
+                // acceptable for metrics.
+                return Err(worker::Error::RustError(
+                    "flag log delivery failed on all destinations".to_string(),
+                ));
             }
         }
     }
@@ -609,34 +596,23 @@ pub async fn consume_flag_logs_queue(
     Ok(())
 }
 
-/// Outcome of a flag log delivery attempt.
-#[derive(Debug)]
-enum DeliveryOutcome {
-    Delivered,
-    /// 4xx response — retrying the same payload won't help.
-    PermanentFailure(u16),
-    /// Transport error or 5xx response — worth retrying elsewhere/later.
-    RetryableFailure(String),
-}
-
+/// Attempt delivery to one destination. Any transport error or non-2xx/3xx
+/// response counts as a failure.
 async fn deliver_flag_logs(
     client_secret: &str,
     account_id: &str,
     req: &WriteFlagLogsRequest,
     dest: LogDestination,
-) -> DeliveryOutcome {
+) -> std::result::Result<(), String> {
     let url = log_destination_url(&dest);
     let acct = match dest {
         LogDestination::Edge => None,
         _ => Some(account_id),
     };
     match send_flags_logs(client_secret, req, url, acct).await {
-        Ok(resp) if resp.status_code() < 400 => DeliveryOutcome::Delivered,
-        Ok(resp) if resp.status_code() < 500 => {
-            DeliveryOutcome::PermanentFailure(resp.status_code())
-        }
-        Ok(resp) => DeliveryOutcome::RetryableFailure(format!("HTTP {}", resp.status_code())),
-        Err(e) => DeliveryOutcome::RetryableFailure(format!("{:?}", e)),
+        Ok(resp) if resp.status_code() < 400 => Ok(()),
+        Ok(resp) => Err(format!("HTTP {}", resp.status_code())),
+        Err(e) => Err(format!("{:?}", e)),
     }
 }
 
