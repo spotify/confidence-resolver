@@ -43,7 +43,6 @@ FROM rust-base AS rust-deps
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/Cargo.toml ./confidence-resolver/
 COPY confidence-cloudflare-resolver/Cargo.toml ./confidence-cloudflare-resolver/
-COPY confidence-flag-log-ingest/Cargo.toml ./confidence-flag-log-ingest/
 COPY wasm-msg/Cargo.toml ./wasm-msg/
 COPY wasm/rust-guest/Cargo.toml ./wasm/rust-guest/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
@@ -75,9 +74,6 @@ RUN mkdir -p confidence-resolver/src && \
     echo "pub fn dummy() {}" > wasm/rust-guest/src/lib.rs && \
     mkdir -p openfeature-provider/rust/src && \
     echo "pub fn dummy() {}" > openfeature-provider/rust/src/lib.rs && \
-    mkdir -p confidence-flag-log-ingest/src && \
-    echo "pub fn dummy() {}" > confidence-flag-log-ingest/src/lib.rs
-
 # Build dependencies (this layer will be cached)
 RUN cargo build -p confidence_resolver --release 
 
@@ -103,7 +99,6 @@ COPY --from=rust-deps /workspace/target /workspace/target
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
-COPY confidence-flag-log-ingest/ ./confidence-flag-log-ingest/
 COPY wasm-msg/ ./wasm-msg/
 COPY wasm/rust-guest/ ./wasm/rust-guest/
 COPY wasm/proto/ ./wasm/proto/
@@ -176,7 +171,6 @@ COPY --from=rust-deps /workspace/target /workspace/target
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
-COPY confidence-flag-log-ingest/ ./confidence-flag-log-ingest/
 COPY wasm-msg/ ./wasm-msg/
 COPY wasm/rust-guest/ ./wasm/rust-guest/
 COPY wasm/proto/ ./wasm/proto/

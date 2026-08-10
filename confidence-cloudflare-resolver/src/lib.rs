@@ -555,14 +555,8 @@ pub async fn consume_flag_logs_queue(
         let account_id = CDN_STATE_REQUEST.account_id.as_str();
         let destinations = &*LOG_DESTINATIONS;
 
-        // When both destinations are configured, Cloudflare is always primary
-        // and Edge is the fallback on failure. Single destination sends to
-        // that destination only.
-        let has_cloudflare = destinations.contains(&LogDestination::Cloudflare);
-        let has_edge = destinations.contains(&LogDestination::Edge);
-
-        let (primary, fallback) = if has_cloudflare && has_edge {
-            (LogDestination::Cloudflare, Some(LogDestination::Edge))
+        let (primary, fallback) = if destinations.len() >= 2 {
+            (destinations[0], Some(destinations[1]))
         } else {
             (destinations[0], None)
         };
