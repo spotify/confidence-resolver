@@ -110,7 +110,12 @@ impl LogSender {
             Ok(resp) => {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                tracing::error!("Failed to send flag logs to {:?}: {} - {}", dest, status, body);
+                tracing::error!(
+                    "Failed to send flag logs to {:?}: {} - {}",
+                    dest,
+                    status,
+                    body
+                );
                 Err(())
             }
             Err(e) => {

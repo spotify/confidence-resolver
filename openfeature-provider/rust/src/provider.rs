@@ -1565,7 +1565,10 @@ mod tests {
 
         // Set minimal state (no flags configured)
         let (state, account_id) = create_minimal_state();
-        provider.state.update(state, account_id, vec![crate::state::LogDestination::Edge]).await;
+        provider
+            .state
+            .update(state, account_id, vec![crate::state::LogDestination::Edge])
+            .await;
 
         provider
     }

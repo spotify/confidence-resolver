@@ -310,7 +310,9 @@ mod tests {
         assert!(!shared_state.is_initialized());
 
         let (state, account_id) = create_minimal_state();
-        shared_state.update(state, account_id.clone(), vec![LogDestination::Edge]).await;
+        shared_state
+            .update(state, account_id.clone(), vec![LogDestination::Edge])
+            .await;
 
         assert!(shared_state.is_initialized());
         assert!(shared_state.get().is_some());
@@ -322,7 +324,9 @@ mod tests {
         let shared_state = SharedState::new();
 
         let (state, account_id) = create_state_with_flag();
-        shared_state.update(state, account_id, vec![LogDestination::Edge]).await;
+        shared_state
+            .update(state, account_id, vec![LogDestination::Edge])
+            .await;
 
         let retrieved_state = shared_state.get().unwrap();
         assert_eq!(retrieved_state.flags.len(), 1);
@@ -335,12 +339,16 @@ mod tests {
 
         // First update with minimal state
         let (state1, account_id1) = create_minimal_state();
-        shared_state.update(state1, account_id1, vec![LogDestination::Edge]).await;
+        shared_state
+            .update(state1, account_id1, vec![LogDestination::Edge])
+            .await;
         assert_eq!(shared_state.get().unwrap().flags.len(), 0);
 
         // Second update with state containing a flag
         let (state2, account_id2) = create_state_with_flag();
-        shared_state.update(state2, account_id2, vec![LogDestination::Edge]).await;
+        shared_state
+            .update(state2, account_id2, vec![LogDestination::Edge])
+            .await;
         assert_eq!(shared_state.get().unwrap().flags.len(), 1);
     }
 
@@ -354,7 +362,11 @@ mod tests {
         // After update, account ID is set
         let (state, _) = create_minimal_state();
         shared_state
-            .update(state, "custom-account-id".to_string(), vec![LogDestination::Edge])
+            .update(
+                state,
+                "custom-account-id".to_string(),
+                vec![LogDestination::Edge],
+            )
             .await;
         assert_eq!(
             shared_state.account_id().await,
@@ -383,7 +395,10 @@ mod tests {
     #[test]
     fn test_parse_log_destinations_multiple() {
         let result = parse_log_destinations(&[2, 1]);
-        assert_eq!(result, vec![LogDestination::Cloudflare, LogDestination::Edge]);
+        assert_eq!(
+            result,
+            vec![LogDestination::Cloudflare, LogDestination::Edge]
+        );
     }
 
     #[test]
