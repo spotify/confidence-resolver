@@ -849,9 +849,7 @@ class ConfidenceProvider(AbstractProvider):
 
                     # Update account ID and destinations on the logger
                     if self._flag_logger is not None:
-                        set_account = getattr(
-                            self._flag_logger, "set_account_id", None
-                        )
+                        set_account = getattr(self._flag_logger, "set_account_id", None)
                         if callable(set_account):
                             set_account(account_id)
                         update_dests = getattr(

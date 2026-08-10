@@ -388,13 +388,9 @@ class MultiDestinationFlagLogger:
         else:
             self._send_to_edge(request)
 
-    def _send_to_edge(
-        self, request: internal_api_pb2.WriteFlagLogsRequest
-    ) -> None:
+    def _send_to_edge(self, request: internal_api_pb2.WriteFlagLogsRequest) -> None:
         metadata = [("authorization", f"ClientSecret {self._client_secret}")]
-        self._grpc_stub.ClientWriteFlagLogs(
-            request, metadata=metadata, timeout=30.0
-        )
+        self._grpc_stub.ClientWriteFlagLogs(request, metadata=metadata, timeout=30.0)
 
     def _send_to_cloudflare(
         self, request: internal_api_pb2.WriteFlagLogsRequest
@@ -421,9 +417,7 @@ class MultiDestinationFlagLogger:
             self._failures += 1
             self._attempts += 1
             if self._attempts % 10 == 0 and self._failures > 0:
-                logger.warning(
-                    "Flag log write failures: %d/10", self._failures
-                )
+                logger.warning("Flag log write failures: %d/10", self._failures)
                 self._failures = 0
 
     def update_destinations(self, destinations: List[int]) -> None:
