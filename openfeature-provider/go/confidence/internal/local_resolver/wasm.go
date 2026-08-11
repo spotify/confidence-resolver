@@ -51,9 +51,14 @@ var _ LocalResolver = (*WasmResolver)(nil)
 // on the hot path.
 func (r *WasmResolver) exportedFunction(name string) api.Function {
 	if fn, ok := r.fnCache.Load(name); ok {
-		return fn.(api.Function)
+		if fn != nil {
+			return fn.(api.Function)
+		}
 	}
 	fn := r.instance.ExportedFunction(name)
+	if fn == nil {
+		panic(fmt.Errorf("WASM export %q unavailable (instance may be closed)", name))
+	}
 	r.fnCache.Store(name, fn)
 	return fn
 }

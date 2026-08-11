@@ -2,9 +2,9 @@ package local_resolver
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
@@ -53,34 +53,48 @@ func TestRecoveringResolver_RecreatesAfterPanic(t *testing.T) {
 	factory := NewRecoveringResolverFactory(inner)
 	rr := factory.New()
 
-	// First call: the mockResolver (shouldPanic=true) panics, withRecover
-	// catches it and kicks off background recreation.
+	// First call: the mockResolver (shouldPanic=true) panics; withRecover
+	// recreates synchronously before returning.
 	_, err := rr.ResolveProcess(&wasm.ResolveProcessRequest{})
 	if err == nil {
 		t.Fatal("expected error from panicking resolver")
-	}
-
-	// Wait for the background goroutine in startRecreate to finish.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if inner.count.Load() >= 2 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 
 	if inner.count.Load() < 2 {
 		t.Fatal("factory was never called to recreate the resolver")
 	}
 
-	// Give the goroutine a moment to finish storing the new resolver
-	// after factory.New() returned.
-	time.Sleep(50 * time.Millisecond)
-
 	// Second call: should succeed because the recovered resolver is a
 	// fresh mockResolver(shouldPanic=false) from the inner factory.
 	_, err = rr.ResolveProcess(&wasm.ResolveProcessRequest{})
 	if err != nil {
 		t.Fatalf("expected successful resolve after recovery, got: %v", err)
+	}
+}
+
+// TestRecoveringResolver_ConcurrentResolveDuringRecovery verifies that a
+// concurrent resolve cannot observe a half-swapped or closed WASM instance.
+func TestRecoveringResolver_ConcurrentResolveDuringRecovery(t *testing.T) {
+	inner := &mockFactory{}
+	factory := NewRecoveringResolverFactory(inner)
+	rr := factory.New()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for range 2 {
+		go func() {
+			defer wg.Done()
+			_, _ = rr.ResolveProcess(&wasm.ResolveProcessRequest{})
+		}()
+	}
+	wg.Wait()
+
+	if inner.count.Load() < 2 {
+		t.Fatal("expected resolver recreation during concurrent resolves")
+	}
+
+	_, err := rr.ResolveProcess(&wasm.ResolveProcessRequest{})
+	if err != nil {
+		t.Fatalf("expected successful resolve after concurrent recovery, got: %v", err)
 	}
 }

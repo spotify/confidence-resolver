@@ -65,3 +65,30 @@ func TestWasmMemoryStableOnRepeatedResolveCalls(t *testing.T) {
 			memBefore, memAfter, memAfter-memBefore, (memAfter-memBefore)/65536, iterations)
 	}
 }
+
+func TestWasmResolver_ExportedFunctionPanicsWhenExportMissing(t *testing.T) {
+	factory := NewWasmResolverFactory(NoOpLogSink)
+	defer factory.Close(context.Background())
+
+	resolver := factory.New().(*WasmResolver)
+
+	defer func() {
+		if rec := recover(); rec == nil {
+			t.Fatal("expected panic when WASM export is missing")
+		}
+	}()
+	_ = resolver.exportedFunction("wasm_msg_export_does_not_exist")
+}
+
+func TestWasmResolver_ExportedFunctionIgnoresCachedNil(t *testing.T) {
+	factory := NewWasmResolverFactory(NoOpLogSink)
+	defer factory.Close(context.Background())
+
+	resolver := factory.New().(*WasmResolver)
+	resolver.fnCache.Store("wasm_msg_alloc", nil)
+
+	fn := resolver.exportedFunction("wasm_msg_alloc")
+	if fn == nil {
+		t.Fatal("expected non-nil function after bypassing cached nil entry")
+	}
+}

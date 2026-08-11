@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
@@ -35,9 +35,9 @@ func (f *RecoveringResolverFactory) New() LocalResolver {
 // resolver can be reinitialized before use.
 type RecoveringResolver struct {
 	factory LocalResolverFactory
+	mu      sync.Mutex
 
 	current atomic.Value // holds LocalResolver
-	broken  atomic.Bool  // indicates an instance has panicked
 
 	lastState atomic.Value // holds *wasm.SetResolverStateRequest
 }
@@ -49,38 +49,34 @@ func (r *RecoveringResolver) get() LocalResolver {
 	return nil
 }
 
-// startRecreate starts a background recreation.
-// It replaces the current resolver with a fresh one and reapplies last state.
-// Old instance is closed in a best-effort goroutine with a short timeout.
-func (r *RecoveringResolver) startRecreate() {
-	go func() {
-		defer r.broken.Store(false)
-		defer func() {
-			recover() // factory.New() may panic if the runtime was already closed
-		}()
-		old := r.get()
-		newLR := r.factory.New()
-		if v := r.lastState.Load(); v != nil {
-			state := v.(*wasm.SetResolverStateRequest)
-			_ = newLR.SetResolverState(state)
-		}
-		r.current.Store(newLR)
-		if old != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			_ = old.Close(ctx)
-		}
+// recreateLocked swaps in a fresh resolver and closes the old one in the
+// background. The caller must hold r.mu so no other operation uses old.
+func (r *RecoveringResolver) recreateLocked() {
+	defer func() {
+		recover() // factory.New() may panic if the runtime was already closed
 	}()
+	old := r.get()
+	newLR := r.factory.New()
+	if v := r.lastState.Load(); v != nil {
+		state := v.(*wasm.SetResolverStateRequest)
+		_ = newLR.SetResolverState(state)
+	}
+	r.current.Store(newLR)
+	if old != nil {
+		go func() {
+			_ = old.Close(context.Background())
+		}()
+	}
 }
 
 // withRecover ensures a resolver exists, executes fn, and sets setErr on panic or recreation failure.
 func (r *RecoveringResolver) withRecover(opName string, setErr *error, fn func(LocalResolver)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	defer func() {
 		if rec := recover(); rec != nil {
-			// mark broken and kick off background recreation once
-			if r.broken.CompareAndSwap(false, true) {
-				r.startRecreate()
-			}
+			r.recreateLocked()
 			if setErr != nil {
 				*setErr = fmt.Errorf("resolver panicked during %s: %v", opName, rec)
 			}
@@ -101,15 +97,17 @@ func (r *RecoveringResolver) SetResolverState(request *wasm.SetResolverStateRequ
 }
 
 func (r *RecoveringResolver) RegisterResolve(request *wasm.RegisterResolveRequest) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Warn("RegisterResolve panicked, ignoring", "error", rec)
 		}
 	}()
-	if r.broken.Load() {
+	lr := r.get()
+	if lr == nil {
 		return
 	}
-	lr := r.get()
 	lr.RegisterResolve(request)
 }
 
@@ -142,24 +140,25 @@ func (r *RecoveringResolver) FlushAssignLogs() (err error) {
 }
 
 func (r *RecoveringResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics bool) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Warn("PrometheusSnapshot panicked, ignoring", "error", rec)
 		}
 	}()
-	if r.broken.Load() {
+	lr := r.get()
+	if lr == nil {
 		return ""
 	}
-	lr := r.get()
 	return lr.PrometheusSnapshot(bucketsPerDecade, openmetrics)
 }
 
 func (r *RecoveringResolver) Close(ctx context.Context) error {
-	// For Close, if we panic, don't recreate during shutdown; just surface error.
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	defer func() {
-		if rec := recover(); rec != nil {
-			// swallowing recreate on shutdown
-		}
+		recover()
 	}()
 	lr := r.get()
 	if lr == nil {
