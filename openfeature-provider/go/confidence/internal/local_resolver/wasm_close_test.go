@@ -9,18 +9,14 @@ import (
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 )
 
-// A resolve on a closed instance must end in a recoverable panic that
-// RecoveringResolver turns into an error. It must never reach fn.Call through
-// a nil function handle: in production that nil call dies as an unattributable
-// SIGSEGV with no traceback (exit 139).
+// A resolve on a closed instance must end in a recoverable panic, never in a
+// nil fn.Call (in production that dies as a silent SIGSEGV, exit 139).
 func TestResolveOnClosedInstancePanics(t *testing.T) {
 	factory := NewWasmResolverFactory(NoOpLogSink)
 	defer factory.Close(context.Background())
 
 	resolver := factory.New()
-	// Close the instance directly, bypassing WasmResolver.Close: its log flush
-	// would populate fnCache, and this path must exercise the post-close
-	// ExportedFunction lookup (as in the recovery race).
+	// Close the raw instance: WasmResolver.Close flushes logs and warms fnCache.
 	if err := resolver.(*WasmResolver).instance.Close(context.Background()); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}

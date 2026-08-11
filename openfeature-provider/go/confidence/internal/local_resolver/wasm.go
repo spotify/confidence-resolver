@@ -55,8 +55,7 @@ func (r *WasmResolver) exportedFunction(name string) api.Function {
 	}
 	fn := r.instance.ExportedFunction(name)
 	if fn == nil {
-		// A closed instance returns nil exports; panic (recovered by
-		// RecoveringResolver) instead of letting fn.Call nil-deref the process.
+		// Recovered by RecoveringResolver; a nil fn.Call would kill the process.
 		panic(fmt.Sprintf("exported function %s unavailable, instance closed?", name))
 	}
 	r.fnCache.Store(name, fn)
@@ -122,8 +121,7 @@ func (r *WasmResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics b
 func (r *WasmResolver) Close(ctx context.Context) error {
 	// TODO we should call flush assigned until it doesn't flush any more
 	r.FlushAllLogs()
-	// Serialize with in-flight calls so close cannot invalidate an instance
-	// another goroutine is mid-call on (RecoveringResolver closes concurrently).
+	// RecoveringResolver closes concurrently; never close an instance mid-call.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.instance.Close(ctx)
