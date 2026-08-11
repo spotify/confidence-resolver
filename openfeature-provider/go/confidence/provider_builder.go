@@ -27,7 +27,7 @@ type ProviderConfig struct {
 	StatePollInterval             time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
-	UseWasmInterpreter            bool                 // Optional: run wazero in interpreter mode instead of JIT (slower, signal-safe on arm64)
+	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
 }
 
 type ProviderTestConfig struct {
@@ -39,7 +39,7 @@ type ProviderTestConfig struct {
 	StatePollInterval    time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
-	UseWasmInterpreter   bool                 // Optional: run wazero in interpreter mode instead of JIT (slower, signal-safe on arm64)
+	UseWasmInterpreter   bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
