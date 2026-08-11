@@ -5,7 +5,7 @@ Confidence flag resolver WASM module for local flag resolution.
 """
 
 import itertools
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from google.protobuf import message as protobuf_message
@@ -75,7 +75,7 @@ class WasmResolver:
 
         def current_time(ptr: int) -> int:
             self._consume_request(ptr)
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             timestamp = Timestamp()
             timestamp.FromDatetime(now)
             return self._transfer_response_success(timestamp.SerializeToString())
