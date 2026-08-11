@@ -5,7 +5,7 @@ use confidence_resolver::{
     proto::{confidence, google::Struct},
     resolve_logger,
     telemetry::{self, TelemetrySnapshot},
-    AccountResolver, FlagToApply, Host, ResolvedValue, ResolverState,
+    AccountResolver, FlagToApply, Host, LogDestination, ResolvedValue, ResolverState,
 };
 use worker::*;
 
@@ -32,7 +32,9 @@ pub struct ClientResolverState {
     #[prost(bytes = "bytes", tag = "1")]
     pub state: Bytes,
     #[prost(string, tag = "2")]
-    pub account: String,
+    pub account_id: String,
+    #[prost(int32, repeated, tag = "4")]
+    pub log_destinations: Vec<i32>,
 }
 
 /// The CDN response containing both the state and account_id
@@ -108,11 +110,21 @@ static CDN_STATE_REQUEST: Lazy<ClientResolverState> = Lazy::new(|| {
         .expect("Failed to decode ClientResolverState from CDN state")
 });
 
+static LOG_DESTINATIONS: Lazy<Vec<LogDestination>> = Lazy::new(|| {
+    let raw = &CDN_STATE_REQUEST.log_destinations;
+    let parsed: Vec<LogDestination> = raw.iter().map(|&v| LogDestination::from(v)).collect();
+    if parsed.is_empty() {
+        vec![LogDestination::Edge]
+    } else {
+        parsed
+    }
+});
+
 static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
     let cdn_request = &*CDN_STATE_REQUEST;
     ResolverState::from_proto(
         cdn_request.state.to_vec().try_into().unwrap(),
-        &cdn_request.account,
+        &cdn_request.account_id,
         None,
     )
     .unwrap()
@@ -539,10 +551,69 @@ pub async fn consume_flag_logs_queue(
             update_prometheus_kv(&kv, &req).await;
         }
 
-        send_flags_logs(CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str(), req).await?;
+        let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
+        let account_id = CDN_STATE_REQUEST.account_id.as_str();
+        let destinations = &*LOG_DESTINATIONS;
+
+        let (primary, fallback) = if destinations.len() >= 2 {
+            (destinations[0], Some(destinations[1]))
+        } else {
+            (destinations[0], None)
+        };
+
+        if let Err(reason) = deliver_flag_logs(client_secret, account_id, &req, primary).await {
+            console_log!(
+                "flag log delivery to {:?} failed ({}), trying fallback",
+                primary,
+                reason
+            );
+            let fallback_delivered = match fallback {
+                Some(fb) => match deliver_flag_logs(client_secret, account_id, &req, fb).await {
+                    Ok(()) => true,
+                    Err(fb_reason) => {
+                        console_log!(
+                            "fallback flag log delivery to {:?} also failed: {}",
+                            fb,
+                            fb_reason
+                        );
+                        false
+                    }
+                },
+                None => false,
+            };
+            if !fallback_delivered {
+                // Returning Err makes Cloudflare Queues redeliver the batch,
+                // so a delivery outage doesn't silently drop logs. The
+                // telemetry KV update above may run again on redelivery —
+                // acceptable for metrics.
+                return Err(worker::Error::RustError(
+                    "flag log delivery failed on all destinations".to_string(),
+                ));
+            }
+        }
     }
 
     Ok(())
+}
+
+/// Attempt delivery to one destination. Any transport error or non-2xx/3xx
+/// response counts as a failure.
+async fn deliver_flag_logs(
+    client_secret: &str,
+    account_id: &str,
+    req: &WriteFlagLogsRequest,
+    dest: LogDestination,
+) -> std::result::Result<(), String> {
+    let url = log_destination_url(&dest);
+    let acct = match dest {
+        LogDestination::Edge => None,
+        _ => Some(account_id),
+    };
+    match send_flags_logs(client_secret, req, url, acct).await {
+        Ok(resp) if resp.status_code() < 400 => Ok(()),
+        Ok(resp) => Err(format!("HTTP {}", resp.status_code())),
+        Err(e) => Err(format!("{:?}", e)),
+    }
 }
 
 /// Accumulate telemetry deltas from all isolates into a cumulative
@@ -574,19 +645,75 @@ async fn update_prometheus_kv(kv: &kv::KvStore, req: &WriteFlagLogsRequest) {
     }
 }
 
-async fn send_flags_logs(client_secret: &str, message: WriteFlagLogsRequest) -> Result<Response> {
-    let resolve_url = "https://resolver.confidence.dev/v1/clientFlagLogs:write";
+fn log_destination_url(dest: &LogDestination) -> &'static str {
+    match dest {
+        LogDestination::Edge => "https://resolver.confidence.dev/v1/clientFlagLogs:write",
+        LogDestination::Cloudflare => "https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest",
+    }
+}
+
+/// Send a flag log batch to `destination_url`.
+///
+/// The Edge endpoint accepts the `WriteFlagLogsRequest` batch directly as
+/// JSON. The Cloudflare ingest worker instead expects an
+/// `IngestFlagLogsRequest` protobuf — a thin wrapper that adds the
+/// `account_id` (field 1) around the same `WriteFlagLogsRequest` batch
+/// (field 2), which the ingestor uses to partition storage per account.
+///
+/// The wrapper is encoded by hand rather than with a generated type: this
+/// crate is forced onto prost 0.13 by the `worker` dependency while
+/// `confidence_resolver` (which owns `WriteFlagLogsRequest`) is on prost
+/// 0.12, and the two `Message` traits are incompatible. The batch is encoded
+/// by the resolver crate via `encode_message`, and the two-field wrapper is
+/// simple enough to emit directly.
+async fn send_flags_logs(
+    client_secret: &str,
+    message: &WriteFlagLogsRequest,
+    destination_url: &str,
+    account_id: Option<&str>,
+) -> Result<Response> {
     let mut init = RequestInit::new();
     let headers = Headers::new();
-    headers.set("Content-Type", "application/json")?;
     headers.set("Authorization", &format!("ClientSecret {}", client_secret))?;
-    init.with_headers(headers);
     init.with_method(Method::Post);
-    let json = serde_json::to_string(&message)?;
-    init.with_body(Some(json.into()));
-    let request = Request::new_with_init(resolve_url, &init)?;
-    let response = Fetch::Request(request).send().await;
-    response
+
+    if let Some(account) = account_id {
+        // Cloudflare ingestor: encode as IngestFlagLogsRequest protobuf
+        let mut batch_buf = Vec::new();
+        confidence_resolver::encode_message(message, &mut batch_buf);
+
+        let account_bytes = account.as_bytes();
+        let mut body = Vec::new();
+        // field 1: string account_id, tag = 0x0a
+        body.push(0x0a);
+        encode_varint(account_bytes.len() as u64, &mut body);
+        body.extend_from_slice(account_bytes);
+        // field 2: WriteFlagLogsRequest batch, tag = 0x12
+        body.push(0x12);
+        encode_varint(batch_buf.len() as u64, &mut body);
+        body.extend_from_slice(&batch_buf);
+
+        headers.set("Content-Type", "application/protobuf")?;
+        init.with_headers(headers);
+        init.with_body(Some(body.into()));
+    } else {
+        // Edge: send as JSON
+        headers.set("Content-Type", "application/json")?;
+        init.with_headers(headers);
+        let json = serde_json::to_string(message)?;
+        init.with_body(Some(json.into()));
+    }
+
+    let request = Request::new_with_init(destination_url, &init)?;
+    Fetch::Request(request).send().await
+}
+
+fn encode_varint(mut value: u64, buf: &mut Vec<u8>) {
+    while value >= 0x80 {
+        buf.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    buf.push(value as u8);
 }
 
 impl ResponseExt for Response {
