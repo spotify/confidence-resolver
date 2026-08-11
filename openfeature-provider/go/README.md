@@ -188,6 +188,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
 - `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
 - `ResolverPoolSize` (int): Number of WASM resolver instances in the pool (default: `2`). Increase for higher concurrency (with the penalty of higher memory footprint).
+- `UseWasmInterpreter` (bool): Run the embedded WASM resolver in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode) for when to enable this and the performance trade-offs.
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
 
   - `nil` (default): Falls back to default values for flags requiring materializations
@@ -215,6 +216,56 @@ provider, err := confidence.NewProviderForTest(ctx,
 ```
 
 **Important**: This configuration requires you to provide both a `StateProvider` and `FlagLogger`. For production deployments, always use `NewProvider()` with `ProviderConfig`.
+
+## WASM interpreter mode
+
+By default the Go provider runs the embedded resolver through [wazero](https://wazero.io/)'s **JIT compiler** (Wazevo), which compiles WASM to native code for low-latency flag evaluation. On **linux/arm64**, CPU profiling (`SIGPROF`) or goroutine preemption (`SIGURG`) can arrive while a thread is executing that JIT code. Go cannot attribute the signal to a goroutine in that state and may exit the process silently (exit code 139, no stack trace).
+
+Setting `UseWasmInterpreter: true` switches wazero to its **interpreter** engine. WASM runs as ordinary Go code on a normal goroutine stack, so profiling and preemption signals are handled safely. This is an **opt-in safety valve** — keep the default unless you need it.
+
+### When to enable interpreter mode
+
+Enable `UseWasmInterpreter: true` if your service:
+
+- Runs on **linux/arm64** with continuous or frequent CPU profiling (for example Datadog, pprof, or similar agents)
+- Has observed **silent process crashes** (exit code 139, no Go traceback) correlated with flag evaluation volume
+- Prioritizes **stability over raw evaluation throughput** on affected pods
+
+Keep the default (`UseWasmInterpreter: false`) for:
+
+- Most production workloads without the signal issue above
+- Services where flag evaluation latency or throughput is critical
+- Environments where profiling does not sample during WASM execution
+
+Other local providers in this repository (Java, JavaScript, Python) use compiled WASM pipelines by default and do not expose an interpreter toggle. Rust uses the native resolver directly. Go interpreter mode is the slowest local execution path, but it is the practical in-process fix for the arm64 signal issue.
+
+### Performance impact
+
+Interpreter mode is substantially slower than JIT for the WASM resolver hot path. On linux/arm64, a microbenchmark of `ResolveProcess` against real resolver state measured roughly:
+
+| Mode | Latency (approx.) | Throughput (approx.) |
+|------|-------------------|----------------------|
+| JIT (default) | ~12 µs / evaluation | ~80,000 evals/s |
+| Interpreter | ~590 µs / evaluation | ~1,700 evals/s |
+
+That is about **50× slower** at the WASM layer. End-to-end request latency depends on how often and how centrally you evaluate flags — a single evaluation per multi-millisecond workflow step may be acceptable; tight loops or very high QPS per pod may not.
+
+To reproduce the comparison locally (requires `data/resolver_state_current.pb` at the repository root):
+
+```bash
+go test ./confidence/internal/local_resolver/ -run TestReportInterpreterOverhead -v
+go test ./confidence/internal/local_resolver/ -bench=BenchmarkResolveProcess -benchmem -count=5
+```
+
+### Example
+
+```go
+provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
+    ClientSecret:       "your-client-secret",
+    EncryptionKey:      "your-encryption-key",
+    UseWasmInterpreter: true, // signal-safe on linux/arm64; slower than JIT
+})
+```
 
 ## Materialization Stores
 

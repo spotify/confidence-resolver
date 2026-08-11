@@ -194,7 +194,7 @@ func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
 
 func TestLocalResolverProvider_PathNotFound(t *testing.T) {
 	ctx := context.Background()
-	runtime := lr.DefaultResolverFactory(lr.NoOpLogSink)
+	runtime := lr.DefaultResolverFactory(lr.NoOpLogSink, lr.LocalResolverConfig{})
 	defer runtime.Close(ctx)
 
 	// Load real test state

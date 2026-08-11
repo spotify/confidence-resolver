@@ -43,3 +43,4 @@ provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
 | `StatePollInterval` | 10s | Interval for polling flag state updates |
 | `LogPollInterval` | 60s | Interval for flushing evaluation logs |
 | `ResolverPoolSize` | GOMAXPROCS | Number of WASM resolver instances |
+| `UseWasmInterpreter` | `false` | Use wazero interpreter instead of JIT (signal-safe on linux/arm64; ~50× slower per eval — see provider README) |
