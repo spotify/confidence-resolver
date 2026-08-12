@@ -49,7 +49,14 @@ impl LogSender {
             return Ok(());
         }
 
-        let destinations = self.destinations.read().await.clone();
+        let destinations = {
+            let d = self.destinations.read().await.clone();
+            if d.is_empty() {
+                vec![LogDestination::Edge]
+            } else {
+                d
+            }
+        };
         let account_id = self.account_id.read().await.clone();
 
         let (primary, fallback) = if destinations.len() >= 2 {

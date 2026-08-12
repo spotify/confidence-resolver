@@ -386,6 +386,8 @@ class MultiDestinationFlagLogger:
                     self._record_failure()
             else:
                 self._record_failure()
+        finally:
+            self._record_attempt()
 
     def _send_to_destination(
         self, dest: int, request: internal_api_pb2.WriteFlagLogsRequest
@@ -422,6 +424,9 @@ class MultiDestinationFlagLogger:
     def _record_failure(self) -> None:
         with self._stats_lock:
             self._failures += 1
+
+    def _record_attempt(self) -> None:
+        with self._stats_lock:
             self._attempts += 1
             if self._attempts % 10 == 0 and self._failures > 0:
                 logger.warning("Flag log write failures: %d/10", self._failures)
