@@ -8,7 +8,7 @@ publish = false
 crate-type = ["rlib"]  # Just use rlib for now, we can add cdylib when needed
 
 [dependencies]
-prost = { version = "0.12", default-features = false, features = ["derive"] }
+prost = { version = "0.13", default-features = false, features = ["derive"] }
 paste = "1.0"
 
 [package.metadata.cargo-machete]

@@ -156,7 +156,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.stateProvider =
         new FlagsAdminStateFetcher(
             clientSecret, config.getHttpClientFactory(), config.getEncryptionKey());
-    final var wasmFlagLogger = new GrpcWasmFlagLogger(clientSecret, config.getChannelFactory());
+    final var wasmFlagLogger =
+        new GrpcWasmFlagLogger(
+            clientSecret, config.getChannelFactory(), config.getHttpClientFactory());
     this.flagLogger = wasmFlagLogger;
     final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
     final LocalResolver inner =
@@ -208,6 +210,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     // Only initialize WASM and set READY if we got valid state (non-empty accountId)
     if (!accountIdRef.get().isEmpty()) {
       resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
+      flagLogger.updateLogRouting(stateProvider.logDestinations(), accountIdRef.get());
       initialized = true;
       this.state.set(ProviderState.READY);
     } else {
@@ -252,6 +255,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             accountIdRef.set(stateProvider.accountId());
 
             if (!accountIdRef.get().isEmpty()) {
+              // Always update log routing — destinations can change independently of state bytes
+              flagLogger.updateLogRouting(stateProvider.logDestinations(), accountIdRef.get());
+
               if (!initialized) {
                 resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
                 lastStateBytes = resolverStateProtobuf.get();

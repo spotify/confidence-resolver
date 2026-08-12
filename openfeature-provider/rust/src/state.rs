@@ -24,6 +24,32 @@ pub struct ClientResolverState {
     pub state: Bytes,
     #[prost(string, tag = "2")]
     pub account: String,
+    #[prost(int32, repeated, tag = "4")]
+    pub log_destinations: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LogDestination {
+    Edge,
+    Cloudflare,
+}
+
+impl From<i32> for LogDestination {
+    fn from(v: i32) -> Self {
+        match v {
+            2 => LogDestination::Cloudflare,
+            _ => LogDestination::Edge,
+        }
+    }
+}
+
+pub fn parse_log_destinations(raw: &[i32]) -> Vec<LogDestination> {
+    let parsed: Vec<LogDestination> = raw.iter().map(|&v| LogDestination::from(v)).collect();
+    if parsed.is_empty() {
+        vec![LogDestination::Edge]
+    } else {
+        parsed
+    }
 }
 
 /// State fetcher that retrieves resolver state from the CDN.
@@ -75,7 +101,7 @@ impl StateFetcher {
     ///
     /// Returns `None` if the state has not changed (304 Not Modified).
     /// Returns `Some((state, account_id))` if new state was fetched.
-    pub async fn fetch(&self) -> Result<Option<(ResolverState, String)>> {
+    pub async fn fetch(&self) -> Result<Option<(ResolverState, String, Vec<LogDestination>)>> {
         let mut request = self.client.get(&self.cdn_url);
 
         // Add If-None-Match header if we have an ETag
@@ -132,7 +158,8 @@ impl StateFetcher {
         let state = ResolverState::from_proto(state_pb, &request.account, self.sdk.clone())
             .map_err(|e| Error::StateParse(format!("Failed to create ResolverState: {:?}", e)))?;
 
-        Ok(Some((state, request.account)))
+        let destinations = parse_log_destinations(&request.log_destinations);
+        Ok(Some((state, request.account, destinations)))
     }
 
     /// Decrypt AES-256-GCM encrypted state (Tink NO_PREFIX format).
@@ -177,7 +204,8 @@ impl StateFetcher {
 /// Shared state holder that can be atomically updated.
 pub struct SharedState {
     state: ArcSwapOption<ResolverState>,
-    account_id: RwLock<Option<String>>,
+    pub account_id: Arc<RwLock<Option<String>>>,
+    pub log_destinations: Arc<RwLock<Vec<LogDestination>>>,
 }
 
 impl SharedState {
@@ -185,15 +213,23 @@ impl SharedState {
     pub fn new() -> Self {
         Self {
             state: ArcSwapOption::empty(),
-            account_id: RwLock::new(None),
+            account_id: Arc::new(RwLock::new(None)),
+            log_destinations: Arc::new(RwLock::new(vec![LogDestination::Edge])),
         }
     }
 
-    /// Update the state and account ID.
-    pub async fn update(&self, state: ResolverState, account_id: String) {
+    /// Update the state, account ID, and log destinations.
+    pub async fn update(
+        &self,
+        state: ResolverState,
+        account_id: String,
+        destinations: Vec<LogDestination>,
+    ) {
         self.state.store(Some(Arc::new(state)));
         let mut id = self.account_id.write().await;
         *id = Some(account_id);
+        let mut dests = self.log_destinations.write().await;
+        *dests = destinations;
     }
 
     /// Get the current state, if available.
@@ -204,6 +240,11 @@ impl SharedState {
     /// Get the current account ID, if available.
     pub async fn account_id(&self) -> Option<String> {
         self.account_id.read().await.clone()
+    }
+
+    /// Get the current log destinations.
+    pub async fn log_destinations(&self) -> Vec<LogDestination> {
+        self.log_destinations.read().await.clone()
     }
 
     /// Check if state is initialized.
@@ -269,7 +310,9 @@ mod tests {
         assert!(!shared_state.is_initialized());
 
         let (state, account_id) = create_minimal_state();
-        shared_state.update(state, account_id.clone()).await;
+        shared_state
+            .update(state, account_id.clone(), vec![LogDestination::Edge])
+            .await;
 
         assert!(shared_state.is_initialized());
         assert!(shared_state.get().is_some());
@@ -281,7 +324,9 @@ mod tests {
         let shared_state = SharedState::new();
 
         let (state, account_id) = create_state_with_flag();
-        shared_state.update(state, account_id).await;
+        shared_state
+            .update(state, account_id, vec![LogDestination::Edge])
+            .await;
 
         let retrieved_state = shared_state.get().unwrap();
         assert_eq!(retrieved_state.flags.len(), 1);
@@ -294,12 +339,16 @@ mod tests {
 
         // First update with minimal state
         let (state1, account_id1) = create_minimal_state();
-        shared_state.update(state1, account_id1).await;
+        shared_state
+            .update(state1, account_id1, vec![LogDestination::Edge])
+            .await;
         assert_eq!(shared_state.get().unwrap().flags.len(), 0);
 
         // Second update with state containing a flag
         let (state2, account_id2) = create_state_with_flag();
-        shared_state.update(state2, account_id2).await;
+        shared_state
+            .update(state2, account_id2, vec![LogDestination::Edge])
+            .await;
         assert_eq!(shared_state.get().unwrap().flags.len(), 1);
     }
 
@@ -313,11 +362,86 @@ mod tests {
         // After update, account ID is set
         let (state, _) = create_minimal_state();
         shared_state
-            .update(state, "custom-account-id".to_string())
+            .update(
+                state,
+                "custom-account-id".to_string(),
+                vec![LogDestination::Edge],
+            )
             .await;
         assert_eq!(
             shared_state.account_id().await,
             Some("custom-account-id".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_log_destinations_empty_defaults_to_edge() {
+        let result = parse_log_destinations(&[]);
+        assert_eq!(result, vec![LogDestination::Edge]);
+    }
+
+    #[test]
+    fn test_parse_log_destinations_edge() {
+        let result = parse_log_destinations(&[1]);
+        assert_eq!(result, vec![LogDestination::Edge]);
+    }
+
+    #[test]
+    fn test_parse_log_destinations_cloudflare() {
+        let result = parse_log_destinations(&[2]);
+        assert_eq!(result, vec![LogDestination::Cloudflare]);
+    }
+
+    #[test]
+    fn test_parse_log_destinations_multiple() {
+        let result = parse_log_destinations(&[2, 1]);
+        assert_eq!(
+            result,
+            vec![LogDestination::Cloudflare, LogDestination::Edge]
+        );
+    }
+
+    #[test]
+    fn test_log_destination_from_unknown_defaults_to_edge() {
+        assert_eq!(LogDestination::from(0), LogDestination::Edge);
+        assert_eq!(LogDestination::from(3), LogDestination::Edge);
+        assert_eq!(LogDestination::from(99), LogDestination::Edge);
+        assert_eq!(LogDestination::from(-1), LogDestination::Edge);
+    }
+
+    #[test]
+    fn test_client_resolver_state_decode_with_log_destinations() {
+        // Build a ClientResolverState with log_destinations at tag 4
+        let original = ClientResolverState {
+            state: Bytes::from(vec![0x01, 0x02, 0x03]),
+            account: "test-account".to_string(),
+            log_destinations: vec![2, 1],
+        };
+        let encoded = original.encode_to_vec();
+
+        let decoded = ClientResolverState::decode(Bytes::from(encoded)).unwrap();
+        assert_eq!(decoded.account, "test-account");
+        assert_eq!(decoded.log_destinations, vec![2, 1]);
+        assert_eq!(decoded.state, Bytes::from(vec![0x01, 0x02, 0x03]));
+    }
+
+    #[test]
+    fn test_client_resolver_state_decode_without_log_destinations() {
+        // When log_destinations is absent, it should default to empty vec
+        let original = ClientResolverState {
+            state: Bytes::from(vec![0x01]),
+            account: "acct".to_string(),
+            log_destinations: vec![],
+        };
+        let encoded = original.encode_to_vec();
+
+        let decoded = ClientResolverState::decode(Bytes::from(encoded)).unwrap();
+        assert_eq!(decoded.account, "acct");
+        assert!(decoded.log_destinations.is_empty());
+        // parse_log_destinations should then default to Edge
+        assert_eq!(
+            parse_log_destinations(&decoded.log_destinations),
+            vec![LogDestination::Edge]
         );
     }
 

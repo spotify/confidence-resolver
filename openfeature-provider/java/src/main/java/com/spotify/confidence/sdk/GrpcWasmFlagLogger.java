@@ -3,14 +3,21 @@ package com.spotify.confidence.sdk;
 import static com.spotify.confidence.sdk.GrpcUtil.createConfidenceChannel;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.spotify.confidence.sdk.flags.admin.v1.LogDestination;
+import com.spotify.confidence.sdk.flags.resolver.v1.IngestFlagLogsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import io.grpc.*;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,16 +30,25 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   private static final Logger logger = LoggerFactory.getLogger(GrpcWasmFlagLogger.class);
   private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
   private static final int STATS_WINDOW = 10;
+  private static final String CLOUDFLARE_INGEST_URL =
+      "https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest";
   private final InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub stub;
   private final ExecutorService executorService;
   private final FlagLogWriter writer;
   private final Duration shutdownTimeout;
   private final AtomicLong attempts = new AtomicLong();
   private final AtomicLong failures = new AtomicLong();
+  private final String clientSecret;
+  private final HttpClientFactory httpClientFactory;
+  private final AtomicReference<List<LogDestination>> logDestinations =
+      new AtomicReference<>(Collections.emptyList());
+  private final AtomicReference<String> accountId = new AtomicReference<>("");
   private ManagedChannel channel;
 
   @VisibleForTesting
   public GrpcWasmFlagLogger(String clientSecret, FlagLogWriter writer) {
+    this.clientSecret = clientSecret;
+    this.httpClientFactory = new DefaultHttpClientFactory();
     this.stub = createAuthStub(new DefaultChannelFactory(), clientSecret);
     this.executorService = Executors.newCachedThreadPool();
     this.writer = writer;
@@ -41,13 +57,18 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
 
   @VisibleForTesting
   public GrpcWasmFlagLogger(String clientSecret, FlagLogWriter writer, Duration shutdownTimeout) {
+    this.clientSecret = clientSecret;
+    this.httpClientFactory = new DefaultHttpClientFactory();
     this.stub = createAuthStub(new DefaultChannelFactory(), clientSecret);
     this.executorService = Executors.newCachedThreadPool();
     this.writer = writer;
     this.shutdownTimeout = shutdownTimeout;
   }
 
-  public GrpcWasmFlagLogger(String clientSecret, ChannelFactory channelFactory) {
+  public GrpcWasmFlagLogger(
+      String clientSecret, ChannelFactory channelFactory, HttpClientFactory httpClientFactory) {
+    this.clientSecret = clientSecret;
+    this.httpClientFactory = httpClientFactory;
     this.stub = createAuthStub(channelFactory, clientSecret);
     this.executorService = Executors.newCachedThreadPool();
     this.shutdownTimeout = DEFAULT_SHUTDOWN_TIMEOUT;
@@ -55,14 +76,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
         request ->
             executorService.submit(
                 () -> {
-                  try {
-                    stub.clientWriteFlagLogs(request);
-                    logger.debug(
-                        "Successfully sent flag log with {} entries",
-                        request.getFlagAssignedCount());
-                  } catch (Exception e) {
-                    failures.incrementAndGet();
-                  }
+                  sendWithFailover(request);
                   if (attempts.incrementAndGet() % STATS_WINDOW == 0) {
                     long failCount = failures.getAndSet(0);
                     if (failCount > 0) {
@@ -70,6 +84,18 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
                     }
                   }
                 });
+  }
+
+  /** Kept for backward compatibility. Uses default HTTP client factory. */
+  public GrpcWasmFlagLogger(String clientSecret, ChannelFactory channelFactory) {
+    this(clientSecret, channelFactory, new DefaultHttpClientFactory());
+  }
+
+  @Override
+  public void updateLogRouting(List<LogDestination> destinations, String accountId) {
+    this.logDestinations.set(destinations);
+    this.accountId.set(accountId);
+    logger.debug("Updated log routing: destinations={}, accountId={}", destinations, accountId);
   }
 
   private InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub createAuthStub(
@@ -88,6 +114,92 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
     }
 
     writer.write(request);
+  }
+
+  /**
+   * Sends the log request using the configured destinations with failover. The first destination is
+   * primary; the second (if present) is used as fallback on error. If no destinations are
+   * configured, defaults to the gRPC Edge path.
+   */
+  private void sendWithFailover(WriteFlagLogsRequest request) {
+    final List<LogDestination> destinations = logDestinations.get();
+
+    // Default to Edge when no destinations configured
+    if (destinations.isEmpty()) {
+      sendToEdge(request);
+      return;
+    }
+
+    final LogDestination primary = destinations.get(0);
+    try {
+      sendToDestination(primary, request);
+      logger.debug(
+          "Successfully sent flag log via {} with {} entries",
+          primary,
+          request.getFlagAssignedCount());
+    } catch (Exception primaryEx) {
+      if (destinations.size() > 1) {
+        final LogDestination fallback = destinations.get(1);
+        logger.warn("Primary destination {} failed, trying fallback {}", primary, fallback);
+        try {
+          sendToDestination(fallback, request);
+          logger.debug(
+              "Successfully sent flag log via fallback {} with {} entries",
+              fallback,
+              request.getFlagAssignedCount());
+        } catch (Exception fallbackEx) {
+          failures.incrementAndGet();
+          logger.warn("Fallback destination {} also failed", fallback, fallbackEx);
+        }
+      } else {
+        failures.incrementAndGet();
+      }
+    }
+  }
+
+  private void sendToDestination(LogDestination destination, WriteFlagLogsRequest request) {
+    switch (destination) {
+      case LOG_DESTINATION_CLOUDFLARE:
+        sendToCloudflare(request);
+        break;
+      case LOG_DESTINATION_SPOTIFY_EDGE:
+      case LOG_DESTINATION_UNSPECIFIED:
+      default:
+        sendToEdge(request);
+        break;
+    }
+  }
+
+  private void sendToEdge(WriteFlagLogsRequest request) {
+    stub.clientWriteFlagLogs(request);
+  }
+
+  private void sendToCloudflare(WriteFlagLogsRequest request) {
+    final IngestFlagLogsRequest ingestRequest =
+        IngestFlagLogsRequest.newBuilder().setAccountId(accountId.get()).setBatch(request).build();
+    final byte[] body = ingestRequest.toByteArray();
+
+    try {
+      final HttpURLConnection conn = httpClientFactory.create(CLOUDFLARE_INGEST_URL);
+      conn.setRequestMethod("POST");
+      conn.setDoOutput(true);
+      conn.setRequestProperty("Content-Type", "application/protobuf");
+      conn.setRequestProperty("Authorization", "ClientSecret " + clientSecret);
+      conn.setRequestProperty("Content-Length", String.valueOf(body.length));
+
+      try (OutputStream os = conn.getOutputStream()) {
+        os.write(body);
+      }
+
+      final int responseCode = conn.getResponseCode();
+      if (responseCode < 200 || responseCode >= 300) {
+        throw new RuntimeException("Cloudflare ingest returned HTTP " + responseCode);
+      }
+    } catch (RuntimeException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to send flag logs to Cloudflare", e);
+    }
   }
 
   /**
@@ -130,6 +242,8 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
         Thread.currentThread().interrupt();
       }
     }
+
+    httpClientFactory.shutdown();
   }
 
   private static InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub

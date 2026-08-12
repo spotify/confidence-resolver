@@ -16,7 +16,8 @@ import {
   readResultsToMaterializationRecords,
 } from './materialization';
 import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
-import { ClientResolverState } from './proto/confidence/flags/admin/v1/resolver';
+import { ClientResolverState, LogDestination } from './proto/confidence/flags/admin/v1/resolver';
+import { IngestFlagLogsRequest, WriteFlagLogsRequest } from './proto/confidence/flags/resolver/v1/internal_api';
 import FlagBundleType, * as FlagBundle from './flag-bundle';
 import { ErrorCode, ResolutionDetails } from './types';
 
@@ -65,6 +66,8 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
   private stateEtag: string | null = null;
+  private logDestinations: LogDestination[] = [];
+  private accountId = '';
 
   private get resolver(): LocalResolver {
     if (this.resolverOrPromise instanceof Promise) {
@@ -118,6 +121,13 @@ export class ConfidenceServerProviderLocal implements Provider {
                 withTimeout(5 * TimeUnit.SECOND),
               ],
             }),
+          ],
+          'https://epx-flags-logs.experimentation-platform.workers.dev/*': [
+            withRetry({
+              maxAttempts: 3,
+              baseInterval: 500,
+            }),
+            withTimeout(5 * TimeUnit.SECOND),
           ],
           '*': [
             withResponse(url => {
@@ -331,6 +341,8 @@ export class ConfidenceServerProviderLocal implements Provider {
 
     const plaintext = encryptionKey ? await decryptAesGcm(bytes, hexToBytes(encryptionKey)) : bytes;
     const clientState = ClientResolverState.decode(plaintext);
+    this.logDestinations = clientState.logDestinations;
+    this.accountId = clientState.account;
     this.resolver.setResolverState(
       SetResolverStateRequest.create({
         state: clientState.state,
@@ -356,24 +368,84 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   private async sendFlagLogs(encodedWriteFlagLogRequest: Uint8Array, signal = this.main.signal): Promise<void> {
-    try {
-      const response = await this.fetch('https://resolver.confidence.dev/v1/clientFlagLogs:write', {
-        method: 'post',
-        signal,
-        headers: {
-          'Content-Type': 'application/x-protobuf',
-          Authorization: `ClientSecret ${this.options.flagClientSecret}`,
-        },
-        body: encodedWriteFlagLogRequest as Uint8Array<ArrayBuffer>,
-      });
-      if (!response.ok) {
-        logger.error(`Failed to write flag logs: ${response.status} ${response.statusText} - ${await response.text()}`);
+    const destinations =
+      this.logDestinations.length > 0 ? this.logDestinations : [LogDestination.LOG_DESTINATION_SPOTIFY_EDGE];
+
+    for (let i = 0; i < destinations.length; i++) {
+      const isLast = i === destinations.length - 1;
+      try {
+        const ok = await this.sendFlagLogsToDestination(encodedWriteFlagLogRequest, destinations[i], signal);
+        if (ok) return;
+        // Non-OK response — try fallback if available
+        if (!isLast) {
+          logger.warn('Primary flag log destination returned error, trying fallback');
+          continue;
+        }
+      } catch (err) {
+        if (!isLast) {
+          logger.warn('Primary flag log destination failed, trying fallback', err);
+          continue;
+        }
+        // Last destination failed with network error — preserve original behavior
+        logger.warn('Failed to send flag logs', err);
+        throw err;
       }
-    } catch (err) {
-      // Network error (DNS/connect/TLS) - already retried by middleware, log and rethrow
-      logger.warn('Failed to send flag logs', err);
-      throw err;
     }
+  }
+
+  /**
+   * Send flag logs to a specific destination. Returns true on success (HTTP 2xx),
+   * false on a non-OK HTTP response. Throws on network errors.
+   */
+  private async sendFlagLogsToDestination(
+    encodedWriteFlagLogRequest: Uint8Array,
+    destination: LogDestination,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (destination === LogDestination.LOG_DESTINATION_CLOUDFLARE) {
+      const batch = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
+      const ingestRequest = IngestFlagLogsRequest.encode(
+        IngestFlagLogsRequest.create({ accountId: this.accountId, batch }),
+      ).finish();
+
+      const response = await this.fetch(
+        'https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest',
+        {
+          method: 'post',
+          signal,
+          headers: {
+            'Content-Type': 'application/x-protobuf',
+            Authorization: `ClientSecret ${this.options.flagClientSecret}`,
+          },
+          body: ingestRequest as Uint8Array<ArrayBuffer>,
+        },
+      );
+      if (!response.ok) {
+        logger.error(
+          `Failed to write flag logs to Cloudflare: ${response.status} ${
+            response.statusText
+          } - ${await response.text()}`,
+        );
+        return false;
+      }
+      return true;
+    }
+
+    // Edge (default — covers UNSPECIFIED and SPOTIFY_EDGE)
+    const response = await this.fetch('https://resolver.confidence.dev/v1/clientFlagLogs:write', {
+      method: 'post',
+      signal,
+      headers: {
+        'Content-Type': 'application/x-protobuf',
+        Authorization: `ClientSecret ${this.options.flagClientSecret}`,
+      },
+      body: encodedWriteFlagLogRequest as Uint8Array<ArrayBuffer>,
+    });
+    if (!response.ok) {
+      logger.error(`Failed to write flag logs: ${response.status} ${response.statusText} - ${await response.text()}`);
+      return false;
+    }
+    return true;
   }
 
   private async readMaterializations(

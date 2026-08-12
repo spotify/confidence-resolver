@@ -6,7 +6,7 @@ This module provides functionality to fetch resolver state from the Confidence C
 import hashlib
 import logging
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import httpx
 
@@ -56,6 +56,7 @@ class StateFetcher:
         # Cached state
         self._state: Optional[bytes] = None
         self._account_id: Optional[str] = None
+        self._log_destinations: List[int] = []
         self._etag: Optional[str] = None
 
         # Build CDN URL from SHA256 hash of client secret
@@ -73,6 +74,11 @@ class StateFetcher:
         """Return the current cached account ID."""
         return self._account_id
 
+    @property
+    def log_destinations(self) -> List[int]:
+        """Return the current cached log destinations."""
+        return self._log_destinations
+
     def _get_client(self) -> httpx.Client:
         """Get or create the HTTP client."""
         if self._http_client is not None:
@@ -80,15 +86,16 @@ class StateFetcher:
         # Create a new client for this request
         return httpx.Client(timeout=30.0)
 
-    def fetch(self) -> Tuple[bytes, str, bool]:
+    def fetch(self) -> Tuple[bytes, str, bool, List[int]]:
         """Fetch the resolver state from the CDN.
 
         This method fetches the latest resolver state from the Confidence CDN.
         It uses ETag-based caching to avoid re-downloading unchanged state.
 
         Returns:
-            A tuple of (state_bytes, account_id, changed) where changed indicates
-            whether the state was updated (False means 304 Not Modified).
+            A tuple of (state_bytes, account_id, changed, log_destinations) where
+            changed indicates whether the state was updated (False means 304 Not
+            Modified) and log_destinations is a list of LogDestination enum values.
 
         Raises:
             StateFetcherError: If the HTTP request fails or returns an error status.
@@ -107,7 +114,12 @@ class StateFetcher:
             if response.status_code == 304:
                 if self._state is not None and self._account_id is not None:
                     logger.debug("State not modified (304), using cached state")
-                    return self._state, self._account_id, False
+                    return (
+                        self._state,
+                        self._account_id,
+                        False,
+                        self._log_destinations,
+                    )
                 raise StateFetcherError(
                     "Received 304 Not Modified but no cached state available"
                 )
@@ -128,12 +140,14 @@ class StateFetcher:
             client_state.ParseFromString(content)
             self._state = client_state.state
             self._account_id = client_state.account
+            self._log_destinations = list(client_state.log_destinations)
             logger.info(
-                "Loaded resolver state for account=%s, etag=%s",
+                "Loaded resolver state for account=%s, etag=%s, log_destinations=%s",
                 self._account_id,
                 self._etag,
+                self._log_destinations,
             )
-            return self._state, self._account_id, True
+            return self._state, self._account_id, True, self._log_destinations
 
         finally:
             if should_close:

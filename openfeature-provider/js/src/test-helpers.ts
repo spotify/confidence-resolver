@@ -135,6 +135,7 @@ class CdnServerMock extends ServerMock {
       ClientResolverState.encode({
         state: new Uint8Array(100), // Empty state for testing
         account: '<account>',
+        logDestinations: [],
       }).finish(),
     );
     // CDN serves state at any path (using client secret as path)

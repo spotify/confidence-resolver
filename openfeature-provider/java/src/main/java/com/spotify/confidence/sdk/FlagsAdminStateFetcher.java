@@ -1,11 +1,14 @@
 package com.spotify.confidence.sdk;
 
+import com.spotify.confidence.sdk.flags.admin.v1.LogDestination;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -37,6 +40,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
               .build()
               .toByteArray());
   private String accountId = "";
+  private volatile List<LogDestination> logDestinations = Collections.emptyList();
 
   public FlagsAdminStateFetcher(
       String clientSecret, HttpClientFactory httpClientFactory, String encryptionKey) {
@@ -53,6 +57,11 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
   @Override
   public String accountId() {
     return accountId;
+  }
+
+  @Override
+  public List<LogDestination> logDestinations() {
+    return logDestinations;
   }
 
   @Override
@@ -87,6 +96,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
         final var clientState =
             com.spotify.confidence.sdk.flags.admin.v1.ClientResolverState.parseFrom(bytes);
         this.accountId = clientState.getAccount();
+        this.logDestinations = Collections.unmodifiableList(clientState.getLogDestinationsList());
         rawResolverStateHolder.set(clientState.getState().toByteArray());
         etagHolder.set(etag);
       }

@@ -1,5 +1,9 @@
 package com.spotify.confidence.sdk;
 
+import com.spotify.confidence.sdk.flags.admin.v1.LogDestination;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Interface for providing AccountState instances.
  *
@@ -26,6 +30,16 @@ public interface AccountStateProvider {
    * @return the account ID string
    */
   String accountId();
+
+  /**
+   * Returns the log destinations from the CDN state. First entry is primary, second is fallback.
+   * Empty defaults to {@link LogDestination#LOG_DESTINATION_SPOTIFY_EDGE}.
+   *
+   * @return the list of log destinations
+   */
+  default List<LogDestination> logDestinations() {
+    return Collections.emptyList();
+  }
 
   void reload();
 }

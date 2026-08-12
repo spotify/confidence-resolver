@@ -10,11 +10,11 @@ crate-type = ["cdylib"]  # This is required for WASM
 [dependencies]
 wasm-msg = { path = "../../wasm-msg", version = "0.2.1" }
 confidence_resolver = { path = "../../confidence-resolver", version = "0.20.0", default-features = false }
-prost = { version = "0.12", default-features = false }
-prost-types = { version = "0.12", default-features = false }
+prost = { version = "0.13", default-features = false }
+prost-types = { version = "0.13", default-features = false }
 # TODO re-export Bytes
 bytes = { version = "1.4.0", default-features = false }
 arc-swap = "1.7.1"
 
 [build-dependencies]
-prost-build = "0.12"
+prost-build = "0.13"

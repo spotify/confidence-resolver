@@ -568,6 +568,9 @@ ENV IN_DOCKER_BUILD=1
 # Install dependencies
 RUN make install
 
+# Regenerate proto files from source to pick up any proto changes
+RUN make proto
+
 # ==============================================================================
 # Test OpenFeature Provider (Python)
 # ==============================================================================

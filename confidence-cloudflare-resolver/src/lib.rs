@@ -652,20 +652,24 @@ fn log_destination_url(dest: &LogDestination) -> &'static str {
     }
 }
 
+/// Request wrapper expected by the Cloudflare ingest worker. The `batch`
+/// field holds an already-encoded `WriteFlagLogsRequest` — a length-delimited
+/// bytes field is wire-identical to a nested message field, so this avoids
+/// re-encoding the batch into an owned message.
+#[derive(Clone, PartialEq, Message)]
+struct IngestFlagLogsRequest {
+    #[prost(string, tag = "1")]
+    account_id: String,
+    #[prost(bytes = "vec", tag = "2")]
+    batch: Vec<u8>,
+}
+
 /// Send a flag log batch to `destination_url`.
 ///
 /// The Edge endpoint accepts the `WriteFlagLogsRequest` batch directly as
 /// JSON. The Cloudflare ingest worker instead expects an
-/// `IngestFlagLogsRequest` protobuf — a thin wrapper that adds the
-/// `account_id` (field 1) around the same `WriteFlagLogsRequest` batch
-/// (field 2), which the ingestor uses to partition storage per account.
-///
-/// The wrapper is encoded by hand rather than with a generated type: this
-/// crate is forced onto prost 0.13 by the `worker` dependency while
-/// `confidence_resolver` (which owns `WriteFlagLogsRequest`) is on prost
-/// 0.12, and the two `Message` traits are incompatible. The batch is encoded
-/// by the resolver crate via `encode_message`, and the two-field wrapper is
-/// simple enough to emit directly.
+/// `IngestFlagLogsRequest` protobuf that adds the `account_id`, which the
+/// ingestor uses to partition storage per account.
 async fn send_flags_logs(
     client_secret: &str,
     message: &WriteFlagLogsRequest,
@@ -678,20 +682,11 @@ async fn send_flags_logs(
     init.with_method(Method::Post);
 
     if let Some(account) = account_id {
-        // Cloudflare ingestor: encode as IngestFlagLogsRequest protobuf
-        let mut batch_buf = Vec::new();
-        confidence_resolver::encode_message(message, &mut batch_buf);
-
-        let account_bytes = account.as_bytes();
-        let mut body = Vec::new();
-        // field 1: string account_id, tag = 0x0a
-        body.push(0x0a);
-        encode_varint(account_bytes.len() as u64, &mut body);
-        body.extend_from_slice(account_bytes);
-        // field 2: WriteFlagLogsRequest batch, tag = 0x12
-        body.push(0x12);
-        encode_varint(batch_buf.len() as u64, &mut body);
-        body.extend_from_slice(&batch_buf);
+        let body = IngestFlagLogsRequest {
+            account_id: account.to_string(),
+            batch: message.encode_to_vec(),
+        }
+        .encode_to_vec();
 
         headers.set("Content-Type", "application/protobuf")?;
         init.with_headers(headers);
@@ -706,14 +701,6 @@ async fn send_flags_logs(
 
     let request = Request::new_with_init(destination_url, &init)?;
     Fetch::Request(request).send().await
-}
-
-fn encode_varint(mut value: u64, buf: &mut Vec<u8>) {
-    while value >= 0x80 {
-        buf.push((value as u8) | 0x80);
-        value >>= 7;
-    }
-    buf.push(value as u8);
 }
 
 impl ResponseExt for Response {

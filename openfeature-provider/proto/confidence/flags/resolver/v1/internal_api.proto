@@ -39,6 +39,12 @@ message WriteFlagLogsRequest {
 
 message WriteFlagLogsResponse {}
 
+// Request wrapper for sending flag logs to the Cloudflare ingestor.
+message IngestFlagLogsRequest {
+  string account_id = 1;
+  WriteFlagLogsRequest batch = 2;
+}
+
 // Collection of telemetry metrics. Counter and histogram fields contain deltas
 // since the last flush. Gauge fields are latest point-in-time values.
 message TelemetryData {

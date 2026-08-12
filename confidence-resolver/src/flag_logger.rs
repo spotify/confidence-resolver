@@ -159,7 +159,7 @@ fn merge_telemetry(acc: Option<TelemetryData>, delta: &TelemetryData) -> Telemet
 
     // Gauges: take latest non-zero
     if let Some(sa) = &delta.state_age {
-        acc.state_age = Some(sa.clone());
+        acc.state_age = Some(*sa);
     }
     if delta.memory_bytes > 0 {
         acc.memory_bytes = delta.memory_bytes;

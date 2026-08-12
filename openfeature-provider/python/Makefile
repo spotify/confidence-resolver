@@ -78,6 +78,9 @@ format: $(INSTALL_STAMP)
 	$(PYTHON) -m ruff format src/ tests/
 
 # Generate protobuf files
+# The sed fixup rewrites protoc's absolute imports (from confidence.flags...)
+# to relative imports so the generated code works under the
+# confidence.proto package prefix.
 proto: $(INSTALL_STAMP)
 	$(PYTHON) -m grpc_tools.protoc \
 		-I../proto \
@@ -86,6 +89,19 @@ proto: $(INSTALL_STAMP)
 		../proto/confidence/flags/resolver/v1/*.proto \
 		../proto/confidence/wasm/*.proto \
 		../proto/confidence/flags/admin/v1/*.proto
+	find src/confidence/proto/confidence/flags/admin -name '*.py' -exec sed -i.bak \
+		-e 's/^from confidence\.flags\.types\.v1 import/from ...types.v1 import/' \
+		-e 's/^from confidence\.flags\.admin\.v1 import/from . import/' {} +
+	find src/confidence/proto/confidence/flags/resolver -name '*.py' -exec sed -i.bak \
+		-e 's/^from confidence\.flags\.resolver\.v1 import/from . import/' \
+		-e 's/^from confidence\.flags\.types\.v1 import/from ...types.v1 import/' {} +
+	find src/confidence/proto/confidence/flags/types -name '*.py' -exec sed -i.bak \
+		-e 's/^from confidence\.flags\.types\.v1 import/from . import/' {} +
+	find src/confidence/proto/confidence/wasm -name '*.py' -exec sed -i.bak \
+		-e 's/^from confidence\.flags\.resolver\.v1 import/from ..flags.resolver.v1 import/' \
+		-e 's/^from confidence\.flags\.types\.v1 import/from ..flags.types.v1 import/' \
+		-e 's/^from confidence\.wasm import/from . import/' {} +
+	find src/confidence/proto -name '*.py.bak' -delete
 
 # Copy WASM file (alias for compatibility)
 wasm: $(RESOURCES_WASM)

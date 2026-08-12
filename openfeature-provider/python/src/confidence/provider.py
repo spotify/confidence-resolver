@@ -18,7 +18,10 @@ from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 from openfeature.provider import AbstractProvider, Metadata, ProviderStatus
 
-from confidence.flag_logger import FlagLogger
+from confidence.flag_logger import (
+    FlagLogger,
+    MultiDestinationFlagLogger,
+)
 from confidence.local_resolver import LocalResolver
 from confidence.materialization import (
     InclusionReadOp,
@@ -240,18 +243,16 @@ class ConfidenceProvider(AbstractProvider):
                 encryption_key=self._encryption_key,
             )
 
-        # Create flag logger if not injected
-        if self._flag_logger is None:
-            from confidence.flag_logger import GrpcFlagLogger
-
-            self._flag_logger = GrpcFlagLogger(
-                client_secret=self._client_secret,
-                channel=self._grpc_channel,
-            )
-
         # Fetch initial state - don't fail if this fails, background thread will retry
         try:
-            state, account_id, _ = self._state_fetcher.fetch()
+            state, account_id, _, log_destinations = self._state_fetcher.fetch()
+
+            # Create flag logger if not injected, using destinations from CDN
+            if self._flag_logger is None:
+                self._flag_logger = self._create_flag_logger(
+                    account_id, log_destinations
+                )
+
             if account_id:
                 sdk = types_pb2.Sdk(
                     id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
@@ -271,6 +272,9 @@ class ConfidenceProvider(AbstractProvider):
                 "Initial state load failed, provider starting in NOT_READY state: %s",
                 e,
             )
+            # Create a default flag logger if fetch failed and none was injected
+            if self._flag_logger is None:
+                self._flag_logger = self._create_flag_logger("", [])
 
         # Start background threads (will retry state fetch if needed)
         self._start_background_threads()
@@ -744,6 +748,37 @@ class ConfidenceProvider(AbstractProvider):
         except Exception as e:
             logger.error("Failed to write materializations: %s", e)
 
+    def _create_flag_logger(
+        self, account_id: str, log_destinations: List[int]
+    ) -> FlagLogger:
+        """Create a flag logger based on the given log destinations.
+
+        If destinations are provided, creates a MultiDestinationFlagLogger.
+        Otherwise, falls back to a GrpcFlagLogger (Spotify Edge).
+
+        Args:
+            account_id: The account ID (needed for Cloudflare destination).
+            log_destinations: Ordered list of LogDestination enum values.
+
+        Returns:
+            A FlagLogger instance.
+        """
+        if log_destinations:
+            return MultiDestinationFlagLogger(
+                client_secret=self._client_secret,
+                account_id=account_id,
+                log_destinations=log_destinations,
+                grpc_channel=self._grpc_channel,
+            )
+
+        # Default: gRPC to Spotify Edge
+        from confidence.flag_logger import GrpcFlagLogger
+
+        return GrpcFlagLogger(
+            client_secret=self._client_secret,
+            channel=self._grpc_channel,
+        )
+
     def _flush_assigned(self) -> None:
         """Flush assigned logs."""
         if self._resolver is None or self._flag_logger is None:
@@ -794,7 +829,12 @@ class ConfidenceProvider(AbstractProvider):
                 break
 
             try:
-                state, account_id, changed = self._state_fetcher.fetch()
+                (
+                    state,
+                    account_id,
+                    changed,
+                    log_destinations,
+                ) = self._state_fetcher.fetch()
                 if changed and account_id:
                     sdk = types_pb2.Sdk(
                         id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
@@ -806,6 +846,18 @@ class ConfidenceProvider(AbstractProvider):
                         self._resolver.set_resolver_state(state, account_id, sdk)
                     if flushed_logs and self._flag_logger is not None:
                         self._flag_logger.write(flushed_logs)
+
+                    # Update account ID and destinations on the logger
+                    if self._flag_logger is not None:
+                        set_account = getattr(self._flag_logger, "set_account_id", None)
+                        if callable(set_account):
+                            set_account(account_id)
+                        update_dests = getattr(
+                            self._flag_logger, "update_destinations", None
+                        )
+                        if callable(update_dests):
+                            update_dests(log_destinations)
+
                     logger.debug("Resolver state updated")
 
                 # If we were NOT_READY and now have valid state, transition to READY
