@@ -54,6 +54,10 @@ func (r *WasmResolver) exportedFunction(name string) api.Function {
 		return fn.(api.Function)
 	}
 	fn := r.instance.ExportedFunction(name)
+	if fn == nil {
+		// Recovered by RecoveringResolver; a nil fn.Call would kill the process.
+		panic(fmt.Sprintf("exported function %s unavailable, instance closed?", name))
+	}
 	r.fnCache.Store(name, fn)
 	return fn
 }
@@ -117,6 +121,9 @@ func (r *WasmResolver) PrometheusSnapshot(bucketsPerDecade uint32, openmetrics b
 func (r *WasmResolver) Close(ctx context.Context) error {
 	// TODO we should call flush assigned until it doesn't flush any more
 	r.FlushAllLogs()
+	// RecoveringResolver closes concurrently; never close an instance mid-call.
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.instance.Close(ctx)
 }
 
