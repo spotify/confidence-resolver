@@ -15,7 +15,7 @@ import (
 var resolverFactory LocalResolverFactory
 
 func TestMain(m *testing.M) {
-	resolverFactory = DefaultResolverFactory(NoOpLogSink)
+	resolverFactory = DefaultResolverFactory(NoOpLogSink, LocalResolverConfig{})
 	defer resolverFactory.Close(context.Background())
 	os.Exit(m.Run())
 }
@@ -41,6 +41,37 @@ func TestSwapWasmResolverApi_NewSwapWasmResolverApi(t *testing.T) {
 		t.Fatal("Expected non-nil SwapWasmResolverApi")
 	}
 
+}
+
+func TestSwapWasmResolverApi_WithRealState_InterpreterMode(t *testing.T) {
+	ctx := context.Background()
+
+	factory := NewWasmResolverFactory(NoOpLogSink, true)
+	defer factory.Close(ctx)
+
+	testState := tu.LoadTestResolverState(t)
+	testAcctID := tu.LoadTestAccountID(t)
+
+	resolver := factory.New()
+	defer resolver.Close(ctx)
+
+	if err := resolver.SetResolverState(&wasm.SetResolverStateRequest{
+		State:     testState,
+		AccountId: testAcctID,
+	}); err != nil {
+		t.Fatalf("Failed to initialize resolver with state: %v", err)
+	}
+
+	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
+	processResponse, err := resolver.ResolveProcess(request)
+	if err != nil {
+		t.Fatalf("Unexpected error resolving tutorial-feature flag: %v", err)
+	}
+
+	response := processResponse.GetResolved().GetResponse()
+	if response == nil || len(response.ResolvedFlags) != 1 {
+		t.Fatalf("Expected 1 resolved flag, got %#v", response)
+	}
 }
 
 func TestSwapWasmResolverApi_WithRealState(t *testing.T) {

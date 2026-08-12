@@ -10,6 +10,12 @@ import (
 
 const DefaultPoolSize = 2
 
+// LocalResolverConfig configures the local WASM resolver stack.
+type LocalResolverConfig struct {
+	PoolSize           int
+	UseWasmInterpreter bool
+}
+
 type LocalResolverSupplier func() LocalResolver
 
 type LocalResolverFactory interface {
@@ -32,10 +38,14 @@ type LocalResolver interface {
 }
 
 // DefaultResolverFactory composes the default stack: Wasm -> Recovering -> Pooled(DefaultPoolSize)
-func DefaultResolverFactory(logSink LogSink) LocalResolverFactory {
-	base := NewWasmResolverFactory(logSink)
+func DefaultResolverFactory(logSink LogSink, cfg LocalResolverConfig) LocalResolverFactory {
+	base := NewWasmResolverFactory(logSink, cfg.UseWasmInterpreter)
 	rcv := NewRecoveringResolverFactory(base)
-	return NewPooledResolverFactory(rcv, DefaultPoolSize)
+	poolSize := cfg.PoolSize
+	if poolSize <= 0 {
+		poolSize = DefaultPoolSize
+	}
+	return NewPooledResolverFactory(rcv, poolSize)
 }
 
 type localResolverImpl struct {
@@ -44,11 +54,16 @@ type localResolverImpl struct {
 }
 
 func NewLocalResolverWithPoolSize(ctx context.Context, logSink LogSink, poolSize int) LocalResolver {
-	factory := NewWasmResolverFactory(logSink)
-	factory = NewRecoveringResolverFactory(factory)
+	return NewLocalResolver(ctx, logSink, LocalResolverConfig{PoolSize: poolSize})
+}
+
+func NewLocalResolver(ctx context.Context, logSink LogSink, cfg LocalResolverConfig) LocalResolver {
+	poolSize := cfg.PoolSize
 	if poolSize <= 0 {
 		poolSize = DefaultPoolSize
 	}
+	factory := NewWasmResolverFactory(logSink, cfg.UseWasmInterpreter)
+	factory = NewRecoveringResolverFactory(factory)
 	return &localResolverImpl{
 		PooledResolver: *NewPooledResolver(poolSize, factory.New),
 		factory:        factory,

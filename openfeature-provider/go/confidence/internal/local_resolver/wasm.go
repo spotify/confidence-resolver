@@ -188,9 +188,14 @@ func transferResponseError(inst api.Module, errMsg string) uint32 {
 	return transfer(inst, mustMarshal(resp))
 }
 
-func NewWasmResolverFactory(logSink LogSink) LocalResolverFactory {
+func NewWasmResolverFactory(logSink LogSink, useInterpreter bool) LocalResolverFactory {
 	ctx := context.Background()
-	runtime := wazero.NewRuntime(ctx)
+	var runtime wazero.Runtime
+	if useInterpreter {
+		runtime = wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfigInterpreter())
+	} else {
+		runtime = wazero.NewRuntime(ctx)
+	}
 	_, err := runtime.NewHostModuleBuilder("wasm_msg").
 		NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, mod api.Module, ptr uint32) uint32 {
