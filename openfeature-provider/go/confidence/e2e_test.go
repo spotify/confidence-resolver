@@ -19,6 +19,9 @@ const (
 )
 
 func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStore(t *testing.T) {
+	if e2eClientSecret == "" {
+		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
+	}
 	ctx := context.Background()
 
 	// Create a real provider with a RemoteMaterializationStore
@@ -53,6 +56,9 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationSto
 }
 
 func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStoreNotInSegment(t *testing.T) {
+	if e2eClientSecret == "" {
+		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
+	}
 	ctx := context.Background()
 
 	// Create a real provider with a RemoteMaterializationStore
@@ -87,6 +93,9 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationSto
 }
 
 func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUsesBloomFilter(t *testing.T) {
+	if e2eClientSecret == "" {
+		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
+	}
 	ctx := context.Background()
 
 	// Without a materialization store, the resolver uses bloom filters
@@ -120,6 +129,9 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUs
 }
 
 func TestFlagResolve_WithEncryptedState(t *testing.T) {
+	if e2eClientSecret == "" {
+		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
+	}
 	ctx := context.Background()
 	provider, err := NewProvider(ctx, ProviderConfig{
 		ClientSecret:  e2eClientSecret,
