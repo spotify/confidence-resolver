@@ -95,7 +95,7 @@ pub struct ApplyDedup {
 impl ApplyDedup {
     pub fn new(ttl_seconds: i64, max_entries: usize) -> Self {
         Self {
-            seen: HashMap::with_hasher(IdentityBuildHasher::default()),
+            seen: HashMap::with_capacity_and_hasher(max_entries, IdentityBuildHasher::default()),
             ttl_seconds,
             max_entries,
             ops_since_cleanup: 0,
@@ -658,5 +658,64 @@ mod tests {
                 overhead_ns
             );
         }
+    }
+
+    #[test]
+    fn stress_1m_find_degradation_point() {
+        use std::time::Instant;
+
+        let total: usize = 1_000_000;
+        let batch: usize = 10_000;
+        // no TTL expiry — timestamps stay within window so cache grows monotonically
+        let mut dedup = ApplyDedup::new(i64::MAX, total);
+
+        // pre-generate all flags to keep allocation out of the timed loop
+        let all_flags: Vec<FlagToApply> = (0..total)
+            .map(|i| make_flag_to_apply("flags/feature", &format!("u{}", i), "on"))
+            .collect();
+
+        eprintln!();
+        eprintln!("╔═══════════════════════════════════════════════════════════╗");
+        eprintln!("║   Stress Test — 1M unique entries, find degradation      ║");
+        eprintln!("╠═══════════════════════════════════════════════════════════╣");
+        eprintln!("║  Cache size │ ns/lookup (insert) │  ns/lookup (hit)  │ MB║");
+        eprintln!("╠═══════════════════════════════════════════════════════════╣");
+
+        let mut cursor: usize = 0;
+        while cursor < total {
+            let end = (cursor.saturating_add(batch)).min(total);
+            let chunk = &all_flags[cursor..end];
+
+            // measure INSERT cost (unique keys, all cache misses)
+            let t0 = Instant::now();
+            for f in chunk {
+                let _ = dedup.filter_duplicates(std::slice::from_ref(f), 1000);
+            }
+            let insert_elapsed = t0.elapsed();
+            let insert_ns = insert_elapsed.as_nanos() / (end.saturating_sub(cursor)) as u128;
+
+            // measure HIT cost (same keys again, all cache hits)
+            let t0 = Instant::now();
+            for f in chunk {
+                let _ = dedup.filter_duplicates(std::slice::from_ref(f), 1001);
+            }
+            let hit_elapsed = t0.elapsed();
+            let hit_ns = hit_elapsed.as_nanos() / (end.saturating_sub(cursor)) as u128;
+
+            let entries = dedup.seen.len();
+            let mem_mb = (entries as f64 * 19.4) / (1024.0 * 1024.0);
+
+            eprintln!(
+                "║  {:>9} │          {:>6} ns │        {:>6} ns  │{:>3.0}║",
+                entries, insert_ns, hit_ns, mem_mb
+            );
+
+            cursor = end;
+        }
+
+        eprintln!("╚═══════════════════════════════════════════════════════════╝");
+
+        // sanity: cache holds all entries
+        assert_eq!(dedup.seen.len(), total);
     }
 }
