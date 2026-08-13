@@ -118,12 +118,13 @@ impl ApplyDedup {
         let mut keep = DedupResult::new(flags.len());
         for (i, fta) in flags.iter().enumerate() {
             let hash = compute_dedup_hash(&fta.assigned_flag);
-            if let Some(&ts) = self.seen.get(&hash) {
-                if now_seconds.saturating_sub(ts) < self.ttl_seconds {
+            if let Some(ts) = self.seen.get_mut(&hash) {
+                if now_seconds.saturating_sub(*ts) < self.ttl_seconds {
                     continue;
                 }
-            }
-            if self.seen.len() < self.max_entries {
+                // expired entry: refresh in place, works even at capacity
+                *ts = now_seconds;
+            } else if self.seen.len() < self.max_entries {
                 self.seen.insert(hash, now_seconds);
             }
             keep.mark(i);
