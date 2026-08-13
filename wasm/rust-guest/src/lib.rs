@@ -1,8 +1,10 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::Mutex;
 
 use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::Bytes;
+use confidence_resolver::apply_dedup::ApplyDedup;
 use confidence_resolver::assign_logger::AssignLogger;
 use confidence_resolver::telemetry::{Telemetry, TelemetrySnapshot};
 use prost::Message;
@@ -56,6 +58,8 @@ const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
+static APPLY_DEDUP: LazyLock<Mutex<ApplyDedup>> =
+    LazyLock::new(|| Mutex::new(ApplyDedup::new(120, 10_000)));
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
 });
@@ -97,7 +101,22 @@ impl Host for WasmHost {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
+        let now_seconds = assigned_flags
+            .first()
+            .map_or(0, |f| f.skew_adjusted_applied_time.seconds);
+        let result = match APPLY_DEDUP.lock() {
+            Ok(mut dedup) => dedup.filter_duplicates(assigned_flags, now_seconds),
+            Err(poisoned) => poisoned.into_inner().filter_duplicates(assigned_flags, now_seconds),
+        };
+        if result.is_empty() {
+            return;
+        }
+        if result.kept_count() == assigned_flags.len() {
+            ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
+        } else {
+            let filtered = result.collect(assigned_flags);
+            ASSIGN_LOGGER.log_assigns(resolve_id, &filtered, client, sdk);
+        }
     }
 
     fn encrypt_resolve_token(token_data: &[u8], _encryption_key: &[u8]) -> Result<Vec<u8>, String> {

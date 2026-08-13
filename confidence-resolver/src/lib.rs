@@ -41,6 +41,7 @@ fn random_alphanumeric(len: usize) -> String {
 
 use err::Fallible;
 
+pub mod apply_dedup;
 pub mod assign_logger;
 pub(crate) mod bloom_filter;
 mod bounded_set;
@@ -288,6 +289,7 @@ impl ResolverState {
 pub struct EvaluationContext {
     pub context: Struct,
 }
+#[derive(Clone)]
 pub struct FlagToApply {
     pub assigned_flag: AssignedFlag,
     pub skew_adjusted_applied_time: Timestamp,
