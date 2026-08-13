@@ -106,7 +106,9 @@ impl Host for WasmHost {
             .map_or(0, |f| f.skew_adjusted_applied_time.seconds);
         let result = match APPLY_DEDUP.lock() {
             Ok(mut dedup) => dedup.filter_duplicates(assigned_flags, now_seconds),
-            Err(poisoned) => poisoned.into_inner().filter_duplicates(assigned_flags, now_seconds),
+            Err(poisoned) => poisoned
+                .into_inner()
+                .filter_duplicates(assigned_flags, now_seconds),
         };
         if result.is_empty() {
             return;

@@ -104,11 +104,7 @@ impl ApplyDedup {
 
     /// Returns `true` for each flag that should be logged (not a duplicate).
     /// The caller uses the returned mask to decide which flags to forward.
-    pub fn filter_duplicates(
-        &mut self,
-        flags: &[FlagToApply],
-        now_seconds: i64,
-    ) -> DedupResult {
+    pub fn filter_duplicates(&mut self, flags: &[FlagToApply], now_seconds: i64) -> DedupResult {
         self.maybe_cleanup(now_seconds);
 
         let mut keep = DedupResult::new(flags.len());
@@ -364,7 +360,11 @@ mod tests {
         assert_eq!(first.kept_count(), 1);
 
         let second = dedup.filter_duplicates(&[f2], 1000);
-        assert_eq!(second.kept_count(), 1, "different reason should not be deduped");
+        assert_eq!(
+            second.kept_count(),
+            1,
+            "different reason should not be deduped"
+        );
     }
 
     #[test]
@@ -473,7 +473,10 @@ mod tests {
         for t in 0..100 {
             total_logged += dedup.filter_duplicates(&flags, 1000 + t).kept_count();
         }
-        assert_eq!(total_logged, 1, "100 rapid resolves should only produce 1 event");
+        assert_eq!(
+            total_logged, 1,
+            "100 rapid resolves should only produce 1 event"
+        );
     }
 
     #[test]
@@ -536,12 +539,7 @@ mod tests {
         let logger_no_dedup = AssignLogger::new();
         let t0 = Instant::now();
         for i in 0..iterations {
-            logger_no_dedup.log_assigns(
-                &format!("resolve-{}", i),
-                &flags,
-                &client,
-                &sdk,
-            );
+            logger_no_dedup.log_assigns(&format!("resolve-{}", i), &flags, &client, &sdk);
         }
         let without_dedup = t0.elapsed();
         let without_events = logger_no_dedup.checkpoint().flag_assigned.len();
@@ -555,20 +553,10 @@ mod tests {
             let result = dedup.filter_duplicates(&flags, 1000 + i as i64);
             if !result.is_empty() {
                 if result.kept_count() == flags.len() {
-                    logger_dedup.log_assigns(
-                        &format!("resolve-{}", i),
-                        &flags,
-                        &client,
-                        &sdk,
-                    );
+                    logger_dedup.log_assigns(&format!("resolve-{}", i), &flags, &client, &sdk);
                 } else {
                     let filtered = result.collect(&flags);
-                    logger_dedup.log_assigns(
-                        &format!("resolve-{}", i),
-                        &filtered,
-                        &client,
-                        &sdk,
-                    );
+                    logger_dedup.log_assigns(&format!("resolve-{}", i), &filtered, &client, &sdk);
                 }
             }
         }
@@ -597,20 +585,10 @@ mod tests {
             let result = dedup2.filter_duplicates(uflags, 1000 + i as i64);
             if !result.is_empty() {
                 if result.kept_count() == uflags.len() {
-                    logger_unique.log_assigns(
-                        &format!("resolve-{}", i),
-                        uflags,
-                        &client,
-                        &sdk,
-                    );
+                    logger_unique.log_assigns(&format!("resolve-{}", i), uflags, &client, &sdk);
                 } else {
                     let filtered = result.collect(uflags);
-                    logger_unique.log_assigns(
-                        &format!("resolve-{}", i),
-                        &filtered,
-                        &client,
-                        &sdk,
-                    );
+                    logger_unique.log_assigns(&format!("resolve-{}", i), &filtered, &client, &sdk);
                 }
             }
         }
@@ -620,8 +598,11 @@ mod tests {
         eprintln!();
         eprintln!("╔══════════════════════════════════════════════════════════╗");
         eprintln!("║      Apply Dedup — Full log_assign Path Benchmark       ║");
-        eprintln!("║      {} iterations × 10 flags each{} ║",
-            iterations, " ".repeat(16 - iterations.to_string().len()));
+        eprintln!(
+            "║      {} iterations × 10 flags each{} ║",
+            iterations,
+            " ".repeat(16 - iterations.to_string().len())
+        );
         eprintln!("╠══════════════════════════════════════════════════════════╣");
         eprintln!(
             "║  WITHOUT dedup:           {:>8} ns/iter  {:>6} events ║",
@@ -642,10 +623,7 @@ mod tests {
 
         let saved_pct = if without_dedup.as_nanos() > 0 {
             100u128.saturating_sub(
-                with_dedup_same_user
-                    .as_nanos()
-                    .saturating_mul(100)
-                    / without_dedup.as_nanos(),
+                with_dedup_same_user.as_nanos().saturating_mul(100) / without_dedup.as_nanos(),
             )
         } else {
             0
