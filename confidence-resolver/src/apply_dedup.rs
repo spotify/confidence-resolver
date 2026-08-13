@@ -34,7 +34,15 @@ impl Fnv1a {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        for &b in bytes {
+        let chunks = bytes.chunks_exact(8);
+        let tail = chunks.remainder();
+        for chunk in chunks {
+            if let Ok(arr) = <[u8; 8]>::try_from(chunk) {
+                self.0 ^= u64::from_le_bytes(arr);
+                self.0 = self.0.wrapping_mul(FNV64_PRIME);
+            }
+        }
+        for &b in tail {
             self.0 ^= b as u64;
             self.0 = self.0.wrapping_mul(FNV64_PRIME);
         }
