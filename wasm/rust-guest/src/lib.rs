@@ -101,6 +101,12 @@ impl Host for WasmHost {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
+        // An empty apply (no flags matched) still produces a FlagAssigned
+        // envelope with resolve_id + client_info, matching pre-dedup behavior.
+        if assigned_flags.is_empty() {
+            ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
+            return;
+        }
         let now_seconds = assigned_flags
             .first()
             .map_or(0, |f| f.skew_adjusted_applied_time.seconds);
