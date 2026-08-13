@@ -59,7 +59,7 @@ static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
 static APPLY_DEDUP: LazyLock<Mutex<ApplyDedup>> =
-    LazyLock::new(|| Mutex::new(ApplyDedup::new(120, 10_000)));
+    LazyLock::new(|| Mutex::new(ApplyDedup::new(120, 100_000)));
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
 });
