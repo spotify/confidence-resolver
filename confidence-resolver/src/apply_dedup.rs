@@ -5,8 +5,12 @@ use crate::proto::confidence::flags::resolver::v1::events::FallthroughAssignment
 use crate::proto::confidence::flags::resolver::v1::resolve_token_v1::AssignedFlag;
 use crate::FlagToApply;
 
-const FNV64_INIT: u64 = 0xCBF2_9CE4_8422_2325;
-const FNV64_PRIME: u64 = 0x1000_0000_01B3;
+const HASH_INIT: u64 = 0xCBF2_9CE4_8422_2325;
+const HASH_PRIME: u64 = 0x1000_0000_01B3;
+// Murmur3 fmix64 constants — used to avalanche each word before it enters
+// the state, so structured keys ("user-1", "user-2", ...) can't cancel.
+const MIX_C1: u64 = 0xFF51_AFD7_ED55_8CCD;
+const MIX_C2: u64 = 0xC4CE_B9FE_1A85_EC53;
 
 /// Identity hasher for pre-hashed u64 keys — avoids double-hashing in the HashMap.
 #[derive(Default)]
@@ -24,12 +28,26 @@ impl Hasher for IdentityHasher {
 
 type IdentityBuildHasher = BuildHasherDefault<IdentityHasher>;
 
-/// Streaming FNV-1a hasher — feeds bytes directly without allocating a Vec.
-struct Fnv1a(u64);
+/// Streaming word-at-a-time hasher with murmur3-style per-word avalanche.
+///
+/// Plain FNV-1a folded 8 bytes per multiply loses too much mixing: with
+/// structured keys (common prefixes, small numeric suffixes) collisions
+/// reached ~10% in benchmarks — every collision is a silently dropped apply
+/// event. Avalanching each word before XOR-ing it into the state restores
+/// murmur-grade distribution while keeping 8-bytes-per-step speed.
+struct DedupHasher(u64);
 
-impl Fnv1a {
+impl DedupHasher {
     fn new() -> Self {
-        Self(FNV64_INIT)
+        Self(HASH_INIT)
+    }
+
+    #[inline]
+    fn mix(&mut self, word: u64) {
+        let mut k = word.wrapping_mul(MIX_C1);
+        k ^= k >> 33;
+        k = k.wrapping_mul(MIX_C2);
+        self.0 = (self.0 ^ k).rotate_left(27).wrapping_mul(HASH_PRIME);
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -37,27 +55,36 @@ impl Fnv1a {
         let tail = chunks.remainder();
         for chunk in chunks {
             if let Ok(arr) = <[u8; 8]>::try_from(chunk) {
-                self.0 ^= u64::from_le_bytes(arr);
-                self.0 = self.0.wrapping_mul(FNV64_PRIME);
+                self.mix(u64::from_le_bytes(arr));
             }
         }
-        for &b in tail {
-            self.0 ^= b as u64;
-            self.0 = self.0.wrapping_mul(FNV64_PRIME);
+        if !tail.is_empty() {
+            let mut arr = [0u8; 8];
+            for (dst, src) in arr.iter_mut().zip(tail) {
+                *dst = *src;
+            }
+            // XOR in the tail length so "a" and "a\0" hash differently.
+            self.mix(u64::from_le_bytes(arr).rotate_left(8) ^ tail.len() as u64);
         }
     }
 
     fn separator(&mut self) {
-        self.0 = self.0.wrapping_mul(FNV64_PRIME);
+        self.0 = self.0.rotate_left(31).wrapping_mul(HASH_PRIME);
     }
 
     fn finish(self) -> u64 {
-        self.0
+        // Final avalanche so the low bits (hashbrown bucket index) are as
+        // well mixed as the high bits (hashbrown control bytes).
+        let mut h = self.0;
+        h ^= h >> 33;
+        h = h.wrapping_mul(MIX_C1);
+        h ^= h >> 33;
+        h
     }
 }
 
 pub fn compute_dedup_hash(assigned: &AssignedFlag) -> u64 {
-    let mut h = Fnv1a::new();
+    let mut h = DedupHasher::new();
     h.write(assigned.flag.as_bytes());
     h.separator();
     h.write(assigned.targeting_key.as_bytes());
@@ -81,7 +108,7 @@ pub struct AppliedFlagRef<'a> {
 }
 
 pub fn compute_applied_flag_dedup_hash(applied: &AppliedFlagRef<'_>) -> u64 {
-    let mut h = Fnv1a::new();
+    let mut h = DedupHasher::new();
     h.write(applied.flag.as_bytes());
     h.separator();
     h.write(applied.targeting_key.as_bytes());
@@ -107,7 +134,11 @@ pub struct ApplyDedup {
 impl ApplyDedup {
     pub fn new(ttl_seconds: i64, max_entries: usize) -> Self {
         Self {
-            seen: HashMap::with_capacity_and_hasher(max_entries, IdentityBuildHasher::default()),
+            // Grows lazily: small deployments keep a small cache-resident
+            // table (fast probes) instead of scattering lookups across a
+            // pre-allocated multi-MB one. Resize work is bounded — once the
+            // map reaches max_entries it never grows again.
+            seen: HashMap::with_hasher(IdentityBuildHasher::default()),
             ttl_seconds,
             max_entries,
             last_sweep_seconds: 0,
@@ -702,6 +733,148 @@ mod tests {
                 overhead_ns
             );
         }
+    }
+
+    #[test]
+    fn no_collisions_on_structured_keys() {
+        // Regression: word-at-a-time FNV collided ~10% on keys with common
+        // prefixes and small numeric suffixes ("user-1", "user-2", ...). Every
+        // collision silently drops another user's apply event.
+        use std::collections::HashSet;
+
+        let mut hashes = HashSet::new();
+        let mut expected = 0usize;
+        for u in 0..20_000 {
+            for f in 0..10 {
+                let assigned =
+                    make_assigned(&format!("flags/f{}", f), &format!("user-{}", u), "on");
+                hashes.insert(compute_dedup_hash(&assigned));
+                expected += 1;
+            }
+        }
+        assert_eq!(
+            hashes.len(),
+            expected,
+            "hash collisions detected: {} unique hashes for {} distinct keys",
+            hashes.len(),
+            expected
+        );
+    }
+
+    #[test]
+    fn perf_deployment_sizes() {
+        use crate::assign_logger::AssignLogger;
+        use std::time::Instant;
+
+        let client = crate::Client {
+            account: crate::Account::new("test-account"),
+            client_name: "test-client".to_string(),
+            client_credential_name: "cred".to_string(),
+            environments: vec![],
+        };
+        let sdk: Option<crate::proto::confidence::flags::resolver::v1::Sdk> = None;
+        const FLAGS_PER_USER: usize = 10;
+        const PROD_CAP: usize = 100_000;
+
+        // Baseline: no dedup, log every resolve.
+        let baseline_ns = {
+            let logger = AssignLogger::new();
+            let flags: Vec<FlagToApply> = (0..FLAGS_PER_USER)
+                .map(|j| make_flag_to_apply(&format!("flags/f{}", j), "user", "on"))
+                .collect();
+            let iters: u128 = 20_000;
+            let t0 = Instant::now();
+            for i in 0..iters {
+                logger.log_assigns(&format!("r{}", i), &flags, &client, &sdk);
+            }
+            let ns = t0.elapsed().as_nanos() / iters;
+            let _ = logger.checkpoint();
+            ns
+        };
+
+        eprintln!();
+        eprintln!("╔═══════════════════════════════════════════════════════════════════╗");
+        eprintln!("║        Deployment Size Report — 10 flags/resolve, cap 100K        ║");
+        eprintln!(
+            "║        Baseline (no dedup): {:>5} ns/resolve                       ║",
+            baseline_ns
+        );
+        eprintln!("╠═══════════════════════════════════════════════════════════════════╣");
+        eprintln!("║ Deployment │  Users │ Entries │ Fill ns │  Hit ns │ New-user ns   ║");
+        eprintln!("╠═══════════════════════════════════════════════════════════════════╣");
+
+        for (label, users) in [
+            ("small", 100usize),
+            ("medium", 2_000),
+            ("large", 10_000),
+            ("at-cap", 50_000),
+        ] {
+            let mut dedup = ApplyDedup::new(i64::MAX, PROD_CAP);
+
+            let user_flags: Vec<Vec<FlagToApply>> = (0..users)
+                .map(|u| {
+                    (0..FLAGS_PER_USER)
+                        .map(|j| {
+                            make_flag_to_apply(
+                                &format!("flags/f{}", j),
+                                &format!("user-{}", u),
+                                "on",
+                            )
+                        })
+                        .collect()
+                })
+                .collect();
+
+            // Fill phase: every user's first resolve (includes lazy growth).
+            let t0 = Instant::now();
+            for flags in &user_flags {
+                let _ = dedup.filter_duplicates(flags, 1000);
+            }
+            let fill_ns = t0.elapsed().as_nanos() / users as u128;
+
+            // Steady state: same users resolve again — all dedup hits.
+            // Multiple passes for a stable number.
+            let passes: usize = (100_000 / users).max(1);
+            let t0 = Instant::now();
+            for _ in 0..passes {
+                for flags in &user_flags {
+                    let _ = dedup.filter_duplicates(flags, 1001);
+                }
+            }
+            let hit_ns = t0.elapsed().as_nanos() / (users * passes) as u128;
+
+            // New-user cost at this table size (insert if under cap,
+            // probe+skip when at cap).
+            let fresh: Vec<Vec<FlagToApply>> = (0..5_000)
+                .map(|u| {
+                    (0..FLAGS_PER_USER)
+                        .map(|j| {
+                            make_flag_to_apply(
+                                &format!("flags/f{}", j),
+                                &format!("fresh-{}-{}", label, u),
+                                "on",
+                            )
+                        })
+                        .collect()
+                })
+                .collect();
+            let t0 = Instant::now();
+            for flags in &fresh {
+                let _ = dedup.filter_duplicates(flags, 1002);
+            }
+            let new_ns = t0.elapsed().as_nanos() / fresh.len() as u128;
+
+            eprintln!(
+                "║ {:>10} │ {:>6} │ {:>7} │ {:>7} │ {:>7} │ {:>10}    ║",
+                label,
+                users,
+                dedup.seen.len(),
+                fill_ns,
+                hit_ns,
+                new_ns,
+            );
+        }
+        eprintln!("╚═══════════════════════════════════════════════════════════════════╝");
     }
 
     #[test]
