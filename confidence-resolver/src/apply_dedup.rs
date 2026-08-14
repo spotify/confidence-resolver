@@ -29,12 +29,8 @@ impl Hasher for IdentityHasher {
 type IdentityBuildHasher = BuildHasherDefault<IdentityHasher>;
 
 /// Streaming word-at-a-time hasher with murmur3-style per-word avalanche.
-///
-/// Plain FNV-1a folded 8 bytes per multiply loses too much mixing: with
-/// structured keys (common prefixes, small numeric suffixes) collisions
-/// reached ~10% in benchmarks — every collision is a silently dropped apply
-/// event. Avalanching each word before XOR-ing it into the state restores
-/// murmur-grade distribution while keeping 8-bytes-per-step speed.
+/// Strong mixing is required because hashes are used directly as map keys
+/// (identity hasher) and inputs are highly structured.
 struct DedupHasher(u64);
 
 impl DedupHasher {
@@ -83,15 +79,39 @@ impl DedupHasher {
     }
 }
 
+/// Hashes the full apply identity — every field except `apply_time`.
+///
+/// The parent `targeting_key`/`assignment_id` alone are NOT a unique
+/// identity: fallthrough-only and no-unit assignments leave them empty, and
+/// the per-user identity then lives in `fallthrough_assignments`. Dropping
+/// any field risks silently swallowing another user's apply event.
 pub fn compute_dedup_hash(assigned: &AssignedFlag) -> u64 {
     let mut h = DedupHasher::new();
     h.write(assigned.flag.as_bytes());
     h.separator();
     h.write(assigned.targeting_key.as_bytes());
     h.separator();
+    h.write(assigned.targeting_key_selector.as_bytes());
+    h.separator();
     h.write(assigned.assignment_id.as_bytes());
     h.separator();
+    h.write(assigned.variant.as_bytes());
+    h.separator();
+    h.write(assigned.segment.as_bytes());
+    h.separator();
+    h.write(assigned.rule.as_bytes());
+    h.separator();
     h.write(&assigned.reason.to_le_bytes());
+    for ft in &assigned.fallthrough_assignments {
+        h.separator();
+        h.write(ft.rule.as_bytes());
+        h.separator();
+        h.write(ft.assignment_id.as_bytes());
+        h.separator();
+        h.write(ft.targeting_key.as_bytes());
+        h.separator();
+        h.write(ft.targeting_key_selector.as_bytes());
+    }
     h.finish()
 }
 
@@ -99,6 +119,7 @@ pub fn compute_dedup_hash(assigned: &AssignedFlag) -> u64 {
 pub struct AppliedFlagRef<'a> {
     pub flag: &'a str,
     pub targeting_key: &'a str,
+    pub targeting_key_selector: &'a str,
     pub assignment_id: &'a str,
     pub rule: &'a str,
     pub variant: &'a str,
@@ -107,15 +128,34 @@ pub struct AppliedFlagRef<'a> {
     pub fallthrough_assignments: &'a [FallthroughAssignment],
 }
 
+/// Must stay field-for-field consistent with [`compute_dedup_hash`].
 pub fn compute_applied_flag_dedup_hash(applied: &AppliedFlagRef<'_>) -> u64 {
     let mut h = DedupHasher::new();
     h.write(applied.flag.as_bytes());
     h.separator();
     h.write(applied.targeting_key.as_bytes());
     h.separator();
+    h.write(applied.targeting_key_selector.as_bytes());
+    h.separator();
     h.write(applied.assignment_id.as_bytes());
     h.separator();
+    h.write(applied.variant.as_bytes());
+    h.separator();
+    h.write(applied.segment.as_bytes());
+    h.separator();
+    h.write(applied.rule.as_bytes());
+    h.separator();
     h.write(&applied.reason.to_le_bytes());
+    for ft in applied.fallthrough_assignments {
+        h.separator();
+        h.write(ft.rule.as_bytes());
+        h.separator();
+        h.write(ft.assignment_id.as_bytes());
+        h.separator();
+        h.write(ft.targeting_key.as_bytes());
+        h.separator();
+        h.write(ft.targeting_key_selector.as_bytes());
+    }
     h.finish()
 }
 
@@ -151,6 +191,11 @@ impl ApplyDedup {
     /// Never scans the map — expiry is handled solely by [`Self::sweep`],
     /// which the host calls off the resolve path (from the log flush cycle).
     pub fn filter_duplicates(&mut self, flags: &[FlagToApply], now_seconds: i64) -> DedupResult {
+        // Deferred applies carry skew-adjusted times that can lie far in the
+        // past (client applied long before sending); inserting with such a
+        // timestamp would create a pre-expired entry the next sweep drops
+        // immediately. Clamp to the last known host time instead.
+        let now_seconds = now_seconds.max(self.last_sweep_seconds);
         let mut keep = DedupResult::new(flags.len());
         for (i, fta) in flags.iter().enumerate() {
             let hash = compute_dedup_hash(&fta.assigned_flag);
@@ -185,19 +230,35 @@ impl ApplyDedup {
 
 /// Bitmask of which flags in a slice survived dedup.
 /// Avoids cloning `FlagToApply` — the caller reads from the original slice.
+/// Inline `u64` for batches up to 64 flags (no allocation); spills to a
+/// `Vec<u64>` beyond that — the resolver allows up to 1000 flags per request.
 pub struct DedupResult {
-    mask: u64,
+    small: u64,
+    large: Vec<u64>,
     count: usize,
 }
 
 impl DedupResult {
-    fn new(_len: usize) -> Self {
-        Self { mask: 0, count: 0 }
+    fn new(len: usize) -> Self {
+        let large = if len > 64 {
+            vec![0u64; (len >> 6).saturating_add(1)]
+        } else {
+            Vec::new()
+        };
+        Self {
+            small: 0,
+            large,
+            count: 0,
+        }
     }
 
     fn mark(&mut self, idx: usize) {
-        if idx < 64 {
-            self.mask |= 1u64 << idx;
+        if self.large.is_empty() {
+            if idx < 64 {
+                self.small |= 1u64 << (idx & 63);
+            }
+        } else if let Some(word) = self.large.get_mut(idx >> 6) {
+            *word |= 1u64 << (idx & 63);
         }
         self.count = self.count.saturating_add(1);
     }
@@ -211,10 +272,12 @@ impl DedupResult {
     }
 
     pub fn is_kept(&self, idx: usize) -> bool {
-        if idx < 64 {
-            self.mask & (1u64 << idx) != 0
+        if self.large.is_empty() {
+            idx < 64 && self.small & (1u64 << (idx & 63)) != 0
         } else {
-            true // beyond bitmask capacity → keep (safe fallback)
+            self.large
+                .get(idx >> 6)
+                .is_some_and(|word| word & (1u64 << (idx & 63)) != 0)
         }
     }
 
@@ -464,27 +527,120 @@ mod tests {
 
     #[test]
     fn hash_consistency_between_assigned_and_applied() {
+        let ft = FallthroughAssignment {
+            rule: "rule-ft".to_string(),
+            assignment_id: "ft-1".to_string(),
+            targeting_key: "ft-user".to_string(),
+            targeting_key_selector: "visitor_id".to_string(),
+        };
         let assigned = AssignedFlag {
             flag: "flags/test".to_string(),
             targeting_key: "user-42".to_string(),
+            targeting_key_selector: "targeting_key".to_string(),
             assignment_id: "a-1".to_string(),
+            variant: "control".to_string(),
+            segment: "seg-1".to_string(),
+            rule: "rule-1".to_string(),
             reason: 0,
-            ..Default::default()
+            fallthrough_assignments: vec![ft.clone()],
         };
         let hash_assigned = compute_dedup_hash(&assigned);
 
         let applied_ref = AppliedFlagRef {
             flag: "flags/test",
             targeting_key: "user-42",
+            targeting_key_selector: "targeting_key",
             assignment_id: "a-1",
+            variant: "control",
+            segment: "seg-1",
+            rule: "rule-1",
             reason: 0,
-            ..Default::default()
+            fallthrough_assignments: &[ft],
         };
         let hash_applied = compute_applied_flag_dedup_hash(&applied_ref);
 
         assert_eq!(
             hash_assigned, hash_applied,
             "same fields must produce same hash regardless of which function is used"
+        );
+    }
+
+    #[test]
+    fn fallthrough_only_applies_distinguish_users() {
+        // Fallthrough-only assignments leave the parent targeting_key and
+        // assignment_id empty — the user identity lives in the fallthrough
+        // entries. Two different users must not dedup each other.
+        let mut dedup = ApplyDedup::new(120, 1000);
+
+        let mut for_user = |user: &str| {
+            let mut fta = make_flag_to_apply("flags/a", "", "");
+            fta.assigned_flag.reason = 1; // NoSegmentMatch
+            fta.assigned_flag.fallthrough_assignments = vec![FallthroughAssignment {
+                rule: "rule-1".to_string(),
+                assignment_id: "assign-1".to_string(),
+                targeting_key: user.to_string(),
+                targeting_key_selector: "targeting_key".to_string(),
+            }];
+            fta
+        };
+
+        let first = dedup.filter_duplicates(&[for_user("user-a")], 1000);
+        assert_eq!(first.kept_count(), 1);
+
+        let second = dedup.filter_duplicates(&[for_user("user-b")], 1000);
+        assert_eq!(
+            second.kept_count(),
+            1,
+            "fallthrough apply for a different user must not be deduped"
+        );
+
+        // Same user again is a duplicate.
+        let third = dedup.filter_duplicates(&[for_user("user-a")], 1001);
+        assert!(third.is_empty());
+    }
+
+    #[test]
+    fn variant_changes_are_not_deduped_with_empty_assignment_id() {
+        // No-unit full rollouts share an empty assignment_id; a variant
+        // change must still produce a new event.
+        let mut dedup = ApplyDedup::new(120, 1000);
+        let on = make_flag_to_apply("flags/a", "", "on");
+        let off = make_flag_to_apply("flags/a", "", "off");
+
+        assert_eq!(dedup.filter_duplicates(&[on], 1000).kept_count(), 1);
+        assert_eq!(
+            dedup.filter_duplicates(&[off], 1000).kept_count(),
+            1,
+            "different variant must not be deduped"
+        );
+    }
+
+    #[test]
+    fn mixed_batch_beyond_64_flags() {
+        // The keep-mask spills past 64 bits; a duplicate at a tail index
+        // must be omitted from collect().
+        let mut dedup = ApplyDedup::new(120, 1000);
+
+        let flags: Vec<FlagToApply> = (0..70)
+            .map(|i| make_flag_to_apply(&format!("flags/f{}", i), "user1", "on"))
+            .collect();
+
+        // Pre-seed only index 65 so the batch is mixed.
+        dedup.filter_duplicates(&flags[65..66], 1000);
+
+        let result = dedup.filter_duplicates(&flags, 1001);
+        assert_eq!(result.kept_count(), 69);
+        assert!(!result.is_kept(65), "index 65 is a duplicate");
+        assert!(result.is_kept(64));
+        assert!(result.is_kept(69));
+
+        let collected = result.collect(&flags);
+        assert_eq!(collected.len(), 69);
+        assert!(
+            !collected
+                .iter()
+                .any(|f| f.assigned_flag.flag == "flags/f65"),
+            "duplicate tail flag must be omitted"
         );
     }
 
@@ -591,6 +747,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "benchmark — run with: cargo test --release -- --ignored"]
     fn perf_with_vs_without_dedup() {
         use crate::assign_logger::AssignLogger;
         use std::time::Instant;
@@ -762,6 +919,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "benchmark — run with: cargo test --release -- --ignored"]
     fn perf_deployment_sizes() {
         use crate::assign_logger::AssignLogger;
         use std::time::Instant;
@@ -878,6 +1036,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "benchmark — run with: cargo test --release -- --ignored"]
     fn stress_1m_find_degradation_point() {
         use std::time::Instant;
 

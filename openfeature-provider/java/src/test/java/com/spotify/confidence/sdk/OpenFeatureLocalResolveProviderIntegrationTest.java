@@ -234,13 +234,10 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
     // Wait for initialization to complete
     assertEquals(ProviderState.READY, provider.getState());
 
-    final ImmutableContext context =
-        new ImmutableContext(
-            "tutorial_visitor", Map.of("visitor_id", new Value("tutorial_visitor")));
-
     // Perform multiple flag resolutions across multiple threads to ensure all WASM
-    // instances
-    // have log data
+    // instances have log data. Each task uses a distinct targeting key so the
+    // WASM apply dedup does not collapse the events — a lost shutdown flush
+    // must fail this test.
     final int numThreads = Runtime.getRuntime().availableProcessors();
     final int resolutionsPerThread = 5;
     final ExecutorService executor = Executors.newFixedThreadPool(numThreads);
@@ -248,9 +245,12 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
 
     for (int i = 0; i < numThreads; i++) {
       for (int j = 0; j < resolutionsPerThread; j++) {
+        final String taskKey = "tutorial_visitor_" + i + "_" + j;
         executor.submit(
             () -> {
               try {
+                final ImmutableContext context =
+                    new ImmutableContext(taskKey, Map.of("visitor_id", new Value(taskKey)));
                 provider.getObjectEvaluation("tutorial-feature", new Value("default"), context);
               } catch (Exception e) {
                 // Ignore resolution errors for this test
@@ -277,14 +277,14 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
     final int logRequestsAfterShutdown = mockFlagLoggerService.getRequestCount();
     assertThat(logRequestsAfterShutdown).isGreaterThanOrEqualTo(logRequestsBeforeShutdown);
 
-    // Verify that flag assignment data made it through shutdown. All resolves
-    // use the same flag and targeting key, so the WASM guest dedups them —
-    // roughly one apply event per WASM instance is expected, not one per
-    // resolve.
+    // Verify that all flag assignments were logged — distinct targeting keys
+    // mean dedup keeps one event per resolve.
     final int totalFlagAssignments = mockFlagLoggerService.getTotalFlagAssignments();
     assertThat(totalFlagAssignments)
-        .withFailMessage("Expected at least 1 flag assignment but got %d", totalFlagAssignments)
-        .isGreaterThanOrEqualTo(1);
+        .withFailMessage(
+            "Expected at least %d flag assignments but got %d",
+            numThreads * resolutionsPerThread, totalFlagAssignments)
+        .isGreaterThanOrEqualTo(numThreads * resolutionsPerThread);
   }
 
   @Test
@@ -323,13 +323,10 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
       // Wait for initialization to complete
       assertEquals(ProviderState.READY, provider.getState());
 
-      final ImmutableContext context =
-          new ImmutableContext(
-              "tutorial_visitor", Map.of("visitor_id", new Value("tutorial_visitor")));
-
-      // Perform multiple flag resolutions across multiple threads to ensure all WASM
-      // instances
-      // have log data
+      // Perform multiple flag resolutions across multiple threads to ensure all
+      // WASM instances have log data. Each task uses a distinct targeting key so
+      // the WASM apply dedup does not collapse the events — a lost shutdown
+      // flush must fail this test.
       final int numThreads = Runtime.getRuntime().availableProcessors();
       final int resolutionsPerThread = 5;
       final ExecutorService executor = Executors.newFixedThreadPool(numThreads);
@@ -337,9 +334,12 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
 
       for (int i = 0; i < numThreads; i++) {
         for (int j = 0; j < resolutionsPerThread; j++) {
+          final String taskKey = "tutorial_visitor_" + i + "_" + j;
           executor.submit(
               () -> {
                 try {
+                  final ImmutableContext context =
+                      new ImmutableContext(taskKey, Map.of("visitor_id", new Value(taskKey)));
                   OpenFeatureAPI.getInstance()
                       .getClient()
                       .getObjectDetails("tutorial-feature", new Value("default"), context);
@@ -371,14 +371,14 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
       final int logRequestsAfterShutdown = mockFlagLoggerService.getRequestCount();
       assertThat(logRequestsAfterShutdown).isGreaterThanOrEqualTo(logRequestsBeforeShutdown);
 
-      // Verify that flag assignment data made it through shutdown. All
-      // resolves use the same flag and targeting key, so the WASM guest
-      // dedups them — roughly one apply event per WASM instance is expected,
-      // not one per resolve.
+      // Verify that all flag assignments were logged — distinct targeting keys
+      // mean dedup keeps one event per resolve.
       final int totalFlagAssignments = mockFlagLoggerService.getTotalFlagAssignments();
       assertThat(totalFlagAssignments)
-          .withFailMessage("Expected at least 1 flag assignment but got %d", totalFlagAssignments)
-          .isGreaterThanOrEqualTo(1);
+          .withFailMessage(
+              "Expected at least %d flag assignments but got %d",
+              numThreads * resolutionsPerThread, totalFlagAssignments)
+          .isGreaterThanOrEqualTo(numThreads * resolutionsPerThread);
     }
   }
 

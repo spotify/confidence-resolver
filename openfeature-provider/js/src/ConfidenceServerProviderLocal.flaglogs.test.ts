@@ -131,9 +131,35 @@ describe('WriteFlagLogs tests', () => {
     const logsBytes = resolver.flushLogs();
     const decoded = WriteFlagLogsRequest.decode(logsBytes);
 
-    // All four paths resolve the same underlying flag for the same
-    // targeting key, so the WASM guest dedups them into one apply event.
-    expect(decoded.flagAssigned.length).toBeGreaterThanOrEqual(1);
+    // All four paths resolve the same underlying flag for the same targeting
+    // key on a single WASM instance, so the guest dedups them into exactly
+    // one apply event. The exact bound guards against dedup silently breaking.
+    expect(decoded.flagAssigned.length).toBe(1);
+  });
+
+  it('should not dedup resolves for distinct targeting keys', async () => {
+    const client = OpenFeature.getClient();
+
+    // Distinct users must never be deduped — one apply event per resolve.
+    for (let i = 0; i < 4; i++) {
+      await OpenFeature.setContext({ targetingKey: `distinct-user-${i}`, sticky: false });
+      await client.getBooleanValue('web-sdk-e2e-flag.bool', true);
+    }
+
+    const logsBytes = resolver.flushLogs();
+    const decoded = WriteFlagLogsRequest.decode(logsBytes);
+
+    expect(decoded.flagAssigned.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('should resolve expected values for the fixed e2e targeting key', async () => {
+    // Value assertions on the fixed key used by the e2e suite — dedup only
+    // affects apply-event logging, never resolved values.
+    await OpenFeature.setContext({ targetingKey: 'test-a', sticky: false });
+    const client = OpenFeature.getClient();
+
+    expect(await client.getBooleanValue('web-sdk-e2e-flag.bool', true)).toBeFalsy();
+    expect(await client.getStringValue('web-sdk-e2e-flag.str', 'default')).toEqual('control');
   });
 
   it('should capture non-empty flag assigned data', async () => {

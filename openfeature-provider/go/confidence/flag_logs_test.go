@@ -218,11 +218,35 @@ func TestFlagLogs_ShouldCaptureMultipleResolvesInSingleRequest(t *testing.T) {
 	flushAndWait()
 
 	// The WASM guest deduplicates identical apply events (same flag +
-	// targeting_key + assignment) within a TTL window, so repeated
-	// resolves of the same flag for the same user produce fewer events.
+	// targeting_key + assignment) within a TTL window. All four paths hit the
+	// same underlying flag for the same user, so with a pool of 2 WASM
+	// instances at most 2 apply events survive. The upper bound guards
+	// against dedup silently breaking.
 	totalFlagAssigned := capturingLogger.GetTotalFlagAssignedCount()
-	if totalFlagAssigned < 1 {
-		t.Errorf("Expected at least 1 flag_assigned entry, got %d", totalFlagAssigned)
+	if totalFlagAssigned < 1 || totalFlagAssigned > 2 {
+		t.Errorf("Expected 1-2 flag_assigned entries (dedup, pool of 2), got %d", totalFlagAssigned)
+	}
+}
+
+func TestFlagLogs_ShouldNotDedupDistinctTargetingKeys(t *testing.T) {
+	capturingLogger, client := setupFlagLogsUnitTest(t)
+
+	ctx := context.Background()
+
+	// Distinct users must never be deduped — one apply event per resolve.
+	for _, key := range []string{"test-d1", "test-d2", "test-d3", "test-d4"} {
+		evalCtx := openfeature.NewEvaluationContext(key, map[string]interface{}{
+			"sticky": false,
+		})
+		_, _ = client.BooleanValue(ctx, "web-sdk-e2e-flag.bool", true, evalCtx)
+	}
+
+	// Shutdown to flush logs
+	flushAndWait()
+
+	totalFlagAssigned := capturingLogger.GetTotalFlagAssignedCount()
+	if totalFlagAssigned < 4 {
+		t.Errorf("Expected at least 4 flag_assigned entries for distinct users, got %d", totalFlagAssigned)
 	}
 }
 

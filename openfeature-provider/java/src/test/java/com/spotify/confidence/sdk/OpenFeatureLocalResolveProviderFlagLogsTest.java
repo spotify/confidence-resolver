@@ -172,9 +172,26 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
     assertThat(capturingLogger.getCapturedRequests()).isNotEmpty();
 
     // All four paths resolve the same underlying flag for the same targeting
-    // key, so the WASM guest dedups them into a single apply event.
+    // key on a single WASM instance, so the guest dedups them into exactly
+    // one apply event. An upper bound guards against dedup silently breaking.
     final int totalFlagAssigned = capturingLogger.getTotalFlagAssignedCount();
-    assertThat(totalFlagAssigned).isGreaterThanOrEqualTo(1);
+    assertThat(totalFlagAssigned).isEqualTo(1);
+  }
+
+  @Test
+  void shouldNotDedupResolvesForDistinctTargetingKeys() {
+    // Distinct users must never be deduped — one apply event per resolve.
+    for (int i = 0; i < 4; i++) {
+      final EvaluationContext ctx =
+          new MutableContext(TARGETING_KEY + "-distinct-" + i).add("sticky", false);
+      client.getBooleanValue("web-sdk-e2e-flag.bool", true, ctx);
+    }
+
+    // Flush logs
+    flushLogs();
+
+    final int totalFlagAssigned = capturingLogger.getTotalFlagAssignedCount();
+    assertThat(totalFlagAssigned).isGreaterThanOrEqualTo(4);
   }
 
   @Test
