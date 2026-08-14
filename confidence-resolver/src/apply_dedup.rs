@@ -118,13 +118,13 @@ impl ApplyDedup {
         let mut keep = DedupResult::new(flags.len());
         for (i, fta) in flags.iter().enumerate() {
             let hash = compute_dedup_hash(&fta.assigned_flag);
-            if let Some(ts) = self.seen.get_mut(&hash) {
-                if now_seconds.saturating_sub(*ts) < self.ttl_seconds {
-                    continue;
-                }
-                // expired entry: refresh in place, works even at capacity
-                *ts = now_seconds;
-            } else if self.seen.len() < self.max_entries {
+            // Presence means duplicate — expiry is handled solely by the
+            // periodic sweep in maybe_cleanup, which removes stale entries
+            // so they get re-logged on the next resolve.
+            if self.seen.contains_key(&hash) {
+                continue;
+            }
+            if self.seen.len() < self.max_entries {
                 self.seen.insert(hash, now_seconds);
             }
             keep.mark(i);
@@ -227,15 +227,23 @@ mod tests {
     }
 
     #[test]
-    fn dedup_allows_after_ttl_expires() {
+    fn dedup_allows_after_ttl_expires_and_sweep() {
         let mut dedup = ApplyDedup::new(120, 1000);
         let flags = vec![make_flag_to_apply("flags/a", "user1", "on")];
 
         let first = dedup.filter_duplicates(&flags, 1000);
         assert_eq!(first.kept_count(), 1);
 
+        // Expired but not yet swept — still deduped.
+        dedup.ops_since_cleanup = 0;
         let second = dedup.filter_duplicates(&flags, 1121);
-        assert_eq!(second.kept_count(), 1);
+        assert!(second.is_empty());
+
+        // Force the sweep to run on the next call; entry is expired so it
+        // gets removed and the flag is logged again.
+        dedup.ops_since_cleanup = CLEANUP_INTERVAL - 1;
+        let third = dedup.filter_duplicates(&flags, 1122);
+        assert_eq!(third.kept_count(), 1);
     }
 
     #[test]
