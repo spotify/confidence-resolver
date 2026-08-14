@@ -92,10 +92,16 @@ pub fn compute_applied_flag_dedup_hash(applied: &AppliedFlagRef<'_>) -> u64 {
     h.finish()
 }
 
+/// Minimum seconds between sweeps. Hosts drain large assign backlogs by
+/// calling the flush functions in a tight loop; without this guard every
+/// iteration would repeat the O(n) scan.
+const SWEEP_MIN_INTERVAL_SECONDS: i64 = 10;
+
 pub struct ApplyDedup {
     seen: HashMap<u64, i64, IdentityBuildHasher>,
     ttl_seconds: i64,
     max_entries: usize,
+    last_sweep_seconds: i64,
 }
 
 impl ApplyDedup {
@@ -104,6 +110,7 @@ impl ApplyDedup {
             seen: HashMap::with_capacity_and_hasher(max_entries, IdentityBuildHasher::default()),
             ttl_seconds,
             max_entries,
+            last_sweep_seconds: 0,
         }
     }
 
@@ -130,8 +137,15 @@ impl ApplyDedup {
     }
 
     /// Removes entries older than the TTL. O(n) — call from the periodic
-    /// log flush cycle, never from the resolve path.
+    /// log flush cycle, never from the resolve path. Self-throttling: runs
+    /// at most once per [`SWEEP_MIN_INTERVAL_SECONDS`], so hosts that flush
+    /// in a tight loop (draining a large assign backlog) don't repeat the
+    /// scan on every call.
     pub fn sweep(&mut self, now_seconds: i64) {
+        if now_seconds.saturating_sub(self.last_sweep_seconds) < SWEEP_MIN_INTERVAL_SECONDS {
+            return;
+        }
+        self.last_sweep_seconds = now_seconds;
         let ttl = self.ttl_seconds;
         self.seen
             .retain(|_, ts| now_seconds.saturating_sub(*ts) < ttl);
@@ -309,8 +323,26 @@ mod tests {
         dedup.sweep(105);
         assert_eq!(dedup.seen.len(), 1);
 
-        // Sweep after expiry removes it.
-        dedup.sweep(111);
+        // Sweep after expiry removes it (>= SWEEP_MIN_INTERVAL after last).
+        dedup.sweep(115);
+        assert_eq!(dedup.seen.len(), 0);
+    }
+
+    #[test]
+    fn sweep_is_throttled() {
+        let mut dedup = ApplyDedup::new(10, 1000);
+        let flags = vec![make_flag_to_apply("flags/a", "user1", "on")];
+
+        dedup.filter_duplicates(&flags, 100);
+        dedup.sweep(105); // runs, sets last_sweep
+
+        // Entry expired at 110, but this sweep is within the min interval
+        // of the previous one — throttled, entry stays.
+        dedup.sweep(112);
+        assert_eq!(dedup.seen.len(), 1);
+
+        // Past the min interval — sweep runs and removes the expired entry.
+        dedup.sweep(115);
         assert_eq!(dedup.seen.len(), 0);
     }
 
