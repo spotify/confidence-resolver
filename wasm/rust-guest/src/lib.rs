@@ -136,6 +136,16 @@ impl Host for WasmHost {
     }
 }
 
+/// Removes expired apply-dedup entries. Called from the log flush cycle
+/// (host-driven, off the resolve path) so resolves never pay the O(n) scan.
+fn sweep_apply_dedup() {
+    let now_seconds = WasmHost::current_time().seconds;
+    match APPLY_DEDUP.lock() {
+        Ok(mut dedup) => dedup.sweep(now_seconds),
+        Err(poisoned) => poisoned.into_inner().sweep(now_seconds),
+    }
+}
+
 /// Safely gets an owned handle to the current resolver state.
 fn get_resolver_state() -> Result<Arc<ResolverState>, String> {
     let guard = RESOLVER_STATE.load();
@@ -199,12 +209,14 @@ wasm_msg_guest! {
 
     // deprecated
     fn flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
+        sweep_apply_dedup();
         let mut req = RESOLVE_LOGGER.checkpoint();
         ASSIGN_LOGGER.checkpoint_fill(&mut req);
         Ok(req)
     }
 
     fn bounded_flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
+        sweep_apply_dedup();
         let mut req = RESOLVE_LOGGER.checkpoint();
         let mut td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
         if let Some(state) = RESOLVER_STATE.load().as_ref() {
@@ -216,6 +228,7 @@ wasm_msg_guest! {
     }
 
     fn bounded_flush_assign(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
+        sweep_apply_dedup();
         Ok(ASSIGN_LOGGER.checkpoint_with_limit(LOG_TARGET_BYTES, true))
     }
 

@@ -7,7 +7,6 @@ use crate::FlagToApply;
 
 const FNV64_INIT: u64 = 0xCBF2_9CE4_8422_2325;
 const FNV64_PRIME: u64 = 0x1000_0000_01B3;
-const CLEANUP_INTERVAL: usize = 128;
 
 /// Identity hasher for pre-hashed u64 keys — avoids double-hashing in the HashMap.
 #[derive(Default)]
@@ -97,7 +96,6 @@ pub struct ApplyDedup {
     seen: HashMap<u64, i64, IdentityBuildHasher>,
     ttl_seconds: i64,
     max_entries: usize,
-    ops_since_cleanup: usize,
 }
 
 impl ApplyDedup {
@@ -106,21 +104,20 @@ impl ApplyDedup {
             seen: HashMap::with_capacity_and_hasher(max_entries, IdentityBuildHasher::default()),
             ttl_seconds,
             max_entries,
-            ops_since_cleanup: 0,
         }
     }
 
     /// Returns `true` for each flag that should be logged (not a duplicate).
     /// The caller uses the returned mask to decide which flags to forward.
+    ///
+    /// Never scans the map — expiry is handled solely by [`Self::sweep`],
+    /// which the host calls off the resolve path (from the log flush cycle).
     pub fn filter_duplicates(&mut self, flags: &[FlagToApply], now_seconds: i64) -> DedupResult {
-        self.maybe_cleanup(now_seconds);
-
         let mut keep = DedupResult::new(flags.len());
         for (i, fta) in flags.iter().enumerate() {
             let hash = compute_dedup_hash(&fta.assigned_flag);
-            // Presence means duplicate — expiry is handled solely by the
-            // periodic sweep in maybe_cleanup, which removes stale entries
-            // so they get re-logged on the next resolve.
+            // Presence means duplicate — stale entries are removed by sweep,
+            // after which the flag gets re-logged on its next resolve.
             if self.seen.contains_key(&hash) {
                 continue;
             }
@@ -132,12 +129,9 @@ impl ApplyDedup {
         keep
     }
 
-    fn maybe_cleanup(&mut self, now_seconds: i64) {
-        self.ops_since_cleanup = self.ops_since_cleanup.saturating_add(1);
-        if self.ops_since_cleanup < CLEANUP_INTERVAL {
-            return;
-        }
-        self.ops_since_cleanup = 0;
+    /// Removes entries older than the TTL. O(n) — call from the periodic
+    /// log flush cycle, never from the resolve path.
+    pub fn sweep(&mut self, now_seconds: i64) {
         let ttl = self.ttl_seconds;
         self.seen
             .retain(|_, ts| now_seconds.saturating_sub(*ts) < ttl);
@@ -235,13 +229,11 @@ mod tests {
         assert_eq!(first.kept_count(), 1);
 
         // Expired but not yet swept — still deduped.
-        dedup.ops_since_cleanup = 0;
         let second = dedup.filter_duplicates(&flags, 1121);
         assert!(second.is_empty());
 
-        // Force the sweep to run on the next call; entry is expired so it
-        // gets removed and the flag is logged again.
-        dedup.ops_since_cleanup = CLEANUP_INTERVAL - 1;
+        // Sweep removes the expired entry; the flag is logged again.
+        dedup.sweep(1122);
         let third = dedup.filter_duplicates(&flags, 1122);
         assert_eq!(third.kept_count(), 1);
     }
@@ -306,16 +298,19 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_removes_expired_entries() {
+    fn sweep_removes_expired_entries() {
         let mut dedup = ApplyDedup::new(10, 1000);
         let flags = vec![make_flag_to_apply("flags/a", "user1", "on")];
 
         dedup.filter_duplicates(&flags, 100);
         assert_eq!(dedup.seen.len(), 1);
 
-        // force cleanup
-        dedup.ops_since_cleanup = CLEANUP_INTERVAL - 1;
-        dedup.maybe_cleanup(111);
+        // Sweep before expiry keeps the entry.
+        dedup.sweep(105);
+        assert_eq!(dedup.seen.len(), 1);
+
+        // Sweep after expiry removes it.
+        dedup.sweep(111);
         assert_eq!(dedup.seen.len(), 0);
     }
 
@@ -472,8 +467,8 @@ mod tests {
         dedup.filter_duplicates(&f2, 100);
         assert_eq!(dedup.seen.len(), 2);
 
-        // trigger cleanup after TTL
-        dedup.ops_since_cleanup = CLEANUP_INTERVAL - 1;
+        // Sweep after TTL frees capacity for new entries.
+        dedup.sweep(111);
         let f3 = vec![make_flag_to_apply("flags/c", "user1", "on")];
         let result = dedup.filter_duplicates(&f3, 111);
         assert_eq!(result.kept_count(), 1);
