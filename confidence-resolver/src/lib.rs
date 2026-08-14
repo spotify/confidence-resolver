@@ -289,9 +289,11 @@ impl ResolverState {
 pub struct EvaluationContext {
     pub context: Struct,
 }
-#[derive(Clone)]
-pub struct FlagToApply {
-    pub assigned_flag: AssignedFlag,
+/// Borrows the assignment so the apply path never clones `AssignedFlag`s —
+/// dedup can discard duplicates before any owned copy is made.
+#[derive(Clone, Copy)]
+pub struct FlagToApply<'a> {
+    pub assigned_flag: &'a AssignedFlag,
     pub skew_adjusted_applied_time: Timestamp,
 }
 
@@ -320,7 +322,7 @@ pub trait Host {
 
     fn log_assign(
         resolve_id: &str,
-        assigned_flags: &[FlagToApply],
+        assigned_flags: &[FlagToApply<'_>],
         client: &Client,
         sdk: &Option<flags_resolver::Sdk>,
     );
@@ -904,17 +906,14 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             ..Default::default()
         };
 
-        let flags_to_assign: Vec<AssignedFlag> = resolved_values
-            .iter()
-            .filter(|rv| rv.should_apply())
-            .map(|rv| rv.into())
-            .collect();
-
         if resolve_request.apply {
-            let flags_to_apply: Vec<FlagToApply> = flags_to_assign
+            // Borrow assignments straight out of the resolved values — no
+            // AssignedFlag is cloned unless the host actually logs it.
+            let flags_to_apply: Vec<FlagToApply<'_>> = resolved_values
                 .iter()
-                .map(|af| FlagToApply {
-                    assigned_flag: af.clone(),
+                .filter(|rv| rv.should_apply())
+                .map(|rv| FlagToApply {
+                    assigned_flag: &rv.inner,
                     skew_adjusted_applied_time: timestamp,
                 })
                 .collect();
@@ -931,10 +930,10 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 evaluation_context: Some(Struct::default()),
                 ..Default::default()
             };
-            for assigned_flag in &flags_to_assign {
+            for rv in resolved_values.iter().filter(|rv| rv.should_apply()) {
                 resolve_token_v1
                     .assignments
-                    .insert(assigned_flag.flag.clone(), assigned_flag.clone());
+                    .insert(rv.inner.flag.clone(), rv.inner.clone());
             }
 
             let resolve_token = flags_resolver::ResolveToken {
@@ -999,7 +998,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         let assignments = resolve_token.assignments;
 
         // ensure that all flags are present before we start sending events
-        let mut assigned_flags: Vec<FlagToApply> = Vec::with_capacity(request.flags.len());
+        let mut assigned_flags: Vec<FlagToApply<'_>> = Vec::with_capacity(request.flags.len());
         for applied_flag in &request.flags {
             let Some(assigned_flag) = assignments.get(&applied_flag.flag) else {
                 return Err("Flag in resolve token does not match flag in request".to_string());
@@ -1012,7 +1011,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             let adjusted_time = receive_time.checked_sub_signed(skew).or_fail()?;
             let skew_adjusted_applied_time = datetime_to_timestamp(&adjusted_time);
             assigned_flags.push(FlagToApply {
-                assigned_flag: assigned_flag.clone(),
+                assigned_flag,
                 skew_adjusted_applied_time,
             });
         }
@@ -1854,7 +1853,7 @@ mod tests {
 
         fn log_assign(
             _resolve_id: &str,
-            _assigned_flag: &[FlagToApply],
+            _assigned_flag: &[FlagToApply<'_>],
             _client: &Client,
             _sdk: &Option<Sdk>,
         ) {
@@ -2253,7 +2252,7 @@ mod tests {
 
             fn log_assign(
                 resolve_id: &str,
-                assigned_flag: &[FlagToApply],
+                assigned_flag: &[FlagToApply<'_>],
                 _client: &Client,
                 _sdk: &Option<Sdk>,
             ) {
@@ -2397,7 +2396,7 @@ mod tests {
 
             fn log_assign(
                 resolve_id: &str,
-                assigned_flag: &[FlagToApply],
+                assigned_flag: &[FlagToApply<'_>],
                 _client: &Client,
                 _sdk: &Option<Sdk>,
             ) {

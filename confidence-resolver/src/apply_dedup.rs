@@ -79,14 +79,37 @@ impl DedupHasher {
     }
 }
 
-/// Hashes the full apply identity — every field except `apply_time`.
+// Tier discriminators mixed in first so the two key schemes can never
+// collide with each other.
+const TIER_SLIM: u64 = 1;
+const TIER_FULL: u64 = 2;
+
+/// Hashes the apply identity.
 ///
-/// The parent `targeting_key`/`assignment_id` alone are NOT a unique
-/// identity: fallthrough-only and no-unit assignments leave them empty, and
-/// the per-user identity then lives in `fallthrough_assignments`. Dropping
-/// any field risks silently swallowing another user's apply event.
+/// Common case (non-empty `targeting_key` + `assignment_id`, no
+/// fallthroughs): `(flag, targeting_key, assignment_id, reason)` is a unique
+/// identity — `assignment_id` encodes the rule assignment — so a slim hash
+/// suffices. Otherwise the per-user identity may live in
+/// `fallthrough_assignments` (fallthrough-only / no-unit shapes), so every
+/// field except `apply_time` is hashed; dropping any of them risks silently
+/// swallowing another user's apply event.
 pub fn compute_dedup_hash(assigned: &AssignedFlag) -> u64 {
     let mut h = DedupHasher::new();
+    if !assigned.targeting_key.is_empty()
+        && !assigned.assignment_id.is_empty()
+        && assigned.fallthrough_assignments.is_empty()
+    {
+        h.mix(TIER_SLIM);
+        h.write(assigned.flag.as_bytes());
+        h.separator();
+        h.write(assigned.targeting_key.as_bytes());
+        h.separator();
+        h.write(assigned.assignment_id.as_bytes());
+        h.separator();
+        h.write(&assigned.reason.to_le_bytes());
+        return h.finish();
+    }
+    h.mix(TIER_FULL);
     h.write(assigned.flag.as_bytes());
     h.separator();
     h.write(assigned.targeting_key.as_bytes());
@@ -128,9 +151,25 @@ pub struct AppliedFlagRef<'a> {
     pub fallthrough_assignments: &'a [FallthroughAssignment],
 }
 
-/// Must stay field-for-field consistent with [`compute_dedup_hash`].
+/// Must stay field-for-field consistent with [`compute_dedup_hash`],
+/// including the slim/full tier split.
 pub fn compute_applied_flag_dedup_hash(applied: &AppliedFlagRef<'_>) -> u64 {
     let mut h = DedupHasher::new();
+    if !applied.targeting_key.is_empty()
+        && !applied.assignment_id.is_empty()
+        && applied.fallthrough_assignments.is_empty()
+    {
+        h.mix(TIER_SLIM);
+        h.write(applied.flag.as_bytes());
+        h.separator();
+        h.write(applied.targeting_key.as_bytes());
+        h.separator();
+        h.write(applied.assignment_id.as_bytes());
+        h.separator();
+        h.write(&applied.reason.to_le_bytes());
+        return h.finish();
+    }
+    h.mix(TIER_FULL);
     h.write(applied.flag.as_bytes());
     h.separator();
     h.write(applied.targeting_key.as_bytes());
@@ -190,7 +229,11 @@ impl ApplyDedup {
     ///
     /// Never scans the map — expiry is handled solely by [`Self::sweep`],
     /// which the host calls off the resolve path (from the log flush cycle).
-    pub fn filter_duplicates(&mut self, flags: &[FlagToApply], now_seconds: i64) -> DedupResult {
+    pub fn filter_duplicates(
+        &mut self,
+        flags: &[FlagToApply<'_>],
+        now_seconds: i64,
+    ) -> DedupResult {
         // Deferred applies carry skew-adjusted times that can lie far in the
         // past (client applied long before sending); inserting with such a
         // timestamp would create a pre-expired entry the next sweep drops
@@ -198,7 +241,7 @@ impl ApplyDedup {
         let now_seconds = now_seconds.max(self.last_sweep_seconds);
         let mut keep = DedupResult::new(flags.len());
         for (i, fta) in flags.iter().enumerate() {
-            let hash = compute_dedup_hash(&fta.assigned_flag);
+            let hash = compute_dedup_hash(fta.assigned_flag);
             // Presence means duplicate — stale entries are removed by sweep,
             // after which the flag gets re-logged on its next resolve.
             if self.seen.contains_key(&hash) {
@@ -281,15 +324,15 @@ impl DedupResult {
         }
     }
 
-    /// Collect the kept flags by cloning only the survivors.
-    pub fn collect(&self, flags: &[FlagToApply]) -> Vec<FlagToApply> {
+    /// Collect the kept flags — FlagToApply is Copy (borrowed data).
+    pub fn collect<'a>(&self, flags: &[FlagToApply<'a>]) -> Vec<FlagToApply<'a>> {
         if self.count == flags.len() {
             return flags.to_vec();
         }
         let mut out = Vec::with_capacity(self.count);
         for (i, f) in flags.iter().enumerate() {
             if self.is_kept(i) {
-                out.push(f.clone());
+                out.push(*f);
             }
         }
         out
@@ -309,11 +352,17 @@ mod tests {
         }
     }
 
-    fn make_flag_to_apply(flag: &str, targeting_key: &str, variant: &str) -> FlagToApply {
+    /// Test-only: leaks the AssignedFlag to get a 'static borrow — a few KB
+    /// per test process, keeps test call sites simple.
+    fn wrap(assigned: AssignedFlag) -> FlagToApply<'static> {
         FlagToApply {
-            assigned_flag: make_assigned(flag, targeting_key, variant),
+            assigned_flag: Box::leak(Box::new(assigned)),
             skew_adjusted_applied_time: Default::default(),
         }
+    }
+
+    fn make_flag_to_apply(flag: &str, targeting_key: &str, variant: &str) -> FlagToApply<'static> {
+        wrap(make_assigned(flag, targeting_key, variant))
     }
 
     #[test]
@@ -375,10 +424,12 @@ mod tests {
     #[test]
     fn dedup_allows_same_flag_different_assignment_id() {
         let mut dedup = ApplyDedup::new(120, 1000);
-        let mut f1 = make_flag_to_apply("flags/a", "user1", "on");
-        f1.assigned_flag.assignment_id = "assign-v1".to_string();
-        let mut f2 = make_flag_to_apply("flags/a", "user1", "off");
-        f2.assigned_flag.assignment_id = "assign-v2".to_string();
+        let mut a1 = make_assigned("flags/a", "user1", "on");
+        a1.assignment_id = "assign-v1".to_string();
+        let f1 = wrap(a1);
+        let mut a2 = make_assigned("flags/a", "user1", "off");
+        a2.assignment_id = "assign-v2".to_string();
+        let f2 = wrap(a2);
 
         let first = dedup.filter_duplicates(&[f1], 1000);
         assert_eq!(first.kept_count(), 1);
@@ -489,10 +540,12 @@ mod tests {
     fn dedup_differentiates_by_reason() {
         let mut dedup = ApplyDedup::new(120, 1000);
 
-        let mut f1 = make_flag_to_apply("flags/a", "user1", "");
-        f1.assigned_flag.reason = 1; // NoSegmentMatch
-        let mut f2 = make_flag_to_apply("flags/a", "user1", "");
-        f2.assigned_flag.reason = 3; // FlagArchived
+        let mut a1 = make_assigned("flags/a", "user1", "");
+        a1.reason = 1; // NoSegmentMatch
+        let f1 = wrap(a1);
+        let mut a2 = make_assigned("flags/a", "user1", "");
+        a2.reason = 3; // FlagArchived
+        let f2 = wrap(a2);
 
         let first = dedup.filter_duplicates(&[f1], 1000);
         assert_eq!(first.kept_count(), 1);
@@ -509,10 +562,12 @@ mod tests {
     fn dedup_differentiates_by_assignment_id() {
         let mut dedup = ApplyDedup::new(120, 1000);
 
-        let mut f1 = make_flag_to_apply("flags/a", "user1", "on");
-        f1.assigned_flag.assignment_id = "assign-1".to_string();
-        let mut f2 = make_flag_to_apply("flags/a", "user1", "on");
-        f2.assigned_flag.assignment_id = "assign-2".to_string();
+        let mut a1 = make_assigned("flags/a", "user1", "on");
+        a1.assignment_id = "assign-1".to_string();
+        let f1 = wrap(a1);
+        let mut a2 = make_assigned("flags/a", "user1", "on");
+        a2.assignment_id = "assign-2".to_string();
+        let f2 = wrap(a2);
 
         let first = dedup.filter_duplicates(&[f1], 1000);
         assert_eq!(first.kept_count(), 1);
@@ -573,15 +628,15 @@ mod tests {
         let mut dedup = ApplyDedup::new(120, 1000);
 
         let mut for_user = |user: &str| {
-            let mut fta = make_flag_to_apply("flags/a", "", "");
-            fta.assigned_flag.reason = 1; // NoSegmentMatch
-            fta.assigned_flag.fallthrough_assignments = vec![FallthroughAssignment {
+            let mut assigned = make_assigned("flags/a", "", "");
+            assigned.reason = 1; // NoSegmentMatch
+            assigned.fallthrough_assignments = vec![FallthroughAssignment {
                 rule: "rule-1".to_string(),
                 assignment_id: "assign-1".to_string(),
                 targeting_key: user.to_string(),
                 targeting_key_selector: "targeting_key".to_string(),
             }];
-            fta
+            wrap(assigned)
         };
 
         let first = dedup.filter_duplicates(&[for_user("user-a")], 1000);

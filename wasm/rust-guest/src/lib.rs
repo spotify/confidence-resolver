@@ -97,7 +97,7 @@ impl Host for WasmHost {
 
     fn log_assign(
         resolve_id: &str,
-        assigned_flags: &[FlagToApply],
+        assigned_flags: &[FlagToApply<'_>],
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
