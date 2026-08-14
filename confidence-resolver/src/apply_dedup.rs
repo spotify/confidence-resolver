@@ -79,65 +79,9 @@ impl DedupHasher {
     }
 }
 
-// Tier discriminators mixed in first so the two key schemes can never
-// collide with each other.
-const TIER_SLIM: u64 = 1;
-const TIER_FULL: u64 = 2;
-
-/// Hashes the apply identity.
-///
-/// Common case (non-empty `targeting_key` + `assignment_id`, no
-/// fallthroughs): `(flag, targeting_key, assignment_id, reason)` is a unique
-/// identity — `assignment_id` encodes the rule assignment — so a slim hash
-/// suffices. Otherwise the per-user identity may live in
-/// `fallthrough_assignments` (fallthrough-only / no-unit shapes), so every
-/// field except `apply_time` is hashed; dropping any of them risks silently
-/// swallowing another user's apply event.
-pub fn compute_dedup_hash(assigned: &AssignedFlag) -> u64 {
-    let mut h = DedupHasher::new();
-    if !assigned.targeting_key.is_empty()
-        && !assigned.assignment_id.is_empty()
-        && assigned.fallthrough_assignments.is_empty()
-    {
-        h.mix(TIER_SLIM);
-        h.write(assigned.flag.as_bytes());
-        h.separator();
-        h.write(assigned.targeting_key.as_bytes());
-        h.separator();
-        h.write(assigned.assignment_id.as_bytes());
-        h.separator();
-        h.write(&assigned.reason.to_le_bytes());
-        return h.finish();
-    }
-    h.mix(TIER_FULL);
-    h.write(assigned.flag.as_bytes());
-    h.separator();
-    h.write(assigned.targeting_key.as_bytes());
-    h.separator();
-    h.write(assigned.targeting_key_selector.as_bytes());
-    h.separator();
-    h.write(assigned.assignment_id.as_bytes());
-    h.separator();
-    h.write(assigned.variant.as_bytes());
-    h.separator();
-    h.write(assigned.segment.as_bytes());
-    h.separator();
-    h.write(assigned.rule.as_bytes());
-    h.separator();
-    h.write(&assigned.reason.to_le_bytes());
-    for ft in &assigned.fallthrough_assignments {
-        h.separator();
-        h.write(ft.rule.as_bytes());
-        h.separator();
-        h.write(ft.assignment_id.as_bytes());
-        h.separator();
-        h.write(ft.targeting_key.as_bytes());
-        h.separator();
-        h.write(ft.targeting_key_selector.as_bytes());
-    }
-    h.finish()
-}
-
+/// Borrowed view of an apply event's identity fields, shared by the
+/// `AssignedFlag` (WASM) and `AppliedFlag` (Cloudflare) proto shapes so
+/// there is exactly one key schema.
 #[derive(Default)]
 pub struct AppliedFlagRef<'a> {
     pub flag: &'a str,
@@ -151,25 +95,32 @@ pub struct AppliedFlagRef<'a> {
     pub fallthrough_assignments: &'a [FallthroughAssignment],
 }
 
-/// Must stay field-for-field consistent with [`compute_dedup_hash`],
-/// including the slim/full tier split.
+impl<'a> From<&'a AssignedFlag> for AppliedFlagRef<'a> {
+    fn from(a: &'a AssignedFlag) -> Self {
+        Self {
+            flag: &a.flag,
+            targeting_key: &a.targeting_key,
+            targeting_key_selector: &a.targeting_key_selector,
+            assignment_id: &a.assignment_id,
+            rule: &a.rule,
+            variant: &a.variant,
+            segment: &a.segment,
+            reason: a.reason,
+            fallthrough_assignments: &a.fallthrough_assignments,
+        }
+    }
+}
+
+/// The single dedup key definition: the full apply identity — every field
+/// except `apply_time`.
+///
+/// No field may be dropped. `assignment_id` is an opaque user-chosen label
+/// (rules can share names like "control", and an assignment can be repointed
+/// to a new variant without renaming), and fallthrough-only / no-unit shapes
+/// carry the per-user identity in `fallthrough_assignments`. Hashing less
+/// silently swallows apply events.
 pub fn compute_applied_flag_dedup_hash(applied: &AppliedFlagRef<'_>) -> u64 {
     let mut h = DedupHasher::new();
-    if !applied.targeting_key.is_empty()
-        && !applied.assignment_id.is_empty()
-        && applied.fallthrough_assignments.is_empty()
-    {
-        h.mix(TIER_SLIM);
-        h.write(applied.flag.as_bytes());
-        h.separator();
-        h.write(applied.targeting_key.as_bytes());
-        h.separator();
-        h.write(applied.assignment_id.as_bytes());
-        h.separator();
-        h.write(&applied.reason.to_le_bytes());
-        return h.finish();
-    }
-    h.mix(TIER_FULL);
     h.write(applied.flag.as_bytes());
     h.separator();
     h.write(applied.targeting_key.as_bytes());
@@ -196,6 +147,12 @@ pub fn compute_applied_flag_dedup_hash(applied: &AppliedFlagRef<'_>) -> u64 {
         h.write(ft.targeting_key_selector.as_bytes());
     }
     h.finish()
+}
+
+/// See [`compute_applied_flag_dedup_hash`] — this is the same key schema via
+/// the borrowed view, guaranteed identical by delegation.
+pub fn compute_dedup_hash(assigned: &AssignedFlag) -> u64 {
+    compute_applied_flag_dedup_hash(&assigned.into())
 }
 
 /// Minimum seconds between sweeps. Hosts drain large assign backlogs by
@@ -436,6 +393,53 @@ mod tests {
 
         let second = dedup.filter_duplicates(&[f2], 1000);
         assert_eq!(second.kept_count(), 1);
+    }
+
+    #[test]
+    fn variant_change_with_same_assignment_id_is_not_deduped() {
+        // assignment_id is an opaque label: an assignment can be repointed to
+        // a new variant without renaming. The variant change must re-log even
+        // with non-empty targeting_key + assignment_id and no fallthroughs.
+        let mut dedup = ApplyDedup::new(120, 1000);
+
+        let mut a1 = make_assigned("flags/a", "user1", "on");
+        a1.assignment_id = "control".to_string();
+        let f1 = wrap(a1);
+
+        let mut a2 = make_assigned("flags/a", "user1", "off");
+        a2.assignment_id = "control".to_string();
+        let f2 = wrap(a2);
+
+        assert_eq!(dedup.filter_duplicates(&[f1], 1000).kept_count(), 1);
+        assert_eq!(
+            dedup.filter_duplicates(&[f2], 1000).kept_count(),
+            1,
+            "variant change under the same assignment_id must not be deduped"
+        );
+    }
+
+    #[test]
+    fn rule_change_with_same_assignment_id_is_not_deduped() {
+        // Two rules on the same flag can both name an assignment "control";
+        // a user moving between rules must produce two apply events.
+        let mut dedup = ApplyDedup::new(120, 1000);
+
+        let mut a1 = make_assigned("flags/a", "user1", "on");
+        a1.assignment_id = "control".to_string();
+        a1.rule = "rules/rule-a".to_string();
+        let f1 = wrap(a1);
+
+        let mut a2 = make_assigned("flags/a", "user1", "on");
+        a2.assignment_id = "control".to_string();
+        a2.rule = "rules/rule-b".to_string();
+        let f2 = wrap(a2);
+
+        assert_eq!(dedup.filter_duplicates(&[f1], 1000).kept_count(), 1);
+        assert_eq!(
+            dedup.filter_duplicates(&[f2], 1000).kept_count(),
+            1,
+            "rule change under the same assignment_id must not be deduped"
+        );
     }
 
     #[test]
