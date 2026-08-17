@@ -45,16 +45,56 @@ class TestInitialize:
     ) -> None:
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            flag_logger=MockFlagLogger(),
             wasm_bytes=wasm_bytes,
         )
         request = internal_api_pb2.WriteFlagLogsRequest()
         request.telemetry_data.SetInParent()
 
-        encoded = provider._append_init(request.SerializeToString())
-        decoded = internal_api_pb2.WriteFlagLogsRequest.FromString(encoded)
+        provider._write_logs(request.SerializeToString())
+        decoded = internal_api_pb2.WriteFlagLogsRequest.FromString(
+            provider._flag_logger.writes[0]
+        )
 
         assert decoded.telemetry_data.sdk.id == types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER
         assert decoded.telemetry_data.sdk.version == __version__
+        assert len(decoded.telemetry_data.provider_init_rate) == 1
+
+    def test_init_telemetry_retries_after_failed_write(
+        self,
+        wasm_bytes: bytes,
+        test_client_secret: str,
+    ) -> None:
+        class FailOnceLogger(MockFlagLogger):
+            def __init__(self) -> None:
+                super().__init__()
+                self.attempts = 0
+
+            def write(self, request_bytes: bytes) -> None:
+                self.attempts += 1
+                if self.attempts == 1:
+                    raise RuntimeError("send failed")
+                super().write(request_bytes)
+
+        mock_logger = FailOnceLogger()
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+        )
+        request = internal_api_pb2.WriteFlagLogsRequest()
+        request.telemetry_data.SetInParent()
+        encoded = request.SerializeToString()
+
+        try:
+            provider._write_logs(encoded)
+        except RuntimeError:
+            pass
+        provider._write_logs(encoded)
+
+        decoded = internal_api_pb2.WriteFlagLogsRequest.FromString(
+            mock_logger.writes[0]
+        )
         assert len(decoded.telemetry_data.provider_init_rate) == 1
 
     def test_initialize_fetches_state(

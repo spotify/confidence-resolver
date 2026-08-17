@@ -172,7 +172,8 @@ class ConfidenceProvider(AbstractProvider):
         self._init_labels: Dict[str, str] = {
             "encryption": str(bool(encryption_key)).lower()
         }
-        self._first_flush = True
+        self._init_telemetry_state = "pending"
+        self._init_telemetry_lock = threading.Lock()
         self._state_poll_interval = state_poll_interval
         self._log_poll_interval = log_poll_interval
         self._assign_poll_interval = assign_poll_interval
@@ -330,9 +331,7 @@ class ConfidenceProvider(AbstractProvider):
         # Flush final logs
         if self._resolver is not None:
             try:
-                log_data = self._append_init(self._resolver.flush_logs())
-                if log_data and self._flag_logger is not None:
-                    self._flag_logger.write(log_data)
+                self._write_logs(self._resolver.flush_logs())
             except Exception as e:
                 logger.error("Failed to flush final logs: %s", e)
 
@@ -778,6 +777,41 @@ class ConfidenceProvider(AbstractProvider):
         except Exception as e:
             logger.error("Failed to write materializations: %s", e)
 
+    def _write_logs(self, log_data: bytes) -> None:
+        if not log_data or self._flag_logger is None:
+            return
+
+        include_init = False
+        with self._init_telemetry_lock:
+            if self._init_telemetry_state == "pending":
+                self._init_telemetry_state = "sending"
+                include_init = True
+
+        if include_init:
+            request = internal_api_pb2.WriteFlagLogsRequest.FromString(log_data)
+            request.telemetry_data.sdk.CopyFrom(
+                types_pb2.Sdk(
+                    id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
+                    version=__version__,
+                )
+            )
+            init_rate = request.telemetry_data.provider_init_rate.add()
+            init_rate.count = 1
+            for k, v in self._init_labels.items():
+                init_rate.labels[k] = v
+            log_data = request.SerializeToString()
+
+        try:
+            self._flag_logger.write(log_data)
+        except Exception:
+            if include_init:
+                with self._init_telemetry_lock:
+                    self._init_telemetry_state = "pending"
+            raise
+        else:
+            if include_init:
+                with self._init_telemetry_lock:
+                    self._init_telemetry_state = "sent"
     def _create_flag_logger(
         self, account_id: str, log_destinations: List[int]
     ) -> FlagLogger:
@@ -808,25 +842,6 @@ class ConfidenceProvider(AbstractProvider):
             client_secret=self._client_secret,
             channel=self._grpc_channel,
         )
-
-    def _append_init(self, log_data: bytes) -> bytes:
-        if self._first_flush and log_data:
-            self._first_flush = False
-            request = internal_api_pb2.WriteFlagLogsRequest()
-            request.ParseFromString(log_data)
-            request.telemetry_data.sdk.CopyFrom(
-                types_pb2.Sdk(
-                    id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
-                    version=__version__,
-                )
-            )
-            init_rate = request.telemetry_data.provider_init_rate.add()
-            init_rate.count = 1
-            for k, v in self._init_labels.items():
-                init_rate.labels[k] = v
-            return request.SerializeToString()
-        self._first_flush = False
-        return log_data
 
     def _flush_assigned(self) -> None:
         """Flush assigned logs."""
@@ -899,9 +914,7 @@ class ConfidenceProvider(AbstractProvider):
                             self._enable_apply_dedup,
                             self._disable_exposure_collection,
                         )
-                    flushed_logs = self._append_init(flushed_logs)
-                    if flushed_logs and self._flag_logger is not None:
-                        self._flag_logger.write(flushed_logs)
+                    self._write_logs(flushed_logs)
 
                     # Update account ID and destinations on the logger
                     if self._flag_logger is not None:
@@ -939,9 +952,7 @@ class ConfidenceProvider(AbstractProvider):
                 try:
                     with self._resolver_lock:
                         log_data = self._resolver.flush_logs()
-                    log_data = self._append_init(log_data)
-                    if log_data and self._flag_logger is not None:
-                        self._flag_logger.write(log_data)
+                    self._write_logs(log_data)
                 except Exception as e:
                     logger.error("Failed to flush logs: %s", e)
                 last_full_flush = now

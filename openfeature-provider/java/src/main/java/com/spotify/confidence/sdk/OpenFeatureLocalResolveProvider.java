@@ -55,6 +55,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       org.slf4j.LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
   private final LocalResolver resolver;
   private final WasmFlagLogger flagLogger;
+  private final ProviderInitTelemetrySink providerInitTelemetrySink;
   private final MaterializationStore materializationStore;
   private final boolean disableExposureCollection;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
@@ -165,6 +166,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.flagLogger = wasmFlagLogger;
     final Map<String, String> initLabels =
         Map.of("encryption", String.valueOf(config.getEncryptionKey() != null));
+    this.providerInitTelemetrySink =
+        new ProviderInitTelemetrySink(flagLogger::write, SDK, initLabels);
     final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
     final LocalResolver inner =
         new PooledResolver(
@@ -173,10 +176,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                 new RecoveringResolver(
                     () ->
                         new WasmLocalResolver(
-                            flagLogger::write,
+                            providerInitTelemetrySink,
                             config.isEnableApplyDedup(),
-                            config.isDisableExposureCollection(),
-                            initLabels)));
+                            config.isDisableExposureCollection())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -228,6 +230,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.flagLogger = wasmFlagLogger;
     final int numInstances =
         PooledResolver.getNumInstances(LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE);
+    this.providerInitTelemetrySink =
+        new ProviderInitTelemetrySink(wasmFlagLogger::write, SDK, Map.of());
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
@@ -235,10 +239,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                 new RecoveringResolver(
                     () ->
                         new WasmLocalResolver(
-                            wasmFlagLogger::write,
+                            providerInitTelemetrySink,
                             enableApplyDedup,
-                            disableExposureCollection,
-                            Map.of())));
+                            disableExposureCollection)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -442,6 +445,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     // resolver.close() flushes remaining logs via the log sink
     this.resolver.close();
+    this.providerInitTelemetrySink.emitIfPending();
 
     // flagLogger.shutdown() waits for pending async writes to complete
     this.flagLogger.shutdown();
