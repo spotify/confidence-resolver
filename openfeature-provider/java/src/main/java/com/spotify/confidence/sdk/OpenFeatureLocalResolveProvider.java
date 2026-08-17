@@ -166,8 +166,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             numInstances,
             () ->
                 new RecoveringResolver(
-                    () ->
-                        new WasmLocalResolver(flagLogger::write, config.isDisableApplyDedup())));
+                    () -> new WasmLocalResolver(flagLogger::write, config.isDisableApplyDedup())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
