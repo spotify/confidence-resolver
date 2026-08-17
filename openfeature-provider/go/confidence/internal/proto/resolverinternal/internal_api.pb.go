@@ -243,7 +243,10 @@ func (x *IngestFlagLogsRequest) GetBatch() *WriteFlagLogsRequest {
 type TelemetryData struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Information about the SDK/provider
-	Sdk              *resolver.Sdk                     `protobuf:"bytes,2,opt,name=sdk,proto3" json:"sdk,omitempty"`
+	Sdk *resolver.Sdk `protobuf:"bytes,2,opt,name=sdk,proto3" json:"sdk,omitempty"`
+	// Version of the embedded resolver (e.g. "0.14.0").
+	// This must be preserved when providers decode and re-encode telemetry.
+	ResolverVersion  string                            `protobuf:"bytes,8,opt,name=resolver_version,json=resolverVersion,proto3" json:"resolver_version,omitempty"`
 	ProviderInitRate []*TelemetryData_ProviderInitRate `protobuf:"bytes,9,rep,name=provider_init_rate,json=providerInitRate,proto3" json:"provider_init_rate,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -284,6 +287,13 @@ func (x *TelemetryData) GetSdk() *resolver.Sdk {
 		return x.Sdk
 	}
 	return nil
+}
+
+func (x *TelemetryData) GetResolverVersion() string {
+	if x != nil {
+		return x.ResolverVersion
+	}
+	return ""
 }
 
 func (x *TelemetryData) GetProviderInitRate() []*TelemetryData_ProviderInitRate {
@@ -1572,9 +1582,10 @@ const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\x15IngestFlagLogsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12H\n" +
-	"\x05batch\x18\x02 \x01(\v22.confidence.flags.resolver.v1.WriteFlagLogsRequestR\x05batch\"\xfe\x02\n" +
+	"\x05batch\x18\x02 \x01(\v22.confidence.flags.resolver.v1.WriteFlagLogsRequestR\x05batch\"\xa9\x03\n" +
 	"\rTelemetryData\x123\n" +
-	"\x03sdk\x18\x02 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\x12j\n" +
+	"\x03sdk\x18\x02 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\x12)\n" +
+	"\x10resolver_version\x18\b \x01(\tR\x0fresolverVersion\x12j\n" +
 	"\x12provider_init_rate\x18\t \x03(\v2<.confidence.flags.resolver.v1.TelemetryData.ProviderInitRateR\x10providerInitRate\x1a\xcb\x01\n" +
 	"\x10ProviderInitRate\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\rR\x05count\x12`\n" +

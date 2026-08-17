@@ -814,6 +814,12 @@ class ConfidenceProvider(AbstractProvider):
             self._first_flush = False
             request = internal_api_pb2.WriteFlagLogsRequest()
             request.ParseFromString(log_data)
+            request.telemetry_data.sdk.CopyFrom(
+                types_pb2.Sdk(
+                    id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
+                    version=__version__,
+                )
+            )
             init_rate = request.telemetry_data.provider_init_rate.add()
             init_rate.count = 1
             for k, v in self._init_labels.items():

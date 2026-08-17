@@ -10,6 +10,7 @@ import (
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -42,6 +43,38 @@ func TestSwapWasmResolverApi_NewSwapWasmResolverApi(t *testing.T) {
 		t.Fatal("Expected non-nil SwapWasmResolverApi")
 	}
 
+}
+
+func TestFirstFlushIncludesInitSDK(t *testing.T) {
+	ctx := context.Background()
+	sdk := &resolver.Sdk{
+		Sdk:     &resolver.Sdk_Id{Id: resolver.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+		Version: "test-version",
+	}
+	var flushed *resolverv1.WriteFlagLogsRequest
+	factory := NewWasmResolverFactoryWithLabels(
+		func(logs *resolverv1.WriteFlagLogsRequest) { flushed = logs },
+		true,
+		map[string]string{"encryption": "true"},
+		sdk,
+	)
+	defer factory.Close(ctx)
+
+	localResolver := factory.New()
+	defer localResolver.Close(ctx)
+	if err := localResolver.FlushAllLogs(); err != nil {
+		t.Fatalf("Failed to flush logs: %v", err)
+	}
+
+	if flushed == nil || flushed.GetTelemetryData() == nil {
+		t.Fatal("Expected telemetry on first flush")
+	}
+	if got := flushed.GetTelemetryData().GetSdk(); !proto.Equal(got, sdk) {
+		t.Fatalf("Expected SDK %v, got %v", sdk, got)
+	}
+	if got := flushed.GetTelemetryData().GetProviderInitRate(); len(got) != 1 {
+		t.Fatalf("Expected one provider init rate, got %d", len(got))
+	}
 }
 
 func TestSwapWasmResolverApi_WithRealState_InterpreterMode(t *testing.T) {

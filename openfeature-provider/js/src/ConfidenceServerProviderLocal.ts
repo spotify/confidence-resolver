@@ -384,8 +384,12 @@ export class ConfidenceServerProviderLocal implements Provider {
         this.firstFlush = false;
         const decoded = WriteFlagLogsRequest.decode(writeFlagLogRequest);
         if (!decoded.telemetryData) {
-          decoded.telemetryData = { providerInitRate: [] };
+          decoded.telemetryData = { resolverVersion: '', providerInitRate: [] };
         }
+        decoded.telemetryData.sdk ??= {
+          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+          version: VERSION,
+        };
         decoded.telemetryData!.providerInitRate = [{ count: 1, labels: this.initLabels }];
         writeFlagLogRequest = WriteFlagLogsRequest.encode(decoded).finish();
       }

@@ -18,6 +18,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
+import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
 import com.spotify.confidence.sdk.flags.resolver.v1.TelemetryData;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
@@ -40,6 +41,8 @@ import org.slf4j.LoggerFactory;
  */
 class WasmLocalResolver implements LocalResolver {
   private static final Logger logger = LoggerFactory.getLogger(WasmLocalResolver.class);
+  private static final Sdk SDK =
+      Sdk.newBuilder().setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER).setVersion(Version.VERSION).build();
   private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger(0);
   private final FunctionType HOST_FN_TYPE =
       FunctionType.of(List.of(ValType.I32), List.of(ValType.I32));
@@ -229,6 +232,7 @@ class WasmLocalResolver implements LocalResolver {
             request.toBuilder()
                 .setTelemetryData(
                     request.getTelemetryData().toBuilder()
+                        .setSdk(SDK)
                         .addProviderInitRate(
                             TelemetryData.ProviderInitRate.newBuilder()
                                 .setCount(1)
@@ -315,7 +319,8 @@ class WasmLocalResolver implements LocalResolver {
   private static boolean isEmptyLogRequest(WriteFlagLogsRequest request) {
     return request.getFlagAssignedCount() == 0
         && request.getClientResolveInfoCount() == 0
-        && request.getFlagResolveInfoCount() == 0;
+        && request.getFlagResolveInfoCount() == 0
+        && !request.hasTelemetryData();
   }
 
   private <T extends Message> T consumeResponse(int addr, ParserFn<T> codec) {

@@ -5,6 +5,8 @@ from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 
 from confidence.provider import ConfidenceProvider
+from confidence.proto.confidence.flags.resolver.v1 import internal_api_pb2, types_pb2
+from confidence.version import __version__
 from tests.conftest import MockFlagLogger, MockStateFetcher
 
 
@@ -35,6 +37,25 @@ class TestGetMetadata:
 
 class TestInitialize:
     """Tests for provider initialization."""
+
+    def test_init_telemetry_includes_sdk(
+        self,
+        wasm_bytes: bytes,
+        test_client_secret: str,
+    ) -> None:
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            wasm_bytes=wasm_bytes,
+        )
+        request = internal_api_pb2.WriteFlagLogsRequest()
+        request.telemetry_data.SetInParent()
+
+        encoded = provider._append_init(request.SerializeToString())
+        decoded = internal_api_pb2.WriteFlagLogsRequest.FromString(encoded)
+
+        assert decoded.telemetry_data.sdk.id == types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER
+        assert decoded.telemetry_data.sdk.version == __version__
+        assert len(decoded.telemetry_data.provider_init_rate) == 1
 
     def test_initialize_fetches_state(
         self,

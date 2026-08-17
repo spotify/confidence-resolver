@@ -11,6 +11,7 @@ import (
 
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -147,9 +148,14 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels 
 	cfg := lr.LocalResolverConfig{
 		PoolSize:           poolSize,
 		UseWasmInterpreter: useWasmInterpreter,
+		InitLabels:         initLabels,
+		InitSDK: &resolvertypes.Sdk{
+			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+			Version: Version,
+		},
 	}
 	return func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithLabels(ctx, logSink, cfg, initLabels)
+		return lr.NewLocalResolver(ctx, logSink, cfg)
 	}
 }
 
