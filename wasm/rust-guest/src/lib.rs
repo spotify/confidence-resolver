@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
@@ -60,6 +61,8 @@ static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(Resolve
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
 static APPLY_DEDUP: LazyLock<Mutex<ApplyDedup>> =
     LazyLock::new(|| Mutex::new(ApplyDedup::new(120, 100_000)));
+/// Set from SetResolverStateRequest.disable_apply_dedup — dedup is on by default.
+static APPLY_DEDUP_DISABLED: AtomicBool = AtomicBool::new(false);
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
 });
@@ -103,7 +106,7 @@ impl Host for WasmHost {
     ) {
         // An empty apply (no flags matched) still produces a FlagAssigned
         // envelope with resolve_id + client_info, matching pre-dedup behavior.
-        if assigned_flags.is_empty() {
+        if assigned_flags.is_empty() || APPLY_DEDUP_DISABLED.load(Ordering::Relaxed) {
             ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
             return;
         }
@@ -169,6 +172,7 @@ wasm_msg_guest! {
         let state_pb = ResolverStatePb::decode(request.state.as_slice())
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
         let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str(), request.sdk)?;
+        APPLY_DEDUP_DISABLED.store(request.disable_apply_dedup, Ordering::Relaxed);
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
         // TODO: track state age once we decide on the right timestamp source
         // let now = WasmHost::current_time();

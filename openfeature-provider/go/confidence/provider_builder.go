@@ -28,6 +28,7 @@ type ProviderConfig struct {
 	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
+	DisableApplyDedup             bool                 // Optional: disable apply-event dedup in the WASM resolver; dedup is on by default
 }
 
 type ProviderTestConfig struct {
@@ -97,7 +98,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.DisableApplyDedup)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
@@ -124,7 +125,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
@@ -140,14 +141,17 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool) func(contex
 	}
 }
 
-// buildProviderOptions creates options slice from poll intervals
-func buildProviderOptions(statePollInterval, logPollInterval time.Duration) []Option {
+// buildProviderOptions creates options slice from provider config
+func buildProviderOptions(statePollInterval, logPollInterval time.Duration, disableApplyDedup bool) []Option {
 	var opts []Option
 	if statePollInterval > 0 {
 		opts = append(opts, WithStatePollInterval(statePollInterval))
 	}
 	if logPollInterval > 0 {
 		opts = append(opts, WithLogPollInterval(logPollInterval))
+	}
+	if disableApplyDedup {
+		opts = append(opts, WithDisableApplyDedup())
 	}
 	return opts
 }

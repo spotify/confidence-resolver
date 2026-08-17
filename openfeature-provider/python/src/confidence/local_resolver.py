@@ -71,14 +71,20 @@ class LocalResolver:
 
         # Restore state if available
         if self._current_state is not None:
-            state, account_id, sdk = self._current_state
+            state, account_id, sdk, disable_apply_dedup = self._current_state
             try:
-                self._delegate.set_resolver_state(state, account_id, sdk)
+                self._delegate.set_resolver_state(
+                    state, account_id, sdk, disable_apply_dedup
+                )
             except Exception as e:
                 logger.error("Failed to restore state after reload: %s", e)
 
     def set_resolver_state(
-        self, state: bytes, account_id: str, sdk: Optional[object] = None
+        self,
+        state: bytes,
+        account_id: str,
+        sdk: Optional[object] = None,
+        disable_apply_dedup: bool = False,
     ) -> None:
         """Set the resolver state.
 
@@ -88,10 +94,13 @@ class LocalResolver:
             state: The serialized resolver state bytes.
             account_id: The account ID for the resolver.
             sdk: Optional SDK identifier and version.
+            disable_apply_dedup: Disable apply-event dedup (enabled by default).
         """
-        self._current_state = (state, account_id, sdk)
+        self._current_state = (state, account_id, sdk, disable_apply_dedup)
         try:
-            self._delegate.set_resolver_state(state, account_id, sdk)
+            self._delegate.set_resolver_state(
+                state, account_id, sdk, disable_apply_dedup
+            )
         except WasmCrashError as error:
             self._reload_instance(error)
             raise

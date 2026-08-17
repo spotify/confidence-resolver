@@ -59,9 +59,15 @@ class WasmLocalResolver implements LocalResolver {
   private final ExportFunction wasmMsgGuestResolveProcess;
   private final ExportFunction wasmMsgGuestPrometheusSnapshot;
   private final ReentrantLock lock = new ReentrantLock();
+  private final boolean disableApplyDedup;
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
+    this(logSink, false);
+  }
+
+  public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink, boolean disableApplyDedup) {
     this.logSink = logSink;
+    this.disableApplyDedup = disableApplyDedup;
     this.instanceId = String.valueOf(INSTANCE_COUNTER.getAndIncrement());
     instance =
         Instance.builder(ConfidenceResolverModule.load())
@@ -113,7 +119,8 @@ class WasmLocalResolver implements LocalResolver {
       final var builder =
           Messages.SetResolverStateRequest.newBuilder()
               .setState(ByteString.copyFrom(state))
-              .setAccountId(accountId);
+              .setAccountId(accountId)
+              .setDisableApplyDedup(disableApplyDedup);
       if (sdk != null) {
         builder.setSdk(sdk);
       }

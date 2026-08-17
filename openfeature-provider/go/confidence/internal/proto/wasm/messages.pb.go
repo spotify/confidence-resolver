@@ -59,12 +59,15 @@ func (*Void) Descriptor() ([]byte, []int) {
 }
 
 type SetResolverStateRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         []byte                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
-	AccountId     string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Sdk           *resolver.Sdk          `protobuf:"bytes,3,opt,name=sdk,proto3" json:"sdk,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	State     []byte                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
+	AccountId string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Sdk       *resolver.Sdk          `protobuf:"bytes,3,opt,name=sdk,proto3" json:"sdk,omitempty"`
+	// Apply-event deduplication is enabled by default; set to true to log
+	// every apply event without dedup.
+	DisableApplyDedup bool `protobuf:"varint,4,opt,name=disable_apply_dedup,json=disableApplyDedup,proto3" json:"disable_apply_dedup,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SetResolverStateRequest) Reset() {
@@ -116,6 +119,13 @@ func (x *SetResolverStateRequest) GetSdk() *resolver.Sdk {
 		return x.Sdk
 	}
 	return nil
+}
+
+func (x *SetResolverStateRequest) GetDisableApplyDedup() bool {
+	if x != nil {
+		return x.DisableApplyDedup
+	}
+	return false
 }
 
 type Request struct {
@@ -353,12 +363,13 @@ var File_confidence_wasm_messages_proto protoreflect.FileDescriptor
 const file_confidence_wasm_messages_proto_rawDesc = "" +
 	"\n" +
 	"\x1econfidence/wasm/messages.proto\x12\x0fconfidence.wasm\x1a(confidence/flags/resolver/v1/types.proto\"\x06\n" +
-	"\x04Void\"\x83\x01\n" +
+	"\x04Void\"\xb3\x01\n" +
 	"\x17SetResolverStateRequest\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\fR\x05state\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\tR\taccountId\x123\n" +
-	"\x03sdk\x18\x03 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\"\x1d\n" +
+	"\x03sdk\x18\x03 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\x12.\n" +
+	"\x13disable_apply_dedup\x18\x04 \x01(\bR\x11disableApplyDedup\"\x1d\n" +
 	"\aRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"B\n" +
 	"\bResponse\x12\x14\n" +
