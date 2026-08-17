@@ -18,13 +18,10 @@ import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
-import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
-import com.spotify.confidence.sdk.flags.resolver.v1.TelemetryData;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.wasm.Messages;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,8 +38,6 @@ import org.slf4j.LoggerFactory;
  */
 class WasmLocalResolver implements LocalResolver {
   private static final Logger logger = LoggerFactory.getLogger(WasmLocalResolver.class);
-  private static final Sdk SDK =
-      Sdk.newBuilder().setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER).setVersion(Version.VERSION).build();
   private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger(0);
   private final FunctionType HOST_FN_TYPE =
       FunctionType.of(List.of(ValType.I32), List.of(ValType.I32));
@@ -54,8 +49,6 @@ class WasmLocalResolver implements LocalResolver {
   private final ExportFunction wasmMsgAlloc;
   private final ExportFunction wasmMsgFree;
   private final Consumer<WriteFlagLogsRequest> logSink;
-  private final Map<String, String> initLabels;
-  private boolean firstFlush = true;
 
   // api
   private final ExportFunction wasmMsgGuestSetResolverState;
@@ -70,29 +63,20 @@ class WasmLocalResolver implements LocalResolver {
   private final boolean disableExposureCollection;
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
-    this(logSink, false, false, Map.of());
+    this(logSink, false, false);
   }
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink, boolean enableApplyDedup) {
-    this(logSink, enableApplyDedup, false, Map.of());
+    this(logSink, enableApplyDedup, false);
   }
 
   public WasmLocalResolver(
       Consumer<WriteFlagLogsRequest> logSink,
       boolean enableApplyDedup,
       boolean disableExposureCollection) {
-    this(logSink, enableApplyDedup, disableExposureCollection, Map.of());
-  }
-
-  public WasmLocalResolver(
-      Consumer<WriteFlagLogsRequest> logSink,
-      boolean enableApplyDedup,
-      boolean disableExposureCollection,
-      Map<String, String> initLabels) {
     this.logSink = logSink;
     this.enableApplyDedup = enableApplyDedup;
     this.disableExposureCollection = disableExposureCollection;
-    this.initLabels = initLabels;
     this.instanceId = String.valueOf(INSTANCE_COUNTER.getAndIncrement());
     instance =
         Instance.builder(ConfidenceResolverModule.load())
@@ -225,22 +209,7 @@ class WasmLocalResolver implements LocalResolver {
       final var voidRequest = Messages.Void.getDefaultInstance();
       final var reqPtr = transferRequest(voidRequest);
       final var respPtr = (int) wasmMsgBoundedFlushLogs.apply(reqPtr)[0];
-      var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
-      if (firstFlush) {
-        firstFlush = false;
-        request =
-            request.toBuilder()
-                .setTelemetryData(
-                    request.getTelemetryData().toBuilder()
-                        .setSdk(SDK)
-                        .addProviderInitRate(
-                            TelemetryData.ProviderInitRate.newBuilder()
-                                .setCount(1)
-                                .putAllLabels(initLabels)
-                                .build())
-                        .build())
-                .build();
-      }
+      final var request = consumeResponse(respPtr, WriteFlagLogsRequest::parseFrom);
       if (!isEmptyLogRequest(request)) {
         logSink.accept(request);
       }

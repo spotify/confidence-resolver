@@ -25,7 +25,6 @@ import com.spotify.confidence.sdk.flags.types.v1.FlagSchema;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -155,7 +154,7 @@ class ApplyFlagsErrorHandlingTest {
   @Test
   void applyWithoutSendTime_isSwallowed_andRecordsNoFlagAssigned() {
     final List<WriteFlagLogsRequest> captured = new ArrayList<>();
-    final var resolver = new WasmLocalResolver(captured::add, Map.of());
+    final var resolver = new WasmLocalResolver(captured::add);
     resolver.setResolverState(buildState(), ACCOUNT, null);
 
     final var resolveResp = resolveWithApplyFalse(resolver);
@@ -186,7 +185,7 @@ class ApplyFlagsErrorHandlingTest {
   @Test
   void applyWithSendTime_recordsOneFlagAssigned() {
     final List<WriteFlagLogsRequest> captured = new ArrayList<>();
-    final var resolver = new WasmLocalResolver(captured::add, Map.of());
+    final var resolver = new WasmLocalResolver(captured::add);
     resolver.setResolverState(buildState(), ACCOUNT, null);
 
     final var resolveResp = resolveWithApplyFalse(resolver);
@@ -234,7 +233,7 @@ class ApplyFlagsErrorHandlingTest {
   @Test
   void applyAfterStateRotated_secretRemoved_isSwallowedAndLogged() {
     final List<WriteFlagLogsRequest> captured = new ArrayList<>();
-    final var resolver = new WasmLocalResolver(captured::add, Map.of());
+    final var resolver = new WasmLocalResolver(captured::add);
     resolver.setResolverState(buildState(SECRET), ACCOUNT, null);
 
     final var resolveResp = resolveWithApplyFalse(resolver);

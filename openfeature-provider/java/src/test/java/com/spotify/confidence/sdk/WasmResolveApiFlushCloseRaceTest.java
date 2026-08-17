@@ -9,7 +9,6 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -45,7 +44,7 @@ class WasmResolveApiFlushCloseRaceTest {
 
     for (int i = 0; i < iterations; i++) {
       final var logger = new CapturingWasmFlagLogger();
-      final var resolver = new WasmLocalResolver(logger::write, Map.of());
+      final var resolver = new WasmLocalResolver(logger::write);
       resolver.setResolverState(resolverState, accountId, null);
 
       // Resolve a flag to create a flag assignment in the WASM buffer

@@ -42,9 +42,6 @@ type WasmResolver struct {
 	mu         *sync.Mutex
 	instanceID string
 	fnCache    sync.Map
-	initLabels map[string]string
-	initSDK    *resolver.Sdk
-	firstFlush bool
 }
 
 var _ LocalResolver = (*WasmResolver)(nil)
@@ -92,19 +89,6 @@ func (r *WasmResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
 func (r *WasmResolver) FlushAllLogs() error {
 	resp := &resolverv1.WriteFlagLogsRequest{}
 	err := r.call("wasm_msg_guest_bounded_flush_logs", nil, resp)
-	if err == nil && r.firstFlush {
-		r.firstFlush = false
-		if resp.TelemetryData == nil {
-			resp.TelemetryData = &resolverv1.TelemetryData{}
-		}
-		if r.initSDK != nil {
-			resp.TelemetryData.Sdk = r.initSDK
-		}
-		resp.TelemetryData.ProviderInitRate = append(
-			resp.TelemetryData.ProviderInitRate,
-			&resolverv1.TelemetryData_ProviderInitRate{Count: 1, Labels: r.initLabels},
-		)
-	}
 	if err == nil && proto.Size(resp) > 0 {
 		r.logSink(resp)
 	}
@@ -177,11 +161,9 @@ func (r *WasmResolver) call(fnName string, request proto.Message, response proto
 }
 
 type WasmResolverFactory struct {
-	runtime    wazero.Runtime
-	module     wazero.CompiledModule
-	logSink    LogSink
-	initLabels map[string]string
-	initSDK    *resolver.Sdk
+	runtime wazero.Runtime
+	module  wazero.CompiledModule
+	logSink LogSink
 }
 
 var _ LocalResolverFactory = (*WasmResolverFactory)(nil)
@@ -238,13 +220,6 @@ func NewWasmResolverFactory(logSink LogSink, useInterpreter bool) LocalResolverF
 	}
 }
 
-func NewWasmResolverFactoryWithLabels(logSink LogSink, useInterpreter bool, initLabels map[string]string, initSDK *resolver.Sdk) LocalResolverFactory {
-	factory := NewWasmResolverFactory(logSink, useInterpreter).(*WasmResolverFactory)
-	factory.initLabels = initLabels
-	factory.initSDK = initSDK
-	return factory
-}
-
 func (wrf *WasmResolverFactory) New() LocalResolver {
 	ctx := context.Background()
 	config := wazero.NewModuleConfig().WithName("")
@@ -258,9 +233,6 @@ func (wrf *WasmResolverFactory) New() LocalResolver {
 		logSink:    wrf.logSink,
 		mu:         &sync.Mutex{},
 		instanceID: fmt.Sprintf("%d", id),
-		initLabels: wrf.initLabels,
-		initSDK:    wrf.initSDK,
-		firstFlush: true,
 	}
 }
 
