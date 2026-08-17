@@ -9,6 +9,7 @@ import { abortableSleep, TimeUnit, timeoutSignal } from './util';
 import { advanceTimersUntil, NetworkMock } from './test-helpers';
 import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
+import { WriteFlagLogsRequest } from './proto/test-only';
 
 vi.mock(import('./hash'), async () => {
   const { sha256Hex } = await import('./test-helpers');
@@ -156,6 +157,27 @@ describe('state update scheduling', () => {
 });
 
 describe('flush behavior', () => {
+  it('preserves resolver version when adding provider init telemetry', async () => {
+    let sentBody: Uint8Array | undefined;
+    net.resolver.flagLogs.handler = async (req: Request) => {
+      sentBody = new Uint8Array(await req.arrayBuffer());
+      return new Response(null, { status: 200 });
+    };
+    mockedWasmResolver.flushLogs.mockReturnValueOnce(
+      WriteFlagLogsRequest.encode(
+        WriteFlagLogsRequest.create({ telemetryData: { resolverVersion: '0.20.0' } }),
+      ).finish(),
+    );
+
+    await advanceTimersUntil(provider.flush());
+
+    expect(sentBody).toBeDefined();
+    const decoded = WriteFlagLogsRequest.decode(sentBody!);
+    expect(decoded.telemetryData?.resolverVersion).toBe('0.20.0');
+    expect(decoded.telemetryData?.sdk).toEqual({ id: 22, customId: undefined, version: '0.17.0' });
+    expect(decoded.telemetryData?.providerInitRate).toEqual([{ count: 1, labels: { encryption: 'false' } }]);
+  });
+
   it('flushes periodically at the configured interval', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 

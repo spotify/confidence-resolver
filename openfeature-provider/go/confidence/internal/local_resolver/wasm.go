@@ -43,6 +43,7 @@ type WasmResolver struct {
 	instanceID string
 	fnCache    sync.Map
 	initLabels map[string]string
+	initSDK    *resolver.Sdk
 	firstFlush bool
 }
 
@@ -95,6 +96,9 @@ func (r *WasmResolver) FlushAllLogs() error {
 		r.firstFlush = false
 		if resp.TelemetryData == nil {
 			resp.TelemetryData = &resolverv1.TelemetryData{}
+		}
+		if r.initSDK != nil {
+			resp.TelemetryData.Sdk = r.initSDK
 		}
 		resp.TelemetryData.ProviderInitRate = append(
 			resp.TelemetryData.ProviderInitRate,
@@ -177,6 +181,7 @@ type WasmResolverFactory struct {
 	module     wazero.CompiledModule
 	logSink    LogSink
 	initLabels map[string]string
+	initSDK    *resolver.Sdk
 }
 
 var _ LocalResolverFactory = (*WasmResolverFactory)(nil)
@@ -233,9 +238,10 @@ func NewWasmResolverFactory(logSink LogSink, useInterpreter bool) LocalResolverF
 	}
 }
 
-func NewWasmResolverFactoryWithLabels(logSink LogSink, useInterpreter bool, initLabels map[string]string) LocalResolverFactory {
+func NewWasmResolverFactoryWithLabels(logSink LogSink, useInterpreter bool, initLabels map[string]string, initSDK *resolver.Sdk) LocalResolverFactory {
 	factory := NewWasmResolverFactory(logSink, useInterpreter).(*WasmResolverFactory)
 	factory.initLabels = initLabels
+	factory.initSDK = initSDK
 	return factory
 }
 
@@ -253,6 +259,7 @@ func (wrf *WasmResolverFactory) New() LocalResolver {
 		mu:         &sync.Mutex{},
 		instanceID: fmt.Sprintf("%d", id),
 		initLabels: wrf.initLabels,
+		initSDK:    wrf.initSDK,
 		firstFlush: true,
 	}
 }
