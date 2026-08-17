@@ -393,5 +393,4 @@ class WasmLocalResolver implements LocalResolver {
 
     T apply(byte[] data) throws InvalidProtocolBufferException;
   }
-
 }
