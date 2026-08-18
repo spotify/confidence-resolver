@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.7.1...openfeature-provider/rust-v0.8.0) (2026-08-18)
+
+
+### Features
+
+* prost 0.13 upgrade + multi-destination flag log routing in all providers ([#510](https://github.com/spotify/confidence-resolver/issues/510)) ([0a77025](https://github.com/spotify/confidence-resolver/commit/0a770259f4eff3d8386dc72dfa39710c6c9a7d11))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.20.0 to 0.21.0
+
 ## [0.7.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.7.0...openfeature-provider/rust-v0.7.1) (2026-08-03)
 
 
