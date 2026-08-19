@@ -46,7 +46,13 @@ impl DedupHasher {
         self.0 = (self.0 ^ k).rotate_left(27).wrapping_mul(HASH_PRIME);
     }
 
+    /// Length-prefixed field encoding: the byte length is mixed as its own
+    /// word before the content, making the overall encoding injective —
+    /// a zero-padded tail can never alias a full 8-byte word from a
+    /// different string (e.g. "a" vs "\x01a\0\0\0\0\0\0"), and field
+    /// boundaries are unambiguous without separators.
     fn write(&mut self, bytes: &[u8]) {
+        self.mix(bytes.len() as u64);
         let chunks = bytes.chunks_exact(8);
         let tail = chunks.remainder();
         for chunk in chunks {
@@ -59,13 +65,8 @@ impl DedupHasher {
             for (dst, src) in arr.iter_mut().zip(tail) {
                 *dst = *src;
             }
-            // XOR in the tail length so "a" and "a\0" hash differently.
-            self.mix(u64::from_le_bytes(arr).rotate_left(8) ^ tail.len() as u64);
+            self.mix(u64::from_le_bytes(arr));
         }
-    }
-
-    fn separator(&mut self) {
-        self.0 = self.0.rotate_left(31).wrapping_mul(HASH_PRIME);
     }
 
     fn finish(self) -> u64 {
@@ -122,28 +123,19 @@ impl<'a> From<&'a AssignedFlag> for AppliedFlagRef<'a> {
 pub fn compute_applied_flag_dedup_hash(applied: &AppliedFlagRef<'_>) -> u64 {
     let mut h = DedupHasher::new();
     h.write(applied.flag.as_bytes());
-    h.separator();
     h.write(applied.targeting_key.as_bytes());
-    h.separator();
     h.write(applied.targeting_key_selector.as_bytes());
-    h.separator();
     h.write(applied.assignment_id.as_bytes());
-    h.separator();
     h.write(applied.variant.as_bytes());
-    h.separator();
     h.write(applied.segment.as_bytes());
-    h.separator();
     h.write(applied.rule.as_bytes());
-    h.separator();
     h.write(&applied.reason.to_le_bytes());
+    // Collection count keeps the fallthrough block unambiguous.
+    h.mix(applied.fallthrough_assignments.len() as u64);
     for ft in applied.fallthrough_assignments {
-        h.separator();
         h.write(ft.rule.as_bytes());
-        h.separator();
         h.write(ft.assignment_id.as_bytes());
-        h.separator();
         h.write(ft.targeting_key.as_bytes());
-        h.separator();
         h.write(ft.targeting_key_selector.as_bytes());
     }
     h.finish()
@@ -949,6 +941,32 @@ mod tests {
                 overhead_ns
             );
         }
+    }
+
+    #[test]
+    fn no_collision_between_short_tail_and_padded_full_word() {
+        // Regression: without length-prefixed fields, the 1-byte key "a"
+        // (zero-padded, rotated, XOR len) produced the same mixed word as the
+        // 8-byte key "\x01a\0\0\0\0\0\0" read directly as a little-endian
+        // word — a deterministic, craftable collision that silently dropped
+        // the second user's apply event.
+        let a = make_assigned("flags/x", "a", "on");
+        let b = make_assigned("flags/x", "\u{1}a\0\0\0\0\0\0", "on");
+        assert_ne!(
+            compute_dedup_hash(&a),
+            compute_dedup_hash(&b),
+            "distinct targeting keys must never share a dedup hash"
+        );
+
+        // Same class of ambiguity across the tail/word boundary in general.
+        let c = make_assigned("flags/x", "abcdefgh", "on");
+        let d = make_assigned("flags/x", "abcdefg", "on");
+        assert_ne!(compute_dedup_hash(&c), compute_dedup_hash(&d));
+
+        // Field-boundary shift: content must not move between fields.
+        let e = make_assigned("flags/xa", "bc", "on");
+        let f = make_assigned("flags/x", "abc", "on");
+        assert_ne!(compute_dedup_hash(&e), compute_dedup_hash(&f));
     }
 
     #[test]
