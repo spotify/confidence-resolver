@@ -173,6 +173,29 @@ func TestMultiDestinationFlagLogger_SkipsEmptyRequest(t *testing.T) {
 	}
 }
 
+func TestMultiDestinationFlagLogger_SendsTelemetryOnlyRequest(t *testing.T) {
+	var called atomic.Int32
+	logger := &MultiDestinationFlagLogger{
+		senders: map[admin.LogDestination]logSender{
+			admin.LogDestination_LOG_DESTINATION_SPOTIFY_EDGE: func(context.Context, *resolverv1.WriteFlagLogsRequest) error {
+				called.Add(1)
+				return nil
+			},
+		},
+		destinations: func() []admin.LogDestination {
+			return []admin.LogDestination{admin.LogDestination_LOG_DESTINATION_SPOTIFY_EDGE}
+		},
+		logger: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+	}
+
+	logger.Write(&resolverv1.WriteFlagLogsRequest{TelemetryData: &resolverv1.TelemetryData{}})
+	logger.Shutdown()
+
+	if called.Load() != 1 {
+		t.Fatalf("expected telemetry-only request to be sent once, got %d", called.Load())
+	}
+}
+
 func TestMultiDestinationFlagLogger_AllDestinationsFail(t *testing.T) {
 	var buf bytes.Buffer
 	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))

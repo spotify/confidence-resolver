@@ -149,10 +149,12 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels 
 		UseWasmInterpreter: useWasmInterpreter,
 	}
 	return func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolver(
-			ctx,
-			newProviderInitLogSink(logSink, initLabels),
-			cfg,
+		return newProviderTelemetryResolver(
+			logSink,
+			initLabels,
+			func(providerLogSink lr.LogSink) lr.LocalResolver {
+				return lr.NewLocalResolver(ctx, providerLogSink, cfg)
+			},
 		)
 	}
 }
