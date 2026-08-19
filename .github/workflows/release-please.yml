@@ -217,11 +217,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-      
-      - name: Update npm
-        run: npm install -g npm@latest
 
       - name: Publish to npm with OIDC
         run: npm publish ./artifacts/package.tgz --provenance --access public
@@ -338,6 +335,6 @@ jobs:
         run: ls -la ./artifacts/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: ./artifacts/
