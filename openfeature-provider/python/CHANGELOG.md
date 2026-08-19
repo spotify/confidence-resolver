@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.10.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.9.1...openfeature-provider-python-v0.10.0) (2026-08-18)
+
+
+### Features
+
+* prost 0.13 upgrade + multi-destination flag log routing in all providers ([#510](https://github.com/spotify/confidence-resolver/issues/510)) ([0a77025](https://github.com/spotify/confidence-resolver/commit/0a770259f4eff3d8386dc72dfa39710c6c9a7d11))
+
+
+### Bug Fixes
+
+* **python:** use UTC time in WASM host current_time callback ([#516](https://github.com/spotify/confidence-resolver/issues/516)) ([6711ed0](https://github.com/spotify/confidence-resolver/commit/6711ed09054c88fdaecd13b647002c18e7d657fb))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.3.1 to 0.4.0
+
 ## [0.9.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.9.0...openfeature-provider-python-v0.9.1) (2026-08-03)
 
 

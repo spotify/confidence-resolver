@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.21.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.20.1...openfeature-provider/go/v0.21.0) (2026-08-18)
+
+
+### Features
+
+* **go:** add UseWasmInterpreter config for signal-safe WASM execution ([#514](https://github.com/spotify/confidence-resolver/issues/514)) ([a4f6a23](https://github.com/spotify/confidence-resolver/commit/a4f6a23cefe8a23edc4a73bbde05855239d42d2f))
+* multi-destination flag log routing ([#483](https://github.com/spotify/confidence-resolver/issues/483)) ([0eec2c9](https://github.com/spotify/confidence-resolver/commit/0eec2c928e03e6d3efae5be877d431e92ce57b42))
+* prost 0.13 upgrade + multi-destination flag log routing in all providers ([#510](https://github.com/spotify/confidence-resolver/issues/510)) ([0a77025](https://github.com/spotify/confidence-resolver/commit/0a770259f4eff3d8386dc72dfa39710c6c9a7d11))
+
+
+### Bug Fixes
+
+* **openfeature-provider/go:** prevent silent SIGSEGV when recovery closes an instance mid-resolve ([#512](https://github.com/spotify/confidence-resolver/issues/512)) ([e7355f0](https://github.com/spotify/confidence-resolver/commit/e7355f0fd62139d0e2e8930c86d7c5154b616788))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.3.1 to 0.4.0
+
 ## [0.20.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.20.0...openfeature-provider/go/v0.20.1) (2026-08-03)
 
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.3.1...rust-guest-v0.4.0) (2026-08-18)
+
+
+### Features
+
+* prost 0.13 upgrade + multi-destination flag log routing in all providers ([#510](https://github.com/spotify/confidence-resolver/issues/510)) ([0a77025](https://github.com/spotify/confidence-resolver/commit/0a770259f4eff3d8386dc72dfa39710c6c9a7d11))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * wasm-msg bumped from 0.2.1 to 0.3.0
+    * confidence_resolver bumped from 0.20.0 to 0.21.0
+
 ## [0.3.1](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.3.0...rust-guest-v0.3.1) (2026-08-03)
 
 

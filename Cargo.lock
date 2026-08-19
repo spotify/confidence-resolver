@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "confidence-cloudflare-resolver"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -332,7 +332,7 @@ dependencies = [
 
 [[package]]
 name = "confidence_resolver"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -1330,28 +1330,28 @@ dependencies = [
 
 [[package]]
 name = "openfeature-provider-go"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-java"
-version = "0.16.1"
-dependencies = [
- "rust-guest",
-]
-
-[[package]]
-name = "openfeature-provider-js"
 version = "0.17.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
+name = "openfeature-provider-js"
+version = "0.18.0"
+dependencies = [
+ "rust-guest",
+]
+
+[[package]]
 name = "openfeature-provider-python"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "rust-guest",
 ]
@@ -1999,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "rust-guest"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -2294,7 +2294,7 @@ dependencies = [
 
 [[package]]
 name = "spotify-confidence-openfeature-provider-local"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "aes-gcm",
  "arc-swap",
@@ -2913,7 +2913,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-msg"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "paste",
  "prost",

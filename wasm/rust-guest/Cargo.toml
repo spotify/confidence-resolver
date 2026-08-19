@@ -1,6 +1,6 @@
 [package]
 name = "rust-guest"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 
 [lib]
@@ -8,8 +8,8 @@ name = "rust_guest"
 crate-type = ["cdylib"]  # This is required for WASM
 
 [dependencies]
-wasm-msg = { path = "../../wasm-msg", version = "0.2.1" }
-confidence_resolver = { path = "../../confidence-resolver", version = "0.20.0", default-features = false }
+wasm-msg = { path = "../../wasm-msg", version = "0.3.0" }
+confidence_resolver = { path = "../../confidence-resolver", version = "0.21.0", default-features = false }
 prost = { version = "0.13", default-features = false }
 prost-types = { version = "0.13", default-features = false }
 # TODO re-export Bytes
