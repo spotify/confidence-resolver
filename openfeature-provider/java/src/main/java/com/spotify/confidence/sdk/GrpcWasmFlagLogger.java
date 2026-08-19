@@ -108,7 +108,8 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   public void write(WriteFlagLogsRequest request) {
     if (request.getClientResolveInfoList().isEmpty()
         && request.getFlagAssignedList().isEmpty()
-        && request.getFlagResolveInfoList().isEmpty()) {
+        && request.getFlagResolveInfoList().isEmpty()
+        && !request.hasTelemetryData()) {
       logger.debug("Skipping empty flag log request");
       return;
     }

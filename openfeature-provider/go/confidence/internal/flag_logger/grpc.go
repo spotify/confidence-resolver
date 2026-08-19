@@ -35,7 +35,7 @@ func (g *GrpcFlagLogger) Write(request *resolverv1.WriteFlagLogsRequest) {
 	clientResolveCount := len(request.ClientResolveInfo)
 	flagResolveCount := len(request.FlagResolveInfo)
 
-	if clientResolveCount == 0 && flagAssignedCount == 0 && flagResolveCount == 0 {
+	if clientResolveCount == 0 && flagAssignedCount == 0 && flagResolveCount == 0 && request.TelemetryData == nil {
 		g.logger.Debug("Skipping empty flag log request")
 		return
 	}
