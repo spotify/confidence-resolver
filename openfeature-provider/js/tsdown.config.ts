@@ -50,6 +50,13 @@ export default defineConfig([
     copy: ['../../wasm/confidence_resolver.wasm'],
     ...base,
   },
+  // ./remote: standalone ConfidenceClient against a remote resolver.
+  // Deliberately no `copy` of the WASM — not shipping it is the whole point.
+  {
+    entry: './src/index.remote.ts',
+    platform: 'neutral',
+    ...base,
+  },
   // React server component
   {
     entry: './src/react/server.tsx',
