@@ -1344,14 +1344,14 @@ dependencies = [
 
 [[package]]
 name = "openfeature-provider-js"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-python"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "rust-guest",
 ]

@@ -4,9 +4,9 @@
   "wasm-msg": "0.3.0",
   "wasm/rust-guest": "0.4.0",
   "openfeature-provider/java": "0.17.0",
-  "openfeature-provider/js": "0.18.0",
+  "openfeature-provider/js": "0.18.1",
   "openfeature-provider/go": "0.21.0",
   "openfeature-provider/ruby": "0.1.4",
   "openfeature-provider/rust": "0.8.0",
-  "openfeature-provider/python": "0.10.0"
+  "openfeature-provider/python": "0.10.1"
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.10.0...openfeature-provider-python-v0.10.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* republish JS and Python providers ([#521](https://github.com/spotify/confidence-resolver/issues/521)) ([f2bbced](https://github.com/spotify/confidence-resolver/commit/f2bbceddf62c8e146488c874caeea61f86e7d319))
+
 ## [0.10.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.9.1...openfeature-provider-python-v0.10.0) (2026-08-18)
 
 
