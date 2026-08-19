@@ -23,7 +23,7 @@ const RESOLVE_REQUEST: ResolveProcessRequest = {
   },
 };
 
-const SET_STATE_REQUEST = { state: stateBytes, accountId: 'confidence-test', disableApplyDedup: false };
+const SET_STATE_REQUEST = { state: stateBytes, accountId: 'confidence-test', enableApplyDedup: false };
 
 let wasmResolver: WasmResolver;
 

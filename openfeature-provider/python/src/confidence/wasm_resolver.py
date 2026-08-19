@@ -99,7 +99,7 @@ class WasmResolver:
         state: bytes,
         account_id: str,
         sdk: Optional[protobuf_message.Message] = None,
-        disable_apply_dedup: bool = False,
+        enable_apply_dedup: bool = False,
     ) -> None:
         """Set the resolver state in the WASM module.
 
@@ -107,12 +107,12 @@ class WasmResolver:
             state: The serialized resolver state bytes.
             account_id: The account ID for the resolver.
             sdk: Optional SDK identifier and version.
-            disable_apply_dedup: Disable apply-event dedup (enabled by default).
+            enable_apply_dedup: Experimental — enable apply-event dedup (off by default).
         """
         request = messages_pb2.SetResolverStateRequest()
         request.state = state
         request.account_id = account_id
-        request.disable_apply_dedup = disable_apply_dedup
+        request.enable_apply_dedup = enable_apply_dedup
         if sdk is not None:
             request.sdk.CopyFrom(sdk)
 

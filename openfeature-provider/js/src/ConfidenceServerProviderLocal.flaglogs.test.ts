@@ -29,6 +29,8 @@ describe('WriteFlagLogs tests', () => {
     resolver = new WasmResolver(module);
     provider = new ConfidenceServerProviderLocal(resolver, {
       flagClientSecret: FLAG_CLIENT_SECRET,
+      // Dedup is opt-in (experimental); these tests exercise its behavior.
+      enableApplyDedup: true,
     });
 
     await OpenFeature.setProviderAndWait(provider);

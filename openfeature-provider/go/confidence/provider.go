@@ -33,7 +33,7 @@ type Option func(*providerOptions)
 type providerOptions struct {
 	statePollInterval time.Duration
 	logPollInterval   time.Duration
-	disableApplyDedup bool
+	enableApplyDedup  bool
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -50,12 +50,12 @@ func WithLogPollInterval(d time.Duration) Option {
 	}
 }
 
-// WithDisableApplyDedup disables apply-event deduplication in the WASM
-// resolver. Dedup is enabled by default: repeated identical assignments
-// within a short TTL window are logged once.
-func WithDisableApplyDedup() Option {
+// WithEnableApplyDedup enables experimental apply-event deduplication in the
+// WASM resolver: repeated identical assignments within a short TTL window are
+// logged once. Off by default; the API may change.
+func WithEnableApplyDedup() Option {
 	return func(o *providerOptions) {
-		o.disableApplyDedup = true
+		o.enableApplyDedup = true
 	}
 }
 
@@ -73,7 +73,7 @@ type LocalResolverProvider struct {
 	mu                sync.Mutex
 	statePollInterval time.Duration
 	logPollInterval   time.Duration
-	disableApplyDedup bool
+	enableApplyDedup  bool
 }
 
 // Compile-time interface conformance checks
@@ -122,7 +122,7 @@ func NewLocalResolverProvider(
 		logger:            logger,
 		statePollInterval: statePollInterval,
 		logPollInterval:   logPollInterval,
-		disableApplyDedup: options.disableApplyDedup,
+		enableApplyDedup:  options.enableApplyDedup,
 	}
 }
 
@@ -498,9 +498,9 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 
 	// Update resolver with initial state (triggers WASM compilation and initialization)
 	setResolverStateRequest := &wasm.SetResolverStateRequest{
-		State:             initialState,
-		AccountId:         accountId,
-		DisableApplyDedup: p.disableApplyDedup,
+		State:            initialState,
+		AccountId:        accountId,
+		EnableApplyDedup: p.enableApplyDedup,
 		Sdk: &resolvertypes.Sdk{
 			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 			Version: Version,
@@ -606,9 +606,9 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 
 				// Update state
 				setResolverStateRequest := &wasm.SetResolverStateRequest{
-					State:             state,
-					AccountId:         accountId,
-					DisableApplyDedup: p.disableApplyDedup,
+					State:            state,
+					AccountId:        accountId,
+					EnableApplyDedup: p.enableApplyDedup,
 					Sdk: &resolvertypes.Sdk{
 						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 						Version: Version,

@@ -48,12 +48,14 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
     stateProvider.reload();
 
     // Create provider with capturing logger
+    // Dedup is opt-in (experimental); these tests exercise its behavior.
     provider =
         new OpenFeatureLocalResolveProvider(
             stateProvider,
             FLAG_CLIENT_SECRET,
             new UnsupportedMaterializationStore(),
-            capturingLogger);
+            capturingLogger,
+            true);
 
     OpenFeatureAPI.getInstance().setProviderAndWait(provider);
 
