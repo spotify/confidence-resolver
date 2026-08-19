@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.18.1...openfeature-provider-js-v0.18.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* pin npm for trusted publishing ([#520](https://github.com/spotify/confidence-resolver/issues/520)) ([119c7aa](https://github.com/spotify/confidence-resolver/commit/119c7aa2ec2f3594f6ca6079c0d03bfa6f86add4))
+
 ## [0.18.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.18.0...openfeature-provider-js-v0.18.1) (2026-08-19)
 
 
