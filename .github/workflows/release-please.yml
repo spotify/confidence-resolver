@@ -220,6 +220,9 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Install npm with trusted publishing support
+        run: npm install -g npm@11.19.0
+
       - name: Publish to npm with OIDC
         run: npm publish ./artifacts/package.tgz --provenance --access public
 
