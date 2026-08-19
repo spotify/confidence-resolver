@@ -74,12 +74,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html>
       <body>
-        <ConfidenceProvider context={context}>{children}</ConfidenceProvider>
+        <ConfidenceProvider context={context} flags={['new-feature']}>
+          {children}
+        </ConfidenceProvider>
       </body>
     </html>
   );
 }
 ```
+
+`ConfidenceProvider` resolves the requested flags on every server render, even if no child component calls `useFlag`. Omitting `flags` (or passing `flags={[]}`) resolves every active flag available to the client and records resolve telemetry for each flag. This does not record exposure; exposure is recorded only when a flag is used.
+
+Pass an explicit list containing only the flags used by client components. If the application does not use the client hooks, omit `ConfidenceProvider`; initializing the server provider by itself only refreshes resolver state and does not resolve flags.
 
 ### 3. Use flags in client components
 
@@ -209,7 +215,7 @@ import { ConfidenceProvider } from '@spotify-confidence/openfeature-server-provi
 | Prop           | Type                | Required | Description                                           |
 | -------------- | ------------------- | -------- | ----------------------------------------------------- |
 | `context`      | `EvaluationContext` | Yes      | User/session context for flag evaluation              |
-| `flags`        | `string[]`          | No       | Specific flags to resolve (default: all flags)        |
+| `flags`        | `string[]`          | No       | Flags to resolve; omitted or empty resolves all flags |
 | `providerName` | `string`            | No       | Named provider if not using the default               |
 | `children`     | `React.ReactNode`   | Yes      | Child components that will have access to flag values |
 
@@ -364,15 +370,17 @@ const handleOpenModal = () => {
 };
 ```
 
-### Specify flags for better performance
+### Specify flags to avoid unnecessary resolutions
 
-If your client is registered for many flags, but only need a few in the frontend, specify them to reduce the bundle size:
+`ConfidenceProvider` resolves flags on every server render. If your client is registered for many flags but only needs a few in the frontend, specify them to reduce both resolve telemetry and bundle size:
 
 ```tsx
 <ConfidenceProvider context={context} flags={['checkout-flow', 'promo-banner']}>
   {children}
 </ConfidenceProvider>
 ```
+
+Omitting `flags` or passing an empty array resolves all flags available to the client. Remove `ConfidenceProvider` entirely when no client component uses `useFlag` or `useFlagDetails`.
 
 ### Use server functions for server-only logic
 
