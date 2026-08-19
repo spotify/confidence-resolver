@@ -10,6 +10,7 @@ import { advanceTimersUntil, NetworkMock } from './test-helpers';
 import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
+import { VERSION } from './version';
 
 vi.mock(import('./hash'), async () => {
   const { sha256Hex } = await import('./test-helpers');
@@ -174,7 +175,7 @@ describe('flush behavior', () => {
     expect(sentBody).toBeDefined();
     const decoded = WriteFlagLogsRequest.decode(sentBody!);
     expect(decoded.telemetryData?.resolverVersion).toBe('0.20.0');
-    expect(decoded.telemetryData?.sdk).toEqual({ id: 22, customId: undefined, version: '0.17.0' });
+    expect(decoded.telemetryData?.sdk).toEqual({ id: 22, customId: undefined, version: VERSION });
     expect(decoded.telemetryData?.providerInitRate).toEqual([{ count: 1, labels: { encryption: 'false' } }]);
   });
 
