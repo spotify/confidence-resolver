@@ -55,6 +55,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final LocalResolver resolver;
   private final WasmFlagLogger flagLogger;
   private final MaterializationStore materializationStore;
+  private final boolean skipApply;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
   private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
@@ -148,6 +149,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       LocalProviderConfig config, String clientSecret, MaterializationStore materializationStore) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
+    this.skipApply = config.isSkipApply();
     if (config.getEncryptionKey() == null) {
       log.warn(
           "No encryptionKey provided. Falling back to unencrypted state."
@@ -166,7 +168,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             numInstances,
             () ->
                 new RecoveringResolver(
-                    () -> new WasmLocalResolver(flagLogger::write, config.isEnableApplyDedup())));
+                    () ->
+                        new WasmLocalResolver(
+                            flagLogger::write,
+                            config.isEnableApplyDedup(),
+                            config.isSkipApply())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -194,8 +200,20 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger,
       boolean enableApplyDedup) {
+    this(accountStateProvider, clientSecret, materializationStore, wasmFlagLogger, enableApplyDedup, false);
+  }
+
+  @VisibleForTesting
+  public OpenFeatureLocalResolveProvider(
+      AccountStateProvider accountStateProvider,
+      String clientSecret,
+      MaterializationStore materializationStore,
+      WasmFlagLogger wasmFlagLogger,
+      boolean enableApplyDedup,
+      boolean skipApply) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
+    this.skipApply = skipApply;
     this.stateProvider = accountStateProvider;
     this.flagLogger = wasmFlagLogger;
     final int numInstances =
@@ -205,7 +223,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             numInstances,
             () ->
                 new RecoveringResolver(
-                    () -> new WasmLocalResolver(wasmFlagLogger::write, enableApplyDedup)));
+                    () ->
+                        new WasmLocalResolver(
+                            wasmFlagLogger::write, enableApplyDedup, skipApply)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -236,19 +256,21 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final long pollIntervalSeconds = getPollIntervalSeconds();
     scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
 
-    assignLogExecutor.scheduleAtFixedRate(
-        () -> {
-          try {
-            if (initialized) {
-              resolver.flushAssignLogs();
+    if (!skipApply) {
+      assignLogExecutor.scheduleAtFixedRate(
+          () -> {
+            try {
+              if (initialized) {
+                resolver.flushAssignLogs();
+              }
+            } catch (RuntimeException e) {
+              log.error("Failed to flush assign logs", e);
             }
-          } catch (RuntimeException e) {
-            log.error("Failed to flush assign logs", e);
-          }
-        },
-        ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
-        ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
-        TimeUnit.MILLISECONDS);
+          },
+          ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
+          ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
+          TimeUnit.MILLISECONDS);
+    }
   }
 
   private void scheduleStateRefresh(
@@ -429,7 +451,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       throw new RuntimeException(e);
     }
 
-    final boolean skipApply = OpenFeatureUtils.isSkipApply(ctx);
+    final boolean skipApply = this.skipApply || OpenFeatureUtils.isSkipApply(ctx);
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
     ResolveFlagsResponse resolveFlagResponse;
     try {

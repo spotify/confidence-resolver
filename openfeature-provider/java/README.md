@@ -403,7 +403,15 @@ const confidence = Confidence.create({
 
 ## Advanced: Controlling Exposure Events
 
-By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply` in the evaluation context:
+By default, every flag evaluation triggers an exposure event (apply). To skip applies for **all** OpenFeature evaluations, set `skipApply` on the provider config. Assignment events are never queued. Resolve logs and telemetry are still sent.
+
+```java
+LocalProviderConfig config = LocalProviderConfig.builder().skipApply(true).build();
+OpenFeatureLocalResolveProvider provider =
+    new OpenFeatureLocalResolveProvider(config, clientSecret);
+```
+
+To skip apply for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
 
 ```java
 MutableContext context = new MutableContext("user-123");

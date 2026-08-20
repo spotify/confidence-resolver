@@ -345,7 +345,13 @@ If you don't use sticky assignments or materialized segments, the default behavi
 
 ## Advanced: Controlling Exposure Events
 
-By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply` in the evaluation context:
+By default, every flag evaluation triggers an exposure event (apply). To skip applies for **all** OpenFeature evaluations, call `with_skip_apply()` on the provider options. Assignment events are never queued. Resolve logs and telemetry are still sent.
+
+```rust
+let options = ProviderOptions::new("your-client-secret").with_skip_apply();
+```
+
+To skip apply for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
 
 ```rust
 let context = EvaluationContext::default()

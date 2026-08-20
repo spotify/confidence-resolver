@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
  * SetResolverStateRequest. Fields added to ClientResolverState must not collide with
  * SetResolverStateRequest tags.
  *
- * <p>SetResolverStateRequest uses: tag 1 (state), tag 2 (account_id), tag 3 (Sdk).
+ * <p>SetResolverStateRequest uses: tag 1 (state), tag 2 (account_id), tag 3 (Sdk), tag 4
+ * (enable_apply_dedup), tag 5 (skip_apply).
  */
 class ClientResolverStateWireCompatibilityTest {
 
@@ -55,7 +56,7 @@ class ClientResolverStateWireCompatibilityTest {
         .isInstanceOf(InvalidProtocolBufferException.class);
   }
 
-  /** Tag 4 is unused in SetResolverStateRequest — protobuf silently skips it. */
+  /** Tag 4 is a bool (enable_apply_dedup). Packed int32 uses a different wire type and is skipped. */
   @Test
   void tag4_packed_int32_is_safely_skipped() throws Exception {
     final byte[] packedInt = new byte[] {0x01};
@@ -82,5 +83,34 @@ class ClientResolverStateWireCompatibilityTest {
     assertThat(parsed.getAccountId()).isEqualTo(ACCOUNT);
     assertThat(parsed.getState().toByteArray()).isEqualTo(MINIMAL_STATE);
     assertThat(parsed.hasSdk()).isFalse();
+  }
+
+  /** Tag 5 is a bool (skip_apply). Packed int32 uses a different wire type and is skipped. */
+  @Test
+  void tag5_packed_int32_is_safely_skipped() throws Exception {
+    final byte[] packedInt = new byte[] {0x01};
+    final var proto =
+        UnknownFieldSet.newBuilder()
+            .addField(
+                1,
+                UnknownFieldSet.Field.newBuilder()
+                    .addLengthDelimited(ByteString.copyFrom(MINIMAL_STATE))
+                    .build())
+            .addField(
+                2,
+                UnknownFieldSet.Field.newBuilder()
+                    .addLengthDelimited(ByteString.copyFromUtf8(ACCOUNT))
+                    .build())
+            .addField(
+                5,
+                UnknownFieldSet.Field.newBuilder()
+                    .addLengthDelimited(ByteString.copyFrom(packedInt))
+                    .build())
+            .build();
+
+    final var parsed = Messages.SetResolverStateRequest.parseFrom(proto.toByteArray());
+    assertThat(parsed.getAccountId()).isEqualTo(ACCOUNT);
+    assertThat(parsed.getState().toByteArray()).isEqualTo(MINIMAL_STATE);
+    assertThat(parsed.getSkipApply()).isFalse();
   }
 }

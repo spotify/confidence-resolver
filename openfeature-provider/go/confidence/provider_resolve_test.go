@@ -10,6 +10,7 @@ import (
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 	iamv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 	"google.golang.org/protobuf/proto"
 )
@@ -190,6 +191,65 @@ func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
 			t.Errorf("Expected TargetingMatchReason, got %v", result.Reason)
 		}
 	})
+}
+
+func TestLocalResolverProvider_SkipApplyConfig(t *testing.T) {
+	ctx := context.Background()
+	mockedResolver := &tu.MockedLocalResolver{
+		Response: &wasm.ResolveProcessResponse{
+			Result: &wasm.ResolveProcessResponse_Resolved_{
+				Resolved: &wasm.ResolveProcessResponse_Resolved{
+					Response: tu.CreateTutorialFeatureResponse(),
+				},
+			},
+		},
+	}
+	stateProvider := &tu.StateProviderMock{
+		State:     tu.LoadTestResolverState(t),
+		AccountID: tu.LoadTestAccountID(t),
+	}
+	mockFlagLogger := &tu.MockFlagLogger{}
+	unsupportedMatStore := newUnsupportedMaterializationStore()
+	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return mockedResolver
+	}, unsupportedMatStore)
+	provider := NewLocalResolverProvider(
+		resolverSupplier,
+		stateProvider,
+		mockFlagLogger,
+		"mkjJruAATQWjeY7foFIWfVAcBWnci2YF",
+		slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		WithSkipApply(),
+	)
+	if err := openfeature.SetProviderAndWait(provider); err != nil {
+		t.Fatalf("SetProviderAndWait: %v", err)
+	}
+	client := openfeature.NewClient("skip-apply-config-test")
+	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
+		"visitor_id": "tutorial_visitor",
+	})
+	if _, err := client.BooleanValueDetails(ctx, "tutorial-feature.enabled", false, evalCtx); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if mockedResolver.LastRequest == nil {
+		t.Fatal("expected ResolveProcess to be called")
+	}
+	req := mockedResolver.LastRequest.GetWithoutMaterializations()
+	if req == nil {
+		req = mockedResolver.LastRequest.GetDeferredMaterializations()
+	}
+	if req == nil {
+		t.Fatalf("unexpected resolve request: %#v", mockedResolver.LastRequest)
+	}
+	if req.Apply {
+		t.Fatal("expected apply=false when SkipApply is configured")
+	}
+	if mockedResolver.LastSetResolverState == nil {
+		t.Fatal("expected SetResolverState to be called")
+	}
+	if !mockedResolver.LastSetResolverState.SkipApply {
+		t.Fatal("expected skip_apply=true on SetResolverState when SkipApply is configured")
+	}
 }
 
 func TestLocalResolverProvider_PathNotFound(t *testing.T) {

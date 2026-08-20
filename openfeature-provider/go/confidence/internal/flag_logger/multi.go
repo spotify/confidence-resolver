@@ -111,7 +111,11 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 			}
 
 			// Success
-			m.logger.Debug("Successfully sent flag log", "destination", dest, "entries", len(request.FlagAssigned))
+			m.logger.Debug("Successfully sent flag log",
+				"destination", dest,
+				"flag_assigned", len(request.FlagAssigned),
+				"client_resolve_info", len(request.ClientResolveInfo),
+				"flag_resolve_info", len(request.FlagResolveInfo))
 			lastErr = nil
 			break
 		}

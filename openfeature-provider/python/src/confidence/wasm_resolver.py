@@ -100,6 +100,7 @@ class WasmResolver:
         account_id: str,
         sdk: Optional[protobuf_message.Message] = None,
         enable_apply_dedup: bool = False,
+        skip_apply: bool = False,
     ) -> None:
         """Set the resolver state in the WASM module.
 
@@ -108,11 +109,13 @@ class WasmResolver:
             account_id: The account ID for the resolver.
             sdk: Optional SDK identifier and version.
             enable_apply_dedup: Experimental — enable apply-event dedup (off by default).
+            skip_apply: Skip all apply/assignment logging; the assign queue stays empty.
         """
         request = messages_pb2.SetResolverStateRequest()
         request.state = state
         request.account_id = account_id
         request.enable_apply_dedup = enable_apply_dedup
+        request.skip_apply = skip_apply
         if sdk is not None:
             request.sdk.CopyFrom(sdk)
 

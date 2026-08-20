@@ -363,7 +363,16 @@ yarn add debug
 
 ## Advanced: Controlling Exposure Events
 
-By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply: true` in the evaluation context:
+By default, every flag evaluation triggers an exposure event (apply). To skip applies for **all** OpenFeature evaluations, set `skipApply` on the provider. Assignment events are never queued. Resolve logs and telemetry are still sent.
+
+```typescript
+const provider = createConfidenceServerProvider({
+  flagClientSecret: 'your-client-secret',
+  skipApply: true,
+});
+```
+
+To skip apply for a single evaluation, pass `_confidence_skip_apply: true` in the evaluation context:
 
 ```typescript
 const value = await client.getBooleanValue('my-flag.enabled', false, {

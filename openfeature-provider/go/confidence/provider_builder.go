@@ -29,6 +29,7 @@ type ProviderConfig struct {
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
 	EnableApplyDedup              bool                 // Optional, experimental: enable apply-event dedup in the WASM resolver; off by default
+	SkipApply                     bool                 // Optional: skip all apply/assignment logging; WASM never enqueues FlagAssigned events; resolve logs and telemetry still sent
 }
 
 type ProviderTestConfig struct {
@@ -41,6 +42,7 @@ type ProviderTestConfig struct {
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter   bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
+	SkipApply            bool                 // Optional: skip all apply/assignment logging; WASM never enqueues FlagAssigned events
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
@@ -98,7 +100,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.SkipApply)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
@@ -125,7 +127,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false, config.SkipApply)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
@@ -142,7 +144,7 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool) func(contex
 }
 
 // buildProviderOptions creates options slice from provider config
-func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enableApplyDedup bool) []Option {
+func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enableApplyDedup, skipApply bool) []Option {
 	var opts []Option
 	if statePollInterval > 0 {
 		opts = append(opts, WithStatePollInterval(statePollInterval))
@@ -152,6 +154,9 @@ func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enab
 	}
 	if enableApplyDedup {
 		opts = append(opts, WithEnableApplyDedup())
+	}
+	if skipApply {
+		opts = append(opts, WithSkipApply())
 	}
 	return opts
 }

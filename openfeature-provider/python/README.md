@@ -256,7 +256,16 @@ logging.getLogger("confidence").setLevel(logging.DEBUG)
 
 ## Advanced: Controlling Exposure Events
 
-By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply` in the evaluation context:
+By default, every flag evaluation triggers an exposure event (apply). To skip applies for **all** OpenFeature evaluations, pass `skip_apply=True` when constructing the provider. Assignment events are never queued. Resolve logs and telemetry are still sent.
+
+```python
+provider = ConfidenceProvider(
+    client_secret="your-client-secret",
+    skip_apply=True,
+)
+```
+
+To skip apply for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
 
 ```python
 context = EvaluationContext(

@@ -883,6 +883,57 @@ class TestSkipApply:
         finally:
             provider.shutdown()
 
+    def test_skip_apply_config_still_resolves(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """skip_apply=True on the provider still resolves flags."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+            skip_apply=True,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes={"visitor_id": "tutorial_visitor"},
+            )
+            result = provider.resolve_string_details(
+                flag_key="tutorial-feature.message",
+                default_value="default-message",
+                evaluation_context=ctx,
+            )
+            assert result.reason == Reason.TARGETING_MATCH
+            assert result.value != "default-message"
+        finally:
+            provider.shutdown()
+
+        from confidence.proto.confidence.flags.resolver.v1 import internal_api_pb2
+
+        assigned = 0
+        client_resolve = 0
+        flag_resolve = 0
+        for payload in mock_logger.writes:
+            req = internal_api_pb2.WriteFlagLogsRequest()
+            req.ParseFromString(payload)
+            assigned += len(req.flag_assigned)
+            client_resolve += len(req.client_resolve_info)
+            flag_resolve += len(req.flag_resolve_info)
+        assert assigned == 0
+        assert client_resolve >= 1
+        assert flag_resolve >= 1
+
     def test_skip_apply_does_not_mutate_caller_context(
         self,
         wasm_bytes: bytes,

@@ -21,7 +21,7 @@ const RESOLVE_REQUEST: ResolveProcessRequest = {
   },
 };
 
-const SET_STATE_REQUEST = { state: stateBytes, accountId: 'confidence-test', enableApplyDedup: false };
+const SET_STATE_REQUEST = { state: stateBytes, accountId: 'confidence-test', enableApplyDedup: false, skipApply: false };
 
 describe('wasm memory stability', () => {
   it('should not leak memory on repeated resolve calls', { timeout: 30_000 }, () => {

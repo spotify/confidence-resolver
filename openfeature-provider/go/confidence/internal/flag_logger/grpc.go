@@ -76,7 +76,10 @@ func (g *GrpcFlagLogger) sendAsync(request *resolverv1.WriteFlagLogsRequest) {
 		if _, err := g.stub.ClientWriteFlagLogs(rpcCtx, request); err != nil {
 			g.failures.Add(1)
 		} else {
-			g.logger.Debug("Successfully sent flag log", "entries", len(request.FlagAssigned))
+			g.logger.Debug("Successfully sent flag log",
+				"flag_assigned", len(request.FlagAssigned),
+				"client_resolve_info", len(request.ClientResolveInfo),
+				"flag_resolve_info", len(request.FlagResolveInfo))
 		}
 
 		if g.attempts.Add(1)%10 == 0 {

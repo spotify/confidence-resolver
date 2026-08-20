@@ -5,7 +5,7 @@ from google.protobuf import struct_pb2
 
 from confidence.wasm_resolver import WasmResolver
 from confidence.proto.confidence.wasm import wasm_api_pb2
-from confidence.proto.confidence.flags.resolver.v1 import api_pb2
+from confidence.proto.confidence.flags.resolver.v1 import api_pb2, internal_api_pb2
 
 # Test constants - flag name from test fixture data
 TEST_FLAG_NAME = "flags/tutorial-feature"
@@ -157,6 +157,45 @@ class TestFlushAssigned:
 
         assigned = resolver.flush_assigned()
         assert isinstance(assigned, bytes)
+
+
+class TestSkipApply:
+    """skip_apply on set_resolver_state skips assignment logging."""
+
+    def test_skip_apply_does_not_enqueue_assigns(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """apply=true with skip_apply still logs resolves and never assigns."""
+        resolver = WasmResolver(wasm_bytes)
+        resolver.set_resolver_state(
+            test_resolver_state, test_account_id, skip_apply=True
+        )
+
+        resolve_request = api_pb2.ResolveFlagsRequest()
+        resolve_request.flags.append(TEST_FLAG_NAME)
+        resolve_request.client_secret = test_client_secret
+        resolve_request.apply = True
+        evaluation_context = struct_pb2.Struct()
+        evaluation_context.fields["visitor_id"].string_value = "tutorial_visitor"
+        resolve_request.evaluation_context.CopyFrom(evaluation_context)
+
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
+        resolver.resolve_process(request)
+
+        assigned = internal_api_pb2.WriteFlagLogsRequest()
+        assigned.ParseFromString(resolver.flush_assigned() or b"")
+        logs = internal_api_pb2.WriteFlagLogsRequest()
+        logs.ParseFromString(resolver.flush_logs() or b"")
+
+        assert len(assigned.flag_assigned) == 0
+        assert len(logs.flag_assigned) == 0
+        assert len(logs.client_resolve_info) >= 1
+        assert len(logs.flag_resolve_info) >= 1
 
 
 class TestMemoryManagement:

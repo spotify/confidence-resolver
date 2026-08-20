@@ -428,8 +428,10 @@ func CreateTutorialFeatureResponse() *resolver.ResolveFlagsResponse {
 // MockedLocalResolver is a test double implementing the LocalResolver API used in tests.
 type MockedLocalResolver struct {
 	// Single response fallback
-	Response *wasm.ResolveProcessResponse
-	Err      error
+	Response             *wasm.ResolveProcessResponse
+	Err                  error
+	LastRequest          *wasm.ResolveProcessRequest
+	LastSetResolverState *wasm.SetResolverStateRequest
 	// Sequenced responses support
 	Responses []*wasm.ResolveProcessResponse
 	callIdx   int
@@ -438,7 +440,8 @@ type MockedLocalResolver struct {
 func (m MockedLocalResolver) Close(context.Context) error { return nil }
 func (m MockedLocalResolver) FlushAllLogs() error         { return nil }
 func (m MockedLocalResolver) FlushAssignLogs() error      { return nil }
-func (m *MockedLocalResolver) ResolveProcess(*wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
+func (m *MockedLocalResolver) ResolveProcess(req *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
+	m.LastRequest = req
 	if len(m.Responses) > 0 {
 		idx := m.callIdx
 		if idx >= len(m.Responses) {
@@ -450,10 +453,13 @@ func (m *MockedLocalResolver) ResolveProcess(*wasm.ResolveProcessRequest) (*wasm
 	}
 	return m.Response, m.Err
 }
-func (m MockedLocalResolver) SetResolverState(*wasm.SetResolverStateRequest) error { return nil }
-func (m MockedLocalResolver) PrometheusSnapshot(_ uint32, _ bool) string           { return "" }
-func (m MockedLocalResolver) RegisterResolve(*wasm.RegisterResolveRequest)         {}
-func (m MockedLocalResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error         { return nil }
+func (m *MockedLocalResolver) SetResolverState(req *wasm.SetResolverStateRequest) error {
+	m.LastSetResolverState = req
+	return nil
+}
+func (m MockedLocalResolver) PrometheusSnapshot(_ uint32, _ bool) string   { return "" }
+func (m MockedLocalResolver) RegisterResolve(*wasm.RegisterResolveRequest) {}
+func (m MockedLocalResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error { return nil }
 
 func MustJSONToProto(jsonString string) *structpb.Value {
 	var v structpb.Value

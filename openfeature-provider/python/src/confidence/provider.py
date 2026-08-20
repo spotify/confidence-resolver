@@ -138,6 +138,7 @@ class ConfidenceProvider(AbstractProvider):
         flag_logger: Optional[FlagLogger] = None,
         wasm_bytes: Optional[bytes] = None,
         enable_apply_dedup: bool = False,
+        skip_apply: bool = False,
     ) -> None:
         """Initialize the Confidence provider.
 
@@ -157,6 +158,8 @@ class ConfidenceProvider(AbstractProvider):
                 the WASM resolver: repeated identical assignments within a
                 short TTL window are logged once. Off by default; the API may
                 change.
+            skip_apply: Skip all apply/assignment logging. WASM never enqueues
+                FlagAssigned events. Resolve logs and telemetry are still sent.
         """
         self._client_secret = client_secret
         self._encryption_key = encryption_key
@@ -166,6 +169,7 @@ class ConfidenceProvider(AbstractProvider):
         self._http_client = http_client
         self._grpc_channel = grpc_channel
         self._enable_apply_dedup = enable_apply_dedup
+        self._skip_apply = skip_apply
 
         # Initialize resolver (created during initialize())
         self._resolver: Optional[LocalResolver] = None
@@ -265,7 +269,7 @@ class ConfidenceProvider(AbstractProvider):
                     version=__version__,
                 )
                 self._resolver.set_resolver_state(
-                    state, account_id, sdk, self._enable_apply_dedup
+                    state, account_id, sdk, self._enable_apply_dedup, self._skip_apply
                 )
                 self._status = ProviderStatus.READY
                 self.emit_provider_ready(ProviderEventDetails())
@@ -474,9 +478,9 @@ class ConfidenceProvider(AbstractProvider):
         try:
             flag_name, path = self._parse_flag_path(flag_key)
 
-            skip_apply = False
+            skip_apply = self._skip_apply
             if evaluation_context and evaluation_context.attributes:
-                skip_apply = (
+                skip_apply = skip_apply or (
                     evaluation_context.attributes.get("_confidence_skip_apply", False)
                     is True
                 )
@@ -852,7 +856,11 @@ class ConfidenceProvider(AbstractProvider):
                     with self._resolver_lock:
                         flushed_logs = self._resolver.flush_logs()
                         self._resolver.set_resolver_state(
-                            state, account_id, sdk, self._enable_apply_dedup
+                            state,
+                            account_id,
+                            sdk,
+                            self._enable_apply_dedup,
+                            self._skip_apply,
                         )
                     if flushed_logs and self._flag_logger is not None:
                         self._flag_logger.write(flushed_logs)
@@ -899,8 +907,11 @@ class ConfidenceProvider(AbstractProvider):
                     logger.error("Failed to flush logs: %s", e)
                 last_full_flush = now
 
-            # Assign flush at assign_poll_interval
-            if now - last_assign_flush >= self._assign_poll_interval:
+            # Assign flush at assign_poll_interval (skipped when skip_apply)
+            if (
+                not self._skip_apply
+                and now - last_assign_flush >= self._assign_poll_interval
+            ):
                 self._flush_assigned()
                 last_assign_flush = now
 

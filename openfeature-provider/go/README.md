@@ -565,7 +565,16 @@ The shutdown respects the context timeout you provide.
 
 ## Advanced: Controlling Exposure Events
 
-By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply` in the evaluation context:
+By default, every flag evaluation triggers an exposure event (apply). To skip applies for **all** OpenFeature evaluations, set `SkipApply` on the provider. Assignment events are never queued. Resolve logs and telemetry are still sent.
+
+```go
+provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
+    ClientSecret: "your-client-secret",
+    SkipApply:    true,
+})
+```
+
+To skip apply for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
 
 ```go
 evalCtx := openfeature.NewEvaluationContext("user-123", map[string]interface{}{

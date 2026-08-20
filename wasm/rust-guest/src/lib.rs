@@ -64,6 +64,9 @@ static APPLY_DEDUP: LazyLock<Mutex<ApplyDedup>> =
 /// Set from SetResolverStateRequest.enable_apply_dedup — experimental,
 /// dedup is off by default.
 static APPLY_DEDUP_ENABLED: AtomicBool = AtomicBool::new(false);
+/// Set from SetResolverStateRequest.skip_apply. When true, assign logging
+/// is a no-op so the assign queue is never written.
+static SKIP_APPLY: AtomicBool = AtomicBool::new(false);
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
 });
@@ -99,12 +102,19 @@ impl Host for WasmHost {
         );
     }
 
+    fn skip_assign() -> bool {
+        SKIP_APPLY.load(Ordering::Relaxed)
+    }
+
     fn log_assign(
         resolve_id: &str,
         assigned_flags: &[FlagToApply<'_>],
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
+        if SKIP_APPLY.load(Ordering::Relaxed) {
+            return;
+        }
         // An empty apply (no flags matched) still produces a FlagAssigned
         // envelope with resolve_id + client_info, matching pre-dedup behavior.
         if assigned_flags.is_empty() || !APPLY_DEDUP_ENABLED.load(Ordering::Relaxed) {
@@ -174,6 +184,7 @@ wasm_msg_guest! {
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
         let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str(), request.sdk)?;
         APPLY_DEDUP_ENABLED.store(request.enable_apply_dedup, Ordering::Relaxed);
+        SKIP_APPLY.store(request.skip_apply, Ordering::Relaxed);
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
         // TODO: track state age once we decide on the right timestamp source
         // let now = WasmHost::current_time();
@@ -247,6 +258,9 @@ wasm_msg_guest! {
     }
 
     fn apply_flags(request: ApplyFlagsRequest) -> WasmResult<Void> {
+        if SKIP_APPLY.load(Ordering::Relaxed) {
+            return Ok(VOID);
+        }
         let resolver_state = get_resolver_state()?;
         // Use empty evaluation context - the real one is extracted from the resolve token
         let evaluation_context = Struct::default();

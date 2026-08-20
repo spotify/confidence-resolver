@@ -327,6 +327,14 @@ pub trait Host {
         sdk: &Option<flags_resolver::Sdk>,
     );
 
+    /// When true, skip both immediate assign logging and deferred resolve-token
+    /// generation. Used by provider `skipApply` config so the assign queue is
+    /// never written. Per-evaluation `_confidence_skip_apply` still uses
+    /// `apply=false` (deferred token) instead of this hook.
+    fn skip_assign() -> bool {
+        false
+    }
+
     fn encrypt_resolve_token(token_data: &[u8], encryption_key: &[u8]) -> Result<Vec<u8>, String> {
         #[cfg(feature = "std")]
         {
@@ -906,47 +914,50 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             ..Default::default()
         };
 
-        if resolve_request.apply {
-            // Borrow assignments straight out of the resolved values — no
-            // AssignedFlag is cloned unless the host actually logs it.
-            let flags_to_apply: Vec<FlagToApply<'_>> = resolved_values
-                .iter()
-                .filter(|rv| rv.should_apply())
-                .map(|rv| FlagToApply {
-                    assigned_flag: &rv.inner,
-                    skew_adjusted_applied_time: timestamp,
-                })
-                .collect();
+        // Provider skipApply: neither assign logging nor a deferred-apply token.
+        if !H::skip_assign() {
+            if resolve_request.apply {
+                // Borrow assignments straight out of the resolved values — no
+                // AssignedFlag is cloned unless the host actually logs it.
+                let flags_to_apply: Vec<FlagToApply<'_>> = resolved_values
+                    .iter()
+                    .filter(|rv| rv.should_apply())
+                    .map(|rv| FlagToApply {
+                        assigned_flag: &rv.inner,
+                        skew_adjusted_applied_time: timestamp,
+                    })
+                    .collect();
 
-            H::log_assign(
-                &resolve_id,
-                flags_to_apply.as_slice(),
-                self.client,
-                &self.state.sdk,
-            );
-        } else {
-            let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
-                resolve_id: resolve_id.clone(),
-                evaluation_context: Some(Struct::default()),
-                ..Default::default()
-            };
-            for rv in resolved_values.iter().filter(|rv| rv.should_apply()) {
-                resolve_token_v1
-                    .assignments
-                    .insert(rv.inner.flag.clone(), rv.inner.clone());
+                H::log_assign(
+                    &resolve_id,
+                    flags_to_apply.as_slice(),
+                    self.client,
+                    &self.state.sdk,
+                );
+            } else {
+                let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
+                    resolve_id: resolve_id.clone(),
+                    evaluation_context: Some(Struct::default()),
+                    ..Default::default()
+                };
+                for rv in resolved_values.iter().filter(|rv| rv.should_apply()) {
+                    resolve_token_v1
+                        .assignments
+                        .insert(rv.inner.flag.clone(), rv.inner.clone());
+                }
+
+                let resolve_token = flags_resolver::ResolveToken {
+                    resolve_token: Some(flags_resolver::resolve_token::ResolveToken::TokenV1(
+                        resolve_token_v1,
+                    )),
+                };
+
+                let encrypted_token = self
+                    .encrypt_resolve_token(&resolve_token)
+                    .map_err(|_| "Failed to encrypt resolve token".to_string())?;
+
+                response.resolve_token = encrypted_token;
             }
-
-            let resolve_token = flags_resolver::ResolveToken {
-                resolve_token: Some(flags_resolver::resolve_token::ResolveToken::TokenV1(
-                    resolve_token_v1,
-                )),
-            };
-
-            let encrypted_token = self
-                .encrypt_resolve_token(&resolve_token)
-                .map_err(|_| "Failed to encrypt resolve token".to_string())?;
-
-            response.resolve_token = encrypted_token;
         }
 
         H::log_resolve(
@@ -984,6 +995,9 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     }
 
     pub fn apply_flags(&self, request: &flags_resolver::ApplyFlagsRequest) -> Result<(), String> {
+        if H::skip_assign() {
+            return Ok(());
+        }
         let send_time_ts = request.send_time.as_ref().ok_or("send_time is required")?;
         let send_time = to_date_time_utc(send_time_ts).ok_or("invalid send_time")?;
         let receive_time: DateTime<Utc> = timestamp_to_datetime(&H::current_time())?;
@@ -2363,6 +2377,340 @@ mod tests {
                 "Log should contain the flag name"
             );
         }
+    }
+
+    #[test]
+    fn test_skip_assign_does_not_log_or_create_token() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        struct TestLogger {
+            assign_logs: std::sync::Mutex<Vec<String>>,
+            resolve_logs: std::sync::Mutex<Vec<String>>,
+        }
+
+        impl Host for TestLogger {
+            fn skip_assign() -> bool {
+                true
+            }
+
+            fn log_resolve(
+                resolve_id: &str,
+                _evaluation_context: &Struct,
+                _values: &[ResolvedValue<'_>],
+                _client: &Client,
+            ) {
+                TestLogger::get_instance()
+                    .resolve_logs
+                    .lock()
+                    .unwrap()
+                    .push(resolve_id.to_string());
+            }
+
+            fn log_assign(
+                resolve_id: &str,
+                assigned_flag: &[FlagToApply<'_>],
+                _client: &Client,
+                _sdk: &Option<Sdk>,
+            ) {
+                let mut logs = TestLogger::get_instance()
+                    .assign_logs
+                    .try_lock()
+                    .expect("mutex is locked or poisoned");
+                assigned_flag.iter().for_each(|f| {
+                    logs.push(format!("{}:{}", resolve_id, f.assigned_flag.flag));
+                });
+            }
+        }
+
+        impl TestLogger {
+            fn get_instance() -> &'static TestLogger {
+                static INSTANCE: std::sync::OnceLock<TestLogger> = std::sync::OnceLock::new();
+                INSTANCE.get_or_init(|| TestLogger {
+                    assign_logs: std::sync::Mutex::new(Vec::new()),
+                    resolve_logs: std::sync::Mutex::new(Vec::new()),
+                })
+            }
+        }
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, TestLogger> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec!["flags/tutorial-feature".to_string()],
+            apply: true,
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let response: ResolveFlagsResponse = resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
+        let flag = response.resolved_flags.get(0).unwrap();
+        assert_eq!(true, flag.should_apply);
+        assert!(
+            response.resolve_token.is_empty(),
+            "skip_assign must not emit a deferred-apply resolve token"
+        );
+        assert!(
+            TestLogger::get_instance()
+                .assign_logs
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "skip_assign must not log assignments"
+        );
+        assert_eq!(
+            TestLogger::get_instance()
+                .resolve_logs
+                .lock()
+                .unwrap()
+                .len(),
+            1,
+            "skip_assign must still log resolves"
+        );
+    }
+
+    #[test]
+    fn test_skip_assign_with_apply_false_does_not_create_token() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        struct TestLogger {
+            assign_logs: std::sync::Mutex<Vec<String>>,
+            resolve_logs: std::sync::Mutex<Vec<String>>,
+        }
+
+        impl Host for TestLogger {
+            fn skip_assign() -> bool {
+                true
+            }
+
+            fn log_resolve(
+                resolve_id: &str,
+                _evaluation_context: &Struct,
+                _values: &[ResolvedValue<'_>],
+                _client: &Client,
+            ) {
+                TestLogger::get_instance()
+                    .resolve_logs
+                    .lock()
+                    .unwrap()
+                    .push(resolve_id.to_string());
+            }
+
+            fn log_assign(
+                resolve_id: &str,
+                assigned_flag: &[FlagToApply<'_>],
+                _client: &Client,
+                _sdk: &Option<Sdk>,
+            ) {
+                let mut logs = TestLogger::get_instance()
+                    .assign_logs
+                    .try_lock()
+                    .expect("mutex is locked or poisoned");
+                assigned_flag.iter().for_each(|f| {
+                    logs.push(format!("{}:{}", resolve_id, f.assigned_flag.flag));
+                });
+            }
+        }
+
+        impl TestLogger {
+            fn get_instance() -> &'static TestLogger {
+                static INSTANCE: std::sync::OnceLock<TestLogger> = std::sync::OnceLock::new();
+                INSTANCE.get_or_init(|| TestLogger {
+                    assign_logs: std::sync::Mutex::new(Vec::new()),
+                    resolve_logs: std::sync::Mutex::new(Vec::new()),
+                })
+            }
+        }
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, TestLogger> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec!["flags/tutorial-feature".to_string()],
+            apply: false,
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let response: ResolveFlagsResponse = resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
+        let flag = response.resolved_flags.get(0).unwrap();
+        assert_eq!(true, flag.should_apply);
+        assert!(
+            response.resolve_token.is_empty(),
+            "skip_assign must not emit a deferred-apply resolve token even when apply=false"
+        );
+        assert!(
+            TestLogger::get_instance()
+                .assign_logs
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "skip_assign must not log assignments"
+        );
+        assert_eq!(
+            TestLogger::get_instance()
+                .resolve_logs
+                .lock()
+                .unwrap()
+                .len(),
+            1,
+            "skip_assign must still log resolves"
+        );
+    }
+
+    #[test]
+    fn test_skip_assign_apply_flags_does_not_log() {
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        struct TokenHost;
+
+        impl Host for TokenHost {
+            fn log_resolve(
+                _resolve_id: &str,
+                _evaluation_context: &Struct,
+                _values: &[ResolvedValue<'_>],
+                _client: &Client,
+            ) {
+            }
+
+            fn log_assign(
+                _resolve_id: &str,
+                _assigned_flag: &[FlagToApply<'_>],
+                _client: &Client,
+                _sdk: &Option<Sdk>,
+            ) {
+            }
+        }
+
+        struct SkipHost {
+            assign_logs: std::sync::Mutex<Vec<String>>,
+        }
+
+        impl Host for SkipHost {
+            fn skip_assign() -> bool {
+                true
+            }
+
+            fn log_resolve(
+                _resolve_id: &str,
+                _evaluation_context: &Struct,
+                _values: &[ResolvedValue<'_>],
+                _client: &Client,
+            ) {
+            }
+
+            fn log_assign(
+                resolve_id: &str,
+                assigned_flag: &[FlagToApply<'_>],
+                _client: &Client,
+                _sdk: &Option<Sdk>,
+            ) {
+                let mut logs = SkipHost::get_instance()
+                    .assign_logs
+                    .try_lock()
+                    .expect("mutex is locked or poisoned");
+                assigned_flag.iter().for_each(|f| {
+                    logs.push(format!("{}:{}", resolve_id, f.assigned_flag.flag));
+                });
+            }
+        }
+
+        impl SkipHost {
+            fn get_instance() -> &'static SkipHost {
+                static INSTANCE: std::sync::OnceLock<SkipHost> = std::sync::OnceLock::new();
+                INSTANCE.get_or_init(|| SkipHost {
+                    assign_logs: std::sync::Mutex::new(Vec::new()),
+                })
+            }
+        }
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let token_resolver: AccountResolver<'_, TokenHost> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec!["flags/tutorial-feature".to_string()],
+            apply: false,
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let response: ResolveFlagsResponse = token_resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
+        assert!(
+            !response.resolve_token.is_empty(),
+            "apply=false without skip_assign should emit a resolve token"
+        );
+
+        let skip_resolver: AccountResolver<'_, SkipHost> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap();
+
+        let now = Timestamp {
+            seconds: 1704067200,
+            nanos: 0,
+        };
+        let apply_request = flags_resolver::ApplyFlagsRequest {
+            flags: vec![flags_resolver::AppliedFlag {
+                flag: "flags/tutorial-feature".to_string(),
+                apply_time: Some(now.clone()),
+            }],
+            client_secret: SECRET.to_string(),
+            resolve_token: response.resolve_token,
+            send_time: Some(now),
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        skip_resolver
+            .apply_flags(&apply_request)
+            .expect("skip_assign apply_flags should succeed as a no-op");
+        assert!(
+            SkipHost::get_instance()
+                .assign_logs
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "skip_assign apply_flags must not log assignments"
+        );
     }
 
     #[test]

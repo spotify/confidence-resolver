@@ -13,6 +13,7 @@ public class LocalProviderConfig {
   private final int resolverPoolSize;
   private final String encryptionKey;
   private final boolean enableApplyDedup;
+  private final boolean skipApply;
 
   public LocalProviderConfig() {
     this(null, null);
@@ -63,6 +64,24 @@ public class LocalProviderConfig {
       int resolverPoolSize,
       String encryptionKey,
       boolean enableApplyDedup) {
+    this(
+        channelFactory,
+        httpClientFactory,
+        useRemoteMaterializationStore,
+        resolverPoolSize,
+        encryptionKey,
+        enableApplyDedup,
+        false);
+  }
+
+  private LocalProviderConfig(
+      ChannelFactory channelFactory,
+      HttpClientFactory httpClientFactory,
+      boolean useRemoteMaterializationStore,
+      int resolverPoolSize,
+      String encryptionKey,
+      boolean enableApplyDedup,
+      boolean skipApply) {
     this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
     this.httpClientFactory =
         httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
@@ -70,6 +89,7 @@ public class LocalProviderConfig {
     this.resolverPoolSize = resolverPoolSize > 0 ? resolverPoolSize : DEFAULT_RESOLVER_POOL_SIZE;
     this.encryptionKey = encryptionKey;
     this.enableApplyDedup = enableApplyDedup;
+    this.skipApply = skipApply;
   }
 
   public ChannelFactory getChannelFactory() {
@@ -102,6 +122,14 @@ public class LocalProviderConfig {
     return enableApplyDedup;
   }
 
+  /**
+   * Returns whether OpenFeature evaluations skip exposure (apply) logging. Resolve logs and
+   * telemetry are still sent.
+   */
+  public boolean isSkipApply() {
+    return skipApply;
+  }
+
   public static Builder builder() {
     return new Builder();
   }
@@ -113,6 +141,7 @@ public class LocalProviderConfig {
     private int resolverPoolSize;
     private String encryptionKey;
     private boolean enableApplyDedup;
+    private boolean skipApply;
 
     public Builder channelFactory(ChannelFactory channelFactory) {
       this.channelFactory = channelFactory;
@@ -156,6 +185,15 @@ public class LocalProviderConfig {
       return this;
     }
 
+    /**
+     * Skip all apply/assignment logging. WASM never enqueues FlagAssigned events. Resolve logs and
+     * telemetry are still sent.
+     */
+    public Builder skipApply(boolean skipApply) {
+      this.skipApply = skipApply;
+      return this;
+    }
+
     public LocalProviderConfig build() {
       return new LocalProviderConfig(
           channelFactory,
@@ -163,7 +201,8 @@ public class LocalProviderConfig {
           useRemoteMaterializationStore,
           resolverPoolSize,
           encryptionKey,
-          enableApplyDedup);
+          enableApplyDedup,
+          skipApply);
     }
   }
 }

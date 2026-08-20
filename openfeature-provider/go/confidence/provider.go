@@ -34,6 +34,7 @@ type providerOptions struct {
 	statePollInterval time.Duration
 	logPollInterval   time.Duration
 	enableApplyDedup  bool
+	skipApply         bool
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -59,6 +60,14 @@ func WithEnableApplyDedup() Option {
 	}
 }
 
+// WithSkipApply skips all apply/assignment logging. WASM never enqueues
+// FlagAssigned events. Resolve logs and telemetry are still sent.
+func WithSkipApply() Option {
+	return func(o *providerOptions) {
+		o.skipApply = true
+	}
+}
+
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
@@ -74,6 +83,7 @@ type LocalResolverProvider struct {
 	statePollInterval time.Duration
 	logPollInterval   time.Duration
 	enableApplyDedup  bool
+	skipApply         bool
 }
 
 // Compile-time interface conformance checks
@@ -123,6 +133,7 @@ func NewLocalResolverProvider(
 		statePollInterval: statePollInterval,
 		logPollInterval:   logPollInterval,
 		enableApplyDedup:  options.enableApplyDedup,
+		skipApply:         options.skipApply,
 	}
 }
 
@@ -261,7 +272,7 @@ func evaluate[T any](
 		})
 	}
 
-	apply := true
+	apply := !p.skipApply
 	if skip, ok := evalCtx["_confidence_skip_apply"]; ok {
 		if b, ok := skip.(bool); ok && b {
 			apply = false
@@ -501,6 +512,7 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 		State:            initialState,
 		AccountId:        accountId,
 		EnableApplyDedup: p.enableApplyDedup,
+		SkipApply:        p.skipApply,
 		Sdk: &resolvertypes.Sdk{
 			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 			Version: Version,
@@ -609,6 +621,7 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 					State:            state,
 					AccountId:        accountId,
 					EnableApplyDedup: p.enableApplyDedup,
+					SkipApply:        p.skipApply,
 					Sdk: &resolvertypes.Sdk{
 						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 						Version: Version,
@@ -633,8 +646,13 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 		logTicker := time.NewTicker(p.logPollInterval)
 		defer logTicker.Stop()
 
-		assignTicker := time.NewTicker(100 * time.Millisecond)
-		defer assignTicker.Stop()
+		var assignTicker *time.Ticker
+		var assignC <-chan time.Time
+		if !p.skipApply {
+			assignTicker = time.NewTicker(100 * time.Millisecond)
+			defer assignTicker.Stop()
+			assignC = assignTicker.C
+		}
 
 		for {
 			select {
@@ -642,7 +660,7 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 				if err := p.resolver.FlushAllLogs(); err != nil {
 					p.logger.Error("Failed to flush all logs", "error", err)
 				}
-			case <-assignTicker.C:
+			case <-assignC:
 				if err := p.resolver.FlushAssignLogs(); err != nil {
 					p.logger.Error("Failed to flush assign logs", "error", err)
 				}

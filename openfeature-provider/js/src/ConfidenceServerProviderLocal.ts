@@ -52,6 +52,11 @@ export interface ProviderOptions {
    * Off by default; the API may change.
    */
   enableApplyDedup?: boolean;
+  /**
+   * Skip all apply/assignment logging. WASM never enqueues FlagAssigned events.
+   * Resolve logs and telemetry are still sent.
+   */
+  skipApply?: boolean;
 }
 
 /**
@@ -239,7 +244,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     try {
       const [flagName] = flagKey.split('.', 1);
       const { _confidence_skip_apply, ...cleanContext } = context;
-      const skipApply = _confidence_skip_apply === true;
+      const skipApply = this.options.skipApply === true || _confidence_skip_apply === true;
 
       let resolution: FlagBundle;
       try {
@@ -274,7 +279,9 @@ export class ConfidenceServerProviderLocal implements Provider {
 
       return result;
     } finally {
-      this.flushAssigned();
+      if (this.options.skipApply !== true) {
+        this.flushAssigned();
+      }
     }
   }
 
@@ -355,6 +362,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         accountId: clientState.account,
         sdk,
         enableApplyDedup: this.options.enableApplyDedup ?? false,
+        skipApply: this.options.skipApply === true,
       }),
     );
   }

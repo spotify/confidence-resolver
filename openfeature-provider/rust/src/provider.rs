@@ -1,6 +1,7 @@
 //! OpenFeature provider implementation for Confidence.
 
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -26,7 +27,7 @@ use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
 
 use crate::error::{Error, Result};
 use crate::gateway::GatewayMiddleware;
-use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER, TELEMETRY};
+use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER, SKIP_APPLY, TELEMETRY};
 use crate::logger::LogManager;
 use crate::materialization::{
     materialization_records_to_read_ops, materialization_records_to_write_ops,
@@ -87,6 +88,9 @@ pub struct ProviderOptions {
     pub gateway_url: Option<String>,
     /// Hex-encoded AES-256 encryption key for decrypting CDN state.
     pub encryption_key: Option<String>,
+    /// Skip all apply/assignment logging. The assign queue is never written.
+    /// Resolve logs and telemetry are still sent.
+    pub skip_apply: bool,
 }
 
 impl ProviderOptions {
@@ -101,6 +105,7 @@ impl ProviderOptions {
             materialization_store: None,
             gateway_url: None,
             encryption_key: None,
+            skip_apply: false,
         }
     }
 
@@ -139,6 +144,13 @@ impl ProviderOptions {
         self.encryption_key = Some(key.into());
         self
     }
+
+    /// Skip all apply/assignment logging. The assign queue is never written.
+    /// Resolve logs and telemetry are still sent.
+    pub fn with_skip_apply(mut self) -> Self {
+        self.skip_apply = true;
+        self
+    }
 }
 
 /// OpenFeature provider for Confidence using native Rust resolver.
@@ -155,6 +167,7 @@ pub struct ConfidenceProvider {
     state_poll_interval: Duration,
     flush_interval: Duration,
     assign_flush_interval: Duration,
+    skip_apply: bool,
 }
 
 impl ConfidenceProvider {
@@ -197,6 +210,8 @@ impl ConfidenceProvider {
                 None => None,
             };
 
+        SKIP_APPLY.store(options.skip_apply, Ordering::Relaxed);
+
         Ok(Self {
             metadata: ProviderMetadata::new("confidence-local-resolver"),
             client_secret: options.client_secret,
@@ -214,6 +229,7 @@ impl ConfidenceProvider {
             assign_flush_interval: options
                 .assign_flush_interval
                 .unwrap_or(DEFAULT_ASSIGN_FLUSH_INTERVAL),
+            skip_apply: options.skip_apply,
         })
     }
 
@@ -268,6 +284,7 @@ impl ConfidenceProvider {
         let state_poll_interval = self.state_poll_interval;
         let flush_interval = self.flush_interval;
         let assign_flush_interval = self.assign_flush_interval;
+        let skip_apply = self.skip_apply;
 
         // Spawn combined background task
         let task = tokio::spawn(async move {
@@ -300,7 +317,7 @@ impl ConfidenceProvider {
                             tracing::error!("Failed to flush logs: {}", e);
                         }
                     }
-                    _ = assign_interval.tick() => {
+                    _ = assign_interval.tick(), if !skip_apply => {
                         if let Err(e) = log_manager.flush_assign(&ASSIGN_LOGGER).await {
                             tracing::error!("Failed to flush assign logs: {}", e);
                         }
@@ -331,14 +348,15 @@ impl ConfidenceProvider {
 
         // Check for skip apply before converting context
         let mut context = context.clone();
-        let skip_apply = context
-            .custom_fields
-            .remove("_confidence_skip_apply")
-            .and_then(|v| match v {
-                EvaluationContextFieldValue::Bool(b) => Some(b),
-                _ => None,
-            })
-            .unwrap_or(false);
+        let skip_apply = self.skip_apply
+            || context
+                .custom_fields
+                .remove("_confidence_skip_apply")
+                .and_then(|v| match v {
+                    EvaluationContextFieldValue::Bool(b) => Some(b),
+                    _ => None,
+                })
+                .unwrap_or(false);
 
         // Convert evaluation context to protobuf
         let proto_context = convert_evaluation_context(&context);
@@ -1491,6 +1509,60 @@ mod tests {
         assert!(options.state_poll_interval.is_none());
         assert!(options.flush_interval.is_none());
         assert!(options.materialization_store.is_none());
+        assert!(!options.skip_apply);
+    }
+
+    #[test]
+    fn test_provider_options_with_skip_apply() {
+        let options = ProviderOptions::new("test-secret").with_skip_apply();
+        assert!(options.skip_apply);
+    }
+
+    #[tokio::test]
+    async fn test_skip_apply_does_not_enqueue_assigns() {
+        use crate::host::{ASSIGN_LOGGER, RESOLVE_LOGGER, SKIP_APPLY};
+        use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
+        use open_feature::provider::FeatureProvider;
+
+        struct ResetSkipApply;
+        impl Drop for ResetSkipApply {
+            fn drop(&mut self) {
+                SKIP_APPLY.store(false, Ordering::SeqCst);
+            }
+        }
+        let _reset = ResetSkipApply;
+
+        let options = ProviderOptions::new(TEST_CLIENT_SECRET).with_skip_apply();
+        let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
+        assert!(provider.skip_apply);
+
+        let (state, account_id) = create_state_with_flag();
+        provider
+            .state
+            .update(state, account_id, vec![crate::state::LogDestination::Edge])
+            .await;
+
+        let _ = ASSIGN_LOGGER.checkpoint();
+        let _ = RESOLVE_LOGGER.checkpoint();
+
+        let ctx = EvaluationContext::default().with_targeting_key("user-1");
+        let result = provider.resolve_bool_value("test-flag.enabled", &ctx).await;
+        assert!(
+            result.is_ok(),
+            "expected successful resolve: {:?}",
+            result.err()
+        );
+
+        let assigns = ASSIGN_LOGGER.checkpoint();
+        let resolves = RESOLVE_LOGGER.checkpoint();
+        assert!(
+            assigns.flag_assigned.is_empty(),
+            "skip_apply must not enqueue assigns"
+        );
+        assert!(
+            !resolves.client_resolve_info.is_empty() || !resolves.flag_resolve_info.is_empty(),
+            "skip_apply must still log resolves"
+        );
     }
 
     #[test]
