@@ -200,7 +200,13 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger,
       boolean enableApplyDedup) {
-    this(accountStateProvider, clientSecret, materializationStore, wasmFlagLogger, enableApplyDedup, false);
+    this(
+        accountStateProvider,
+        clientSecret,
+        materializationStore,
+        wasmFlagLogger,
+        enableApplyDedup,
+        false);
   }
 
   @VisibleForTesting
