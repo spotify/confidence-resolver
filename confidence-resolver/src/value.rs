@@ -83,6 +83,77 @@ pub fn convert_to_targeting_value(
     })
 }
 
+pub fn convert_to_targeting_value_for_criterion(
+    attribute_value: &Value,
+    attribute_criterion: &criterion::AttributeCriterion,
+) -> Fallible<targeting::value::Value> {
+    if uses_strict_string_operator(attribute_criterion) {
+        Ok(convert_to_strict_string_operator_value(attribute_value))
+    } else {
+        convert_to_targeting_value(attribute_value, expected_value_type(attribute_criterion))
+    }
+}
+
+fn uses_strict_string_operator(attribute_criterion: &criterion::AttributeCriterion) -> bool {
+    match attribute_criterion.rule.as_ref() {
+        Some(criterion::attribute_criterion::Rule::StartsWithRule(_))
+        | Some(criterion::attribute_criterion::Rule::EndsWithRule(_)) => true,
+        Some(criterion::attribute_criterion::Rule::AnyRule(targeting::AnyRule {
+            rule: Some(inner_rule),
+        }))
+        | Some(criterion::attribute_criterion::Rule::AllRule(targeting::AllRule {
+            rule: Some(inner_rule),
+        })) => uses_strict_string_inner_operator(inner_rule),
+        _ => false,
+    }
+}
+
+fn uses_strict_string_inner_operator(inner_rule: &targeting::InnerRule) -> bool {
+    matches!(
+        inner_rule.rule.as_ref(),
+        Some(targeting::inner_rule::Rule::StartsWithRule(_))
+            | Some(targeting::inner_rule::Rule::EndsWithRule(_))
+    )
+}
+
+fn convert_to_strict_string_operator_value(attribute_value: &Value) -> targeting::value::Value {
+    match &attribute_value.kind {
+        Some(Kind::StringValue(str_value)) => {
+            targeting::value::Value::StringValue(str_value.clone())
+        }
+        Some(Kind::ListValue(list_value)) => {
+            targeting::value::Value::ListValue(targeting::ListValue {
+                values: list_value
+                    .values
+                    .iter()
+                    .map(convert_to_strict_string_operator_list_item)
+                    .collect(),
+            })
+        }
+        _ => targeting::value::Value::ListValue(targeting::ListValue {
+            values: vec![targeting::Value { value: None }],
+        }),
+    }
+}
+
+fn convert_to_strict_string_operator_list_item(attribute_value: &Value) -> targeting::Value {
+    match &attribute_value.kind {
+        Some(Kind::StringValue(str_value)) => targeting::Value {
+            value: Some(targeting::value::Value::StringValue(str_value.clone())),
+        },
+        Some(Kind::ListValue(list_value)) => targeting::Value {
+            value: Some(targeting::value::Value::ListValue(targeting::ListValue {
+                values: list_value
+                    .values
+                    .iter()
+                    .map(convert_to_strict_string_operator_list_item)
+                    .collect(),
+            })),
+        },
+        _ => targeting::Value { value: None },
+    }
+}
+
 pub fn evaluate_criterion(
     attribute_criterion: &criterion::AttributeCriterion,
     wrapped: &targeting::ListValue,

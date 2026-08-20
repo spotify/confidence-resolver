@@ -1442,11 +1442,12 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             };
             match &criterion {
                 criterion::Criterion::Attribute(attribute_criterion) => {
-                    let expected_value_type = value::expected_value_type(attribute_criterion);
                     let attribute_value =
                         self.get_attribute_value(&attribute_criterion.attribute_name);
-                    let converted =
-                        value::convert_to_targeting_value(attribute_value, expected_value_type)?;
+                    let converted = value::convert_to_targeting_value_for_criterion(
+                        attribute_value,
+                        attribute_criterion,
+                    )?;
                     let wrapped = list_wrapper(&converted);
 
                     Ok(Some(value::evaluate_criterion(
