@@ -456,6 +456,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       throw new RuntimeException(e);
     }
 
+    // apply=false covers both provider skipApply and per-eval
+    // `_confidence_skip_apply`. Provider skipApply is also set on the WASM
+    // guest via setResolverState so assign/token are skipped entirely;
+    // apply=false alone would still mint a deferred token.
     final boolean skipApply = this.skipApply || OpenFeatureUtils.isSkipApply(ctx);
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
     ResolveFlagsResponse resolveFlagResponse;

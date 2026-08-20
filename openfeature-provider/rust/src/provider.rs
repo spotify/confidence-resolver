@@ -343,7 +343,12 @@ impl ConfidenceProvider {
         // Parse flag path
         let (flag_name, path) = parse_flag_path(flag_key);
 
-        // Check for skip apply before converting context
+        // Check for skip apply before converting context.
+        // `apply=false` covers both provider skipApply and per-eval
+        // `_confidence_skip_apply`. Config skip is also stamped via
+        // `with_skip_apply(self.skip_apply)` below so no deferred token is
+        // minted when only the provider option is set; per-eval alone uses
+        // apply=false (deferred token) without with_skip_apply.
         let mut context = context.clone();
         let skip_apply = self.skip_apply
             || context
@@ -387,6 +392,7 @@ impl ConfidenceProvider {
                     )))
                     .build()
             })?
+            // Config skip only — per-eval `_confidence_skip_apply` uses apply=false above.
             .with_skip_apply(self.skip_apply);
 
         // Resolve (may suspend once if materializations are needed)

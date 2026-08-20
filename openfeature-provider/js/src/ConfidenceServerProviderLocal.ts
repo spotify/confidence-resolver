@@ -244,6 +244,10 @@ export class ConfidenceServerProviderLocal implements Provider {
     try {
       const [flagName] = flagKey.split('.', 1);
       const { _confidence_skip_apply, ...cleanContext } = context;
+      // apply=false covers both provider skipApply and per-eval
+      // `_confidence_skip_apply`. Provider skipApply is also set on the WASM
+      // guest via setResolverState so assign/token are skipped entirely;
+      // apply=false alone would still mint a deferred token.
       const skipApply = this.options.skipApply === true || _confidence_skip_apply === true;
 
       let resolution: FlagBundle;

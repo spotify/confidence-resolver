@@ -272,6 +272,10 @@ func evaluate[T any](
 		})
 	}
 
+	// apply=false covers both provider SkipApply and per-eval
+	// `_confidence_skip_apply`. Provider SkipApply is also forwarded on
+	// setResolverState so the guest skips assign/token entirely; apply=false
+	// alone would still mint a deferred token.
 	apply := !p.skipApply
 	if skip, ok := evalCtx["_confidence_skip_apply"]; ok {
 		if b, ok := skip.(bool); ok && b {

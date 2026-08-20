@@ -490,6 +490,10 @@ class ConfidenceProvider(AbstractProvider):
             resolve_req = api_pb2.ResolveFlagsRequest()
             resolve_req.flags.append(f"flags/{flag_name}")
             resolve_req.client_secret = self._client_secret
+            # apply=False covers both provider skip_apply and per-eval
+            # `_confidence_skip_apply`. Provider skip_apply is also set on the
+            # WASM guest via set_resolver_state so assign/token are skipped
+            # entirely; apply=False alone would still mint a deferred token.
             resolve_req.apply = not skip_apply
             if proto_context is not None:
                 resolve_req.evaluation_context.CopyFrom(proto_context)
