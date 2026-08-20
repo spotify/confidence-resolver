@@ -1,6 +1,5 @@
 //! Native Rust implementation of the Host trait for the confidence resolver.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
 use arc_swap::ArcSwap;
@@ -16,9 +15,6 @@ pub static RESOLVE_LOGGER: LazyLock<ResolveLogger<NativeHost>> = LazyLock::new(R
 
 /// Global assign logger instance.
 pub static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
-
-/// When true, `NativeHost` never writes the assign queue.
-pub static SKIP_APPLY: AtomicBool = AtomicBool::new(false);
 
 /// Global telemetry instance for recording resolve rates and latencies.
 pub static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(Telemetry::new);
@@ -54,19 +50,12 @@ impl Host for NativeHost {
         );
     }
 
-    fn skip_assign() -> bool {
-        SKIP_APPLY.load(Ordering::Relaxed)
-    }
-
     fn log_assign(
         resolve_id: &str,
         assigned_flags: &[FlagToApply],
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        if SKIP_APPLY.load(Ordering::Relaxed) {
-            return;
-        }
         ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
     }
 }
@@ -75,7 +64,6 @@ impl Host for NativeHost {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::atomic::Ordering;
 
     use bytes::Bytes;
     use confidence_resolver::proto::confidence::flags::resolver::v1::{
@@ -85,19 +73,8 @@ mod tests {
 
     use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
 
-    struct ResetSkipApply;
-
-    impl Drop for ResetSkipApply {
-        fn drop(&mut self) {
-            SKIP_APPLY.store(false, Ordering::SeqCst);
-        }
-    }
-
     #[test]
     fn skip_apply_does_not_enqueue_assigns_but_logs_resolves() {
-        SKIP_APPLY.store(true, Ordering::SeqCst);
-        let _reset = ResetSkipApply;
-
         let (state, _) = create_state_with_flag();
         let mut fields = HashMap::new();
         fields.insert(
@@ -110,7 +87,8 @@ mod tests {
         let encryption_key = Bytes::from_static(&[0; 16]);
         let resolver = state
             .get_resolver::<NativeHost>(TEST_CLIENT_SECRET, context, &encryption_key)
-            .expect("resolver");
+            .expect("resolver")
+            .with_skip_apply(true);
 
         let _ = ASSIGN_LOGGER.checkpoint();
         let _ = RESOLVE_LOGGER.checkpoint();

@@ -54,23 +54,7 @@ public class LocalProviderConfig {
         useRemoteMaterializationStore,
         resolverPoolSize,
         encryptionKey,
-        false);
-  }
-
-  private LocalProviderConfig(
-      ChannelFactory channelFactory,
-      HttpClientFactory httpClientFactory,
-      boolean useRemoteMaterializationStore,
-      int resolverPoolSize,
-      String encryptionKey,
-      boolean enableApplyDedup) {
-    this(
-        channelFactory,
-        httpClientFactory,
-        useRemoteMaterializationStore,
-        resolverPoolSize,
-        encryptionKey,
-        enableApplyDedup,
+        false,
         false);
   }
 

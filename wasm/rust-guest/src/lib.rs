@@ -64,8 +64,8 @@ static APPLY_DEDUP: LazyLock<Mutex<ApplyDedup>> =
 /// Set from SetResolverStateRequest.enable_apply_dedup — experimental,
 /// dedup is off by default.
 static APPLY_DEDUP_ENABLED: AtomicBool = AtomicBool::new(false);
-/// Set from SetResolverStateRequest.skip_apply. When true, assign logging
-/// is a no-op so the assign queue is never written.
+/// Set from SetResolverStateRequest.skip_apply. Guest-side only — not a Host
+/// import. Resolve reads this via AccountResolver::with_skip_apply.
 static SKIP_APPLY: AtomicBool = AtomicBool::new(false);
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
@@ -102,19 +102,12 @@ impl Host for WasmHost {
         );
     }
 
-    fn skip_assign() -> bool {
-        SKIP_APPLY.load(Ordering::Relaxed)
-    }
-
     fn log_assign(
         resolve_id: &str,
         assigned_flags: &[FlagToApply<'_>],
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        if SKIP_APPLY.load(Ordering::Relaxed) {
-            return;
-        }
         // An empty apply (no flags matched) still produces a FlagAssigned
         // envelope with resolve_id + client_info, matching pre-dedup behavior.
         if assigned_flags.is_empty() || !APPLY_DEDUP_ENABLED.load(Ordering::Relaxed) {
@@ -212,7 +205,9 @@ wasm_msg_guest! {
         };
 
         let evaluation_context = resolve_request.evaluation_context.clone().unwrap_or_default();
-        let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
+        let resolver = resolver_state
+            .get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?
+            .with_skip_apply(SKIP_APPLY.load(Ordering::Relaxed));
         resolver.resolve_flags(request)
     }
 
@@ -258,15 +253,13 @@ wasm_msg_guest! {
     }
 
     fn apply_flags(request: ApplyFlagsRequest) -> WasmResult<Void> {
-        if SKIP_APPLY.load(Ordering::Relaxed) {
-            return Ok(VOID);
-        }
         let resolver_state = get_resolver_state()?;
         // Use empty evaluation context - the real one is extracted from the resolve token
         let evaluation_context = Struct::default();
         let resolver = resolver_state
             .get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &ENCRYPTION_KEY)
-            .map_err(|e| format!("apply_flags: {}", e))?;
+            .map_err(|e| format!("apply_flags: {}", e))?
+            .with_skip_apply(SKIP_APPLY.load(Ordering::Relaxed));
         resolver
             .apply_flags(&request)
             .map_err(|e| format!("apply_flags: {}", e))?;

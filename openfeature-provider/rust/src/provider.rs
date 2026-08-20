@@ -1,7 +1,6 @@
 //! OpenFeature provider implementation for Confidence.
 
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -27,7 +26,7 @@ use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
 
 use crate::error::{Error, Result};
 use crate::gateway::GatewayMiddleware;
-use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER, SKIP_APPLY, TELEMETRY};
+use crate::host::{NativeHost, ASSIGN_LOGGER, RESOLVE_LOGGER, TELEMETRY};
 use crate::logger::LogManager;
 use crate::materialization::{
     materialization_records_to_read_ops, materialization_records_to_write_ops,
@@ -210,8 +209,6 @@ impl ConfidenceProvider {
                 None => None,
             };
 
-        SKIP_APPLY.store(options.skip_apply, Ordering::Relaxed);
-
         Ok(Self {
             metadata: ProviderMetadata::new("confidence-local-resolver"),
             client_secret: options.client_secret,
@@ -389,7 +386,8 @@ impl ConfidenceProvider {
                         e
                     )))
                     .build()
-            })?;
+            })?
+            .with_skip_apply(self.skip_apply);
 
         // Resolve (may suspend once if materializations are needed)
         let response = resolver.resolve_flags(initial_request).map_err(|e| {
@@ -1520,17 +1518,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_skip_apply_does_not_enqueue_assigns() {
-        use crate::host::{ASSIGN_LOGGER, RESOLVE_LOGGER, SKIP_APPLY};
+        use crate::host::{ASSIGN_LOGGER, RESOLVE_LOGGER};
         use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
         use open_feature::provider::FeatureProvider;
-
-        struct ResetSkipApply;
-        impl Drop for ResetSkipApply {
-            fn drop(&mut self) {
-                SKIP_APPLY.store(false, Ordering::SeqCst);
-            }
-        }
-        let _reset = ResetSkipApply;
 
         let options = ProviderOptions::new(TEST_CLIENT_SECRET).with_skip_apply();
         let provider = ConfidenceProvider::new(options).expect("Failed to create provider");

@@ -327,14 +327,6 @@ pub trait Host {
         sdk: &Option<flags_resolver::Sdk>,
     );
 
-    /// When true, skip both immediate assign logging and deferred resolve-token
-    /// generation. Used by provider `skipApply` config so the assign queue is
-    /// never written. Per-evaluation `_confidence_skip_apply` still uses
-    /// `apply=false` (deferred token) instead of this hook.
-    fn skip_assign() -> bool {
-        false
-    }
-
     fn encrypt_resolve_token(token_data: &[u8], encryption_key: &[u8]) -> Result<Vec<u8>, String> {
         #[cfg(feature = "std")]
         {
@@ -475,6 +467,10 @@ pub struct AccountResolver<'a, H: Host> {
     pub state: &'a ResolverState,
     pub evaluation_context: EvaluationContext,
     pub encryption_key: Bytes,
+    /// Provider skipApply, copied from the WASM guest static (or native
+    /// provider options) when this resolver is created. Not on ResolverState
+    /// so CDN proto state stays independent of logging config.
+    skip_apply: bool,
     host: PhantomData<H>,
 }
 
@@ -802,8 +798,16 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             state,
             evaluation_context,
             encryption_key: encryption_key.clone(),
+            skip_apply: false,
             host: PhantomData,
         }
+    }
+
+    /// Skip assign logging and deferred-apply tokens. WASM sets this from the
+    /// guest `SKIP_APPLY` flag stored at `set_resolver_state`.
+    pub fn with_skip_apply(mut self, skip_apply: bool) -> Self {
+        self.skip_apply = skip_apply;
+        self
     }
 
     pub fn resolve_flags(
@@ -915,7 +919,9 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         };
 
         // Provider skipApply: neither assign logging nor a deferred-apply token.
-        if !H::skip_assign() {
+        // Per-evaluation `_confidence_skip_apply` still uses apply=false
+        // (deferred token) instead of this flag.
+        if !self.skip_apply {
             if resolve_request.apply {
                 // Borrow assignments straight out of the resolved values — no
                 // AssignedFlag is cloned unless the host actually logs it.
@@ -995,7 +1001,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     }
 
     pub fn apply_flags(&self, request: &flags_resolver::ApplyFlagsRequest) -> Result<(), String> {
-        if H::skip_assign() {
+        if self.skip_apply {
             return Ok(());
         }
         let send_time_ts = request.send_time.as_ref().ok_or("send_time is required")?;
@@ -2388,16 +2394,14 @@ mod tests {
         )
         .unwrap();
 
+        // OnceLock is per nested TestLogger type. Do not extract this logger
+        // to a shared module-level struct — the statics would collide.
         struct TestLogger {
             assign_logs: std::sync::Mutex<Vec<String>>,
             resolve_logs: std::sync::Mutex<Vec<String>>,
         }
 
         impl Host for TestLogger {
-            fn skip_assign() -> bool {
-                true
-            }
-
             fn log_resolve(
                 resolve_id: &str,
                 _evaluation_context: &Struct,
@@ -2440,7 +2444,8 @@ mod tests {
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
         let resolver: AccountResolver<'_, TestLogger> = state
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
-            .unwrap();
+            .unwrap()
+            .with_skip_apply(true);
 
         let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
             evaluation_context: Some(Struct::default()),
@@ -2456,8 +2461,8 @@ mod tests {
         let response: ResolveFlagsResponse = resolver
             .resolve_flags_no_materialization(&resolve_flag_req)
             .unwrap();
-        let flag = response.resolved_flags.get(0).unwrap();
-        assert_eq!(true, flag.should_apply);
+        let flag = response.resolved_flags.first().unwrap();
+        assert!(flag.should_apply);
         assert!(
             response.resolve_token.is_empty(),
             "skip_assign must not emit a deferred-apply resolve token"
@@ -2490,16 +2495,14 @@ mod tests {
         )
         .unwrap();
 
+        // OnceLock is per nested TestLogger type. Do not extract this logger
+        // to a shared module-level struct — the statics would collide.
         struct TestLogger {
             assign_logs: std::sync::Mutex<Vec<String>>,
             resolve_logs: std::sync::Mutex<Vec<String>>,
         }
 
         impl Host for TestLogger {
-            fn skip_assign() -> bool {
-                true
-            }
-
             fn log_resolve(
                 resolve_id: &str,
                 _evaluation_context: &Struct,
@@ -2542,7 +2545,8 @@ mod tests {
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
         let resolver: AccountResolver<'_, TestLogger> = state
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
-            .unwrap();
+            .unwrap()
+            .with_skip_apply(true);
 
         let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
             evaluation_context: Some(Struct::default()),
@@ -2558,8 +2562,8 @@ mod tests {
         let response: ResolveFlagsResponse = resolver
             .resolve_flags_no_materialization(&resolve_flag_req)
             .unwrap();
-        let flag = response.resolved_flags.get(0).unwrap();
-        assert_eq!(true, flag.should_apply);
+        let flag = response.resolved_flags.first().unwrap();
+        assert!(flag.should_apply);
         assert!(
             response.resolve_token.is_empty(),
             "skip_assign must not emit a deferred-apply resolve token even when apply=false"
@@ -2617,10 +2621,6 @@ mod tests {
         }
 
         impl Host for SkipHost {
-            fn skip_assign() -> bool {
-                true
-            }
-
             fn log_resolve(
                 _resolve_id: &str,
                 _evaluation_context: &Struct,
@@ -2655,32 +2655,36 @@ mod tests {
         }
 
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
-        let token_resolver: AccountResolver<'_, TokenHost> = state
-            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
-            .unwrap();
+        let resolve_token = {
+            let token_resolver: AccountResolver<'_, TokenHost> = state
+                .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+                .unwrap();
 
-        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
-            evaluation_context: Some(Struct::default()),
-            client_secret: SECRET.to_string(),
-            flags: vec!["flags/tutorial-feature".to_string()],
-            apply: false,
-            sdk: Some(Sdk {
-                sdk: None,
-                version: "0.1.0".to_string(),
-            }),
+            let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+                evaluation_context: Some(Struct::default()),
+                client_secret: SECRET.to_string(),
+                flags: vec!["flags/tutorial-feature".to_string()],
+                apply: false,
+                sdk: Some(Sdk {
+                    sdk: None,
+                    version: "0.1.0".to_string(),
+                }),
+            };
+
+            let response: ResolveFlagsResponse = token_resolver
+                .resolve_flags_no_materialization(&resolve_flag_req)
+                .unwrap();
+            assert!(
+                !response.resolve_token.is_empty(),
+                "apply=false without skip_apply should emit a resolve token"
+            );
+            response.resolve_token
         };
-
-        let response: ResolveFlagsResponse = token_resolver
-            .resolve_flags_no_materialization(&resolve_flag_req)
-            .unwrap();
-        assert!(
-            !response.resolve_token.is_empty(),
-            "apply=false without skip_assign should emit a resolve token"
-        );
 
         let skip_resolver: AccountResolver<'_, SkipHost> = state
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
-            .unwrap();
+            .unwrap()
+            .with_skip_apply(true);
 
         let now = Timestamp {
             seconds: 1704067200,
@@ -2692,7 +2696,7 @@ mod tests {
                 apply_time: Some(now.clone()),
             }],
             client_secret: SECRET.to_string(),
-            resolve_token: response.resolve_token,
+            resolve_token,
             send_time: Some(now),
             sdk: Some(Sdk {
                 sdk: None,
@@ -2806,8 +2810,8 @@ mod tests {
         let response: ResolveFlagsResponse = resolver
             .resolve_flags_no_materialization(&resolve_flag_req)
             .unwrap();
-        let flag = response.resolved_flags.get(0).unwrap();
-        assert_eq!(true, flag.should_apply);
+        let flag = response.resolved_flags.first().unwrap();
+        assert!(flag.should_apply);
         assert_eq!(ResolveReason::Match as i32, flag.reason);
 
         // Verify that no assignment was logged yet (because apply=false)
