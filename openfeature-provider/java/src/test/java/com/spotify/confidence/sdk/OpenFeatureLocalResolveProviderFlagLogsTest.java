@@ -48,12 +48,14 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
     stateProvider.reload();
 
     // Create provider with capturing logger
+    // Dedup is opt-in (experimental); these tests exercise its behavior.
     provider =
         new OpenFeatureLocalResolveProvider(
             stateProvider,
             FLAG_CLIENT_SECRET,
             new UnsupportedMaterializationStore(),
-            capturingLogger);
+            capturingLogger,
+            true);
 
     OpenFeatureAPI.getInstance().setProviderAndWait(provider);
 
@@ -171,7 +173,25 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
 
     assertThat(capturingLogger.getCapturedRequests()).isNotEmpty();
 
-    // Should have captured log entries for all resolves
+    // All four paths resolve the same underlying flag for the same targeting
+    // key on a single WASM instance, so the guest dedups them into exactly
+    // one apply event. An upper bound guards against dedup silently breaking.
+    final int totalFlagAssigned = capturingLogger.getTotalFlagAssignedCount();
+    assertThat(totalFlagAssigned).isEqualTo(1);
+  }
+
+  @Test
+  void shouldNotDedupResolvesForDistinctTargetingKeys() {
+    // Distinct users must never be deduped — one apply event per resolve.
+    for (int i = 0; i < 4; i++) {
+      final EvaluationContext ctx =
+          new MutableContext(TARGETING_KEY + "-distinct-" + i).add("sticky", false);
+      client.getBooleanValue("web-sdk-e2e-flag.bool", true, ctx);
+    }
+
+    // Flush logs
+    flushLogs();
+
     final int totalFlagAssigned = capturingLogger.getTotalFlagAssignedCount();
     assertThat(totalFlagAssigned).isGreaterThanOrEqualTo(4);
   }

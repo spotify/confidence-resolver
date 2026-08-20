@@ -137,6 +137,7 @@ class ConfidenceProvider(AbstractProvider):
         state_fetcher: Optional[StateFetcher] = None,
         flag_logger: Optional[FlagLogger] = None,
         wasm_bytes: Optional[bytes] = None,
+        enable_apply_dedup: bool = False,
     ) -> None:
         """Initialize the Confidence provider.
 
@@ -152,6 +153,10 @@ class ConfidenceProvider(AbstractProvider):
             state_fetcher: Optional state fetcher for testing.
             flag_logger: Optional flag logger for testing.
             wasm_bytes: Optional WASM bytes for testing.
+            enable_apply_dedup: Experimental — enable apply-event dedup in
+                the WASM resolver: repeated identical assignments within a
+                short TTL window are logged once. Off by default; the API may
+                change.
         """
         self._client_secret = client_secret
         self._encryption_key = encryption_key
@@ -160,6 +165,7 @@ class ConfidenceProvider(AbstractProvider):
         self._assign_poll_interval = assign_poll_interval
         self._http_client = http_client
         self._grpc_channel = grpc_channel
+        self._enable_apply_dedup = enable_apply_dedup
 
         # Initialize resolver (created during initialize())
         self._resolver: Optional[LocalResolver] = None
@@ -258,7 +264,9 @@ class ConfidenceProvider(AbstractProvider):
                     id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
                     version=__version__,
                 )
-                self._resolver.set_resolver_state(state, account_id, sdk)
+                self._resolver.set_resolver_state(
+                    state, account_id, sdk, self._enable_apply_dedup
+                )
                 self._status = ProviderStatus.READY
                 self.emit_provider_ready(ProviderEventDetails())
                 logger.info("ConfidenceProvider initialized successfully")
@@ -843,7 +851,9 @@ class ConfidenceProvider(AbstractProvider):
                     # Flush logs before state update to reduce WASM heap fragmentation (#455)
                     with self._resolver_lock:
                         flushed_logs = self._resolver.flush_logs()
-                        self._resolver.set_resolver_state(state, account_id, sdk)
+                        self._resolver.set_resolver_state(
+                            state, account_id, sdk, self._enable_apply_dedup
+                        )
                     if flushed_logs and self._flag_logger is not None:
                         self._flag_logger.write(flushed_logs)
 

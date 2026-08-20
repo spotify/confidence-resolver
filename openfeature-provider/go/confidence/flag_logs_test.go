@@ -54,7 +54,8 @@ func setupFlagLogsUnitTest(t *testing.T) (*fl.CapturingFlagLogger, openfeature.I
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
 		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
 	}, unsupportedMatStore)
-	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, capturingLogger, unitTestClientSecret, logger)
+	// Dedup is opt-in (experimental); these tests exercise its behavior.
+	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, capturingLogger, unitTestClientSecret, logger, WithEnableApplyDedup())
 
 	// Set provider and wait for ready
 	err := openfeature.SetProviderAndWait(provider)
@@ -217,10 +218,37 @@ func TestFlagLogs_ShouldCaptureMultipleResolvesInSingleRequest(t *testing.T) {
 	// Shutdown to flush logs
 	flushAndWait()
 
-	// Should have captured log entries for all resolves
+	// The WASM guest deduplicates identical apply events (same flag +
+	// targeting_key + assignment) within a TTL window. All four paths hit the
+	// same underlying flag for the same user, so at least one duplicate must
+	// be collapsed. The exact count depends on pool slot assignment and
+	// instance recreation, so only a strict upper bound is asserted here; the
+	// JS and Java suites pin the single-instance count to exactly 1.
+	totalFlagAssigned := capturingLogger.GetTotalFlagAssignedCount()
+	if totalFlagAssigned < 1 || totalFlagAssigned >= 4 {
+		t.Errorf("Expected 1-3 flag_assigned entries (dedup must collapse at least one of 4 resolves), got %d", totalFlagAssigned)
+	}
+}
+
+func TestFlagLogs_ShouldNotDedupDistinctTargetingKeys(t *testing.T) {
+	capturingLogger, client := setupFlagLogsUnitTest(t)
+
+	ctx := context.Background()
+
+	// Distinct users must never be deduped — one apply event per resolve.
+	for _, key := range []string{"test-d1", "test-d2", "test-d3", "test-d4"} {
+		evalCtx := openfeature.NewEvaluationContext(key, map[string]interface{}{
+			"sticky": false,
+		})
+		_, _ = client.BooleanValue(ctx, "web-sdk-e2e-flag.bool", true, evalCtx)
+	}
+
+	// Shutdown to flush logs
+	flushAndWait()
+
 	totalFlagAssigned := capturingLogger.GetTotalFlagAssignedCount()
 	if totalFlagAssigned < 4 {
-		t.Errorf("Expected at least 4 flag_assigned entries, got %d", totalFlagAssigned)
+		t.Errorf("Expected at least 4 flag_assigned entries for distinct users, got %d", totalFlagAssigned)
 	}
 }
 

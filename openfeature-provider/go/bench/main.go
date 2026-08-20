@@ -82,6 +82,10 @@ func main() {
 	flag.StringVar(&flagKey, "flag", "example-flag", "flag key (without 'flags/' prefix)")
 	flag.StringVar(&clientSecret, "client-secret", "secret", "client secret for request signing")
 	flag.IntVar(&pollInterval, "poll-interval", 10, "resolver state/log poll interval in seconds (env override)")
+	var uniqueKeys bool
+	flag.BoolVar(&uniqueKeys, "unique-keys", false, "use a unique targeting key per resolve (apply-dedup worst case)")
+	var enableDedup bool
+	flag.BoolVar(&enableDedup, "enable-dedup", false, "enable experimental apply-event dedup in the provider")
 	flag.Parse()
 
 	if gomaxprocs > 0 {
@@ -100,8 +104,9 @@ func main() {
 	ctx := context.Background()
 
 	provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-		ClientSecret:   clientSecret,
-		TransportHooks: transportHooks{mockAddr: mockAddr},
+		ClientSecret:     clientSecret,
+		TransportHooks:   transportHooks{mockAddr: mockAddr},
+		EnableApplyDedup: enableDedup,
 	})
 	provider.Init(openfeature.NewTargetlessEvaluationContext(map[string]any{}))
 	if err != nil {
@@ -120,7 +125,7 @@ func main() {
 	if warmupSeconds > 0 {
 		warmupCtx, cancel := context.WithTimeout(ctx, time.Duration(warmupSeconds)*time.Second)
 		var warm stats
-		runWorkers(warmupCtx, provider, flagKey, evalCtx, threads, &warm, cancel, true)
+		runWorkers(warmupCtx, provider, flagKey, evalCtx, threads, &warm, cancel, true, uniqueKeys)
 		cancel()
 		if atomic.LoadUint64(&warm.errors) > 0 {
 			fmt.Fprintf(os.Stderr, "aborting: error during warmup\n")
@@ -143,7 +148,7 @@ func main() {
 	}()
 
 	start := time.Now()
-	runWorkers(measureCtx, provider, flagKey, evalCtx, threads, &s, cancelMeasure, true)
+	runWorkers(measureCtx, provider, flagKey, evalCtx, threads, &s, cancelMeasure, true, uniqueKeys)
 	elapsed := time.Since(start)
 	provider.Shutdown()
 
@@ -151,11 +156,22 @@ func main() {
 	errs := atomic.LoadUint64(&s.errors)
 	qps := float64(completed) / elapsed.Seconds()
 
-	fmt.Printf("flag=%s threads=%d duration=%s ops=%d errors=%d throughput=%.0f ops/s\n",
-		flagKey, threads, elapsed.Truncate(time.Millisecond), completed, errs, qps)
+	fmt.Printf("flag=%s threads=%d unique-keys=%v dedup=%v duration=%s ops=%d errors=%d throughput=%.0f ops/s\n",
+		flagKey, threads, uniqueKeys, enableDedup, elapsed.Truncate(time.Millisecond), completed, errs, qps)
+
+	var ru syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err == nil {
+		cpu := time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
+		// Maxrss is KB on Linux; includes the in-process WASM memory
+		// (assign-log backlog + dedup cache) since wazero runs in-process.
+		fmt.Printf("cpu=%.1fs (%.0f%% of wall) maxrss=%dMB\n",
+			cpu.Seconds(), 100*cpu.Seconds()/elapsed.Seconds(), ru.Maxrss/1024)
+	}
 }
 
-func runWorkers(ctx context.Context, provider *confidence.LocalResolverProvider, flagKey string, evalCtx openfeature.FlattenedContext, threads int, s *stats, cancel context.CancelFunc, abortOnError bool) {
+var uniqueKeyCounter uint64
+
+func runWorkers(ctx context.Context, provider *confidence.LocalResolverProvider, flagKey string, evalCtx openfeature.FlattenedContext, threads int, s *stats, cancel context.CancelFunc, abortOnError bool, uniqueKeys bool) {
 	wg := sync.WaitGroup{}
 	wg.Add(threads)
 	for i := 0; i < threads; i++ {
@@ -166,7 +182,12 @@ func runWorkers(ctx context.Context, provider *confidence.LocalResolverProvider,
 				case <-ctx.Done():
 					return
 				default:
-					res := provider.ObjectEvaluation(context.Background(), flagKey, nil, evalCtx)
+					callCtx := evalCtx
+					if uniqueKeys {
+						key := fmt.Sprintf("user-%d", atomic.AddUint64(&uniqueKeyCounter, 1))
+						callCtx = openfeature.FlattenedContext{"targetingKey": key, "visitor_id": key, "sticky": false}
+					}
+					res := provider.ObjectEvaluation(context.Background(), flagKey, nil, callCtx)
 					if s != nil {
 						atomic.AddUint64(&s.completed, 1)
 						// fmt.Printf("reason %s", res.Reason)

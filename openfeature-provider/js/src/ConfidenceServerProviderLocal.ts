@@ -46,6 +46,12 @@ export interface ProviderOptions {
   flushInterval?: number;
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
+  /**
+   * Experimental: enable apply-event deduplication in the WASM resolver —
+   * repeated identical assignments within a short TTL window are logged once.
+   * Off by default; the API may change.
+   */
+  enableApplyDedup?: boolean;
 }
 
 /**
@@ -348,6 +354,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         state: clientState.state,
         accountId: clientState.account,
         sdk,
+        enableApplyDedup: this.options.enableApplyDedup ?? false,
       }),
     );
   }

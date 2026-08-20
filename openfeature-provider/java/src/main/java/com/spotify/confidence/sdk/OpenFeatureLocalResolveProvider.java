@@ -164,7 +164,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
-            () -> new RecoveringResolver(() -> new WasmLocalResolver(flagLogger::write)));
+            () ->
+                new RecoveringResolver(
+                    () -> new WasmLocalResolver(flagLogger::write, config.isEnableApplyDedup())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -182,6 +184,16 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       String clientSecret,
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger) {
+    this(accountStateProvider, clientSecret, materializationStore, wasmFlagLogger, false);
+  }
+
+  @VisibleForTesting
+  public OpenFeatureLocalResolveProvider(
+      AccountStateProvider accountStateProvider,
+      String clientSecret,
+      MaterializationStore materializationStore,
+      WasmFlagLogger wasmFlagLogger,
+      boolean enableApplyDedup) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
     this.stateProvider = accountStateProvider;
@@ -191,7 +203,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final LocalResolver inner =
         new PooledResolver(
             numInstances,
-            () -> new RecoveringResolver(() -> new WasmLocalResolver(wasmFlagLogger::write)));
+            () ->
+                new RecoveringResolver(
+                    () -> new WasmLocalResolver(wasmFlagLogger::write, enableApplyDedup)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 

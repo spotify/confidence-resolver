@@ -1,8 +1,11 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::Mutex;
 
 use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::Bytes;
+use confidence_resolver::apply_dedup::ApplyDedup;
 use confidence_resolver::assign_logger::AssignLogger;
 use confidence_resolver::telemetry::{Telemetry, TelemetrySnapshot};
 use prost::Message;
@@ -56,6 +59,11 @@ const ENCRYPTION_KEY: Bytes = Bytes::from_static(&[0; 16]);
 static RESOLVER_STATE: ArcSwapOption<ResolverState> = ArcSwapOption::const_empty();
 static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(ResolveLogger::new);
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
+static APPLY_DEDUP: LazyLock<Mutex<ApplyDedup>> =
+    LazyLock::new(|| Mutex::new(ApplyDedup::new(120, 100_000)));
+/// Set from SetResolverStateRequest.enable_apply_dedup — experimental,
+/// dedup is off by default.
+static APPLY_DEDUP_ENABLED: AtomicBool = AtomicBool::new(false);
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
 });
@@ -93,11 +101,34 @@ impl Host for WasmHost {
 
     fn log_assign(
         resolve_id: &str,
-        assigned_flags: &[FlagToApply],
+        assigned_flags: &[FlagToApply<'_>],
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
+        // An empty apply (no flags matched) still produces a FlagAssigned
+        // envelope with resolve_id + client_info, matching pre-dedup behavior.
+        if assigned_flags.is_empty() || !APPLY_DEDUP_ENABLED.load(Ordering::Relaxed) {
+            ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
+            return;
+        }
+        let now_seconds = assigned_flags
+            .first()
+            .map_or(0, |f| f.skew_adjusted_applied_time.seconds);
+        let result = match APPLY_DEDUP.lock() {
+            Ok(mut dedup) => dedup.filter_duplicates(assigned_flags, now_seconds),
+            Err(poisoned) => poisoned
+                .into_inner()
+                .filter_duplicates(assigned_flags, now_seconds),
+        };
+        if result.is_empty() {
+            return;
+        }
+        if result.kept_count() == assigned_flags.len() {
+            ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
+        } else {
+            let filtered = result.collect(assigned_flags);
+            ASSIGN_LOGGER.log_assigns(resolve_id, &filtered, client, sdk);
+        }
     }
 
     fn encrypt_resolve_token(token_data: &[u8], _encryption_key: &[u8]) -> Result<Vec<u8>, String> {
@@ -106,6 +137,16 @@ impl Host for WasmHost {
 
     fn decrypt_resolve_token(token_data: &[u8], _encryption_key: &[u8]) -> Result<Vec<u8>, String> {
         Ok(token_data.to_vec())
+    }
+}
+
+/// Removes expired apply-dedup entries. Called from the log flush cycle
+/// (host-driven, off the resolve path) so resolves never pay the O(n) scan.
+fn sweep_apply_dedup() {
+    let now_seconds = WasmHost::current_time().seconds;
+    match APPLY_DEDUP.lock() {
+        Ok(mut dedup) => dedup.sweep(now_seconds),
+        Err(poisoned) => poisoned.into_inner().sweep(now_seconds),
     }
 }
 
@@ -132,6 +173,7 @@ wasm_msg_guest! {
         let state_pb = ResolverStatePb::decode(request.state.as_slice())
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
         let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str(), request.sdk)?;
+        APPLY_DEDUP_ENABLED.store(request.enable_apply_dedup, Ordering::Relaxed);
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
         // TODO: track state age once we decide on the right timestamp source
         // let now = WasmHost::current_time();
@@ -172,12 +214,14 @@ wasm_msg_guest! {
 
     // deprecated
     fn flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
+        sweep_apply_dedup();
         let mut req = RESOLVE_LOGGER.checkpoint();
         ASSIGN_LOGGER.checkpoint_fill(&mut req);
         Ok(req)
     }
 
     fn bounded_flush_logs(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
+        sweep_apply_dedup();
         let mut req = RESOLVE_LOGGER.checkpoint();
         let mut td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
         if let Some(state) = RESOLVER_STATE.load().as_ref() {
@@ -189,6 +233,7 @@ wasm_msg_guest! {
     }
 
     fn bounded_flush_assign(_request:Void) -> WasmResult<WriteFlagLogsRequest> {
+        sweep_apply_dedup();
         Ok(ASSIGN_LOGGER.checkpoint_with_limit(LOG_TARGET_BYTES, true))
     }
 

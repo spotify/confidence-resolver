@@ -38,7 +38,7 @@ impl AssignLogger {
     pub fn log_assigns(
         &self,
         resolve_id: &str,
-        assigned_flags: &[FlagToApply],
+        assigned_flags: &[FlagToApply<'_>],
         client: &crate::Client,
         sdk: &Option<crate::flags_resolver::Sdk>,
     ) {
@@ -113,7 +113,7 @@ impl AssignLogger {
 
 pub fn build_flag_assigned(
     resolve_id: &str,
-    assigned_flags: &[FlagToApply],
+    assigned_flags: &[FlagToApply<'_>],
     client: &crate::Client,
     sdk: &Option<crate::flags_resolver::Sdk>,
 ) -> pb::FlagAssigned {

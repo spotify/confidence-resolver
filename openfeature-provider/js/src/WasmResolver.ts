@@ -183,7 +183,7 @@ export type DelegateFactory = (module: WebAssembly.Module) => LocalResolver;
 export const DEFAULT_DELEGATE_FACTORY: DelegateFactory = module => new UnsafeWasmResolver(module);
 export class WasmResolver implements LocalResolver {
   private delegate: LocalResolver;
-  private currentState?: { state: Uint8Array; accountId: string };
+  private currentState?: SetResolverStateRequest;
   private bufferedLogs: Uint8Array[] = [];
 
   constructor(private readonly module: WebAssembly.Module, private delegateFactory = DEFAULT_DELEGATE_FACTORY) {

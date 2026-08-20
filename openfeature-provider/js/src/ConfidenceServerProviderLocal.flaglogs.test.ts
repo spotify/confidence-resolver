@@ -18,27 +18,32 @@ import { WriteFlagLogsRequest } from './proto/test-only';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
 const FLAG_CLIENT_SECRET = process.env.CONFIDENCE_CLIENT_SECRET!;
-const TARGETING_KEY = 'test-a';
 
 describe('WriteFlagLogs tests', () => {
   let resolver: WasmResolver;
   let provider: ConfidenceServerProviderLocal;
+  let testCounter = 0;
 
   beforeAll(async () => {
     const module = new WebAssembly.Module(moduleBytes);
     resolver = new WasmResolver(module);
     provider = new ConfidenceServerProviderLocal(resolver, {
       flagClientSecret: FLAG_CLIENT_SECRET,
+      // Dedup is opt-in (experimental); these tests exercise its behavior.
+      enableApplyDedup: true,
     });
 
     await OpenFeature.setProviderAndWait(provider);
-    OpenFeature.setContext({
-      targetingKey: TARGETING_KEY,
-      sticky: false,
-    });
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The WASM guest dedups identical apply events (same flag + targeting
+    // key + assignment) within a TTL window, so each test uses a unique
+    // targeting key to get its own apply events.
+    await OpenFeature.setContext({
+      targetingKey: `test-a-${testCounter++}`,
+      sticky: false,
+    });
     // Flush any existing logs before each test
     resolver.flushLogs();
   });
@@ -48,9 +53,9 @@ describe('WriteFlagLogs tests', () => {
   it('should capture WriteFlagLogs after boolean resolve', async () => {
     const client = OpenFeature.getClient();
 
-    // Resolve a boolean flag
-    const value = await client.getBooleanValue('web-sdk-e2e-flag.bool', true);
-    expect(value).toBeFalsy();
+    // Resolve a boolean flag (value assertions live in the e2e suite —
+    // bucketing may vary with the per-test targeting key)
+    await client.getBooleanValue('web-sdk-e2e-flag.bool', true);
 
     // Get and decode the captured logs
     const logsBytes = resolver.flushLogs();
@@ -68,9 +73,8 @@ describe('WriteFlagLogs tests', () => {
   it('should capture correct counts after string resolve', async () => {
     const client = OpenFeature.getClient();
 
-    // Resolve a string flag
-    const value = await client.getStringValue('web-sdk-e2e-flag.str', 'default');
-    expect(value).toEqual('control');
+    // Resolve a string flag (value assertions live in the e2e suite)
+    await client.getStringValue('web-sdk-e2e-flag.str', 'default');
 
     // Get and decode the captured logs
     const logsBytes = resolver.flushLogs();
@@ -129,8 +133,35 @@ describe('WriteFlagLogs tests', () => {
     const logsBytes = resolver.flushLogs();
     const decoded = WriteFlagLogsRequest.decode(logsBytes);
 
-    // Should have captured log entries for all resolves
+    // All four paths resolve the same underlying flag for the same targeting
+    // key on a single WASM instance, so the guest dedups them into exactly
+    // one apply event. The exact bound guards against dedup silently breaking.
+    expect(decoded.flagAssigned.length).toBe(1);
+  });
+
+  it('should not dedup resolves for distinct targeting keys', async () => {
+    const client = OpenFeature.getClient();
+
+    // Distinct users must never be deduped — one apply event per resolve.
+    for (let i = 0; i < 4; i++) {
+      await OpenFeature.setContext({ targetingKey: `distinct-user-${i}`, sticky: false });
+      await client.getBooleanValue('web-sdk-e2e-flag.bool', true);
+    }
+
+    const logsBytes = resolver.flushLogs();
+    const decoded = WriteFlagLogsRequest.decode(logsBytes);
+
     expect(decoded.flagAssigned.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('should resolve expected values for the fixed e2e targeting key', async () => {
+    // Value assertions on the fixed key used by the e2e suite — dedup only
+    // affects apply-event logging, never resolved values.
+    await OpenFeature.setContext({ targetingKey: 'test-a', sticky: false });
+    const client = OpenFeature.getClient();
+
+    expect(await client.getBooleanValue('web-sdk-e2e-flag.bool', true)).toBeFalsy();
+    expect(await client.getStringValue('web-sdk-e2e-flag.str', 'default')).toEqual('control');
   });
 
   it('should capture non-empty flag assigned data', async () => {
