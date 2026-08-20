@@ -647,6 +647,8 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 		defer logTicker.Stop()
 
 		var assignTicker *time.Ticker
+		// Receive-only channel. Left nil when skipApply so the select case
+		// below never fires — a nil chan in select is never ready.
 		var assignC <-chan time.Time
 		if !p.skipApply {
 			assignTicker = time.NewTicker(100 * time.Millisecond)

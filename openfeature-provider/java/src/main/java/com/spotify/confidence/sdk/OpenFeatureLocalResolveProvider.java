@@ -259,6 +259,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final long pollIntervalSeconds = getPollIntervalSeconds();
     scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
 
+    // Assign flush only. Resolve logs and telemetry still go out via
+    // flushAllLogs() on the state-refresh cycle and resolver.close() on shutdown.
     if (!skipApply) {
       assignLogExecutor.scheduleAtFixedRate(
           () -> {

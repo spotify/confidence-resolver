@@ -21,6 +21,11 @@ import (
 
 var repoRoot string
 
+// TestClientSecret is the credential baked into wasm/resolver_state.pb (the
+// tutorial fixture). Unit tests that resolve tutorial-feature must use this
+// so WASM matches the fixture. It is not a live environment secret.
+const TestClientSecret = "mkjJruAATQWjeY7foFIWfVAcBWnci2YF"
+
 func init() {
 	// Resolve paths relative to this source file to avoid dependence on cwd.
 	if _, thisFile, _, ok := runtime.Caller(0); ok {
@@ -400,7 +405,7 @@ func CreateTutorialFeatureRequest() *resolver.ResolveFlagsRequest {
 	return &resolver.ResolveFlagsRequest{
 		Flags:        []string{"flags/tutorial-feature"},
 		Apply:        true,
-		ClientSecret: "mkjJruAATQWjeY7foFIWfVAcBWnci2YF",
+		ClientSecret: TestClientSecret,
 		EvaluationContext: &structpb.Struct{
 			Fields: map[string]*structpb.Value{
 				"visitor_id": structpb.NewStringValue("tutorial_visitor"),

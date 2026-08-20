@@ -921,8 +921,11 @@ impl<'a, H: Host> AccountResolver<'a, H> {
         // Provider skipApply: neither assign logging nor a deferred-apply token.
         // Per-evaluation `_confidence_skip_apply` still uses apply=false
         // (deferred token) instead of this flag.
-        if !self.skip_apply {
-            if resolve_request.apply {
+        match (self.skip_apply, resolve_request.apply) {
+            (true, _) => {
+                // Neither assign logging nor a deferred-apply token.
+            }
+            (false, true) => {
                 // Borrow assignments straight out of the resolved values — no
                 // AssignedFlag is cloned unless the host actually logs it.
                 let flags_to_apply: Vec<FlagToApply<'_>> = resolved_values
@@ -940,7 +943,8 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     self.client,
                     &self.state.sdk,
                 );
-            } else {
+            }
+            (false, false) => {
                 let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
                     resolve_id: resolve_id.clone(),
                     evaluation_context: Some(Struct::default()),
@@ -2385,6 +2389,8 @@ mod tests {
         }
     }
 
+    /// skip_apply + apply=true: no FlagAssigned, no resolve token, still resolve logs.
+    /// Does not cover apply=false (next test) or the apply_flags path (test after that).
     #[test]
     fn test_skip_assign_does_not_log_or_create_token() {
         let state = ResolverState::from_proto(
@@ -2486,6 +2492,8 @@ mod tests {
         );
     }
 
+    /// skip_apply + apply=false: must not fall through to the deferred-token path
+    /// (apply=false without skip_apply would emit a token).
     #[test]
     fn test_skip_assign_with_apply_false_does_not_create_token() {
         let state = ResolverState::from_proto(
@@ -2587,6 +2595,7 @@ mod tests {
         );
     }
 
+    /// apply_flags() with skip_apply: no-op even when a token was minted without skip.
     #[test]
     fn test_skip_assign_apply_flags_does_not_log() {
         let state = ResolverState::from_proto(
