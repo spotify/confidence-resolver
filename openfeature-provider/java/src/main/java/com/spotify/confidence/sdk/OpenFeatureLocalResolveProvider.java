@@ -170,9 +170,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                 new RecoveringResolver(
                     () ->
                         new WasmLocalResolver(
-                            flagLogger::write,
-                            config.isEnableApplyDedup(),
-                            config.isSkipApply())));
+                            flagLogger::write, config.isEnableApplyDedup(), config.isSkipApply())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -230,8 +228,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             () ->
                 new RecoveringResolver(
                     () ->
-                        new WasmLocalResolver(
-                            wasmFlagLogger::write, enableApplyDedup, skipApply)));
+                        new WasmLocalResolver(wasmFlagLogger::write, enableApplyDedup, skipApply)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 

@@ -56,7 +56,9 @@ class ClientResolverStateWireCompatibilityTest {
         .isInstanceOf(InvalidProtocolBufferException.class);
   }
 
-  /** Tag 4 is a bool (enable_apply_dedup). Packed int32 uses a different wire type and is skipped. */
+  /**
+   * Tag 4 is a bool (enable_apply_dedup). Packed int32 uses a different wire type and is skipped.
+   */
   @Test
   void tag4_packed_int32_is_safely_skipped() throws Exception {
     final byte[] packedInt = new byte[] {0x01};
