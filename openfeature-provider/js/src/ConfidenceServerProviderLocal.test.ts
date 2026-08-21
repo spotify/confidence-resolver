@@ -383,7 +383,9 @@ describe('remote materialization for sticky assignments', () => {
         apply: false,
       }),
     });
-    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledWith(expect.objectContaining({ disableExposureCollection: true }));
+    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledWith(
+      expect.objectContaining({ disableExposureCollection: true }),
+    );
     expect(mockedWasmResolver.flushAssigned).not.toHaveBeenCalled();
 
     await advanceTimersUntil(expect(provider.onClose()).resolves.toBeUndefined());

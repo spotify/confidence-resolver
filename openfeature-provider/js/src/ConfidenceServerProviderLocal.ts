@@ -249,7 +249,8 @@ export class ConfidenceServerProviderLocal implements Provider {
       // `_confidence_skip_apply`. Provider disableExposureCollection is also set on the WASM
       // guest via setResolverState so assign/token are skipped entirely;
       // apply=false alone would still mint a deferred token.
-      const disableExposureCollection = this.options.disableExposureCollection === true || _confidence_skip_apply === true;
+      const disableExposureCollection =
+        this.options.disableExposureCollection === true || _confidence_skip_apply === true;
 
       let resolution: FlagBundle;
       try {
