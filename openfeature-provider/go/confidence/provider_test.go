@@ -562,7 +562,7 @@ func TestLocalResolverProvider_Init_NilFlagLogger(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error when flagLogger is nil")
 	}
-	if err.Error() != "Flag logger is nil,  cannot initialize" {
+	if err.Error() != "flag logger is nil, cannot initialize" {
 		t.Errorf("Expected specific error message, got: %v", err)
 	}
 }
