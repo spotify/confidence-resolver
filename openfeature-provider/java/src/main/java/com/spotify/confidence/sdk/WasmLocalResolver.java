@@ -60,14 +60,23 @@ class WasmLocalResolver implements LocalResolver {
   private final ExportFunction wasmMsgGuestPrometheusSnapshot;
   private final ReentrantLock lock = new ReentrantLock();
   private final boolean enableApplyDedup;
+  private final boolean disableExposureCollection;
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
     this(logSink, false);
   }
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink, boolean enableApplyDedup) {
+    this(logSink, enableApplyDedup, false);
+  }
+
+  public WasmLocalResolver(
+      Consumer<WriteFlagLogsRequest> logSink,
+      boolean enableApplyDedup,
+      boolean disableExposureCollection) {
     this.logSink = logSink;
     this.enableApplyDedup = enableApplyDedup;
+    this.disableExposureCollection = disableExposureCollection;
     this.instanceId = String.valueOf(INSTANCE_COUNTER.getAndIncrement());
     instance =
         Instance.builder(ConfidenceResolverModule.load())
@@ -120,7 +129,8 @@ class WasmLocalResolver implements LocalResolver {
           Messages.SetResolverStateRequest.newBuilder()
               .setState(ByteString.copyFrom(state))
               .setAccountId(accountId)
-              .setEnableApplyDedup(enableApplyDedup);
+              .setEnableApplyDedup(enableApplyDedup)
+              .setDisableExposureCollection(disableExposureCollection);
       if (sdk != null) {
         builder.setSdk(sdk);
       }

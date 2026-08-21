@@ -841,10 +841,10 @@ class TestPrometheusMetrics:
             provider.shutdown()
 
 
-class TestSkipApply:
+class TestDisableExposureCollection:
     """Tests for _confidence_skip_apply context key."""
 
-    def test_resolve_with_skip_apply_still_resolves(
+    def test_resolve_with_disable_exposure_collection_still_resolves(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
@@ -883,7 +883,58 @@ class TestSkipApply:
         finally:
             provider.shutdown()
 
-    def test_skip_apply_does_not_mutate_caller_context(
+    def test_disable_exposure_collection_config_still_resolves(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """disable_exposure_collection=True on the provider still resolves flags."""
+        mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
+        mock_logger = MockFlagLogger()
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            state_fetcher=mock_fetcher,
+            flag_logger=mock_logger,
+            wasm_bytes=wasm_bytes,
+            disable_exposure_collection=True,
+        )
+
+        provider.initialize(EvaluationContext())
+
+        try:
+            ctx = EvaluationContext(
+                targeting_key="test-user",
+                attributes={"visitor_id": "tutorial_visitor"},
+            )
+            result = provider.resolve_string_details(
+                flag_key="tutorial-feature.message",
+                default_value="default-message",
+                evaluation_context=ctx,
+            )
+            assert result.reason == Reason.TARGETING_MATCH
+            assert result.value != "default-message"
+        finally:
+            provider.shutdown()
+
+        from confidence.proto.confidence.flags.resolver.v1 import internal_api_pb2
+
+        assigned = 0
+        client_resolve = 0
+        flag_resolve = 0
+        for payload in mock_logger.writes:
+            req = internal_api_pb2.WriteFlagLogsRequest()
+            req.ParseFromString(payload)
+            assigned += len(req.flag_assigned)
+            client_resolve += len(req.client_resolve_info)
+            flag_resolve += len(req.flag_resolve_info)
+        assert assigned == 0
+        assert client_resolve >= 1
+        assert flag_resolve >= 1
+
+    def test_disable_exposure_collection_does_not_mutate_caller_context(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
@@ -917,7 +968,7 @@ class TestSkipApply:
                 attributes=attrs,
             )
 
-            # Resolve twice with the same context to ensure skip_apply is
+            # Resolve twice with the same context to ensure disable_exposure_collection is
             # honored consistently and the key is never stripped.
             for _ in range(2):
                 provider.resolve_string_details(

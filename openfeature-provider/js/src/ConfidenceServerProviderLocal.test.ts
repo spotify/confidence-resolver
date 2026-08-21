@@ -343,6 +343,56 @@ describe('remote materialization for sticky assignments', () => {
     });
   });
 
+  it('sets apply=false when disableExposureCollection is configured on the provider', async () => {
+    provider = new ConfidenceServerProviderLocal(mockedWasmResolver, {
+      flagClientSecret: 'flagClientSecret',
+      fetch: net.fetch,
+      materializationStore: 'CONFIDENCE_REMOTE_STORE',
+      disableExposureCollection: true,
+    });
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+    mockedWasmResolver.flushLogs.mockClear();
+    mockedWasmResolver.flushAssigned.mockClear();
+
+    mockedWasmResolver.resolveProcess.mockReturnValue({
+      resolved: {
+        response: {
+          resolvedFlags: [
+            {
+              flag: 'flags/test-flag',
+              variant: 'variant-a',
+              value: { enabled: true },
+              reason: RESOLVE_REASON_MATCH,
+              shouldApply: true,
+              assignmentOrigin: 'flags/test-flag/rules/rule1',
+            },
+          ],
+          resolveToken: new Uint8Array(),
+          resolveId: 'resolve-123',
+        },
+        materializationsToWrite: [],
+      },
+    });
+
+    await provider.resolveBooleanEvaluation('test-flag.enabled', false, {
+      targetingKey: 'user-123',
+    });
+
+    expect(mockedWasmResolver.resolveProcess).toHaveBeenCalledWith({
+      deferredMaterializations: expect.objectContaining({
+        apply: false,
+      }),
+    });
+    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledWith(
+      expect.objectContaining({ disableExposureCollection: true }),
+    );
+    expect(mockedWasmResolver.flushAssigned).not.toHaveBeenCalled();
+
+    await advanceTimersUntil(expect(provider.onClose()).resolves.toBeUndefined());
+    expect(mockedWasmResolver.flushLogs).toHaveBeenCalled();
+    expect(mockedWasmResolver.flushAssigned).not.toHaveBeenCalled();
+  });
+
   it('reads materializations from remote when WASM reports missing materializations', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 

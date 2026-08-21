@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from ..flags.resolver.v1 import types_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_types__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x63onfidence/wasm/messages.proto\x12\x0f\x63onfidence.wasm\x1a(confidence/flags/resolver/v1/types.proto\"\x06\n\x04Void\"\x88\x01\n\x17SetResolverStateRequest\x12\r\n\x05state\x18\x01 \x01(\x0c\x12\x12\n\naccount_id\x18\x02 \x01(\t\x12.\n\x03sdk\x18\x03 \x01(\x0b\x32!.confidence.flags.resolver.v1.Sdk\x12\x1a\n\x12\x65nable_apply_dedup\x18\x04 \x01(\x08\"\x17\n\x07Request\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"5\n\x08Response\x12\x0e\n\x04\x64\x61ta\x18\x01 \x01(\x0cH\x00\x12\x0f\n\x05\x65rror\x18\x02 \x01(\tH\x00\x42\x08\n\x06result\"^\n\x19PrometheusSnapshotRequest\x12\x10\n\x08instance\x18\x01 \x01(\t\x12\x1a\n\x12\x62uckets_per_decade\x18\x02 \x01(\r\x12\x13\n\x0bopenmetrics\x18\x03 \x01(\x08\"*\n\x1aPrometheusSnapshotResponse\x12\x0c\n\x04text\x18\x01 \x01(\tB\x8c\x01\n\x1f\x63om.spotify.confidence.sdk.wasmB\x08MessagesP\x00Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1econfidence/wasm/messages.proto\x12\x0fconfidence.wasm\x1a(confidence/flags/resolver/v1/types.proto"\x06\n\x04Void"\xad\x01\n\x17SetResolverStateRequest\x12\r\n\x05state\x18\x01 \x01(\x0c\x12\x12\n\naccount_id\x18\x02 \x01(\t\x12.\n\x03sdk\x18\x03 \x01(\x0b2!.confidence.flags.resolver.v1.Sdk\x12\x1a\n\x12enable_apply_dedup\x18\x04 \x01(\x08\x12#\n\x1bdisable_exposure_collection\x18\x05 \x01(\x08"\x17\n\x07Request\x12\x0c\n\x04data\x18\x01 \x01(\x0c"5\n\x08Response\x12\x0e\n\x04data\x18\x01 \x01(\x0cH\x00\x12\x0f\n\x05error\x18\x02 \x01(\tH\x00B\x08\n\x06result"^\n\x19PrometheusSnapshotRequest\x12\x10\n\x08instance\x18\x01 \x01(\t\x12\x1a\n\x12buckets_per_decade\x18\x02 \x01(\r\x12\x13\n\x0bopenmetrics\x18\x03 \x01(\x08"*\n\x1aPrometheusSnapshotResponse\x12\x0c\n\x04text\x18\x01 \x01(\tB\x8c\x01\n\x1fcom.spotify.confidence.sdk.wasmB\x08MessagesP\x00Z]github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasmb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,13 +36,13 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_VOID']._serialized_start=93
   _globals['_VOID']._serialized_end=99
   _globals['_SETRESOLVERSTATEREQUEST']._serialized_start=102
-  _globals['_SETRESOLVERSTATEREQUEST']._serialized_end=238
-  _globals['_REQUEST']._serialized_start=240
-  _globals['_REQUEST']._serialized_end=263
-  _globals['_RESPONSE']._serialized_start=265
-  _globals['_RESPONSE']._serialized_end=318
-  _globals['_PROMETHEUSSNAPSHOTREQUEST']._serialized_start=320
-  _globals['_PROMETHEUSSNAPSHOTREQUEST']._serialized_end=414
-  _globals['_PROMETHEUSSNAPSHOTRESPONSE']._serialized_start=416
-  _globals['_PROMETHEUSSNAPSHOTRESPONSE']._serialized_end=458
+  _globals['_SETRESOLVERSTATEREQUEST']._serialized_end=275
+  _globals['_REQUEST']._serialized_start=277
+  _globals['_REQUEST']._serialized_end=300
+  _globals['_RESPONSE']._serialized_start=302
+  _globals['_RESPONSE']._serialized_end=355
+  _globals['_PROMETHEUSSNAPSHOTREQUEST']._serialized_start=357
+  _globals['_PROMETHEUSSNAPSHOTREQUEST']._serialized_end=451
+  _globals['_PROMETHEUSSNAPSHOTRESPONSE']._serialized_start=453
+  _globals['_PROMETHEUSSNAPSHOTRESPONSE']._serialized_end=495
 # @@protoc_insertion_point(module_scope)

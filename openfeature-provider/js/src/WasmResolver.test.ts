@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { RegisterResolveRequest, ResolveProcessRequest } from './proto/confidence/wasm/wasm_api';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest, SdkId } from './proto/test-only';
+import { ApplyFlagsRequest } from './proto/confidence/flags/resolver/v1/api';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
 const stateBytes = readFileSync(__dirname + '/../../../wasm/resolver_state.pb');
@@ -23,7 +24,12 @@ const RESOLVE_REQUEST: ResolveProcessRequest = {
   },
 };
 
-const SET_STATE_REQUEST = { state: stateBytes, accountId: 'confidence-test', enableApplyDedup: false };
+const SET_STATE_REQUEST = {
+  state: stateBytes,
+  accountId: 'confidence-test',
+  enableApplyDedup: false,
+  disableExposureCollection: false,
+};
 
 let wasmResolver: WasmResolver;
 
@@ -75,6 +81,44 @@ describe('basic operation', () => {
         expect(decoded.flagAssigned.length).toBe(1);
         expect(decoded.clientResolveInfo.length).toBe(1);
         expect(decoded.flagResolveInfo.length).toBe(1);
+      });
+    });
+
+    describe('disableExposureCollection', () => {
+      it('must not enqueue FlagAssigned even when resolve apply=true', () => {
+        const resolver = new WasmResolver(module);
+        resolver.setResolverState({ ...SET_STATE_REQUEST, disableExposureCollection: true });
+        resolver.resolveProcess(RESOLVE_REQUEST);
+
+        const flushedLogs = WriteFlagLogsRequest.decode(resolver.flushLogs());
+        expect(flushedLogs.flagAssigned.length).toBe(0);
+        expect(flushedLogs.clientResolveInfo.length).toBe(1);
+        expect(flushedLogs.flagResolveInfo.length).toBe(1);
+
+        const flushedAssign = WriteFlagLogsRequest.decode(resolver.flushAssigned());
+        expect(flushedAssign.flagAssigned.length).toBe(0);
+      });
+
+      it('applyFlags is a no-op and records no FlagAssigned', () => {
+        const resolver = new WasmResolver(module);
+        resolver.setResolverState({ ...SET_STATE_REQUEST, disableExposureCollection: true });
+        resolver.resolveProcess(RESOLVE_REQUEST);
+
+        expect(() =>
+          resolver.applyFlags(
+            ApplyFlagsRequest.create({
+              flags: [{ flag: 'flags/tutorial-feature', applyTime: new Date() }],
+              clientSecret: CLIENT_SECRET,
+              resolveToken: new Uint8Array(),
+              sendTime: new Date(),
+            }),
+          ),
+        ).not.toThrow();
+
+        const flushedLogs = WriteFlagLogsRequest.decode(resolver.flushLogs());
+        expect(flushedLogs.flagAssigned.length).toBe(0);
+        expect(flushedLogs.clientResolveInfo.length).toBe(1);
+        expect(flushedLogs.flagResolveInfo.length).toBe(1);
       });
     });
 

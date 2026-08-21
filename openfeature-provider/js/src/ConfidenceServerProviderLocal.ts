@@ -52,6 +52,12 @@ export interface ProviderOptions {
    * Off by default; the API may change.
    */
   enableApplyDedup?: boolean;
+  /**
+   * Disable exposure/assignment collection for all OpenFeature evaluations
+   * through this provider. Use only for exceptional no-exposure modes; resolve
+   * logs and telemetry are still sent.
+   */
+  disableExposureCollection?: boolean;
 }
 
 /**
@@ -239,11 +245,16 @@ export class ConfidenceServerProviderLocal implements Provider {
     try {
       const [flagName] = flagKey.split('.', 1);
       const { _confidence_skip_apply, ...cleanContext } = context;
-      const skipApply = _confidence_skip_apply === true;
+      // apply=false covers both provider disableExposureCollection and per-eval
+      // `_confidence_skip_apply`. Provider disableExposureCollection is also set on the WASM
+      // guest via setResolverState so assign/token are skipped entirely;
+      // apply=false alone would still mint a deferred token.
+      const disableExposureCollection =
+        this.options.disableExposureCollection === true || _confidence_skip_apply === true;
 
       let resolution: FlagBundle;
       try {
-        resolution = await this.resolveFlags(cleanContext as EvaluationContext, [flagName], !skipApply);
+        resolution = await this.resolveFlags(cleanContext as EvaluationContext, [flagName], !disableExposureCollection);
       } catch (err) {
         resolution = FlagBundle.error(ErrorCode.GENERAL, String(err));
       }
@@ -274,7 +285,9 @@ export class ConfidenceServerProviderLocal implements Provider {
 
       return result;
     } finally {
-      this.flushAssigned();
+      if (this.options.disableExposureCollection !== true) {
+        this.flushAssigned();
+      }
     }
   }
 
@@ -355,6 +368,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         accountId: clientState.account,
         sdk,
         enableApplyDedup: this.options.enableApplyDedup ?? false,
+        disableExposureCollection: this.options.disableExposureCollection === true,
       }),
     );
   }

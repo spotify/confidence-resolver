@@ -64,6 +64,9 @@ static APPLY_DEDUP: LazyLock<Mutex<ApplyDedup>> =
 /// Set from SetResolverStateRequest.enable_apply_dedup — experimental,
 /// dedup is off by default.
 static APPLY_DEDUP_ENABLED: AtomicBool = AtomicBool::new(false);
+/// Set from SetResolverStateRequest.disable_exposure_collection. Guest-side only — not a Host
+/// import. Resolve reads this via AccountResolver::with_disable_exposure_collection.
+static DISABLE_EXPOSURE_COLLECTION: AtomicBool = AtomicBool::new(false);
 static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
     Telemetry::with_memory_provider(|| (core::arch::wasm32::memory_size::<0>() * 65536) as u64)
 });
@@ -174,6 +177,7 @@ wasm_msg_guest! {
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
         let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str(), request.sdk)?;
         APPLY_DEDUP_ENABLED.store(request.enable_apply_dedup, Ordering::Relaxed);
+        DISABLE_EXPOSURE_COLLECTION.store(request.disable_exposure_collection, Ordering::Relaxed);
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
         // TODO: track state age once we decide on the right timestamp source
         // let now = WasmHost::current_time();
@@ -201,7 +205,9 @@ wasm_msg_guest! {
         };
 
         let evaluation_context = resolve_request.evaluation_context.clone().unwrap_or_default();
-        let resolver = resolver_state.get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?;
+        let resolver = resolver_state
+            .get_resolver::<WasmHost>(resolve_request.client_secret.as_str(), evaluation_context, &ENCRYPTION_KEY)?
+            .with_disable_exposure_collection(DISABLE_EXPOSURE_COLLECTION.load(Ordering::Relaxed));
         resolver.resolve_flags(request)
     }
 
@@ -252,7 +258,8 @@ wasm_msg_guest! {
         let evaluation_context = Struct::default();
         let resolver = resolver_state
             .get_resolver::<WasmHost>(&request.client_secret, evaluation_context, &ENCRYPTION_KEY)
-            .map_err(|e| format!("apply_flags: {}", e))?;
+            .map_err(|e| format!("apply_flags: {}", e))?
+            .with_disable_exposure_collection(DISABLE_EXPOSURE_COLLECTION.load(Ordering::Relaxed));
         resolver
             .apply_flags(&request)
             .map_err(|e| format!("apply_flags: {}", e))?;

@@ -467,6 +467,10 @@ pub struct AccountResolver<'a, H: Host> {
     pub state: &'a ResolverState,
     pub evaluation_context: EvaluationContext,
     pub encryption_key: Bytes,
+    /// Provider disableExposureCollection, copied from the WASM guest static (or native
+    /// provider options) when this resolver is created. Not on ResolverState
+    /// so CDN proto state stays independent of logging config.
+    disable_exposure_collection: bool,
     host: PhantomData<H>,
 }
 
@@ -794,8 +798,16 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             state,
             evaluation_context,
             encryption_key: encryption_key.clone(),
+            disable_exposure_collection: false,
             host: PhantomData,
         }
+    }
+
+    /// Skip assign logging and deferred-apply tokens. WASM sets this from the
+    /// guest `DISABLE_EXPOSURE_COLLECTION` flag stored at `set_resolver_state`.
+    pub fn with_disable_exposure_collection(mut self, disable_exposure_collection: bool) -> Self {
+        self.disable_exposure_collection = disable_exposure_collection;
+        self
     }
 
     pub fn resolve_flags(
@@ -906,47 +918,55 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             ..Default::default()
         };
 
-        if resolve_request.apply {
-            // Borrow assignments straight out of the resolved values — no
-            // AssignedFlag is cloned unless the host actually logs it.
-            let flags_to_apply: Vec<FlagToApply<'_>> = resolved_values
-                .iter()
-                .filter(|rv| rv.should_apply())
-                .map(|rv| FlagToApply {
-                    assigned_flag: &rv.inner,
-                    skew_adjusted_applied_time: timestamp,
-                })
-                .collect();
+        // Provider disableExposureCollection: neither assign logging nor a deferred-apply token.
+        // Per-evaluation `_confidence_skip_apply` still uses apply=false
+        // (deferred token) instead of this flag.
+        if !self.disable_exposure_collection {
+            match resolve_request.apply {
+                true => {
+                    // Borrow assignments straight out of the resolved values — no
+                    // AssignedFlag is cloned unless the host actually logs it.
+                    let flags_to_apply: Vec<FlagToApply<'_>> = resolved_values
+                        .iter()
+                        .filter(|rv| rv.should_apply())
+                        .map(|rv| FlagToApply {
+                            assigned_flag: &rv.inner,
+                            skew_adjusted_applied_time: timestamp,
+                        })
+                        .collect();
 
-            H::log_assign(
-                &resolve_id,
-                flags_to_apply.as_slice(),
-                self.client,
-                &self.state.sdk,
-            );
-        } else {
-            let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
-                resolve_id: resolve_id.clone(),
-                evaluation_context: Some(Struct::default()),
-                ..Default::default()
-            };
-            for rv in resolved_values.iter().filter(|rv| rv.should_apply()) {
-                resolve_token_v1
-                    .assignments
-                    .insert(rv.inner.flag.clone(), rv.inner.clone());
+                    H::log_assign(
+                        &resolve_id,
+                        flags_to_apply.as_slice(),
+                        self.client,
+                        &self.state.sdk,
+                    );
+                }
+                false => {
+                    let mut resolve_token_v1 = flags_resolver::ResolveTokenV1 {
+                        resolve_id: resolve_id.clone(),
+                        evaluation_context: Some(Struct::default()),
+                        ..Default::default()
+                    };
+                    for rv in resolved_values.iter().filter(|rv| rv.should_apply()) {
+                        resolve_token_v1
+                            .assignments
+                            .insert(rv.inner.flag.clone(), rv.inner.clone());
+                    }
+
+                    let resolve_token = flags_resolver::ResolveToken {
+                        resolve_token: Some(flags_resolver::resolve_token::ResolveToken::TokenV1(
+                            resolve_token_v1,
+                        )),
+                    };
+
+                    let encrypted_token = self
+                        .encrypt_resolve_token(&resolve_token)
+                        .map_err(|_| "Failed to encrypt resolve token".to_string())?;
+
+                    response.resolve_token = encrypted_token;
+                }
             }
-
-            let resolve_token = flags_resolver::ResolveToken {
-                resolve_token: Some(flags_resolver::resolve_token::ResolveToken::TokenV1(
-                    resolve_token_v1,
-                )),
-            };
-
-            let encrypted_token = self
-                .encrypt_resolve_token(&resolve_token)
-                .map_err(|_| "Failed to encrypt resolve token".to_string())?;
-
-            response.resolve_token = encrypted_token;
         }
 
         H::log_resolve(
@@ -984,6 +1004,9 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     }
 
     pub fn apply_flags(&self, request: &flags_resolver::ApplyFlagsRequest) -> Result<(), String> {
+        if self.disable_exposure_collection {
+            return Ok(());
+        }
         let send_time_ts = request.send_time.as_ref().ok_or("send_time is required")?;
         let send_time = to_date_time_utc(send_time_ts).ok_or("invalid send_time")?;
         let receive_time: DateTime<Utc> = timestamp_to_datetime(&H::current_time())?;
@@ -2365,6 +2388,262 @@ mod tests {
         }
     }
 
+    // Each Host type gets its own OnceLock so parallel tests never share log
+    // buffers. Pass a distinct `$host` name per test; do not reuse one type.
+    macro_rules! recording_host {
+        ($host:ident) => {
+            struct $host;
+
+            impl $host {
+                fn assign_logs() -> &'static std::sync::Mutex<Vec<String>> {
+                    static LOGS: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> =
+                        std::sync::OnceLock::new();
+                    LOGS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+                }
+
+                fn resolve_logs() -> &'static std::sync::Mutex<Vec<String>> {
+                    static LOGS: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> =
+                        std::sync::OnceLock::new();
+                    LOGS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+                }
+            }
+
+            impl Host for $host {
+                fn log_resolve(
+                    resolve_id: &str,
+                    _evaluation_context: &Struct,
+                    _values: &[ResolvedValue<'_>],
+                    _client: &Client,
+                ) {
+                    $host::resolve_logs()
+                        .lock()
+                        .unwrap()
+                        .push(resolve_id.to_string());
+                }
+
+                fn log_assign(
+                    resolve_id: &str,
+                    assigned_flag: &[FlagToApply<'_>],
+                    _client: &Client,
+                    _sdk: &Option<Sdk>,
+                ) {
+                    let mut logs = $host::assign_logs()
+                        .try_lock()
+                        .expect("mutex is locked or poisoned");
+                    assigned_flag.iter().for_each(|f| {
+                        logs.push(format!("{}:{}", resolve_id, f.assigned_flag.flag));
+                    });
+                }
+            }
+        };
+    }
+
+    /// disable_exposure_collection + apply=true: no FlagAssigned, no resolve token, still resolve logs.
+    /// Does not cover apply=false (next test) or the apply_flags path (test after that).
+    #[test]
+    fn test_disable_exposure_collection_does_not_log_or_create_token() {
+        recording_host!(DisableExposureCollectionTrueHost);
+
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, DisableExposureCollectionTrueHost> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap()
+            .with_disable_exposure_collection(true);
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec!["flags/tutorial-feature".to_string()],
+            apply: true,
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let response: ResolveFlagsResponse = resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
+        let flag = response.resolved_flags.first().unwrap();
+        assert!(flag.should_apply);
+        assert!(
+            response.resolve_token.is_empty(),
+            "disable_exposure_collection must not emit a deferred-apply resolve token"
+        );
+        assert!(
+            DisableExposureCollectionTrueHost::assign_logs()
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "disable_exposure_collection must not log assignments"
+        );
+        assert_eq!(
+            DisableExposureCollectionTrueHost::resolve_logs()
+                .lock()
+                .unwrap()
+                .len(),
+            1,
+            "disable_exposure_collection must still log resolves"
+        );
+    }
+
+    /// disable_exposure_collection + apply=false: must not fall through to the deferred-token path
+    /// (apply=false without disable_exposure_collection would emit a token).
+    #[test]
+    fn test_disable_exposure_collection_with_apply_false_does_not_create_token() {
+        recording_host!(DisableExposureCollectionFalseApplyHost);
+
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolver: AccountResolver<'_, DisableExposureCollectionFalseApplyHost> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap()
+            .with_disable_exposure_collection(true);
+
+        let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+            evaluation_context: Some(Struct::default()),
+            client_secret: SECRET.to_string(),
+            flags: vec!["flags/tutorial-feature".to_string()],
+            apply: false,
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        let response: ResolveFlagsResponse = resolver
+            .resolve_flags_no_materialization(&resolve_flag_req)
+            .unwrap();
+        let flag = response.resolved_flags.first().unwrap();
+        assert!(flag.should_apply);
+        assert!(
+            response.resolve_token.is_empty(),
+            "disable_exposure_collection must not emit a deferred-apply resolve token even when apply=false"
+        );
+        assert!(
+            DisableExposureCollectionFalseApplyHost::assign_logs()
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "disable_exposure_collection must not log assignments"
+        );
+        assert_eq!(
+            DisableExposureCollectionFalseApplyHost::resolve_logs()
+                .lock()
+                .unwrap()
+                .len(),
+            1,
+            "disable_exposure_collection must still log resolves"
+        );
+    }
+
+    /// apply_flags() with disable_exposure_collection: no-op even when a token was minted without skip.
+    #[test]
+    fn test_disable_exposure_collection_apply_flags_does_not_log() {
+        recording_host!(DisableExposureCollectionFlagsHost);
+
+        let state = ResolverState::from_proto(
+            EXAMPLE_STATE.to_owned().try_into().unwrap(),
+            "confidence-demo-june",
+            None,
+        )
+        .unwrap();
+
+        struct TokenHost;
+
+        impl Host for TokenHost {
+            fn log_resolve(
+                _resolve_id: &str,
+                _evaluation_context: &Struct,
+                _values: &[ResolvedValue<'_>],
+                _client: &Client,
+            ) {
+            }
+
+            fn log_assign(
+                _resolve_id: &str,
+                _assigned_flag: &[FlagToApply<'_>],
+                _client: &Client,
+                _sdk: &Option<Sdk>,
+            ) {
+            }
+        }
+
+        let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
+        let resolve_token = {
+            let token_resolver: AccountResolver<'_, TokenHost> = state
+                .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+                .unwrap();
+
+            let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
+                evaluation_context: Some(Struct::default()),
+                client_secret: SECRET.to_string(),
+                flags: vec!["flags/tutorial-feature".to_string()],
+                apply: false,
+                sdk: Some(Sdk {
+                    sdk: None,
+                    version: "0.1.0".to_string(),
+                }),
+            };
+
+            let response: ResolveFlagsResponse = token_resolver
+                .resolve_flags_no_materialization(&resolve_flag_req)
+                .unwrap();
+            assert!(
+                !response.resolve_token.is_empty(),
+                "apply=false without disable_exposure_collection should emit a resolve token"
+            );
+            response.resolve_token
+        };
+
+        let skip_resolver: AccountResolver<'_, DisableExposureCollectionFlagsHost> = state
+            .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+            .unwrap()
+            .with_disable_exposure_collection(true);
+
+        let now = Timestamp {
+            seconds: 1704067200,
+            nanos: 0,
+        };
+        let apply_request = flags_resolver::ApplyFlagsRequest {
+            flags: vec![flags_resolver::AppliedFlag {
+                flag: "flags/tutorial-feature".to_string(),
+                apply_time: Some(now.clone()),
+            }],
+            client_secret: SECRET.to_string(),
+            resolve_token,
+            send_time: Some(now),
+            sdk: Some(Sdk {
+                sdk: None,
+                version: "0.1.0".to_string(),
+            }),
+        };
+
+        skip_resolver
+            .apply_flags(&apply_request)
+            .expect("disable_exposure_collection apply_flags should succeed as a no-op");
+        assert!(
+            DisableExposureCollectionFlagsHost::assign_logs()
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "disable_exposure_collection apply_flags must not log assignments"
+        );
+    }
+
     #[test]
     fn test_resolve_with_apply_false_then_apply_flags() {
         let state = ResolverState::from_proto(
@@ -2458,8 +2737,8 @@ mod tests {
         let response: ResolveFlagsResponse = resolver
             .resolve_flags_no_materialization(&resolve_flag_req)
             .unwrap();
-        let flag = response.resolved_flags.get(0).unwrap();
-        assert_eq!(true, flag.should_apply);
+        let flag = response.resolved_flags.first().unwrap();
+        assert!(flag.should_apply);
         assert_eq!(ResolveReason::Match as i32, flag.reason);
 
         // Verify that no assignment was logged yet (because apply=false)

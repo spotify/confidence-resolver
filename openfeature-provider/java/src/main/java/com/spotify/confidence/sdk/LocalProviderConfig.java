@@ -13,6 +13,7 @@ public class LocalProviderConfig {
   private final int resolverPoolSize;
   private final String encryptionKey;
   private final boolean enableApplyDedup;
+  private final boolean disableExposureCollection;
 
   public LocalProviderConfig() {
     this(null, null);
@@ -53,6 +54,7 @@ public class LocalProviderConfig {
         useRemoteMaterializationStore,
         resolverPoolSize,
         encryptionKey,
+        false,
         false);
   }
 
@@ -62,7 +64,8 @@ public class LocalProviderConfig {
       boolean useRemoteMaterializationStore,
       int resolverPoolSize,
       String encryptionKey,
-      boolean enableApplyDedup) {
+      boolean enableApplyDedup,
+      boolean disableExposureCollection) {
     this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
     this.httpClientFactory =
         httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
@@ -70,6 +73,7 @@ public class LocalProviderConfig {
     this.resolverPoolSize = resolverPoolSize > 0 ? resolverPoolSize : DEFAULT_RESOLVER_POOL_SIZE;
     this.encryptionKey = encryptionKey;
     this.enableApplyDedup = enableApplyDedup;
+    this.disableExposureCollection = disableExposureCollection;
   }
 
   public ChannelFactory getChannelFactory() {
@@ -102,6 +106,15 @@ public class LocalProviderConfig {
     return enableApplyDedup;
   }
 
+  /**
+   * Returns whether exposure/assignment collection is disabled for all OpenFeature evaluations
+   * through this provider. This is intended only for exceptional no-exposure modes; resolve logs
+   * and telemetry are still sent.
+   */
+  public boolean isDisableExposureCollection() {
+    return disableExposureCollection;
+  }
+
   public static Builder builder() {
     return new Builder();
   }
@@ -113,6 +126,7 @@ public class LocalProviderConfig {
     private int resolverPoolSize;
     private String encryptionKey;
     private boolean enableApplyDedup;
+    private boolean disableExposureCollection;
 
     public Builder channelFactory(ChannelFactory channelFactory) {
       this.channelFactory = channelFactory;
@@ -156,6 +170,16 @@ public class LocalProviderConfig {
       return this;
     }
 
+    /**
+     * Disables exposure/assignment collection for all OpenFeature evaluations through this
+     * provider. Use only for exceptional no-exposure modes; resolve logs and telemetry are still
+     * sent.
+     */
+    public Builder disableExposureCollection(boolean disableExposureCollection) {
+      this.disableExposureCollection = disableExposureCollection;
+      return this;
+    }
+
     public LocalProviderConfig build() {
       return new LocalProviderConfig(
           channelFactory,
@@ -163,7 +187,8 @@ public class LocalProviderConfig {
           useRemoteMaterializationStore,
           resolverPoolSize,
           encryptionKey,
-          enableApplyDedup);
+          enableApplyDedup,
+          disableExposureCollection);
     }
   }
 }

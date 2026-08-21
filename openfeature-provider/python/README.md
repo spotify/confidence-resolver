@@ -256,7 +256,20 @@ logging.getLogger("confidence").setLevel(logging.DEBUG)
 
 ## Advanced: Controlling Exposure Events
 
-By default, every flag evaluation triggers an exposure event (apply). If you need to resolve a flag without recording an exposure, you can pass `_confidence_skip_apply` in the evaluation context:
+By default, every flag evaluation records an exposure event (apply). Only disable this for exceptional cases where this provider must not collect exposures at all.
+
+For normal feature delivery and experiments, keep applies enabled. When exposure collection is disabled, Confidence does not receive assignment/exposure events for those evaluations. Experiment results, exposure counts, assignment diagnostics, and downstream reporting that depend on exposures can be incomplete or unavailable. Resolve analytics and telemetry are still sent, so this is not a general logging or privacy-off switch.
+
+To disable exposure collection for **all** OpenFeature evaluations through this provider, pass `disable_exposure_collection=True` when constructing the provider:
+
+```python
+provider = ConfidenceProvider(
+    client_secret="your-client-secret",
+    disable_exposure_collection=True,
+)
+```
+
+To skip exposure collection for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
 
 ```python
 context = EvaluationContext(
@@ -269,7 +282,12 @@ value = client.get_boolean_value("my-flag.enabled", False, context)
 
 The key is automatically stripped from the context before it reaches the resolver.
 
-This is an advanced feature intended for specific use cases such as prefetching or background evaluation. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
+| Mechanism | Scope | Assignment/exposure events | Resolve logs and telemetry |
+| --- | --- | --- | --- |
+| `disable_exposure_collection` provider option | All OpenFeature evaluations through this provider | Never queued; no deferred apply token is returned | Still sent |
+| `_confidence_skip_apply` context key | One evaluation | No immediate exposure event for that evaluation | Still sent |
+
+This is an advanced feature intended for exceptional cases. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
 
 ## License
 

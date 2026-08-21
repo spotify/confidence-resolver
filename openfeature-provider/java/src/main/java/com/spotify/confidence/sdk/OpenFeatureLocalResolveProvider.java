@@ -55,6 +55,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final LocalResolver resolver;
   private final WasmFlagLogger flagLogger;
   private final MaterializationStore materializationStore;
+  private final boolean disableExposureCollection;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
   private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
@@ -148,6 +149,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       LocalProviderConfig config, String clientSecret, MaterializationStore materializationStore) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
+    this.disableExposureCollection = config.isDisableExposureCollection();
     if (config.getEncryptionKey() == null) {
       log.warn(
           "No encryptionKey provided. Falling back to unencrypted state."
@@ -166,7 +168,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             numInstances,
             () ->
                 new RecoveringResolver(
-                    () -> new WasmLocalResolver(flagLogger::write, config.isEnableApplyDedup())));
+                    () ->
+                        new WasmLocalResolver(
+                            flagLogger::write,
+                            config.isEnableApplyDedup(),
+                            config.isDisableExposureCollection())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -194,8 +200,26 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger,
       boolean enableApplyDedup) {
+    this(
+        accountStateProvider,
+        clientSecret,
+        materializationStore,
+        wasmFlagLogger,
+        enableApplyDedup,
+        false);
+  }
+
+  @VisibleForTesting
+  public OpenFeatureLocalResolveProvider(
+      AccountStateProvider accountStateProvider,
+      String clientSecret,
+      MaterializationStore materializationStore,
+      WasmFlagLogger wasmFlagLogger,
+      boolean enableApplyDedup,
+      boolean disableExposureCollection) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
+    this.disableExposureCollection = disableExposureCollection;
     this.stateProvider = accountStateProvider;
     this.flagLogger = wasmFlagLogger;
     final int numInstances =
@@ -205,7 +229,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             numInstances,
             () ->
                 new RecoveringResolver(
-                    () -> new WasmLocalResolver(wasmFlagLogger::write, enableApplyDedup)));
+                    () ->
+                        new WasmLocalResolver(
+                            wasmFlagLogger::write, enableApplyDedup, disableExposureCollection)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -236,19 +262,23 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final long pollIntervalSeconds = getPollIntervalSeconds();
     scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
 
-    assignLogExecutor.scheduleAtFixedRate(
-        () -> {
-          try {
-            if (initialized) {
-              resolver.flushAssignLogs();
+    // Assign flush only. Resolve logs and telemetry still go out via
+    // flushAllLogs() on the state-refresh cycle and resolver.close() on shutdown.
+    if (!disableExposureCollection) {
+      assignLogExecutor.scheduleAtFixedRate(
+          () -> {
+            try {
+              if (initialized) {
+                resolver.flushAssignLogs();
+              }
+            } catch (RuntimeException e) {
+              log.error("Failed to flush assign logs", e);
             }
-          } catch (RuntimeException e) {
-            log.error("Failed to flush assign logs", e);
-          }
-        },
-        ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
-        ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
-        TimeUnit.MILLISECONDS);
+          },
+          ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
+          ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
+          TimeUnit.MILLISECONDS);
+    }
   }
 
   private void scheduleStateRefresh(
@@ -429,7 +459,12 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       throw new RuntimeException(e);
     }
 
-    final boolean skipApply = OpenFeatureUtils.isSkipApply(ctx);
+    // apply=false covers both provider disableExposureCollection and per-eval
+    // `_confidence_skip_apply`. Provider disableExposureCollection is also set on the WASM
+    // guest via setResolverState so assign/token are skipped entirely;
+    // apply=false alone would still mint a deferred token.
+    final boolean disableExposureCollection =
+        this.disableExposureCollection || OpenFeatureUtils.isSkipApply(ctx);
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
     ResolveFlagsResponse resolveFlagResponse;
     try {
@@ -438,7 +473,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       final var req =
           ResolveFlagsRequest.newBuilder()
               .addFlags(requestFlagName)
-              .setApply(!skipApply)
+              .setApply(!disableExposureCollection)
               .setClientSecret(clientSecret)
               .setEvaluationContext(
                   Struct.newBuilder().putAllFields(evaluationContext.getFieldsMap()).build())
@@ -585,7 +620,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
   /**
    * Applies flags that were previously resolved with apply=false. This method is intended for use
-   * by {@link FlagResolverService} to proxy apply requests from client SDKs.
+   * by {@link FlagResolverService} to proxy apply requests from client SDKs. When
+   * disableExposureCollection is configured, apply requests are ignored by the resolver.
    *
    * @param request the apply flags request containing resolve token and flags to apply
    */

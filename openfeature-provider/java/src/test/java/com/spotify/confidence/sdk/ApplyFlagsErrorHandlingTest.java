@@ -265,4 +265,64 @@ class ApplyFlagsErrorHandlingTest {
                     && e.getFormattedMessage().contains("Failed to apply flags")
                     && e.getFormattedMessage().contains("client secret not found"));
   }
+
+  private static ResolveFlagsResponse resolveWithApplyTrue(WasmLocalResolver r) {
+    final var request =
+        ResolveProcessRequest.newBuilder()
+            .setDeferredMaterializations(
+                ResolveFlagsRequest.newBuilder()
+                    .addFlags(FLAG_NAME)
+                    .setClientSecret(SECRET)
+                    .setEvaluationContext(Structs.of("targeting_key", Values.of("user-1")))
+                    .setApply(true)
+                    .build())
+            .build();
+    return r.resolveProcess(request).toCompletableFuture().join().getResolved().getResponse();
+  }
+
+  @Test
+  void disableExposureCollection_resolveApplyTrue_flushesResolveInfosNotAssigns() {
+    final List<WriteFlagLogsRequest> captured = new ArrayList<>();
+    final var resolver = new WasmLocalResolver(captured::add, false, true);
+    resolver.setResolverState(buildState(), ACCOUNT, null);
+
+    final var resolveResp = resolveWithApplyTrue(resolver);
+    assertThat(resolveResp.getResolveToken()).isEmpty();
+    resolver.flushAllLogs();
+
+    final int assigned =
+        captured.stream().mapToInt(WriteFlagLogsRequest::getFlagAssignedCount).sum();
+    final int clientResolve =
+        captured.stream().mapToInt(WriteFlagLogsRequest::getClientResolveInfoCount).sum();
+    final int flagResolve =
+        captured.stream().mapToInt(WriteFlagLogsRequest::getFlagResolveInfoCount).sum();
+    assertThat(assigned).isZero();
+    assertThat(clientResolve).isGreaterThanOrEqualTo(1);
+    assertThat(flagResolve).isGreaterThanOrEqualTo(1);
+  }
+
+  @Test
+  void disableExposureCollection_applyFlags_isNoOpAndRecordsNoFlagAssigned() {
+    final List<WriteFlagLogsRequest> captured = new ArrayList<>();
+    final var resolver = new WasmLocalResolver(captured::add, false, true);
+    resolver.setResolverState(buildState(), ACCOUNT, null);
+
+    resolveWithApplyTrue(resolver);
+
+    final var now = toTs(Instant.now());
+    final var apply =
+        ApplyFlagsRequest.newBuilder()
+            .setClientSecret(SECRET)
+            .setSendTime(now)
+            .addFlags(AppliedFlag.newBuilder().setFlag(FLAG_NAME).setApplyTime(now))
+            .build();
+
+    assertThatNoException().isThrownBy(() -> resolver.applyFlags(apply));
+    resolver.flushAllLogs();
+
+    final int totalAssigned =
+        captured.stream().mapToInt(WriteFlagLogsRequest::getFlagAssignedCount).sum();
+    assertThat(totalAssigned).isZero();
+    assertThat(logAppender.list).noneMatch(e -> e.getLevel() == Level.WARN);
+  }
 }

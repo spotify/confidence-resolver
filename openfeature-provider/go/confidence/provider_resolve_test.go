@@ -10,6 +10,7 @@ import (
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 	iamv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 	"google.golang.org/protobuf/proto"
 )
@@ -91,7 +92,7 @@ func TestLocalResolverProvider_ReturnsCorrectValue(t *testing.T) {
 		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
 	}, unsupportedMatStore)
 	// Use the correct client secret from test data
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil))))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -153,7 +154,7 @@ func TestLocalResolverProvider_ReturnsCorrectValue(t *testing.T) {
 	})
 }
 
-func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
+func TestLocalResolverProvider_DisableExposureCollectionContextKey(t *testing.T) {
 	ctx := context.Background()
 
 	testState := tu.LoadTestResolverState(t)
@@ -169,7 +170,7 @@ func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
 		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
 	}, unsupportedMatStore)
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil))))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -190,6 +191,65 @@ func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
 			t.Errorf("Expected TargetingMatchReason, got %v", result.Reason)
 		}
 	})
+}
+
+func TestLocalResolverProvider_DisableExposureCollectionConfig(t *testing.T) {
+	ctx := context.Background()
+	mockedResolver := &tu.MockedLocalResolver{
+		Response: &wasm.ResolveProcessResponse{
+			Result: &wasm.ResolveProcessResponse_Resolved_{
+				Resolved: &wasm.ResolveProcessResponse_Resolved{
+					Response: tu.CreateTutorialFeatureResponse(),
+				},
+			},
+		},
+	}
+	stateProvider := &tu.StateProviderMock{
+		State:     tu.LoadTestResolverState(t),
+		AccountID: tu.LoadTestAccountID(t),
+	}
+	mockFlagLogger := &tu.MockFlagLogger{}
+	unsupportedMatStore := newUnsupportedMaterializationStore()
+	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+		return mockedResolver
+	}, unsupportedMatStore)
+	provider := NewLocalResolverProvider(
+		resolverSupplier,
+		stateProvider,
+		mockFlagLogger,
+		tu.TestClientSecret,
+		slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		WithDisableExposureCollection(),
+	)
+	if err := openfeature.SetProviderAndWait(provider); err != nil {
+		t.Fatalf("SetProviderAndWait: %v", err)
+	}
+	client := openfeature.NewClient("skip-apply-config-test")
+	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
+		"visitor_id": "tutorial_visitor",
+	})
+	if _, err := client.BooleanValueDetails(ctx, "tutorial-feature.enabled", false, evalCtx); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if mockedResolver.LastRequest == nil {
+		t.Fatal("expected ResolveProcess to be called")
+	}
+	req := mockedResolver.LastRequest.GetWithoutMaterializations()
+	if req == nil {
+		req = mockedResolver.LastRequest.GetDeferredMaterializations()
+	}
+	if req == nil {
+		t.Fatalf("unexpected resolve request: %#v", mockedResolver.LastRequest)
+	}
+	if req.Apply {
+		t.Fatal("expected apply=false when DisableExposureCollection is configured")
+	}
+	if mockedResolver.LastSetResolverState == nil {
+		t.Fatal("expected SetResolverState to be called")
+	}
+	if !mockedResolver.LastSetResolverState.DisableExposureCollection {
+		t.Fatal("expected disable_exposure_collection=true on SetResolverState when DisableExposureCollection is configured")
+	}
 }
 
 func TestLocalResolverProvider_PathNotFound(t *testing.T) {
@@ -213,7 +273,7 @@ func TestLocalResolverProvider_PathNotFound(t *testing.T) {
 		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
 	}, unsupportedMatStore)
 	// Use the correct client secret from test data
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil))))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -280,7 +340,7 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
 			return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
 		}, unsupportedMatStore)
-		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil))))
 		client := openfeature.NewClient("test-client")
 
 		evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{

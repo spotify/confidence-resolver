@@ -59,3 +59,71 @@ impl Host for NativeHost {
         ASSIGN_LOGGER.log_assigns(resolve_id, assigned_flags, client, sdk);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    use bytes::Bytes;
+    use confidence_resolver::proto::confidence::flags::resolver::v1::{
+        resolve_process_response, ResolveFlagsRequest, ResolveProcessRequest,
+    };
+    use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
+
+    use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
+
+    #[test]
+    fn disable_exposure_collection_does_not_enqueue_assigns_but_logs_resolves() {
+        let (state, _) = create_state_with_flag();
+        let mut fields = HashMap::new();
+        fields.insert(
+            "targeting_key".to_string(),
+            ProtoValue {
+                kind: Some(value::Kind::StringValue("user-1".to_string())),
+            },
+        );
+        let context = Struct { fields };
+        let encryption_key = Bytes::from_static(&[0; 16]);
+        let resolver = state
+            .get_resolver::<NativeHost>(TEST_CLIENT_SECRET, context, &encryption_key)
+            .expect("resolver")
+            .with_disable_exposure_collection(true);
+
+        let _ = ASSIGN_LOGGER.checkpoint();
+        let _ = RESOLVE_LOGGER.checkpoint();
+
+        let request = ResolveFlagsRequest {
+            flags: vec!["flags/test-flag".to_string()],
+            evaluation_context: Some(Struct::default()),
+            apply: true,
+            client_secret: TEST_CLIENT_SECRET.to_string(),
+            sdk: None,
+        };
+        let process_response = resolver
+            .resolve_flags(ResolveProcessRequest::without_materializations(request))
+            .expect("resolve");
+        let response = match process_response.result {
+            Some(resolve_process_response::Result::Resolved(resolved)) => {
+                resolved.response.expect("resolve response")
+            }
+            other => panic!("expected resolved response, got {other:?}"),
+        };
+
+        assert!(
+            response.resolve_token.is_empty(),
+            "disable_exposure_collection must not emit a deferred-apply resolve token"
+        );
+
+        let assigns = ASSIGN_LOGGER.checkpoint();
+        let resolves = RESOLVE_LOGGER.checkpoint();
+        assert!(
+            assigns.flag_assigned.is_empty(),
+            "disable_exposure_collection must not enqueue assigns"
+        );
+        assert!(
+            !resolves.client_resolve_info.is_empty() || !resolves.flag_resolve_info.is_empty(),
+            "disable_exposure_collection must still log resolves"
+        );
+    }
+}

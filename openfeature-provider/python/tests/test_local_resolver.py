@@ -7,7 +7,7 @@ from google.protobuf import struct_pb2
 from confidence.local_resolver import LocalResolver
 from confidence.wasm_resolver import WasmResolver
 from confidence.proto.confidence.wasm import wasm_api_pb2
-from confidence.proto.confidence.flags.resolver.v1 import api_pb2
+from confidence.proto.confidence.flags.resolver.v1 import api_pb2, internal_api_pb2
 
 # Test constants - flag name from test fixture data
 TEST_FLAG_NAME = "flags/tutorial-feature"
@@ -43,6 +43,24 @@ class TestLocalResolverSetState:
             test_account_id,
             None,
             False,
+            False,
+        )
+
+    def test_set_resolver_state_stores_disable_exposure_collection(
+        self, wasm_bytes: bytes, test_resolver_state: bytes, test_account_id: str
+    ) -> None:
+        """set_resolver_state stores disable_exposure_collection for recovery."""
+        resolver = LocalResolver(wasm_bytes)
+        resolver.set_resolver_state(
+            test_resolver_state, test_account_id, None, False, True
+        )
+
+        assert resolver._current_state == (
+            test_resolver_state,
+            test_account_id,
+            None,
+            False,
+            True,
         )
 
     def test_set_resolver_state_delegates_to_wasm(
@@ -141,6 +159,47 @@ class TestLocalResolverCrashRecovery:
         # Should work after recovery
         response = resolver.resolve_process(request)
         assert response is not None
+
+    def test_reload_restores_disable_exposure_collection(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """After recovery, disable_exposure_collection is restored so assigns stay off."""
+        resolver = LocalResolver(wasm_bytes)
+        resolver.set_resolver_state(
+            test_resolver_state, test_account_id, None, False, True
+        )
+        assert resolver._current_state is not None
+        assert resolver._current_state[4] is True
+
+        old_delegate = resolver._delegate
+        resolver._reload_instance(RuntimeError("simulated"))
+        assert resolver._delegate is not old_delegate
+
+        resolve_request = api_pb2.ResolveFlagsRequest()
+        resolve_request.flags.append(TEST_FLAG_NAME)
+        resolve_request.client_secret = test_client_secret
+        resolve_request.apply = True
+        evaluation_context = struct_pb2.Struct()
+        evaluation_context.fields["visitor_id"].string_value = "tutorial_visitor"
+        resolve_request.evaluation_context.CopyFrom(evaluation_context)
+
+        request = wasm_api_pb2.ResolveProcessRequest()
+        request.deferred_materializations.CopyFrom(resolve_request)
+        resolver.resolve_process(request)
+
+        assigned = internal_api_pb2.WriteFlagLogsRequest()
+        assigned.ParseFromString(resolver.flush_assigned() or b"")
+        logs = internal_api_pb2.WriteFlagLogsRequest()
+        logs.ParseFromString(resolver.flush_logs() or b"")
+
+        assert len(assigned.flag_assigned) == 0
+        assert len(logs.flag_assigned) == 0
+        assert len(logs.client_resolve_info) >= 1
+        assert len(logs.flag_resolve_info) >= 1
 
 
 class TestLocalResolverFlushLogs:

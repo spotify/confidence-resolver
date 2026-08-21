@@ -134,9 +134,11 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
     try {
       sendToDestination(primary, request);
       logger.debug(
-          "Successfully sent flag log via {} with {} entries",
+          "Successfully sent flag log via {} with {} assigned, {} client_resolve_info, {} flag_resolve_info",
           primary,
-          request.getFlagAssignedCount());
+          request.getFlagAssignedCount(),
+          request.getClientResolveInfoCount(),
+          request.getFlagResolveInfoCount());
     } catch (Exception primaryEx) {
       if (destinations.size() > 1) {
         final LogDestination fallback = destinations.get(1);
@@ -144,9 +146,11 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
         try {
           sendToDestination(fallback, request);
           logger.debug(
-              "Successfully sent flag log via fallback {} with {} entries",
+              "Successfully sent flag log via fallback {} with {} assigned, {} client_resolve_info, {} flag_resolve_info",
               fallback,
-              request.getFlagAssignedCount());
+              request.getFlagAssignedCount(),
+              request.getClientResolveInfoCount(),
+              request.getFlagResolveInfoCount());
         } catch (Exception fallbackEx) {
           failures.incrementAndGet();
           logger.warn("Fallback destination {} also failed", fallback, fallbackEx);

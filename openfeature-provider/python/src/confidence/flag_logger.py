@@ -153,8 +153,11 @@ class GrpcFlagLogger:
             metadata = [("authorization", f"ClientSecret {self._client_secret}")]
             self._stub.ClientWriteFlagLogs(request, metadata=metadata, timeout=30.0)
             logger.debug(
-                "Successfully sent flag log with %d entries",
+                "Successfully sent flag log with %d assigned, "
+                "%d client_resolve_info, %d flag_resolve_info",
                 len(request.flag_assigned),
+                len(request.client_resolve_info),
+                len(request.flag_resolve_info),
             )
         except Exception:
             failed = True
@@ -278,8 +281,11 @@ class HttpFlagLogger:
                 failed = True
             else:
                 logger.debug(
-                    "Successfully sent flag log via HTTP with %d entries",
+                    "Successfully sent flag log via HTTP with %d assigned, "
+                    "%d client_resolve_info, %d flag_resolve_info",
                     len(request.flag_assigned),
+                    len(request.client_resolve_info),
+                    len(request.flag_resolve_info),
                 )
         except Exception:
             failed = True

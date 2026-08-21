@@ -87,6 +87,10 @@ pub struct ProviderOptions {
     pub gateway_url: Option<String>,
     /// Hex-encoded AES-256 encryption key for decrypting CDN state.
     pub encryption_key: Option<String>,
+    /// Disable exposure/assignment collection for all OpenFeature evaluations
+    /// through this provider. Use only for exceptional no-exposure modes;
+    /// resolve logs and telemetry are still sent.
+    pub disable_exposure_collection: bool,
 }
 
 impl ProviderOptions {
@@ -101,6 +105,7 @@ impl ProviderOptions {
             materialization_store: None,
             gateway_url: None,
             encryption_key: None,
+            disable_exposure_collection: false,
         }
     }
 
@@ -139,6 +144,14 @@ impl ProviderOptions {
         self.encryption_key = Some(key.into());
         self
     }
+
+    /// Disable exposure/assignment collection for all OpenFeature evaluations
+    /// through this provider. Use only for exceptional no-exposure modes;
+    /// resolve logs and telemetry are still sent.
+    pub fn with_disable_exposure_collection(mut self) -> Self {
+        self.disable_exposure_collection = true;
+        self
+    }
 }
 
 /// OpenFeature provider for Confidence using native Rust resolver.
@@ -155,6 +168,7 @@ pub struct ConfidenceProvider {
     state_poll_interval: Duration,
     flush_interval: Duration,
     assign_flush_interval: Duration,
+    disable_exposure_collection: bool,
 }
 
 impl ConfidenceProvider {
@@ -214,6 +228,7 @@ impl ConfidenceProvider {
             assign_flush_interval: options
                 .assign_flush_interval
                 .unwrap_or(DEFAULT_ASSIGN_FLUSH_INTERVAL),
+            disable_exposure_collection: options.disable_exposure_collection,
         })
     }
 
@@ -268,6 +283,7 @@ impl ConfidenceProvider {
         let state_poll_interval = self.state_poll_interval;
         let flush_interval = self.flush_interval;
         let assign_flush_interval = self.assign_flush_interval;
+        let disable_exposure_collection = self.disable_exposure_collection;
 
         // Spawn combined background task
         let task = tokio::spawn(async move {
@@ -300,7 +316,7 @@ impl ConfidenceProvider {
                             tracing::error!("Failed to flush logs: {}", e);
                         }
                     }
-                    _ = assign_interval.tick() => {
+                    _ = assign_interval.tick(), if !disable_exposure_collection => {
                         if let Err(e) = log_manager.flush_assign(&ASSIGN_LOGGER).await {
                             tracing::error!("Failed to flush assign logs: {}", e);
                         }
@@ -329,16 +345,22 @@ impl ConfidenceProvider {
         // Parse flag path
         let (flag_name, path) = parse_flag_path(flag_key);
 
-        // Check for skip apply before converting context
+        // Check exposure-collection flags before converting context.
+        // `apply=false` covers both provider `disable_exposure_collection` and per-eval
+        // `_confidence_skip_apply`. Provider config is also stamped via
+        // `with_disable_exposure_collection(self.disable_exposure_collection)` below so no
+        // deferred token is minted when only the provider option is set; per-eval alone uses
+        // apply=false (deferred token) without with_disable_exposure_collection.
         let mut context = context.clone();
-        let skip_apply = context
-            .custom_fields
-            .remove("_confidence_skip_apply")
-            .and_then(|v| match v {
-                EvaluationContextFieldValue::Bool(b) => Some(b),
-                _ => None,
-            })
-            .unwrap_or(false);
+        let disable_exposure_collection = self.disable_exposure_collection
+            || context
+                .custom_fields
+                .remove("_confidence_skip_apply")
+                .and_then(|v| match v {
+                    EvaluationContextFieldValue::Bool(b) => Some(b),
+                    _ => None,
+                })
+                .unwrap_or(false);
 
         // Convert evaluation context to protobuf
         let proto_context = convert_evaluation_context(&context);
@@ -347,7 +369,7 @@ impl ConfidenceProvider {
         let request = ResolveFlagsRequest {
             flags: vec![format!("flags/{}", flag_name)],
             evaluation_context: Some(proto_context.clone()),
-            apply: !skip_apply,
+            apply: !disable_exposure_collection,
             client_secret: self.client_secret.clone(),
             sdk: Some(provider_sdk()),
         };
@@ -371,7 +393,9 @@ impl ConfidenceProvider {
                         e
                     )))
                     .build()
-            })?;
+            })?
+            // Config skip only — per-eval `_confidence_skip_apply` uses apply=false above.
+            .with_disable_exposure_collection(self.disable_exposure_collection);
 
         // Resolve (may suspend once if materializations are needed)
         let response = resolver.resolve_flags(initial_request).map_err(|e| {
@@ -1491,6 +1515,52 @@ mod tests {
         assert!(options.state_poll_interval.is_none());
         assert!(options.flush_interval.is_none());
         assert!(options.materialization_store.is_none());
+        assert!(!options.disable_exposure_collection);
+    }
+
+    #[test]
+    fn test_provider_options_with_disable_exposure_collection() {
+        let options = ProviderOptions::new("test-secret").with_disable_exposure_collection();
+        assert!(options.disable_exposure_collection);
+    }
+
+    #[tokio::test]
+    async fn test_disable_exposure_collection_does_not_enqueue_assigns() {
+        use crate::host::{ASSIGN_LOGGER, RESOLVE_LOGGER};
+        use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
+        use open_feature::provider::FeatureProvider;
+
+        let options = ProviderOptions::new(TEST_CLIENT_SECRET).with_disable_exposure_collection();
+        let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
+        assert!(provider.disable_exposure_collection);
+
+        let (state, account_id) = create_state_with_flag();
+        provider
+            .state
+            .update(state, account_id, vec![crate::state::LogDestination::Edge])
+            .await;
+
+        let _ = ASSIGN_LOGGER.checkpoint();
+        let _ = RESOLVE_LOGGER.checkpoint();
+
+        let ctx = EvaluationContext::default().with_targeting_key("user-1");
+        let result = provider.resolve_bool_value("test-flag.enabled", &ctx).await;
+        assert!(
+            result.is_ok(),
+            "expected successful resolve: {:?}",
+            result.err()
+        );
+
+        let assigns = ASSIGN_LOGGER.checkpoint();
+        let resolves = RESOLVE_LOGGER.checkpoint();
+        assert!(
+            assigns.flag_assigned.is_empty(),
+            "disable_exposure_collection must not enqueue assigns"
+        );
+        assert!(
+            !resolves.client_resolve_info.is_empty() || !resolves.flag_resolve_info.is_empty(),
+            "disable_exposure_collection must still log resolves"
+        );
     }
 
     #[test]
@@ -1670,14 +1740,14 @@ mod tests {
     }
 
     #[test]
-    fn test_skip_apply_key_stripped_from_context() {
+    fn test_disable_exposure_collection_key_stripped_from_context() {
         let ctx = EvaluationContext::default()
             .with_targeting_key("user-123")
             .with_custom_field("country", "SE")
             .with_custom_field("_confidence_skip_apply", true);
 
         let mut ctx_clone = ctx.clone();
-        let skip_apply = ctx_clone
+        let disable_exposure_collection = ctx_clone
             .custom_fields
             .remove("_confidence_skip_apply")
             .and_then(|v| match v {
@@ -1686,7 +1756,7 @@ mod tests {
             })
             .unwrap_or(false);
 
-        assert!(skip_apply);
+        assert!(disable_exposure_collection);
 
         let proto = convert_evaluation_context(&ctx_clone);
         assert!(
@@ -1698,11 +1768,11 @@ mod tests {
     }
 
     #[test]
-    fn test_skip_apply_defaults_to_false() {
+    fn test_disable_exposure_collection_defaults_to_false() {
         let ctx = EvaluationContext::default().with_targeting_key("user-123");
 
         let mut ctx_clone = ctx.clone();
-        let skip_apply = ctx_clone
+        let disable_exposure_collection = ctx_clone
             .custom_fields
             .remove("_confidence_skip_apply")
             .and_then(|v| match v {
@@ -1711,7 +1781,7 @@ mod tests {
             })
             .unwrap_or(false);
 
-        assert!(!skip_apply);
+        assert!(!disable_exposure_collection);
     }
 
     #[test]

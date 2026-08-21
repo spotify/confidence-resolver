@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 
@@ -433,5 +434,50 @@ func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(
 	}
 	if len(suspendedResult.Suspended.MaterializationsToRead) == 0 {
 		t.Fatal("Expected non-empty materializations_to_read")
+	}
+}
+
+func TestDisableExposureCollection_FlushAllLogsSendsResolvesNotAssigns(t *testing.T) {
+	ctx := context.Background()
+	var captured []*resolverv1.WriteFlagLogsRequest
+	factory := NewWasmResolverFactory(func(logs *resolverv1.WriteFlagLogsRequest) {
+		captured = append(captured, logs)
+	}, false)
+	defer factory.Close(ctx)
+
+	resolver := factory.New()
+	defer resolver.Close(ctx)
+
+	if err := resolver.SetResolverState(&wasm.SetResolverStateRequest{
+		State:                     tu.LoadTestResolverState(t),
+		AccountId:                 tu.LoadTestAccountID(t),
+		DisableExposureCollection: true,
+	}); err != nil {
+		t.Fatalf("set resolver state: %v", err)
+	}
+
+	req := tu.CreateTutorialFeatureRequest()
+	req.Apply = true
+	if _, err := resolver.ResolveProcess(tu.CreateResolveProcessRequest(req)); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if err := resolver.FlushAllLogs(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	var assigned, clientResolve, flagResolve int
+	for _, logs := range captured {
+		assigned += len(logs.FlagAssigned)
+		clientResolve += len(logs.ClientResolveInfo)
+		flagResolve += len(logs.FlagResolveInfo)
+	}
+	if assigned != 0 {
+		t.Fatalf("disable_exposure_collection must not send assigns, got %d", assigned)
+	}
+	if clientResolve == 0 {
+		t.Fatal("disable_exposure_collection must still send client_resolve_info")
+	}
+	if flagResolve == 0 {
+		t.Fatal("disable_exposure_collection must still send flag_resolve_info")
 	}
 }

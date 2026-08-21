@@ -31,9 +31,10 @@ type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
 type Option func(*providerOptions)
 
 type providerOptions struct {
-	statePollInterval time.Duration
-	logPollInterval   time.Duration
-	enableApplyDedup  bool
+	statePollInterval         time.Duration
+	logPollInterval           time.Duration
+	enableApplyDedup          bool
+	disableExposureCollection bool
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -59,21 +60,31 @@ func WithEnableApplyDedup() Option {
 	}
 }
 
+// WithDisableExposureCollection disables exposure/assignment collection for all OpenFeature
+// evaluations through this provider. Use only for exceptional no-exposure
+// modes; resolve logs and telemetry are still sent.
+func WithDisableExposureCollection() Option {
+	return func(o *providerOptions) {
+		o.disableExposureCollection = true
+	}
+}
+
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
-	resolverSupplier  LocalResolverSupplier
-	resolver          lr.LocalResolver
-	stateProvider     StateProvider
-	flagLogger        FlagLogger
-	clientSecret      string
-	logger            *slog.Logger
-	cancelFunc        context.CancelFunc
-	wg                sync.WaitGroup
-	mu                sync.Mutex
-	statePollInterval time.Duration
-	logPollInterval   time.Duration
-	enableApplyDedup  bool
+	resolverSupplier          LocalResolverSupplier
+	resolver                  lr.LocalResolver
+	stateProvider             StateProvider
+	flagLogger                FlagLogger
+	clientSecret              string
+	logger                    *slog.Logger
+	cancelFunc                context.CancelFunc
+	wg                        sync.WaitGroup
+	mu                        sync.Mutex
+	statePollInterval         time.Duration
+	logPollInterval           time.Duration
+	enableApplyDedup          bool
+	disableExposureCollection bool
 }
 
 // Compile-time interface conformance checks
@@ -115,14 +126,15 @@ func NewLocalResolverProvider(
 	}
 
 	return &LocalResolverProvider{
-		resolverSupplier:  resolverSupplier,
-		stateProvider:     stateProvider,
-		flagLogger:        flagLogger,
-		clientSecret:      clientSecret,
-		logger:            logger,
-		statePollInterval: statePollInterval,
-		logPollInterval:   logPollInterval,
-		enableApplyDedup:  options.enableApplyDedup,
+		resolverSupplier:          resolverSupplier,
+		stateProvider:             stateProvider,
+		flagLogger:                flagLogger,
+		clientSecret:              clientSecret,
+		logger:                    logger,
+		statePollInterval:         statePollInterval,
+		logPollInterval:           logPollInterval,
+		enableApplyDedup:          options.enableApplyDedup,
+		disableExposureCollection: options.disableExposureCollection,
 	}
 }
 
@@ -261,7 +273,11 @@ func evaluate[T any](
 		})
 	}
 
-	apply := true
+	// apply=false covers both provider DisableExposureCollection and per-eval
+	// `_confidence_skip_apply`. Provider DisableExposureCollection is also forwarded on
+	// setResolverState so the guest skips assign/token entirely; apply=false
+	// alone would still mint a deferred token.
+	apply := !p.disableExposureCollection
 	if skip, ok := evalCtx["_confidence_skip_apply"]; ok {
 		if b, ok := skip.(bool); ok && b {
 			apply = false
@@ -398,13 +414,16 @@ func (p *LocalResolverProvider) GetPrometheusMetrics(config SnapshotConfig) stri
 
 // Resolve resolves multiple flags for the given context. If flagNames is empty,
 // all flags available to the client are resolved. When apply is true, exposure
-// events are recorded immediately. When apply is false, the response contains a
-// resolve_token that must be passed to ApplyFlags later to record exposures.
+// events are recorded immediately. When apply is false, the response normally
+// contains a resolve_token that must be passed to ApplyFlags later to record
+// exposures. If this provider was configured with DisableExposureCollection, no exposure token
+// is returned.
 //
 // Returns an error if the provider has not been initialized (Init not called),
 // the evaluation context cannot be converted, or the WASM resolver fails.
 // On success the returned ResolveFlagsResponse contains the resolved flag
-// values and, when apply is false, the resolve_token for deferred application.
+// values and, when apply is false and DisableExposureCollection is not configured, the
+// resolve_token for deferred application.
 func (p *LocalResolverProvider) Resolve(
 	ctx context.Context,
 	evalCtx openfeature.FlattenedContext,
@@ -437,7 +456,8 @@ func (p *LocalResolverProvider) Resolve(
 
 // ApplyFlags records exposure events for flags previously resolved with
 // apply=false. The request must contain the resolve_token from the original
-// resolve response.
+// resolve response. If this provider was configured with DisableExposureCollection, ApplyFlags
+// is a no-op.
 //
 // Returns an error if the provider has not been initialized or the WASM
 // resolver fails to process the apply request.
@@ -498,9 +518,10 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 
 	// Update resolver with initial state (triggers WASM compilation and initialization)
 	setResolverStateRequest := &wasm.SetResolverStateRequest{
-		State:            initialState,
-		AccountId:        accountId,
-		EnableApplyDedup: p.enableApplyDedup,
+		State:                     initialState,
+		AccountId:                 accountId,
+		EnableApplyDedup:          p.enableApplyDedup,
+		DisableExposureCollection: p.disableExposureCollection,
 		Sdk: &resolvertypes.Sdk{
 			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 			Version: Version,
@@ -606,9 +627,10 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 
 				// Update state
 				setResolverStateRequest := &wasm.SetResolverStateRequest{
-					State:            state,
-					AccountId:        accountId,
-					EnableApplyDedup: p.enableApplyDedup,
+					State:                     state,
+					AccountId:                 accountId,
+					EnableApplyDedup:          p.enableApplyDedup,
+					DisableExposureCollection: p.disableExposureCollection,
 					Sdk: &resolvertypes.Sdk{
 						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 						Version: Version,
@@ -633,8 +655,15 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 		logTicker := time.NewTicker(p.logPollInterval)
 		defer logTicker.Stop()
 
-		assignTicker := time.NewTicker(100 * time.Millisecond)
-		defer assignTicker.Stop()
+		var assignTicker *time.Ticker
+		// Receive-only channel. Left nil when disableExposureCollection so the select case
+		// below never fires — a nil chan in select is never ready.
+		var assignC <-chan time.Time
+		if !p.disableExposureCollection {
+			assignTicker = time.NewTicker(100 * time.Millisecond)
+			defer assignTicker.Stop()
+			assignC = assignTicker.C
+		}
 
 		for {
 			select {
@@ -642,7 +671,7 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 				if err := p.resolver.FlushAllLogs(); err != nil {
 					p.logger.Error("Failed to flush all logs", "error", err)
 				}
-			case <-assignTicker.C:
+			case <-assignC:
 				if err := p.resolver.FlushAssignLogs(); err != nil {
 					p.logger.Error("Failed to flush assign logs", "error", err)
 				}
