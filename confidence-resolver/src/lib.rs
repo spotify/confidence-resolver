@@ -2478,11 +2478,17 @@ mod tests {
             "disable_exposure_collection must not emit a deferred-apply resolve token"
         );
         assert!(
-            DisableExposureCollectionTrueHost::assign_logs().lock().unwrap().is_empty(),
+            DisableExposureCollectionTrueHost::assign_logs()
+                .lock()
+                .unwrap()
+                .is_empty(),
             "disable_exposure_collection must not log assignments"
         );
         assert_eq!(
-            DisableExposureCollectionTrueHost::resolve_logs().lock().unwrap().len(),
+            DisableExposureCollectionTrueHost::resolve_logs()
+                .lock()
+                .unwrap()
+                .len(),
             1,
             "disable_exposure_collection must still log resolves"
         );
@@ -2630,7 +2636,10 @@ mod tests {
             .apply_flags(&apply_request)
             .expect("disable_exposure_collection apply_flags should succeed as a no-op");
         assert!(
-            DisableExposureCollectionFlagsHost::assign_logs().lock().unwrap().is_empty(),
+            DisableExposureCollectionFlagsHost::assign_logs()
+                .lock()
+                .unwrap()
+                .is_empty(),
             "disable_exposure_collection apply_flags must not log assignments"
         );
     }
