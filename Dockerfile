@@ -45,6 +45,8 @@ COPY confidence-resolver/Cargo.toml ./confidence-resolver/
 COPY confidence-cloudflare-resolver/Cargo.toml ./confidence-cloudflare-resolver/
 COPY wasm-msg/Cargo.toml ./wasm-msg/
 COPY wasm/rust-guest/Cargo.toml ./wasm/rust-guest/
+COPY wasm/event-guest/Cargo.toml ./wasm/event-guest/
+COPY confidence-event-engine/Cargo.toml ./confidence-event-engine/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
@@ -58,6 +60,7 @@ COPY wasm/proto ./wasm/proto/
 
 # Copy build.rs files
 COPY confidence-resolver/build.rs ./confidence-resolver/
+COPY confidence-event-engine/build.rs ./confidence-event-engine/
 COPY wasm-msg/build.rs ./wasm-msg/
 COPY wasm/rust-guest/build.rs ./wasm/rust-guest/
 COPY openfeature-provider/rust/build.rs ./openfeature-provider/rust/
@@ -68,10 +71,14 @@ RUN mkdir -p confidence-resolver/src && \
     echo "pub fn dummy() {}" > confidence-resolver/src/lib.rs && \
     mkdir -p confidence-cloudflare-resolver/src && \
     echo "pub fn dummy() {}" > confidence-cloudflare-resolver/src/lib.rs && \
+    mkdir -p confidence-event-engine/src && \
+    echo "pub fn dummy() {}" > confidence-event-engine/src/lib.rs && \
     mkdir -p wasm-msg/src && \
     echo "pub fn dummy() {}" > wasm-msg/src/lib.rs && \
     mkdir -p wasm/rust-guest/src && \
     echo "pub fn dummy() {}" > wasm/rust-guest/src/lib.rs && \
+    mkdir -p wasm/event-guest/src && \
+    echo "pub fn dummy() {}" > wasm/event-guest/src/lib.rs && \
     mkdir -p openfeature-provider/rust/src && \
     echo "pub fn dummy() {}" > openfeature-provider/rust/src/lib.rs
 
@@ -100,8 +107,10 @@ COPY --from=rust-deps /workspace/target /workspace/target
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
+COPY confidence-event-engine/ ./confidence-event-engine/
 COPY wasm-msg/ ./wasm-msg/
 COPY wasm/rust-guest/ ./wasm/rust-guest/
+COPY wasm/event-guest/ ./wasm/event-guest/
 COPY wasm/proto/ ./wasm/proto/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
@@ -172,8 +181,10 @@ COPY --from=rust-deps /workspace/target /workspace/target
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
+COPY confidence-event-engine/ ./confidence-event-engine/
 COPY wasm-msg/ ./wasm-msg/
 COPY wasm/rust-guest/ ./wasm/rust-guest/
+COPY wasm/event-guest/ ./wasm/event-guest/
 COPY wasm/proto/ ./wasm/proto/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
