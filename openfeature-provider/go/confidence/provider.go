@@ -416,13 +416,13 @@ func (p *LocalResolverProvider) GetPrometheusMetrics(config SnapshotConfig) stri
 // all flags available to the client are resolved. When apply is true, exposure
 // events are recorded immediately. When apply is false, the response normally
 // contains a resolve_token that must be passed to ApplyFlags later to record
-// exposures. If this provider was configured with SkipApply, no exposure token
+// exposures. If this provider was configured with DisableExposureCollection, no exposure token
 // is returned.
 //
 // Returns an error if the provider has not been initialized (Init not called),
 // the evaluation context cannot be converted, or the WASM resolver fails.
 // On success the returned ResolveFlagsResponse contains the resolved flag
-// values and, when apply is false and SkipApply is not configured, the
+// values and, when apply is false and DisableExposureCollection is not configured, the
 // resolve_token for deferred application.
 func (p *LocalResolverProvider) Resolve(
 	ctx context.Context,
@@ -456,7 +456,7 @@ func (p *LocalResolverProvider) Resolve(
 
 // ApplyFlags records exposure events for flags previously resolved with
 // apply=false. The request must contain the resolve_token from the original
-// resolve response. If this provider was configured with SkipApply, ApplyFlags
+// resolve response. If this provider was configured with DisableExposureCollection, ApplyFlags
 // is a no-op.
 //
 // Returns an error if the provider has not been initialized or the WASM

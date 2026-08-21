@@ -284,7 +284,7 @@ The key is automatically stripped from the context before it reaches the resolve
 
 | Mechanism | Scope | Assignment/exposure events | Resolve logs and telemetry |
 | --- | --- | --- | --- |
-| `skip_apply` provider option | All OpenFeature evaluations through this provider | Never queued; no deferred apply token is returned | Still sent |
+| `disable_exposure_collection` provider option | All OpenFeature evaluations through this provider | Never queued; no deferred apply token is returned | Still sent |
 | `_confidence_skip_apply` context key | One evaluation | No immediate exposure event for that evaluation | Still sent |
 
 This is an advanced feature intended for exceptional cases. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
