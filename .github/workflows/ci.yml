@@ -34,6 +34,26 @@ jobs:
           echo "${{ secrets.CONFIDENCE_CLIENT_SECRET }}" > /tmp/confidence_client_secret.txt
           echo "${{ secrets.CONFIDENCE_CLIENT_ENCRYPTION_KEY }}" > /tmp/confidence_client_encryption_key.txt
 
+      # Temporary: export Docker-built WASM so it can be committed when local Docker is unavailable.
+      - name: Build WASM artifact (PR)
+        if: github.event_name != 'push'
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          platforms: linux/arm64
+          target: wasm-rust-guest.artifact
+          push: false
+          outputs: type=local,dest=./wasm-out
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+
+      - name: Upload WASM artifact (PR)
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: confidence_resolver.wasm
+          path: ./wasm-out/confidence_resolver.wasm
+          if-no-files-found: error
+
       - name: Build and test everything (PR)
         if: github.event_name != 'push'
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
