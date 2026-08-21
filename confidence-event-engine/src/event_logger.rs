@@ -1,18 +1,18 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
-use crate::proto::confidence::events::v1::{Event, PublishEventsRequest};
+use crate::proto::confidence::events::v1::{PublishEvent, PublishEventsRequest};
 use prost::{length_delimiter_len, Message};
 
 #[derive(Debug, Default)]
 struct State {
-    pending: VecDeque<(Event, usize)>,
+    pending: VecDeque<(PublishEvent, usize)>,
     pending_bytes: usize,
 }
 
 #[derive(Debug, Default)]
 pub struct EventLogger {
-    queue: crossbeam_queue::SegQueue<Event>,
+    queue: crossbeam_queue::SegQueue<PublishEvent>,
     state: Mutex<State>,
 }
 
@@ -23,7 +23,7 @@ impl EventLogger {
         }
     }
 
-    pub fn track(&self, event: Event) {
+    pub fn track(&self, event: PublishEvent) {
         self.queue.push(event);
     }
 
@@ -59,7 +59,6 @@ impl EventLogger {
         let mut written: usize = 0;
         if state.pending_bytes >= limit_bytes || !require_full {
             while let Some((_, len)) = state.pending.front() {
-                // special case for first event being larger than limit_bytes
                 if written.saturating_add(*len) <= limit_bytes || written == 0 && start == 0 {
                     written = written.saturating_add(*len);
                     let event = unsafe { state.pending.pop_front().unwrap_unchecked().0 };
@@ -73,9 +72,8 @@ impl EventLogger {
         written
     }
 
-    fn encoded_len(event: &Event) -> usize {
+    fn encoded_len(event: &PublishEvent) -> usize {
         let len = event.encoded_len();
-        // the extra one is for the proto type and field id
         len.saturating_add(length_delimiter_len(len))
             .saturating_add(1)
     }
@@ -85,8 +83,8 @@ impl EventLogger {
 mod tests {
     use super::*;
 
-    fn make_event() -> Event {
-        Event {
+    fn make_event() -> PublishEvent {
+        PublishEvent {
             event_definition: "eventDefinitions/test_event".to_string(),
             event_time: Some(prost_types::Timestamp {
                 seconds: 1000,
@@ -96,7 +94,7 @@ mod tests {
         }
     }
 
-    fn make_event_with_payload() -> Event {
+    fn make_event_with_payload() -> PublishEvent {
         use prost_types::{value::Kind, Struct, Value};
         let mut fields = std::collections::BTreeMap::new();
         fields.insert(
@@ -105,7 +103,7 @@ mod tests {
                 kind: Some(Kind::StringValue("value".to_string())),
             },
         );
-        Event {
+        PublishEvent {
             event_definition: "eventDefinitions/rich_event".to_string(),
             event_time: Some(prost_types::Timestamp {
                 seconds: 2000,
@@ -130,7 +128,6 @@ mod tests {
         let logger = EventLogger::new();
         logger.track(make_event());
         logger.track(make_event_with_payload());
-
         let req = logger.bounded_flush(10_000, false);
         assert_eq!(req.events.len(), 2);
     }
@@ -142,7 +139,6 @@ mod tests {
         logger.track(make_event());
         logger.track(make_event());
         logger.track(make_event());
-
         let req = logger.bounded_flush(3 * ev_size - 1, true);
         assert_eq!(req.events.len(), 2);
     }
@@ -152,7 +148,6 @@ mod tests {
         let logger = EventLogger::new();
         logger.track(make_event());
         logger.track(make_event());
-
         let req = logger.bounded_flush(1, true);
         assert_eq!(req.events.len(), 1);
     }
@@ -171,12 +166,8 @@ mod tests {
         logger.track(make_event());
         logger.track(make_event());
         logger.track(make_event());
-
-        // First flush: take 2
         let req1 = logger.bounded_flush(2 * ev_size, false);
         assert_eq!(req1.events.len(), 2);
-
-        // Second flush: remaining 1
         let req2 = logger.bounded_flush(10_000, false);
         assert_eq!(req2.events.len(), 1);
     }
@@ -192,7 +183,6 @@ mod tests {
     fn events_preserve_data() {
         let logger = EventLogger::new();
         logger.track(make_event_with_payload());
-
         let req = logger.bounded_flush(10_000, false);
         assert_eq!(req.events.len(), 1);
         assert_eq!(

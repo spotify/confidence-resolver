@@ -537,6 +537,7 @@ version = "0.1.0"
 dependencies = [
  "confidence-event-engine",
  "prost",
+ "prost-types",
  "wasm-msg",
 ]
 

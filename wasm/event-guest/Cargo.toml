@@ -11,3 +11,4 @@ crate-type = ["cdylib"]
 wasm-msg = { path = "../../wasm-msg", version = "0.3.0" }
 confidence-event-engine = { path = "../../confidence-event-engine", version = "0.1.0" }
 prost = { version = "0.13", default-features = false }
+prost-types = { version = "0.13", default-features = false }

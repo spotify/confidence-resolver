@@ -139,6 +139,27 @@ WORKDIR /workspace/confidence-resolver
 RUN make test
 
 # ==============================================================================
+# Build confidence-event-engine
+# ==============================================================================
+FROM rust-test-base AS confidence-event-engine.build
+WORKDIR /workspace/confidence-event-engine
+RUN cargo build --release --lib
+
+# ==============================================================================
+# Test confidence-event-engine
+# ==============================================================================
+FROM confidence-event-engine.build AS confidence-event-engine.test
+WORKDIR /workspace/confidence-event-engine
+RUN make test
+
+# ==============================================================================
+# Lint confidence-event-engine
+# ==============================================================================
+FROM confidence-event-engine.build AS confidence-event-engine.lint
+WORKDIR /workspace/confidence-event-engine
+RUN make lint
+
+# ==============================================================================
 # Build wasm-msg (test + lint derive from this to reuse artifacts)
 # ==============================================================================
 FROM rust-test-base AS wasm-msg.build
@@ -229,6 +250,34 @@ RUN make lint
 FROM scratch AS wasm-rust-guest.artifact
 
 COPY --from=wasm-rust-guest.build /workspace/target/wasm32-unknown-unknown/wasm/rust_guest.wasm /confidence_resolver.wasm
+
+# ==============================================================================
+# Build wasm/event-guest WASM
+# ==============================================================================
+FROM wasm-deps AS wasm-event-guest.build
+
+WORKDIR /workspace/wasm/event-guest
+RUN make build
+
+WORKDIR /workspace
+
+RUN ls -lh target/wasm32-unknown-unknown/wasm/event_guest.wasm && \
+    echo "Event WASM size: $(du -h target/wasm32-unknown-unknown/wasm/event_guest.wasm | cut -f1)"
+
+# ==============================================================================
+# Lint wasm/event-guest (WASM target)
+# ==============================================================================
+FROM wasm-deps AS wasm-event-guest.lint
+
+WORKDIR /workspace/wasm/event-guest
+RUN make lint
+
+# ==============================================================================
+# Extract wasm/event-guest WASM artifact
+# ==============================================================================
+FROM scratch AS wasm-event-guest.artifact
+
+COPY --from=wasm-event-guest.build /workspace/target/wasm32-unknown-unknown/wasm/event_guest.wasm /confidence_event_engine.wasm
 
 # ==============================================================================
 # Build confidence-cloudflare-resolver (WASM target)
