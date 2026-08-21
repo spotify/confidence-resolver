@@ -60,8 +60,9 @@ func WithEnableApplyDedup() Option {
 	}
 }
 
-// WithSkipApply skips all apply/assignment logging. WASM never enqueues
-// FlagAssigned events. Resolve logs and telemetry are still sent.
+// WithSkipApply disables exposure/assignment collection for all OpenFeature
+// evaluations through this provider. Use only for exceptional no-exposure
+// modes; resolve logs and telemetry are still sent.
 func WithSkipApply() Option {
 	return func(o *providerOptions) {
 		o.skipApply = true
@@ -413,13 +414,16 @@ func (p *LocalResolverProvider) GetPrometheusMetrics(config SnapshotConfig) stri
 
 // Resolve resolves multiple flags for the given context. If flagNames is empty,
 // all flags available to the client are resolved. When apply is true, exposure
-// events are recorded immediately. When apply is false, the response contains a
-// resolve_token that must be passed to ApplyFlags later to record exposures.
+// events are recorded immediately. When apply is false, the response normally
+// contains a resolve_token that must be passed to ApplyFlags later to record
+// exposures. If this provider was configured with SkipApply, no exposure token
+// is returned.
 //
 // Returns an error if the provider has not been initialized (Init not called),
 // the evaluation context cannot be converted, or the WASM resolver fails.
 // On success the returned ResolveFlagsResponse contains the resolved flag
-// values and, when apply is false, the resolve_token for deferred application.
+// values and, when apply is false and SkipApply is not configured, the
+// resolve_token for deferred application.
 func (p *LocalResolverProvider) Resolve(
 	ctx context.Context,
 	evalCtx openfeature.FlattenedContext,
@@ -452,7 +456,8 @@ func (p *LocalResolverProvider) Resolve(
 
 // ApplyFlags records exposure events for flags previously resolved with
 // apply=false. The request must contain the resolve_token from the original
-// resolve response.
+// resolve response. If this provider was configured with SkipApply, ApplyFlags
+// is a no-op.
 //
 // Returns an error if the provider has not been initialized or the WASM
 // resolver fails to process the apply request.

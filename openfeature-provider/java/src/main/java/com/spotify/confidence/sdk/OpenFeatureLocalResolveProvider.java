@@ -616,7 +616,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
   /**
    * Applies flags that were previously resolved with apply=false. This method is intended for use
-   * by {@link FlagResolverService} to proxy apply requests from client SDKs.
+   * by {@link FlagResolverService} to proxy apply requests from client SDKs. When skipApply is
+   * configured, apply requests are ignored by the resolver.
    *
    * @param request the apply flags request containing resolve token and flags to apply
    */

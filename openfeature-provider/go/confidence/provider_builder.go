@@ -29,7 +29,10 @@ type ProviderConfig struct {
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
 	EnableApplyDedup              bool                 // Optional, experimental: enable apply-event dedup in the WASM resolver; off by default
-	SkipApply                     bool                 // Optional: skip all apply/assignment logging; WASM never enqueues FlagAssigned events; resolve logs and telemetry still sent
+	// SkipApply disables exposure/assignment collection for all OpenFeature
+	// evaluations through this provider. Use only for exceptional no-exposure
+	// modes; resolve logs and telemetry are still sent.
+	SkipApply bool
 }
 
 type ProviderTestConfig struct {
@@ -42,7 +45,10 @@ type ProviderTestConfig struct {
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter   bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
-	SkipApply            bool                 // Optional: skip all apply/assignment logging; WASM never enqueues FlagAssigned events
+	// SkipApply disables exposure/assignment collection for all OpenFeature
+	// evaluations through this provider. Use only for exceptional no-exposure
+	// modes; resolve logs and telemetry are still sent.
+	SkipApply bool
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {

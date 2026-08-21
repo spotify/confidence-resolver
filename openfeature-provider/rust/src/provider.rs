@@ -87,8 +87,9 @@ pub struct ProviderOptions {
     pub gateway_url: Option<String>,
     /// Hex-encoded AES-256 encryption key for decrypting CDN state.
     pub encryption_key: Option<String>,
-    /// Skip all apply/assignment logging. The assign queue is never written.
-    /// Resolve logs and telemetry are still sent.
+    /// Disable exposure/assignment collection for all OpenFeature evaluations
+    /// through this provider. Use only for exceptional no-exposure modes;
+    /// resolve logs and telemetry are still sent.
     pub skip_apply: bool,
 }
 
@@ -144,8 +145,9 @@ impl ProviderOptions {
         self
     }
 
-    /// Skip all apply/assignment logging. The assign queue is never written.
-    /// Resolve logs and telemetry are still sent.
+    /// Disable exposure/assignment collection for all OpenFeature evaluations
+    /// through this provider. Use only for exceptional no-exposure modes;
+    /// resolve logs and telemetry are still sent.
     pub fn with_skip_apply(mut self) -> Self {
         self.skip_apply = true;
         self

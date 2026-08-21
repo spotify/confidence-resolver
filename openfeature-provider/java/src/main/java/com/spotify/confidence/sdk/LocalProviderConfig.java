@@ -107,8 +107,9 @@ public class LocalProviderConfig {
   }
 
   /**
-   * Returns whether OpenFeature evaluations skip exposure (apply) logging. Resolve logs and
-   * telemetry are still sent.
+   * Returns whether exposure/assignment collection is disabled for all OpenFeature evaluations
+   * through this provider. This is intended only for exceptional no-exposure modes; resolve logs
+   * and telemetry are still sent.
    */
   public boolean isSkipApply() {
     return skipApply;
@@ -170,8 +171,9 @@ public class LocalProviderConfig {
     }
 
     /**
-     * Skip all apply/assignment logging. WASM never enqueues FlagAssigned events. Resolve logs and
-     * telemetry are still sent.
+     * Disables exposure/assignment collection for all OpenFeature evaluations through this
+     * provider. Use only for exceptional no-exposure modes; resolve logs and telemetry are still
+     * sent.
      */
     public Builder skipApply(boolean skipApply) {
       this.skipApply = skipApply;

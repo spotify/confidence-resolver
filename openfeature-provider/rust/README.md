@@ -345,13 +345,17 @@ If you don't use sticky assignments or materialized segments, the default behavi
 
 ## Advanced: Controlling Exposure Events
 
-By default, every flag evaluation triggers an exposure event (apply). To skip applies for **all** OpenFeature evaluations, call `with_skip_apply()` on the provider options. Assignment events are never queued. Resolve logs and telemetry are still sent.
+By default, every flag evaluation records an exposure event (apply). Only disable this for exceptional cases where this provider must not collect exposures at all.
+
+For normal feature delivery and experiments, keep applies enabled. When exposure collection is disabled, Confidence does not receive assignment/exposure events for those evaluations. Experiment results, exposure counts, assignment diagnostics, and downstream reporting that depend on exposures can be incomplete or unavailable. Resolve analytics and telemetry are still sent, so this is not a general logging or privacy-off switch.
+
+To skip exposure collection for **all** OpenFeature evaluations through this provider, call `with_skip_apply()` on the provider options:
 
 ```rust
 let options = ProviderOptions::new("your-client-secret").with_skip_apply();
 ```
 
-To skip apply for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
+To skip exposure collection for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
 
 ```rust
 let context = EvaluationContext::default()
@@ -365,7 +369,12 @@ let value = client
 
 The key is automatically stripped from the context before it reaches the resolver.
 
-This is an advanced feature intended for specific use cases such as prefetching or background evaluation. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
+| Mechanism | Scope | Assignment/exposure events | Resolve logs and telemetry |
+| --- | --- | --- | --- |
+| `with_skip_apply()` provider option | All OpenFeature evaluations through this provider | Never queued; no deferred apply token is returned | Still sent |
+| `_confidence_skip_apply` context key | One evaluation | No immediate exposure event for that evaluation | Still sent |
+
+This is an advanced feature intended for exceptional cases. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
 
 ## License
 

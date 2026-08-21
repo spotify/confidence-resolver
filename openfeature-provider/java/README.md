@@ -403,7 +403,11 @@ const confidence = Confidence.create({
 
 ## Advanced: Controlling Exposure Events
 
-By default, every flag evaluation triggers an exposure event (apply). To skip applies for **all** OpenFeature evaluations, set `skipApply` on the provider config. Assignment events are never queued. Resolve logs and telemetry are still sent.
+By default, every flag evaluation records an exposure event (apply). Only disable this for exceptional cases where this provider must not collect exposures at all.
+
+For normal feature delivery and experiments, keep applies enabled. When exposure collection is disabled, Confidence does not receive assignment/exposure events for those evaluations. Experiment results, exposure counts, assignment diagnostics, and downstream reporting that depend on exposures can be incomplete or unavailable. Resolve analytics and telemetry are still sent, so this is not a general logging or privacy-off switch.
+
+To skip exposure collection for **all** OpenFeature evaluations through this provider, set `skipApply` on the provider config:
 
 ```java
 LocalProviderConfig config = LocalProviderConfig.builder().skipApply(true).build();
@@ -411,7 +415,7 @@ OpenFeatureLocalResolveProvider provider =
     new OpenFeatureLocalResolveProvider(config, clientSecret);
 ```
 
-To skip apply for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
+To skip exposure collection for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
 
 ```java
 MutableContext context = new MutableContext("user-123");
@@ -422,7 +426,12 @@ boolean value = client.getBooleanValue("my-flag.enabled", false, context);
 
 The key is automatically stripped from the context before it reaches the resolver.
 
-This is an advanced feature intended for specific use cases such as prefetching or background evaluation. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
+| Mechanism | Scope | Assignment/exposure events | Resolve logs and telemetry |
+| --- | --- | --- | --- |
+| `skipApply` provider config | All OpenFeature evaluations through this provider | Never queued; no deferred apply token is returned | Still sent |
+| `_confidence_skip_apply` context key | One evaluation | No immediate exposure event for that evaluation | Still sent |
+
+This is an advanced feature intended for exceptional cases. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
 
 ## Requirements
 

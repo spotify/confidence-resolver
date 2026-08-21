@@ -158,8 +158,10 @@ class ConfidenceProvider(AbstractProvider):
                 the WASM resolver: repeated identical assignments within a
                 short TTL window are logged once. Off by default; the API may
                 change.
-            skip_apply: Skip all apply/assignment logging. WASM never enqueues
-                FlagAssigned events. Resolve logs and telemetry are still sent.
+            skip_apply: Disable exposure/assignment collection for all
+                OpenFeature evaluations through this provider. Use only for
+                exceptional no-exposure modes; resolve logs and telemetry are
+                still sent.
         """
         self._client_secret = client_secret
         self._encryption_key = encryption_key

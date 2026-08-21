@@ -53,8 +53,9 @@ export interface ProviderOptions {
    */
   enableApplyDedup?: boolean;
   /**
-   * Skip all apply/assignment logging. WASM never enqueues FlagAssigned events.
-   * Resolve logs and telemetry are still sent.
+   * Disable exposure/assignment collection for all OpenFeature evaluations
+   * through this provider. Use only for exceptional no-exposure modes; resolve
+   * logs and telemetry are still sent.
    */
   skipApply?: boolean;
 }
