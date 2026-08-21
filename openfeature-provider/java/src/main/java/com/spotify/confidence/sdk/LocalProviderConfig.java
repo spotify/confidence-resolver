@@ -162,10 +162,10 @@ public class LocalProviderConfig {
     }
 
     /**
-     * Disables apply-event deduplication in the WASM resolver. Dedup is enabled by default:
-     * repeated identical assignments within a short TTL window are logged once.
+     * Experimental: enables apply-event deduplication in the WASM resolver — repeated identical
+     * assignments within a short TTL window are logged once. Off by default; the API may change.
      */
-    public Builder disableApplyDedup(boolean enableApplyDedup) {
+    public Builder enableApplyDedup(boolean enableApplyDedup) {
       this.enableApplyDedup = enableApplyDedup;
       return this;
     }
