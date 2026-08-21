@@ -646,6 +646,8 @@ spec_test!(set_no_match);
 spec_test!(range_no_match);
 spec_test!(starts_with_no_match);
 spec_test!(ends_with_no_match);
+spec_test!(starts_with_numeric_context_no_match);
+spec_test!(ends_with_numeric_context_no_match);
 
 // Apply tests
 spec_test!(resolve_with_apply_true);

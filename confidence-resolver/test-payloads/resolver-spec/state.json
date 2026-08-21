@@ -327,6 +327,58 @@
         }
       ]
     },
+    "flags/starts-with-numeric-flag": {
+      "name": "flags/starts-with-numeric-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/starts-with-numeric-flag/rules/rule1",
+          "segment": "segments/starts-with-numeric",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/ends-with-numeric-flag": {
+      "name": "flags/ends-with-numeric-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/ends-with-numeric-flag/rules/rule1",
+          "segment": "segments/ends-with-numeric",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "flags/any-rule-flag": {
       "name": "flags/any-rule-flag",
       "state": "ACTIVE",
@@ -2287,6 +2339,40 @@
         "expression": { "ref": "c1" }
       }
     },
+    "segments/starts-with-numeric": {
+      "name": "segments/starts-with-numeric",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "code",
+              "startsWithRule": {
+                "value": "4"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/ends-with-numeric": {
+      "name": "segments/ends-with-numeric",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "code",
+              "endsWithRule": {
+                "value": "2"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
     "segments/any-rule": {
       "name": "segments/any-rule",
       "state": "OK",
@@ -2930,6 +3016,8 @@
     "segments/age-range": "ALL",
     "segments/starts-with": "ALL",
     "segments/ends-with": "ALL",
+    "segments/starts-with-numeric": "ALL",
+    "segments/ends-with-numeric": "ALL",
     "segments/any-rule": "ALL",
     "segments/all-rule": "ALL",
     "segments/unrecognized-rule": "ALL",
