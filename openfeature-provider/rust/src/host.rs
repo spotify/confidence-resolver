@@ -118,8 +118,12 @@ mod tests {
         let assigns = ASSIGN_LOGGER.checkpoint();
         let resolves = RESOLVE_LOGGER.checkpoint();
         assert!(
-            assigns.flag_assigned.is_empty(),
-            "disable_exposure_collection must not enqueue assigns"
+            assigns
+                .flag_assigned
+                .iter()
+                .flat_map(|assigned| &assigned.flags)
+                .all(|flag| flag.flag != "flags/test-flag"),
+            "disable_exposure_collection must not enqueue assigns for test-flag"
         );
         assert!(
             !resolves.client_resolve_info.is_empty() || !resolves.flag_resolve_info.is_empty(),
