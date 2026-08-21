@@ -271,7 +271,11 @@ class ConfidenceProvider(AbstractProvider):
                     version=__version__,
                 )
                 self._resolver.set_resolver_state(
-                    state, account_id, sdk, self._enable_apply_dedup, self._disable_exposure_collection
+                    state,
+                    account_id,
+                    sdk,
+                    self._enable_apply_dedup,
+                    self._disable_exposure_collection,
                 )
                 self._status = ProviderStatus.READY
                 self.emit_provider_ready(ProviderEventDetails())

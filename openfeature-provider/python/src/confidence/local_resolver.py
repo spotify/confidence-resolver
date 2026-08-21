@@ -73,10 +73,16 @@ class LocalResolver:
 
         # Restore state if available
         if self._current_state is not None:
-            state, account_id, sdk, enable_apply_dedup, disable_exposure_collection = self._current_state
+            state, account_id, sdk, enable_apply_dedup, disable_exposure_collection = (
+                self._current_state
+            )
             try:
                 self._delegate.set_resolver_state(
-                    state, account_id, sdk, enable_apply_dedup, disable_exposure_collection
+                    state,
+                    account_id,
+                    sdk,
+                    enable_apply_dedup,
+                    disable_exposure_collection,
                 )
             except Exception as e:
                 logger.error("Failed to restore state after reload: %s", e)
@@ -100,7 +106,13 @@ class LocalResolver:
             enable_apply_dedup: Experimental — enable apply-event dedup (off by default).
             disable_exposure_collection: Disable all apply/assignment (exposure) logging; the assign queue stays empty.
         """
-        self._current_state = (state, account_id, sdk, enable_apply_dedup, disable_exposure_collection)
+        self._current_state = (
+            state,
+            account_id,
+            sdk,
+            enable_apply_dedup,
+            disable_exposure_collection,
+        )
         try:
             self._delegate.set_resolver_state(
                 state, account_id, sdk, enable_apply_dedup, disable_exposure_collection
