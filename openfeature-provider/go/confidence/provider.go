@@ -498,7 +498,7 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 	}
 
 	if p.flagLogger == nil {
-		return fmt.Errorf("Flag logger is nil,  cannot initialize")
+		return fmt.Errorf("flag logger is nil, cannot initialize")
 	}
 	logSink := p.flagLogger.Write
 
@@ -560,8 +560,6 @@ func (p *LocalResolverProvider) Shutdown() {
 
 	// Wait for background goroutines to exit
 	p.wg.Wait()
-
-	// ctx := context.Background()
 
 	// Close resolver API (which flushes final logs)
 	if p.resolver != nil {
