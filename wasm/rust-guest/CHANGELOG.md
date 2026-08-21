@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.4.0...rust-guest-v0.5.0) (2026-08-21)
+
+
+### Features
+
+* disable exposure collection on local OpenFeature providers ([#527](https://github.com/spotify/confidence-resolver/issues/527)) ([4b3ef41](https://github.com/spotify/confidence-resolver/commit/4b3ef418223c4a4155fa028672710df307057ce0))
+* flag apply event deduplication in core resolver and WASM guest ([#517](https://github.com/spotify/confidence-resolver/issues/517)) ([47c5735](https://github.com/spotify/confidence-resolver/commit/47c5735c10b6402ea106328ecc031376000740bb))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.21.0 to 0.22.0
+
 ## [0.4.0](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.3.1...rust-guest-v0.4.0) (2026-08-18)
 
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.8.0...openfeature-provider/rust-v0.9.0) (2026-08-21)
+
+
+### Features
+
+* disable exposure collection on local OpenFeature providers ([#527](https://github.com/spotify/confidence-resolver/issues/527)) ([4b3ef41](https://github.com/spotify/confidence-resolver/commit/4b3ef418223c4a4155fa028672710df307057ce0))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.21.0 to 0.22.0
+
 ## [0.8.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.7.1...openfeature-provider/rust-v0.8.0) (2026-08-18)
 
 
