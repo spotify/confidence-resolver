@@ -170,7 +170,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                 new RecoveringResolver(
                     () ->
                         new WasmLocalResolver(
-                            flagLogger::write, config.isEnableApplyDedup(), config.isDisableExposureCollection())));
+                            flagLogger::write,
+                            config.isEnableApplyDedup(),
+                            config.isDisableExposureCollection())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -228,7 +230,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             () ->
                 new RecoveringResolver(
                     () ->
-                        new WasmLocalResolver(wasmFlagLogger::write, enableApplyDedup, disableExposureCollection)));
+                        new WasmLocalResolver(
+                            wasmFlagLogger::write, enableApplyDedup, disableExposureCollection)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -460,7 +463,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     // `_confidence_skip_apply`. Provider disableExposureCollection is also set on the WASM
     // guest via setResolverState so assign/token are skipped entirely;
     // apply=false alone would still mint a deferred token.
-    final boolean disableExposureCollection = this.disableExposureCollection || OpenFeatureUtils.isSkipApply(ctx);
+    final boolean disableExposureCollection =
+        this.disableExposureCollection || OpenFeatureUtils.isSkipApply(ctx);
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
     ResolveFlagsResponse resolveFlagResponse;
     try {
@@ -616,8 +620,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
   /**
    * Applies flags that were previously resolved with apply=false. This method is intended for use
-   * by {@link FlagResolverService} to proxy apply requests from client SDKs. When disableExposureCollection is
-   * configured, apply requests are ignored by the resolver.
+   * by {@link FlagResolverService} to proxy apply requests from client SDKs. When
+   * disableExposureCollection is configured, apply requests are ignored by the resolver.
    *
    * @param request the apply flags request containing resolve token and flags to apply
    */

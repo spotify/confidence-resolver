@@ -13,7 +13,8 @@ class LocalProviderConfigTest {
 
   @Test
   void disableExposureCollection_canBeEnabled() {
-    final LocalProviderConfig config = LocalProviderConfig.builder().disableExposureCollection(true).build();
+    final LocalProviderConfig config =
+        LocalProviderConfig.builder().disableExposureCollection(true).build();
     assertThat(config.isDisableExposureCollection()).isTrue();
   }
 }

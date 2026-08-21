@@ -87,7 +87,10 @@ class ClientResolverStateWireCompatibilityTest {
     assertThat(parsed.hasSdk()).isFalse();
   }
 
-  /** Tag 5 is a bool (disable_exposure_collection). Packed int32 uses a different wire type and is skipped. */
+  /**
+   * Tag 5 is a bool (disable_exposure_collection). Packed int32 uses a different wire type and is
+   * skipped.
+   */
   @Test
   void tag5_packed_int32_is_safely_skipped() throws Exception {
     final byte[] packedInt = new byte[] {0x01};

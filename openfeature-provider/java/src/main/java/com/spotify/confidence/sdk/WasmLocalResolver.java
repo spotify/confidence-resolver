@@ -71,7 +71,9 @@ class WasmLocalResolver implements LocalResolver {
   }
 
   public WasmLocalResolver(
-      Consumer<WriteFlagLogsRequest> logSink, boolean enableApplyDedup, boolean disableExposureCollection) {
+      Consumer<WriteFlagLogsRequest> logSink,
+      boolean enableApplyDedup,
+      boolean disableExposureCollection) {
     this.logSink = logSink;
     this.enableApplyDedup = enableApplyDedup;
     this.disableExposureCollection = disableExposureCollection;
