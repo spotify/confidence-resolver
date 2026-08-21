@@ -327,6 +327,162 @@
         }
       ]
     },
+    "flags/contains-flag": {
+      "name": "flags/contains-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/contains-flag/rules/rule1",
+          "segment": "segments/contains",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/contains-number-like-flag": {
+      "name": "flags/contains-number-like-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/contains-number-like-flag/rules/rule1",
+          "segment": "segments/contains-number-like",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/contains-edge-flag": {
+      "name": "flags/contains-edge-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/contains-edge-flag/rules/rule1",
+          "segment": "segments/contains-edge",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/contains-escaped-flag": {
+      "name": "flags/contains-escaped-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/contains-escaped-flag/rules/rule1",
+          "segment": "segments/contains-escaped",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/contains-unicode-flag": {
+      "name": "flags/contains-unicode-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/contains-unicode-flag/rules/rule1",
+          "segment": "segments/contains-unicode",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/not-contains-flag": {
+      "name": "flags/not-contains-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/not-contains-flag/rules/rule1",
+          "segment": "segments/not-contains",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "flags/any-rule-flag": {
       "name": "flags/any-rule-flag",
       "state": "ACTIVE",
@@ -751,6 +907,58 @@
         {
           "name": "flags/any-ends-with-inner-flag/rules/rule1",
           "segment": "segments/any-ends-with-inner",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/any-contains-inner-flag": {
+      "name": "flags/any-contains-inner-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/any-contains-inner-flag/rules/rule1",
+          "segment": "segments/any-contains-inner",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/all-contains-inner-flag": {
+      "name": "flags/all-contains-inner-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/all-contains-inner-flag/rules/rule1",
+          "segment": "segments/all-contains-inner",
           "enabled": true,
           "targetingKeySelector": "targeting_key",
           "assignmentSpec": {
@@ -2287,6 +2495,108 @@
         "expression": { "ref": "c1" }
       }
     },
+    "segments/contains": {
+      "name": "segments/contains",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "repository",
+              "containsRule": {
+                "value": "repo.*admin"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/contains-number-like": {
+      "name": "segments/contains-number-like",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "code",
+              "containsRule": {
+                "value": "2"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/contains-edge": {
+      "name": "segments/contains-edge",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "text",
+              "containsRule": {
+                "value": "bar"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/contains-escaped": {
+      "name": "segments/contains-escaped",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "path",
+              "containsRule": {
+                "value": "a\"b\\c"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/contains-unicode": {
+      "name": "segments/contains-unicode",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "word",
+              "containsRule": {
+                "value": "\u00e9"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/not-contains": {
+      "name": "segments/not-contains",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "repository",
+              "containsRule": {
+                "value": "repo.*admin"
+              }
+            }
+          }
+        },
+        "expression": { "not": { "ref": "c1" } }
+      }
+    },
     "segments/any-rule": {
       "name": "segments/any-rule",
       "state": "OK",
@@ -2474,6 +2784,48 @@
                 "rule": {
                   "endsWithRule": {
                     "value": ".com"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/any-contains-inner": {
+      "name": "segments/any-contains-inner",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "repositories",
+              "anyRule": {
+                "rule": {
+                  "containsRule": {
+                    "value": "confidence"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/all-contains-inner": {
+      "name": "segments/all-contains-inner",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "repositories",
+              "allRule": {
+                "rule": {
+                  "containsRule": {
+                    "value": "confidence"
                   }
                 }
               }
@@ -2930,6 +3282,12 @@
     "segments/age-range": "ALL",
     "segments/starts-with": "ALL",
     "segments/ends-with": "ALL",
+    "segments/contains": "ALL",
+    "segments/contains-number-like": "ALL",
+    "segments/contains-edge": "ALL",
+    "segments/contains-escaped": "ALL",
+    "segments/contains-unicode": "ALL",
+    "segments/not-contains": "ALL",
     "segments/any-rule": "ALL",
     "segments/all-rule": "ALL",
     "segments/unrecognized-rule": "ALL",
@@ -2941,6 +3299,8 @@
     "segments/any-set-inner": "ALL",
     "segments/any-starts-with-inner": "ALL",
     "segments/any-ends-with-inner": "ALL",
+    "segments/any-contains-inner": "ALL",
+    "segments/all-contains-inner": "ALL",
     "segments/range-exclusive": "ALL",
     "segments/range-end-inclusive-only": "ALL",
     "segments/range-end-exclusive-only": "ALL",

@@ -83,6 +83,41 @@ pub fn convert_to_targeting_value(
     })
 }
 
+pub fn convert_to_targeting_value_without_string_coercion(
+    attribute_value: &Value,
+) -> Fallible<Option<targeting::Value>> {
+    Ok(match &attribute_value.kind {
+        None | Some(Kind::NullValue(_)) => None,
+        Some(Kind::NumberValue(num_value)) => Some(targeting::Value {
+            value: Some(targeting::value::Value::NumberValue(*num_value)),
+        }),
+        Some(Kind::StringValue(str_value)) => Some(targeting::Value {
+            value: Some(targeting::value::Value::StringValue(str_value.clone())),
+        }),
+        Some(Kind::BoolValue(bool_value)) => Some(targeting::Value {
+            value: Some(targeting::value::Value::BoolValue(*bool_value)),
+        }),
+        Some(Kind::ListValue(list_value)) => {
+            let mut converted_values: Vec<targeting::Value> =
+                Vec::with_capacity(list_value.values.len());
+
+            for value in &list_value.values {
+                if let Some(converted) = convert_to_targeting_value_without_string_coercion(value)?
+                {
+                    converted_values.push(converted);
+                }
+            }
+
+            Some(targeting::Value {
+                value: Some(targeting::value::Value::ListValue(targeting::ListValue {
+                    values: converted_values,
+                })),
+            })
+        }
+        Some(Kind::StructValue(_)) => Some(targeting::Value { value: None }),
+    })
+}
+
 pub fn evaluate_criterion(
     attribute_criterion: &criterion::AttributeCriterion,
     wrapped: &targeting::ListValue,
@@ -127,6 +162,9 @@ pub fn evaluate_criterion(
         criterion::attribute_criterion::Rule::EndsWithRule(targeting::EndsWithRule { value }) => {
             Ok(context_values.iter().any(|v| ends_with(v, value)))
         }
+        criterion::attribute_criterion::Rule::ContainsRule(targeting::ContainsRule { value }) => {
+            Ok(context_values.iter().any(|v| contains(v, value)))
+        }
         _ => Err(ResolveError::UnrecognizedRule),
     }
 }
@@ -154,6 +192,9 @@ fn evaluate_inner_rule(
         targeting::inner_rule::Rule::EndsWithRule(targeting::EndsWithRule { value }) => {
             Ok(ends_with(context_value, value))
         }
+        targeting::inner_rule::Rule::ContainsRule(targeting::ContainsRule { value }) => {
+            Ok(contains(context_value, value))
+        }
         _ => Err(ResolveError::UnrecognizedRule),
     }
 }
@@ -164,6 +205,10 @@ fn starts_with(value: &targeting::Value, prefix: &str) -> bool {
 
 fn ends_with(value: &targeting::Value, suffix: &str) -> bool {
     matches!(&value.value, Some(targeting::value::Value::StringValue(s)) if s.ends_with(suffix))
+}
+
+fn contains(value: &targeting::Value, substring: &str) -> bool {
+    matches!(&value.value, Some(targeting::value::Value::StringValue(s)) if s.contains(substring))
 }
 
 fn evaluate_range_rule(
@@ -416,8 +461,16 @@ pub fn expected_value_type(
     attribute_criterion.expected_value_type()
 }
 
+pub fn uses_contains_rule(attribute_criterion: &targeting::criterion::AttributeCriterion) -> bool {
+    attribute_criterion.uses_contains_rule()
+}
+
 trait ExpectedValueType {
     fn expected_value_type(&self) -> Option<&targeting::value::Value>;
+}
+
+trait UsesContainsRule {
+    fn uses_contains_rule(&self) -> bool;
 }
 
 impl ExpectedValueType for targeting::criterion::AttributeCriterion {
@@ -437,7 +490,8 @@ impl ExpectedValueType for targeting::criterion::AttributeCriterion {
                 all_rule.rule.as_ref()?.expected_value_type()
             }
             criterion::attribute_criterion::Rule::StartsWithRule(_)
-            | criterion::attribute_criterion::Rule::EndsWithRule(_) => Some(&STRING_VALUE_TYPE),
+            | criterion::attribute_criterion::Rule::EndsWithRule(_)
+            | criterion::attribute_criterion::Rule::ContainsRule(_) => Some(&STRING_VALUE_TYPE),
         }
     }
 }
@@ -449,8 +503,35 @@ impl ExpectedValueType for targeting::InnerRule {
             targeting::inner_rule::Rule::SetRule(set_rule) => set_rule.expected_value_type(),
             targeting::inner_rule::Rule::RangeRule(range_rule) => range_rule.expected_value_type(),
             targeting::inner_rule::Rule::StartsWithRule(_)
-            | targeting::inner_rule::Rule::EndsWithRule(_) => Some(&STRING_VALUE_TYPE),
+            | targeting::inner_rule::Rule::EndsWithRule(_)
+            | targeting::inner_rule::Rule::ContainsRule(_) => Some(&STRING_VALUE_TYPE),
         }
+    }
+}
+
+impl UsesContainsRule for targeting::criterion::AttributeCriterion {
+    fn uses_contains_rule(&self) -> bool {
+        match self.rule.as_ref() {
+            Some(criterion::attribute_criterion::Rule::ContainsRule(_)) => true,
+            Some(criterion::attribute_criterion::Rule::AnyRule(any_rule)) => any_rule
+                .rule
+                .as_ref()
+                .is_some_and(UsesContainsRule::uses_contains_rule),
+            Some(criterion::attribute_criterion::Rule::AllRule(all_rule)) => all_rule
+                .rule
+                .as_ref()
+                .is_some_and(UsesContainsRule::uses_contains_rule),
+            _ => false,
+        }
+    }
+}
+
+impl UsesContainsRule for targeting::InnerRule {
+    fn uses_contains_rule(&self) -> bool {
+        matches!(
+            self.rule.as_ref(),
+            Some(targeting::inner_rule::Rule::ContainsRule(_))
+        )
     }
 }
 
@@ -691,6 +772,18 @@ mod tests {
         }
     }
 
+    fn make_number_value(n: f64) -> targeting::Value {
+        targeting::Value {
+            value: Some(targeting::value::Value::NumberValue(n)),
+        }
+    }
+
+    fn make_bool_value(b: bool) -> targeting::Value {
+        targeting::Value {
+            value: Some(targeting::value::Value::BoolValue(b)),
+        }
+    }
+
     fn make_list_value(values: Vec<targeting::Value>) -> targeting::ListValue {
         targeting::ListValue { values }
     }
@@ -712,6 +805,49 @@ mod tests {
             rule: Some(criterion::attribute_criterion::Rule::EndsWithRule(
                 targeting::EndsWithRule {
                     value: suffix.to_string(),
+                },
+            )),
+        }
+    }
+
+    fn make_contains_criterion(substring: &str) -> criterion::AttributeCriterion {
+        criterion::AttributeCriterion {
+            attribute_name: "attr".to_string(),
+            rule: Some(criterion::attribute_criterion::Rule::ContainsRule(
+                targeting::ContainsRule {
+                    value: substring.to_string(),
+                },
+            )),
+        }
+    }
+
+    fn make_contains_inner_rule(substring: &str) -> targeting::InnerRule {
+        targeting::InnerRule {
+            rule: Some(targeting::inner_rule::Rule::ContainsRule(
+                targeting::ContainsRule {
+                    value: substring.to_string(),
+                },
+            )),
+        }
+    }
+
+    fn make_any_contains_criterion(substring: &str) -> criterion::AttributeCriterion {
+        criterion::AttributeCriterion {
+            attribute_name: "attr".to_string(),
+            rule: Some(criterion::attribute_criterion::Rule::AnyRule(
+                targeting::AnyRule {
+                    rule: Some(make_contains_inner_rule(substring)),
+                },
+            )),
+        }
+    }
+
+    fn make_all_contains_criterion(substring: &str) -> criterion::AttributeCriterion {
+        criterion::AttributeCriterion {
+            attribute_name: "attr".to_string(),
+            rule: Some(criterion::attribute_criterion::Rule::AllRule(
+                targeting::AllRule {
+                    rule: Some(make_contains_inner_rule(substring)),
                 },
             )),
         }
@@ -819,6 +955,79 @@ mod tests {
             value: Some(targeting::value::Value::NumberValue(42.0)),
         }]);
         assert!(!evaluate_criterion(&make_ends_with_criterion("2"), &list).unwrap());
+    }
+
+    // --- contains tests (mirrors Java EvalUtil behavior) ---
+
+    #[test]
+    fn contains_literal_match() {
+        let list = make_list_value(vec![make_string_value("platform/repo.*admin")]);
+        assert!(evaluate_criterion(&make_contains_criterion("repo.*admin"), &list).unwrap());
+    }
+
+    #[test]
+    fn contains_is_case_sensitive() {
+        let list = make_list_value(vec![make_string_value("platform/Repo.*admin")]);
+        assert!(!evaluate_criterion(&make_contains_criterion("repo.*admin"), &list).unwrap());
+    }
+
+    #[test]
+    fn contains_non_string_value_no_match() {
+        let list = make_list_value(vec![make_number_value(42.0)]);
+        assert!(!evaluate_criterion(&make_contains_criterion("4"), &list).unwrap());
+    }
+
+    #[test]
+    fn contains_mixed_list_matches_string_item() {
+        let list = make_list_value(vec![
+            make_number_value(123.0),
+            make_bool_value(false),
+            make_string_value("crowbar"),
+        ]);
+        assert!(evaluate_criterion(&make_contains_criterion("bar"), &list).unwrap());
+    }
+
+    #[test]
+    fn any_rule_contains_inner_matches_any_item() {
+        let list = make_list_value(vec![
+            make_string_value("open-feature/admin"),
+            make_string_value("open-feature/confidence-resolver"),
+        ]);
+        assert!(evaluate_criterion(&make_any_contains_criterion("confidence"), &list).unwrap());
+    }
+
+    #[test]
+    fn any_rule_contains_inner_no_match() {
+        let list = make_list_value(vec![
+            make_number_value(42.0),
+            make_bool_value(true),
+            make_string_value("open-feature/admin"),
+        ]);
+        assert!(!evaluate_criterion(&make_any_contains_criterion("confidence"), &list).unwrap());
+    }
+
+    #[test]
+    fn all_rule_contains_inner_matches_every_item() {
+        let list = make_list_value(vec![
+            make_string_value("confidence-admin"),
+            make_string_value("local-confidence"),
+        ]);
+        assert!(evaluate_criterion(&make_all_contains_criterion("confidence"), &list).unwrap());
+    }
+
+    #[test]
+    fn all_rule_contains_inner_no_match() {
+        let list = make_list_value(vec![
+            make_string_value("confidence-admin"),
+            make_string_value("local-admin"),
+        ]);
+        assert!(!evaluate_criterion(&make_all_contains_criterion("confidence"), &list).unwrap());
+    }
+
+    #[test]
+    fn all_rule_contains_inner_empty_list_matches() {
+        let list = make_list_value(vec![]);
+        assert!(evaluate_criterion(&make_all_contains_criterion("confidence"), &list).unwrap());
     }
 
     // --- list-level tests (Rust-specific, evaluate_criterion works on lists) ---

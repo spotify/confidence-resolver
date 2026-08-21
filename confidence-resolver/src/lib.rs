@@ -1468,9 +1468,19 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                     let expected_value_type = value::expected_value_type(attribute_criterion);
                     let attribute_value =
                         self.get_attribute_value(&attribute_criterion.attribute_name);
-                    let converted =
-                        value::convert_to_targeting_value(attribute_value, expected_value_type)?;
-                    let wrapped = list_wrapper(&converted);
+                    let wrapped = if value::uses_contains_rule(attribute_criterion) {
+                        list_wrapper(value::convert_to_targeting_value_without_string_coercion(
+                            attribute_value,
+                        )?)
+                    } else {
+                        let converted = value::convert_to_targeting_value(
+                            attribute_value,
+                            expected_value_type,
+                        )?;
+                        list_wrapper(Some(targeting::Value {
+                            value: Some(converted),
+                        }))
+                    };
 
                     Ok(Some(value::evaluate_criterion(
                         attribute_criterion,
@@ -1573,14 +1583,15 @@ fn evaluate_expression(
     }
 }
 
-fn list_wrapper(value: &targeting::value::Value) -> targeting::ListValue {
+fn list_wrapper(value: Option<targeting::Value>) -> targeting::ListValue {
     match value {
-        targeting::value::Value::ListValue(list_value) => list_value.clone(),
-        _ => targeting::ListValue {
-            values: vec![targeting::Value {
-                value: Some(value.clone()),
-            }],
+        Some(targeting::Value {
+            value: Some(targeting::value::Value::ListValue(list_value)),
+        }) => list_value,
+        Some(value) => targeting::ListValue {
+            values: vec![value],
         },
+        None => targeting::ListValue { values: Vec::new() },
     }
 }
 
