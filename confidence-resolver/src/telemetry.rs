@@ -498,6 +498,7 @@ impl Telemetry {
             state_age,
             memory_bytes: (self.memory_provider)(),
             resolver_version: crate::version::VERSION.to_string(),
+            provider_init_rate: Vec::new(),
         }
     }
 }

@@ -77,6 +77,8 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly stateUpdateInterval: number;
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
+  private readonly initLabels: Record<string, string>;
+  private initTelemetryState: 'pending' | 'sending' | 'sent' = 'pending';
   private stateEtag: string | null = null;
   private logDestinations: LogDestination[] = [];
   private accountId = '';
@@ -164,6 +166,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     } else {
       this.materializationStore = null;
     }
+    this.initLabels = { encryption: options.encryptionKey ? 'true' : 'false' };
   }
 
   async initialize(context?: EvaluationContext): Promise<void> {
@@ -375,9 +378,33 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   // TODO should this return success/failure, or even throw?
   async flush(signal?: AbortSignal): Promise<void> {
-    const writeFlagLogRequest = this.resolver.flushLogs();
+    let writeFlagLogRequest = this.resolver.flushLogs();
     if (writeFlagLogRequest.length > 0) {
-      await this.sendFlagLogs(writeFlagLogRequest, signal);
+      const includeInit = this.initTelemetryState === 'pending';
+      if (includeInit) {
+        this.initTelemetryState = 'sending';
+        const decoded = WriteFlagLogsRequest.decode(writeFlagLogRequest);
+        if (!decoded.telemetryData) {
+          decoded.telemetryData = { resolverVersion: '', providerInitRate: [] };
+        }
+        decoded.telemetryData.sdk ??= {
+          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+          version: VERSION,
+        };
+        decoded.telemetryData!.providerInitRate = [{ count: 1, labels: this.initLabels }];
+        writeFlagLogRequest = WriteFlagLogsRequest.encode(decoded).finish();
+      }
+      try {
+        await this.sendFlagLogs(writeFlagLogRequest, signal);
+        if (includeInit) {
+          this.initTelemetryState = 'sent';
+        }
+      } catch (error) {
+        if (includeInit) {
+          this.initTelemetryState = 'pending';
+        }
+        throw error;
+      }
     }
   }
 
@@ -402,6 +429,7 @@ export class ConfidenceServerProviderLocal implements Provider {
           logger.warn('Primary flag log destination returned error, trying fallback');
           continue;
         }
+        throw new Error('Failed to send flag logs to all destinations');
       } catch (err) {
         if (!isLast) {
           logger.warn('Primary flag log destination failed, trying fallback', err);

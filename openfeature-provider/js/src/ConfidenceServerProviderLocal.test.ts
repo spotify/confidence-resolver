@@ -9,6 +9,8 @@ import { abortableSleep, TimeUnit, timeoutSignal } from './util';
 import { advanceTimersUntil, NetworkMock } from './test-helpers';
 import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
+import { WriteFlagLogsRequest } from './proto/test-only';
+import { VERSION } from './version';
 
 vi.mock(import('./hash'), async () => {
   const { sha256Hex } = await import('./test-helpers');
@@ -156,6 +158,50 @@ describe('state update scheduling', () => {
 });
 
 describe('flush behavior', () => {
+  it('preserves resolver version when adding provider init telemetry', async () => {
+    let sentBody: Uint8Array | undefined;
+    net.resolver.flagLogs.handler = async (req: Request) => {
+      sentBody = new Uint8Array(await req.arrayBuffer());
+      return new Response(null, { status: 200 });
+    };
+    mockedWasmResolver.flushLogs.mockReturnValueOnce(
+      WriteFlagLogsRequest.encode(
+        WriteFlagLogsRequest.create({ telemetryData: { resolverVersion: '0.20.0' } }),
+      ).finish(),
+    );
+
+    await advanceTimersUntil(provider.flush());
+
+    expect(sentBody).toBeDefined();
+    const decoded = WriteFlagLogsRequest.decode(sentBody!);
+    expect(decoded.telemetryData?.resolverVersion).toBe('0.20.0');
+    expect(decoded.telemetryData?.sdk).toEqual({ id: 22, customId: undefined, version: VERSION });
+    expect(decoded.telemetryData?.providerInitRate).toEqual([{ count: 1, labels: { encryption: 'false' } }]);
+  });
+
+  it('retries provider init telemetry after a failed send', async () => {
+    const sentBodies: Uint8Array[] = [];
+    let attempts = 0;
+    net.resolver.flagLogs.handler = async (req: Request) => {
+      sentBodies.push(new Uint8Array(await req.arrayBuffer()));
+      attempts++;
+      return new Response(null, { status: attempts <= 3 ? 503 : 200 });
+    };
+    mockedWasmResolver.flushLogs.mockReturnValue(
+      WriteFlagLogsRequest.encode(
+        WriteFlagLogsRequest.create({ telemetryData: { resolverVersion: '0.20.0' } }),
+      ).finish(),
+    );
+
+    await advanceTimersUntil(expect(provider.flush()).rejects.toThrow('Failed to send flag logs'));
+    await advanceTimersUntil(provider.flush());
+
+    const firstAttempt = WriteFlagLogsRequest.decode(sentBodies[0]);
+    const retryAttempt = WriteFlagLogsRequest.decode(sentBodies[3]);
+    expect(firstAttempt.telemetryData?.providerInitRate).toHaveLength(1);
+    expect(retryAttempt.telemetryData?.providerInitRate).toHaveLength(1);
+  });
+
   it('flushes periodically at the configured interval', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
@@ -175,7 +221,7 @@ describe('flush behavior', () => {
     net.resolver.flagLogs.status = 503;
 
     const start = net.resolver.flagLogs.calls;
-    await advanceTimersUntil(provider.flush());
+    await advanceTimersUntil(expect(provider.flush()).rejects.toThrow('Failed to send flag logs'));
 
     const attempts = net.resolver.flagLogs.calls - start;
     expect(attempts).toBe(3);

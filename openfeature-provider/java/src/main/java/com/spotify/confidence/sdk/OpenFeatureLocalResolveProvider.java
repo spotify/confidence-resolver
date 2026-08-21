@@ -20,6 +20,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -162,18 +163,25 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         new GrpcWasmFlagLogger(
             clientSecret, config.getChannelFactory(), config.getHttpClientFactory());
     this.flagLogger = wasmFlagLogger;
+    final Map<String, String> initLabels =
+        Map.of("encryption", String.valueOf(config.getEncryptionKey() != null));
     final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
-    final LocalResolver inner =
-        new PooledResolver(
-            numInstances,
-            () ->
-                new RecoveringResolver(
+    final LocalResolver telemetryResolver =
+        new ProviderTelemetryResolver(
+            flagLogger::write,
+            SDK,
+            initLabels,
+            providerLogSink ->
+                new PooledResolver(
+                    numInstances,
                     () ->
-                        new WasmLocalResolver(
-                            flagLogger::write,
-                            config.isEnableApplyDedup(),
-                            config.isDisableExposureCollection())));
-    this.resolver = new MaterializingResolver(inner, materializationStore);
+                        new RecoveringResolver(
+                            () ->
+                                new WasmLocalResolver(
+                                    providerLogSink,
+                                    config.isEnableApplyDedup(),
+                                    config.isDisableExposureCollection()))));
+    this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
   }
 
   /**
@@ -224,15 +232,22 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.flagLogger = wasmFlagLogger;
     final int numInstances =
         PooledResolver.getNumInstances(LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE);
-    final LocalResolver inner =
-        new PooledResolver(
-            numInstances,
-            () ->
-                new RecoveringResolver(
+    final LocalResolver telemetryResolver =
+        new ProviderTelemetryResolver(
+            wasmFlagLogger::write,
+            SDK,
+            Map.of(),
+            providerLogSink ->
+                new PooledResolver(
+                    numInstances,
                     () ->
-                        new WasmLocalResolver(
-                            wasmFlagLogger::write, enableApplyDedup, disableExposureCollection)));
-    this.resolver = new MaterializingResolver(inner, materializationStore);
+                        new RecoveringResolver(
+                            () ->
+                                new WasmLocalResolver(
+                                    providerLogSink,
+                                    enableApplyDedup,
+                                    disableExposureCollection))));
+    this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
   }
 
   @Override
