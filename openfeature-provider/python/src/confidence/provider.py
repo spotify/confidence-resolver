@@ -812,6 +812,7 @@ class ConfidenceProvider(AbstractProvider):
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "sent"
+
     def _create_flag_logger(
         self, account_id: str, log_destinations: List[int]
     ) -> FlagLogger:
