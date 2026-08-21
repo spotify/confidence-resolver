@@ -1,8 +1,11 @@
 //! Log management for sending flag logs to the Confidence API.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use prost::Message;
+use rand::Rng;
+use reqwest::StatusCode;
 use reqwest_middleware::ClientWithMiddleware;
 use tokio::sync::RwLock;
 
@@ -20,6 +23,38 @@ const CLOUDFLARE_URL: &str =
 
 /// Target size for log batches (4 MB).
 const LOG_TARGET_BYTES: usize = 4 * 1024 * 1024;
+
+/// Maximum number of send attempts before giving up.
+const MAX_ATTEMPTS: u32 = 3;
+
+/// Initial delay between retry attempts.
+const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
+
+/// Multiplier applied to the delay after each failed attempt.
+const RETRY_BACKOFF_MULTIPLIER: u32 = 2;
+
+/// Jitter factor applied to retry delays (±10%).
+const RETRY_JITTER: f64 = 0.1;
+
+fn is_retryable_status(status: StatusCode) -> bool {
+    status.is_server_error()
+        || status == StatusCode::REQUEST_TIMEOUT
+        || status == StatusCode::TOO_MANY_REQUESTS
+}
+
+fn apply_jitter(delay: Duration) -> Duration {
+    let mut rng = rand::rng();
+    let factor = 1.0 + rng.random_range(-RETRY_JITTER..RETRY_JITTER);
+    delay.mul_f64(factor)
+}
+
+fn parse_retry_after(header: Option<&str>) -> Option<Duration> {
+    let value = header?.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+    None
+}
 
 /// Log sender that sends flag logs to the Confidence API.
 pub struct LogSender {
@@ -100,36 +135,107 @@ impl LogSender {
             }
         };
 
-        let response = self
-            .client
-            .post(url)
-            .header("Content-Type", content_type)
-            .header(
-                "Authorization",
-                format!("ClientSecret {}", self.client_secret),
-            )
-            .body(body)
-            .send()
-            .await;
+        self.send_with_retry(url, body, content_type, dest).await
+    }
 
-        match response {
-            Ok(resp) if resp.status().is_success() => Ok(()),
-            Ok(resp) => {
-                let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                tracing::error!(
-                    "Failed to send flag logs to {:?}: {} - {}",
-                    dest,
-                    status,
-                    body
-                );
-                Err(())
-            }
-            Err(e) => {
-                tracing::error!("Failed to send flag logs to {:?}: {}", dest, e);
-                Err(())
+    /// Send flag logs to a single destination, retrying on transient failures
+    /// with exponential backoff and jitter. Respects the server's `Retry-After`
+    /// header when present. Returns `Err(())` if the destination could not be
+    /// reached after all attempts so callers can fall back to another destination.
+    async fn send_with_retry(
+        &self,
+        url: &str,
+        body: Vec<u8>,
+        content_type: &str,
+        dest: LogDestination,
+    ) -> std::result::Result<(), ()> {
+        let mut delay = RETRY_BASE_DELAY;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            let result = self
+                .client
+                .post(url)
+                .header("Content-Type", content_type)
+                .header(
+                    "Authorization",
+                    format!("ClientSecret {}", self.client_secret),
+                )
+                .body(body.clone())
+                .send()
+                .await;
+
+            match result {
+                Ok(response) if response.status().is_success() => return Ok(()),
+                Ok(response) if is_retryable_status(response.status()) => {
+                    let status = response.status();
+                    if attempt < MAX_ATTEMPTS {
+                        let server_delay = parse_retry_after(
+                            response
+                                .headers()
+                                .get("retry-after")
+                                .and_then(|v| v.to_str().ok()),
+                        );
+                        let sleep_dur = server_delay.unwrap_or_else(|| apply_jitter(delay));
+                        tracing::debug!(
+                            "Flag log send attempt {}/{} to {:?} failed with {}, retrying in {:?}",
+                            attempt,
+                            MAX_ATTEMPTS,
+                            dest,
+                            status,
+                            sleep_dur
+                        );
+                        tokio::time::sleep(sleep_dur).await;
+                        delay *= RETRY_BACKOFF_MULTIPLIER;
+                    } else {
+                        let resp_body = response.text().await.unwrap_or_default();
+                        tracing::warn!(
+                            "Failed to send flag logs to {:?} after {} attempts: {} - {}",
+                            dest,
+                            MAX_ATTEMPTS,
+                            status,
+                            resp_body
+                        );
+                        return Err(());
+                    }
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    let resp_body = response.text().await.unwrap_or_default();
+                    tracing::error!(
+                        "Failed to send flag logs to {:?}: {} - {}",
+                        dest,
+                        status,
+                        resp_body
+                    );
+                    return Err(());
+                }
+                Err(e) => {
+                    if attempt < MAX_ATTEMPTS {
+                        let sleep_dur = apply_jitter(delay);
+                        tracing::debug!(
+                            "Flag log send attempt {}/{} to {:?} failed with {}, retrying in {:?}",
+                            attempt,
+                            MAX_ATTEMPTS,
+                            dest,
+                            e,
+                            sleep_dur
+                        );
+                        tokio::time::sleep(sleep_dur).await;
+                        delay *= RETRY_BACKOFF_MULTIPLIER;
+                    } else {
+                        tracing::warn!(
+                            "Failed to send flag logs to {:?} after {} attempts: {}",
+                            dest,
+                            MAX_ATTEMPTS,
+                            e
+                        );
+                        return Err(());
+                    }
+                }
             }
         }
+
+        Err(())
     }
 }
 
@@ -217,6 +323,36 @@ fn has_logs(request: &WriteFlagLogsRequest) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reqwest::Client;
+    use reqwest_middleware::ClientBuilder;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const TEST_PATH: &str = "/v1/clientFlagLogs:write";
+
+    fn test_sender() -> LogSender {
+        let client = ClientBuilder::new(Client::new()).build();
+        LogSender {
+            client,
+            client_secret: "test-secret".to_string(),
+            account_id: Arc::new(RwLock::new(None)),
+            destinations: Arc::new(RwLock::new(vec![LogDestination::Edge])),
+        }
+    }
+
+    async fn send_to(
+        sender: &LogSender,
+        server: &MockServer,
+    ) -> std::result::Result<(), ()> {
+        sender
+            .send_with_retry(
+                &format!("{}{}", server.uri(), TEST_PATH),
+                b"test-payload".to_vec(),
+                "application/x-protobuf",
+                LogDestination::Edge,
+            )
+            .await
+    }
 
     #[test]
     fn test_encode_ingest_request_roundtrip() {
@@ -246,5 +382,157 @@ mod tests {
 
         assert_eq!(decoded.account_id, "acct");
         assert!(decoded.batch.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_is_retryable_status() {
+        assert!(is_retryable_status(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_status(StatusCode::BAD_GATEWAY));
+        assert!(is_retryable_status(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(is_retryable_status(StatusCode::GATEWAY_TIMEOUT));
+        assert!(is_retryable_status(StatusCode::REQUEST_TIMEOUT));
+        assert!(is_retryable_status(StatusCode::TOO_MANY_REQUESTS));
+
+        assert!(!is_retryable_status(StatusCode::OK));
+        assert!(!is_retryable_status(StatusCode::BAD_REQUEST));
+        assert!(!is_retryable_status(StatusCode::UNAUTHORIZED));
+        assert!(!is_retryable_status(StatusCode::FORBIDDEN));
+        assert!(!is_retryable_status(StatusCode::NOT_FOUND));
+    }
+
+    #[test]
+    fn test_apply_jitter_within_bounds() {
+        let base = Duration::from_millis(1000);
+        for _ in 0..100 {
+            let jittered = apply_jitter(base);
+            assert!(jittered >= Duration::from_millis(900));
+            assert!(jittered <= Duration::from_millis(1100));
+        }
+    }
+
+    #[test]
+    fn test_parse_retry_after() {
+        assert_eq!(parse_retry_after(Some("5")), Some(Duration::from_secs(5)));
+        assert_eq!(parse_retry_after(Some(" 5 ")), Some(Duration::from_secs(5)));
+        assert_eq!(parse_retry_after(Some("abc")), None);
+        assert_eq!(parse_retry_after(Some("")), None);
+        assert_eq!(parse_retry_after(None), None);
+    }
+
+    #[tokio::test]
+    async fn send_succeeds_on_first_attempt() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TEST_PATH))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let sender = test_sender();
+        assert!(send_to(&sender, &server).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn retries_on_503_up_to_max_attempts() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TEST_PATH))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(3)
+            .mount(&server)
+            .await;
+
+        let sender = test_sender();
+        assert!(send_to(&sender, &server).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn retries_on_429_and_succeeds() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TEST_PATH))
+            .respond_with(ResponseTemplate::new(429))
+            .up_to_n_times(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(TEST_PATH))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let sender = test_sender();
+        assert!(send_to(&sender, &server).await.is_ok());
+        assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn no_retry_on_client_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TEST_PATH))
+            .respond_with(ResponseTemplate::new(400))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let sender = test_sender();
+        assert!(send_to(&sender, &server).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn no_retry_on_403() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TEST_PATH))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let sender = test_sender();
+        assert!(send_to(&sender, &server).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn respects_retry_after_header() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TEST_PATH))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "1"))
+            .up_to_n_times(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(TEST_PATH))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let sender = test_sender();
+        let start = std::time::Instant::now();
+        assert!(send_to(&sender, &server).await.is_ok());
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_secs(2));
+    }
+
+    #[tokio::test]
+    async fn retries_on_network_error() {
+        // Stop the server so requests fail at the transport layer.
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        drop(server);
+
+        let sender = test_sender();
+        let result = sender
+            .send_with_retry(
+                &format!("{}{}", uri, TEST_PATH),
+                b"test-payload".to_vec(),
+                "application/x-protobuf",
+                LogDestination::Edge,
+            )
+            .await;
+        assert!(result.is_err());
     }
 }
