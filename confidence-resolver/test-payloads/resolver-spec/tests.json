@@ -512,6 +512,198 @@
     }
   },
   {
+    "name": "targeting_contains",
+    "resolveRequest": {
+      "flags": ["flags/contains-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repository": "platform/repo.*admin" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/contains-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_list",
+    "resolveRequest": {
+      "flags": ["flags/contains-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repository": ["platform/repo-123-admin", "platform/repo.*admin"] },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/contains-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_prefix",
+    "resolveRequest": {
+      "flags": ["flags/contains-edge-flag"],
+      "evaluationContext": { "targeting_key": "user1", "text": "barista" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-edge-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_suffix",
+    "resolveRequest": {
+      "flags": ["flags/contains-edge-flag"],
+      "evaluationContext": { "targeting_key": "user1", "text": "crowbar" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-edge-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_exact",
+    "resolveRequest": {
+      "flags": ["flags/contains-edge-flag"],
+      "evaluationContext": { "targeting_key": "user1", "text": "bar" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-edge-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_mixed_list",
+    "resolveRequest": {
+      "flags": ["flags/contains-edge-flag"],
+      "evaluationContext": { "targeting_key": "user1", "text": [123, false, "crowbar"] },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-edge-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_comma_separated_string",
+    "resolveRequest": {
+      "flags": ["flags/contains-edge-flag"],
+      "evaluationContext": { "targeting_key": "user1", "text": "foo,bar,baz" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-edge-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_tab_separated_string",
+    "resolveRequest": {
+      "flags": ["flags/contains-edge-flag"],
+      "evaluationContext": { "targeting_key": "user1", "text": "foo\tbar\tbaz" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-edge-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_string_number_like",
+    "resolveRequest": {
+      "flags": ["flags/contains-number-like-flag"],
+      "evaluationContext": { "targeting_key": "user1", "code": "123" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/contains-number-like-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_escaped_literals",
+    "resolveRequest": {
+      "flags": ["flags/contains-escaped-flag"],
+      "evaluationContext": { "targeting_key": "user1", "path": "prefix/a\"b\\c/suffix" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-escaped-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_contains_unicode_precomposed",
+    "resolveRequest": {
+      "flags": ["flags/contains-unicode-flag"],
+      "evaluationContext": { "targeting_key": "user1", "word": "caf\u00e9" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-unicode-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "not_contains_match",
+    "resolveRequest": {
+      "flags": ["flags/not-contains-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repository": "platform/repo-123-admin" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/not-contains-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
     "name": "targeting_any_rule",
     "resolveRequest": {
       "flags": [
@@ -961,6 +1153,56 @@
             "shouldApply": true
           }
         ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "any_rule_contains_inner",
+    "resolveRequest": {
+      "flags": ["flags/any-contains-inner-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repositories": ["open-feature/admin", "open-feature/confidence-resolver"] },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/any-contains-inner-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "all_rule_contains_inner",
+    "resolveRequest": {
+      "flags": ["flags/all-contains-inner-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repositories": ["confidence-admin", "local-confidence"] },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/all-contains-inner-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "all_rule_contains_inner_empty_list",
+    "resolveRequest": {
+      "flags": ["flags/all-contains-inner-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repositories": [] },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/all-contains-inner-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
         "expectError": null
       }
     }
@@ -2438,6 +2680,174 @@
             "shouldApply": false
           }
         ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "contains_no_match",
+    "resolveRequest": {
+      "flags": ["flags/contains-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repository": "platform/repo-123-admin" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "contains_case_sensitive_no_match",
+    "resolveRequest": {
+      "flags": ["flags/contains-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repository": "platform/Repo.*admin" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "contains_empty_list_no_match",
+    "resolveRequest": {
+      "flags": ["flags/contains-edge-flag"],
+      "evaluationContext": { "targeting_key": "user1", "text": [] },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-edge-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "contains_null_no_match",
+    "resolveRequest": {
+      "flags": ["flags/contains-edge-flag"],
+      "evaluationContext": { "targeting_key": "user1", "text": null },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-edge-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "contains_missing_attribute_no_match",
+    "resolveRequest": {
+      "flags": ["flags/contains-flag"],
+      "evaluationContext": { "targeting_key": "user1" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "contains_unicode_normalization_no_match",
+    "resolveRequest": {
+      "flags": ["flags/contains-unicode-flag"],
+      "evaluationContext": { "targeting_key": "user1", "word": "cafe\u0301" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-unicode-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "contains_non_string_no_match",
+    "resolveRequest": {
+      "flags": ["flags/contains-number-like-flag"],
+      "evaluationContext": { "targeting_key": "user1", "code": 123 },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/contains-number-like-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "any_rule_contains_inner_no_match",
+    "resolveRequest": {
+      "flags": ["flags/any-contains-inner-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repositories": [42, true, "open-feature/admin"] },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/any-contains-inner-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "all_rule_contains_inner_no_match",
+    "resolveRequest": {
+      "flags": ["flags/all-contains-inner-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repositories": ["confidence-admin", "local-admin"] },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/all-contains-inner-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "not_contains_no_match",
+    "resolveRequest": {
+      "flags": ["flags/not-contains-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repository": "platform/repo.*admin" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/not-contains-flag", "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH", "variant": "", "value": null, "shouldApply": false }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "not_contains_missing_attribute_match",
+    "resolveRequest": {
+      "flags": ["flags/not-contains-flag"],
+      "evaluationContext": { "targeting_key": "user1" },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/not-contains-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "not_contains_non_string_match",
+    "resolveRequest": {
+      "flags": ["flags/not-contains-flag"],
+      "evaluationContext": { "targeting_key": "user1", "repository": 42 },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [{ "flag": "flags/not-contains-flag", "reason": "RESOLVE_REASON_MATCH", "variant": "on", "value": { "enabled": true }, "shouldApply": true }],
         "expectError": null
       }
     }

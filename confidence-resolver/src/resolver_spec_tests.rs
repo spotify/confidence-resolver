@@ -553,6 +553,18 @@ spec_test!(targeting_set_match);
 spec_test!(targeting_range_match);
 spec_test!(targeting_starts_with);
 spec_test!(targeting_ends_with);
+spec_test!(targeting_contains);
+spec_test!(targeting_contains_list);
+spec_test!(targeting_contains_prefix);
+spec_test!(targeting_contains_suffix);
+spec_test!(targeting_contains_exact);
+spec_test!(targeting_contains_mixed_list);
+spec_test!(targeting_contains_comma_separated_string);
+spec_test!(targeting_contains_tab_separated_string);
+spec_test!(targeting_contains_string_number_like);
+spec_test!(targeting_contains_escaped_literals);
+spec_test!(targeting_contains_unicode_precomposed);
+spec_test!(not_contains_match);
 spec_test!(targeting_any_rule);
 spec_test!(targeting_all_rule);
 spec_test!(targeting_missing_attribute);
@@ -579,6 +591,9 @@ spec_test!(multi_variant_no_targeting_key);
 spec_test!(any_rule_set_inner);
 spec_test!(any_rule_starts_with_inner);
 spec_test!(any_rule_ends_with_inner);
+spec_test!(any_rule_contains_inner);
+spec_test!(all_rule_contains_inner);
+spec_test!(all_rule_contains_inner_empty_list);
 
 // Range variants
 spec_test!(range_exclusive_match);
@@ -648,6 +663,18 @@ spec_test!(starts_with_no_match);
 spec_test!(ends_with_no_match);
 spec_test!(starts_with_numeric_context_no_match);
 spec_test!(ends_with_numeric_context_no_match);
+spec_test!(contains_no_match);
+spec_test!(contains_case_sensitive_no_match);
+spec_test!(contains_empty_list_no_match);
+spec_test!(contains_null_no_match);
+spec_test!(contains_missing_attribute_no_match);
+spec_test!(contains_unicode_normalization_no_match);
+spec_test!(contains_non_string_no_match);
+spec_test!(any_rule_contains_inner_no_match);
+spec_test!(all_rule_contains_inner_no_match);
+spec_test!(not_contains_no_match);
+spec_test!(not_contains_missing_attribute_match);
+spec_test!(not_contains_non_string_match);
 
 // Apply tests
 spec_test!(resolve_with_apply_true);
