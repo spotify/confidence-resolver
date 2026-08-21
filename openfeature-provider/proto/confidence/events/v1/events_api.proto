@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package confidence.events.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events";
+option java_package = "com.spotify.confidence.sdk.events.v1";
+option java_multiple_files = true;
+option java_outer_classname = "EventsApiProto";
+
+message Void {}
+
+// OpenFeature-shaped input: what providers send to the WASM on track().
+// The WASM prepends "eventDefinitions/" to event_name and transforms
+// this into PublishEvent for the network batch.
+message TrackEventRequest {
+  // Bare event name, e.g. "my_event" (WASM prepends "eventDefinitions/")
+  string event_name = 1;
+
+  // When the event occurred (set by the provider)
+  google.protobuf.Timestamp event_time = 2;
+
+  // OpenFeature tracking event details: optional numeric value
+  double value = 3;
+
+  // OpenFeature evaluation context
+  google.protobuf.Struct context = 4;
+
+  // OpenFeature tracking event custom data
+  google.protobuf.Struct data = 5;
+}
+
+// Confidence-shaped output: what the WASM returns on flush for the network API.
+message PublishEvent {
+  // Fully qualified event name, e.g. "eventDefinitions/my_event"
+  string event_definition = 1;
+
+  // When the event occurred
+  google.protobuf.Timestamp event_time = 2;
+
+  // Event payload
+  google.protobuf.Struct payload = 3;
+}
+
+// Batch of events returned by the WASM flush, ready for network serialization.
+// Providers add client_secret, sdk info, and send_time when posting to the API.
+message PublishEventsRequest {
+  repeated PublishEvent events = 1;
+}

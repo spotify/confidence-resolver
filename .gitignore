@@ -13,6 +13,7 @@ openfeature-provider/go/demo/demo
 target/
 # Ignore WASM in root wasm/ directory (build artifact)
 wasm/confidence_resolver.wasm
+wasm/confidence_event_engine.wasm
 # But DO track WASM embedded in Go provider (committed for go:embed)
 !openfeature-provider/go/wasm/confidence_resolver.wasm
 

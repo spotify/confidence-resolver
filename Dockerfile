@@ -45,6 +45,8 @@ COPY confidence-resolver/Cargo.toml ./confidence-resolver/
 COPY confidence-cloudflare-resolver/Cargo.toml ./confidence-cloudflare-resolver/
 COPY wasm-msg/Cargo.toml ./wasm-msg/
 COPY wasm/rust-guest/Cargo.toml ./wasm/rust-guest/
+COPY wasm/event-guest/Cargo.toml ./wasm/event-guest/
+COPY confidence-event-engine/Cargo.toml ./confidence-event-engine/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
 COPY openfeature-provider/go/Cargo.toml ./openfeature-provider/go/
@@ -58,6 +60,7 @@ COPY wasm/proto ./wasm/proto/
 
 # Copy build.rs files
 COPY confidence-resolver/build.rs ./confidence-resolver/
+COPY confidence-event-engine/build.rs ./confidence-event-engine/
 COPY wasm-msg/build.rs ./wasm-msg/
 COPY wasm/rust-guest/build.rs ./wasm/rust-guest/
 COPY openfeature-provider/rust/build.rs ./openfeature-provider/rust/
@@ -68,10 +71,14 @@ RUN mkdir -p confidence-resolver/src && \
     echo "pub fn dummy() {}" > confidence-resolver/src/lib.rs && \
     mkdir -p confidence-cloudflare-resolver/src && \
     echo "pub fn dummy() {}" > confidence-cloudflare-resolver/src/lib.rs && \
+    mkdir -p confidence-event-engine/src && \
+    echo "pub fn dummy() {}" > confidence-event-engine/src/lib.rs && \
     mkdir -p wasm-msg/src && \
     echo "pub fn dummy() {}" > wasm-msg/src/lib.rs && \
     mkdir -p wasm/rust-guest/src && \
     echo "pub fn dummy() {}" > wasm/rust-guest/src/lib.rs && \
+    mkdir -p wasm/event-guest/src && \
+    echo "pub fn dummy() {}" > wasm/event-guest/src/lib.rs && \
     mkdir -p openfeature-provider/rust/src && \
     echo "pub fn dummy() {}" > openfeature-provider/rust/src/lib.rs
 
@@ -100,8 +107,10 @@ COPY --from=rust-deps /workspace/target /workspace/target
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
+COPY confidence-event-engine/ ./confidence-event-engine/
 COPY wasm-msg/ ./wasm-msg/
 COPY wasm/rust-guest/ ./wasm/rust-guest/
+COPY wasm/event-guest/ ./wasm/event-guest/
 COPY wasm/proto/ ./wasm/proto/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
@@ -128,6 +137,27 @@ RUN cargo build --release --lib
 FROM confidence-resolver.build AS confidence-resolver.test
 WORKDIR /workspace/confidence-resolver
 RUN make test
+
+# ==============================================================================
+# Build confidence-event-engine
+# ==============================================================================
+FROM rust-test-base AS confidence-event-engine.build
+WORKDIR /workspace/confidence-event-engine
+RUN cargo build --release --lib
+
+# ==============================================================================
+# Test confidence-event-engine
+# ==============================================================================
+FROM confidence-event-engine.build AS confidence-event-engine.test
+WORKDIR /workspace/confidence-event-engine
+RUN make test
+
+# ==============================================================================
+# Lint confidence-event-engine
+# ==============================================================================
+FROM confidence-event-engine.build AS confidence-event-engine.lint
+WORKDIR /workspace/confidence-event-engine
+RUN make lint
 
 # ==============================================================================
 # Build wasm-msg (test + lint derive from this to reuse artifacts)
@@ -172,8 +202,10 @@ COPY --from=rust-deps /workspace/target /workspace/target
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
+COPY confidence-event-engine/ ./confidence-event-engine/
 COPY wasm-msg/ ./wasm-msg/
 COPY wasm/rust-guest/ ./wasm/rust-guest/
+COPY wasm/event-guest/ ./wasm/event-guest/
 COPY wasm/proto/ ./wasm/proto/
 COPY openfeature-provider/java/Cargo.toml ./openfeature-provider/java/
 COPY openfeature-provider/js/Cargo.toml ./openfeature-provider/js/
@@ -218,6 +250,34 @@ RUN make lint
 FROM scratch AS wasm-rust-guest.artifact
 
 COPY --from=wasm-rust-guest.build /workspace/target/wasm32-unknown-unknown/wasm/rust_guest.wasm /confidence_resolver.wasm
+
+# ==============================================================================
+# Build wasm/event-guest WASM
+# ==============================================================================
+FROM wasm-deps AS wasm-event-guest.build
+
+WORKDIR /workspace/wasm/event-guest
+RUN make build
+
+WORKDIR /workspace
+
+RUN ls -lh target/wasm32-unknown-unknown/wasm/event_guest.wasm && \
+    echo "Event WASM size: $(du -h target/wasm32-unknown-unknown/wasm/event_guest.wasm | cut -f1)"
+
+# ==============================================================================
+# Lint wasm/event-guest (WASM target)
+# ==============================================================================
+FROM wasm-deps AS wasm-event-guest.lint
+
+WORKDIR /workspace/wasm/event-guest
+RUN make lint
+
+# ==============================================================================
+# Extract wasm/event-guest WASM artifact
+# ==============================================================================
+FROM scratch AS wasm-event-guest.artifact
+
+COPY --from=wasm-event-guest.build /workspace/target/wasm32-unknown-unknown/wasm/event_guest.wasm /confidence_event_engine.wasm
 
 # ==============================================================================
 # Build confidence-cloudflare-resolver (WASM target)

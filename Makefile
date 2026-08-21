@@ -2,17 +2,26 @@
 # Local development commands - delegates to component Makefiles
 
 TARGET_WASM := target/wasm32-unknown-unknown/wasm/rust_guest.wasm
+TARGET_EVENT_WASM := target/wasm32-unknown-unknown/wasm/event_guest.wasm
 GO_WASM := openfeature-provider/go/confidence/internal/local_resolver/assets
 
-.PHONY: $(TARGET_WASM) test lint build all clean
+.PHONY: $(TARGET_WASM) $(TARGET_EVENT_WASM) test lint build all clean
 
 $(TARGET_WASM):
 	@$(MAKE) -C wasm/rust-guest build
+
+$(TARGET_EVENT_WASM):
+	@$(MAKE) -C wasm/event-guest build
 
 wasm/confidence_resolver.wasm: $(TARGET_WASM)
 	@mkdir -p wasm
 	@cp -p $(TARGET_WASM) $@
 	@echo "WASM size: $$(ls -lh $@ | awk '{print $$5}')"
+
+wasm/confidence_event_engine.wasm: $(TARGET_EVENT_WASM)
+	@mkdir -p wasm
+	@cp -p $(TARGET_EVENT_WASM) $@
+	@echo "Event WASM size: $$(ls -lh $@ | awk '{print $$5}')"
 
 # Sync WASM to Go provider using Docker to ensure correct toolchain
 .PHONY: sync-wasm-go
@@ -38,6 +47,7 @@ build-deployer:
 
 test:
 	$(MAKE) -C confidence-resolver test
+	$(MAKE) -C confidence-event-engine test
 	$(MAKE) -C wasm-msg test
 	$(MAKE) -C openfeature-provider/js test
 	$(MAKE) -C openfeature-provider/java test
@@ -48,15 +58,17 @@ test:
 
 lint:
 	$(MAKE) -C confidence-resolver lint
+	$(MAKE) -C confidence-event-engine lint
 	$(MAKE) -C wasm-msg lint
 	$(MAKE) -C wasm/rust-guest lint
+	$(MAKE) -C wasm/event-guest lint
 	$(MAKE) -C confidence-cloudflare-resolver lint
 	$(MAKE) -C openfeature-provider/go lint
 	$(MAKE) -C openfeature-provider/ruby lint
 	$(MAKE) -C openfeature-provider/rust lint
-	cargo fmt --check -p wasm-msg -p rust-guest -p confidence_resolver -p confidence-cloudflare-resolver -p spotify-confidence-openfeature-provider
+	cargo fmt --check -p wasm-msg -p rust-guest -p event-guest -p confidence_resolver -p confidence-event-engine -p confidence-cloudflare-resolver -p spotify-confidence-openfeature-provider
 
-build: wasm/confidence_resolver.wasm
+build: wasm/confidence_resolver.wasm wasm/confidence_event_engine.wasm
 	$(MAKE) -C openfeature-provider/js build
 	$(MAKE) -C openfeature-provider/java build
 	$(MAKE) -C openfeature-provider/go build
