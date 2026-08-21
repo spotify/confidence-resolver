@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.19.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.18.0...openfeature-provider-java-v0.19.0) (2026-08-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **openfeature-provider/java:** rename disableApplyDedup builder method to enableApplyDedup ([#534](https://github.com/spotify/confidence-resolver/issues/534))
+
+### Bug Fixes
+
+* **openfeature-provider/java:** rename disableApplyDedup builder method to enableApplyDedup ([#534](https://github.com/spotify/confidence-resolver/issues/534)) ([7597d27](https://github.com/spotify/confidence-resolver/commit/7597d2777c55772565f2f8b6871ddbc558d5c11c))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.0 to 0.5.1
+
 ## [0.18.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.17.0...openfeature-provider-java-v0.18.0) (2026-08-21)
 
 

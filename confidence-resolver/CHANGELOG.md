@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.22.0...confidence_resolver-v0.22.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* keep resolver string operators strict ([#529](https://github.com/spotify/confidence-resolver/issues/529)) ([f83dd97](https://github.com/spotify/confidence-resolver/commit/f83dd978c050921abfba12666b1d7b6098e39316))
+
 ## [0.22.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.21.0...confidence_resolver-v0.22.0) (2026-08-21)
 
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.22.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.22.0...openfeature-provider/go/v0.22.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* keep resolver string operators strict ([#529](https://github.com/spotify/confidence-resolver/issues/529)) ([f83dd97](https://github.com/spotify/confidence-resolver/commit/f83dd978c050921abfba12666b1d7b6098e39316))
+* **openfeature-provider/go:** sync WASM binary and clean up provider init ([#531](https://github.com/spotify/confidence-resolver/issues/531)) ([eb3abc7](https://github.com/spotify/confidence-resolver/commit/eb3abc7a30a687f513e8bbfc916d43897a4f25f6))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.0 to 0.5.1
+
 ## [0.22.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.21.0...openfeature-provider/go/v0.22.0) (2026-08-21)
 
 
