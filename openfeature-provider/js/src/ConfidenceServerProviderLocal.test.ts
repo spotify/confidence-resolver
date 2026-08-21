@@ -343,12 +343,12 @@ describe('remote materialization for sticky assignments', () => {
     });
   });
 
-  it('sets apply=false when skipApply is configured on the provider', async () => {
+  it('sets apply=false when disableExposureCollection is configured on the provider', async () => {
     provider = new ConfidenceServerProviderLocal(mockedWasmResolver, {
       flagClientSecret: 'flagClientSecret',
       fetch: net.fetch,
       materializationStore: 'CONFIDENCE_REMOTE_STORE',
-      skipApply: true,
+      disableExposureCollection: true,
     });
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
     mockedWasmResolver.flushLogs.mockClear();
@@ -383,7 +383,7 @@ describe('remote materialization for sticky assignments', () => {
         apply: false,
       }),
     });
-    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledWith(expect.objectContaining({ skipApply: true }));
+    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledWith(expect.objectContaining({ disableExposureCollection: true }));
     expect(mockedWasmResolver.flushAssigned).not.toHaveBeenCalled();
 
     await advanceTimersUntil(expect(provider.onClose()).resolves.toBeUndefined());

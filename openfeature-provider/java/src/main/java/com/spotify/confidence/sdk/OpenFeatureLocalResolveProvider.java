@@ -55,7 +55,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final LocalResolver resolver;
   private final WasmFlagLogger flagLogger;
   private final MaterializationStore materializationStore;
-  private final boolean skipApply;
+  private final boolean disableExposureCollection;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
   private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
@@ -149,7 +149,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       LocalProviderConfig config, String clientSecret, MaterializationStore materializationStore) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
-    this.skipApply = config.isSkipApply();
+    this.disableExposureCollection = config.isDisableExposureCollection();
     if (config.getEncryptionKey() == null) {
       log.warn(
           "No encryptionKey provided. Falling back to unencrypted state."
@@ -170,7 +170,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                 new RecoveringResolver(
                     () ->
                         new WasmLocalResolver(
-                            flagLogger::write, config.isEnableApplyDedup(), config.isSkipApply())));
+                            flagLogger::write, config.isEnableApplyDedup(), config.isDisableExposureCollection())));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -214,10 +214,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger,
       boolean enableApplyDedup,
-      boolean skipApply) {
+      boolean disableExposureCollection) {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
-    this.skipApply = skipApply;
+    this.disableExposureCollection = disableExposureCollection;
     this.stateProvider = accountStateProvider;
     this.flagLogger = wasmFlagLogger;
     final int numInstances =
@@ -228,7 +228,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             () ->
                 new RecoveringResolver(
                     () ->
-                        new WasmLocalResolver(wasmFlagLogger::write, enableApplyDedup, skipApply)));
+                        new WasmLocalResolver(wasmFlagLogger::write, enableApplyDedup, disableExposureCollection)));
     this.resolver = new MaterializingResolver(inner, materializationStore);
   }
 
@@ -261,7 +261,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     // Assign flush only. Resolve logs and telemetry still go out via
     // flushAllLogs() on the state-refresh cycle and resolver.close() on shutdown.
-    if (!skipApply) {
+    if (!disableExposureCollection) {
       assignLogExecutor.scheduleAtFixedRate(
           () -> {
             try {
@@ -456,11 +456,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       throw new RuntimeException(e);
     }
 
-    // apply=false covers both provider skipApply and per-eval
-    // `_confidence_skip_apply`. Provider skipApply is also set on the WASM
+    // apply=false covers both provider disableExposureCollection and per-eval
+    // `_confidence_skip_apply`. Provider disableExposureCollection is also set on the WASM
     // guest via setResolverState so assign/token are skipped entirely;
     // apply=false alone would still mint a deferred token.
-    final boolean skipApply = this.skipApply || OpenFeatureUtils.isSkipApply(ctx);
+    final boolean disableExposureCollection = this.disableExposureCollection || OpenFeatureUtils.isSkipApply(ctx);
     final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
     ResolveFlagsResponse resolveFlagResponse;
     try {
@@ -469,7 +469,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       final var req =
           ResolveFlagsRequest.newBuilder()
               .addFlags(requestFlagName)
-              .setApply(!skipApply)
+              .setApply(!disableExposureCollection)
               .setClientSecret(clientSecret)
               .setEvaluationContext(
                   Struct.newBuilder().putAllFields(evaluationContext.getFieldsMap()).build())

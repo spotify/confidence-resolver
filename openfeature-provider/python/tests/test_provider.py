@@ -841,10 +841,10 @@ class TestPrometheusMetrics:
             provider.shutdown()
 
 
-class TestSkipApply:
+class TestDisableExposureCollection:
     """Tests for _confidence_skip_apply context key."""
 
-    def test_resolve_with_skip_apply_still_resolves(
+    def test_resolve_with_disable_exposure_collection_still_resolves(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
@@ -883,14 +883,14 @@ class TestSkipApply:
         finally:
             provider.shutdown()
 
-    def test_skip_apply_config_still_resolves(
+    def test_disable_exposure_collection_config_still_resolves(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
         test_account_id: str,
         test_client_secret: str,
     ) -> None:
-        """skip_apply=True on the provider still resolves flags."""
+        """disable_exposure_collection=True on the provider still resolves flags."""
         mock_fetcher = MockStateFetcher(test_resolver_state, test_account_id)
         mock_logger = MockFlagLogger()
 
@@ -899,7 +899,7 @@ class TestSkipApply:
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
-            skip_apply=True,
+            disable_exposure_collection=True,
         )
 
         provider.initialize(EvaluationContext())
@@ -934,7 +934,7 @@ class TestSkipApply:
         assert client_resolve >= 1
         assert flag_resolve >= 1
 
-    def test_skip_apply_does_not_mutate_caller_context(
+    def test_disable_exposure_collection_does_not_mutate_caller_context(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
@@ -968,7 +968,7 @@ class TestSkipApply:
                 attributes=attrs,
             )
 
-            # Resolve twice with the same context to ensure skip_apply is
+            # Resolve twice with the same context to ensure disable_exposure_collection is
             # honored consistently and the key is never stripped.
             for _ in range(2):
                 provider.resolve_string_details(

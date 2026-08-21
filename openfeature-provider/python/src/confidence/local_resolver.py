@@ -73,10 +73,10 @@ class LocalResolver:
 
         # Restore state if available
         if self._current_state is not None:
-            state, account_id, sdk, enable_apply_dedup, skip_apply = self._current_state
+            state, account_id, sdk, enable_apply_dedup, disable_exposure_collection = self._current_state
             try:
                 self._delegate.set_resolver_state(
-                    state, account_id, sdk, enable_apply_dedup, skip_apply
+                    state, account_id, sdk, enable_apply_dedup, disable_exposure_collection
                 )
             except Exception as e:
                 logger.error("Failed to restore state after reload: %s", e)
@@ -87,7 +87,7 @@ class LocalResolver:
         account_id: str,
         sdk: Optional[object] = None,
         enable_apply_dedup: bool = False,
-        skip_apply: bool = False,
+        disable_exposure_collection: bool = False,
     ) -> None:
         """Set the resolver state.
 
@@ -98,12 +98,12 @@ class LocalResolver:
             account_id: The account ID for the resolver.
             sdk: Optional SDK identifier and version.
             enable_apply_dedup: Experimental — enable apply-event dedup (off by default).
-            skip_apply: Skip all apply/assignment logging; the assign queue stays empty.
+            disable_exposure_collection: Disable all apply/assignment (exposure) logging; the assign queue stays empty.
         """
-        self._current_state = (state, account_id, sdk, enable_apply_dedup, skip_apply)
+        self._current_state = (state, account_id, sdk, enable_apply_dedup, disable_exposure_collection)
         try:
             self._delegate.set_resolver_state(
-                state, account_id, sdk, enable_apply_dedup, skip_apply
+                state, account_id, sdk, enable_apply_dedup, disable_exposure_collection
             )
         except WasmCrashError as error:
             self._reload_instance(error)

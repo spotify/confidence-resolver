@@ -467,10 +467,10 @@ pub struct AccountResolver<'a, H: Host> {
     pub state: &'a ResolverState,
     pub evaluation_context: EvaluationContext,
     pub encryption_key: Bytes,
-    /// Provider skipApply, copied from the WASM guest static (or native
+    /// Provider disableExposureCollection, copied from the WASM guest static (or native
     /// provider options) when this resolver is created. Not on ResolverState
     /// so CDN proto state stays independent of logging config.
-    skip_apply: bool,
+    disable_exposure_collection: bool,
     host: PhantomData<H>,
 }
 
@@ -798,15 +798,15 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             state,
             evaluation_context,
             encryption_key: encryption_key.clone(),
-            skip_apply: false,
+            disable_exposure_collection: false,
             host: PhantomData,
         }
     }
 
     /// Skip assign logging and deferred-apply tokens. WASM sets this from the
-    /// guest `SKIP_APPLY` flag stored at `set_resolver_state`.
-    pub fn with_skip_apply(mut self, skip_apply: bool) -> Self {
-        self.skip_apply = skip_apply;
+    /// guest `DISABLE_EXPOSURE_COLLECTION` flag stored at `set_resolver_state`.
+    pub fn with_disable_exposure_collection(mut self, disable_exposure_collection: bool) -> Self {
+        self.disable_exposure_collection = disable_exposure_collection;
         self
     }
 
@@ -918,10 +918,10 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             ..Default::default()
         };
 
-        // Provider skipApply: neither assign logging nor a deferred-apply token.
+        // Provider disableExposureCollection: neither assign logging nor a deferred-apply token.
         // Per-evaluation `_confidence_skip_apply` still uses apply=false
         // (deferred token) instead of this flag.
-        if !self.skip_apply {
+        if !self.disable_exposure_collection {
             match resolve_request.apply {
                 true => {
                     // Borrow assignments straight out of the resolved values — no
@@ -1004,7 +1004,7 @@ impl<'a, H: Host> AccountResolver<'a, H> {
     }
 
     pub fn apply_flags(&self, request: &flags_resolver::ApplyFlagsRequest) -> Result<(), String> {
-        if self.skip_apply {
+        if self.disable_exposure_collection {
             return Ok(());
         }
         let send_time_ts = request.send_time.as_ref().ok_or("send_time is required")?;
@@ -2438,11 +2438,11 @@ mod tests {
         };
     }
 
-    /// skip_apply + apply=true: no FlagAssigned, no resolve token, still resolve logs.
+    /// disable_exposure_collection + apply=true: no FlagAssigned, no resolve token, still resolve logs.
     /// Does not cover apply=false (next test) or the apply_flags path (test after that).
     #[test]
-    fn test_skip_assign_does_not_log_or_create_token() {
-        recording_host!(SkipApplyTrueHost);
+    fn test_disable_exposure_collection_does_not_log_or_create_token() {
+        recording_host!(DisableExposureCollectionTrueHost);
 
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
@@ -2452,10 +2452,10 @@ mod tests {
         .unwrap();
 
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
-        let resolver: AccountResolver<'_, SkipApplyTrueHost> = state
+        let resolver: AccountResolver<'_, DisableExposureCollectionTrueHost> = state
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap()
-            .with_skip_apply(true);
+            .with_disable_exposure_collection(true);
 
         let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
             evaluation_context: Some(Struct::default()),
@@ -2475,24 +2475,24 @@ mod tests {
         assert!(flag.should_apply);
         assert!(
             response.resolve_token.is_empty(),
-            "skip_assign must not emit a deferred-apply resolve token"
+            "disable_exposure_collection must not emit a deferred-apply resolve token"
         );
         assert!(
-            SkipApplyTrueHost::assign_logs().lock().unwrap().is_empty(),
-            "skip_assign must not log assignments"
+            DisableExposureCollectionTrueHost::assign_logs().lock().unwrap().is_empty(),
+            "disable_exposure_collection must not log assignments"
         );
         assert_eq!(
-            SkipApplyTrueHost::resolve_logs().lock().unwrap().len(),
+            DisableExposureCollectionTrueHost::resolve_logs().lock().unwrap().len(),
             1,
-            "skip_assign must still log resolves"
+            "disable_exposure_collection must still log resolves"
         );
     }
 
-    /// skip_apply + apply=false: must not fall through to the deferred-token path
-    /// (apply=false without skip_apply would emit a token).
+    /// disable_exposure_collection + apply=false: must not fall through to the deferred-token path
+    /// (apply=false without disable_exposure_collection would emit a token).
     #[test]
-    fn test_skip_assign_with_apply_false_does_not_create_token() {
-        recording_host!(SkipApplyFalseApplyHost);
+    fn test_disable_exposure_collection_with_apply_false_does_not_create_token() {
+        recording_host!(DisableExposureCollectionFalseApplyHost);
 
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
@@ -2502,10 +2502,10 @@ mod tests {
         .unwrap();
 
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
-        let resolver: AccountResolver<'_, SkipApplyFalseApplyHost> = state
+        let resolver: AccountResolver<'_, DisableExposureCollectionFalseApplyHost> = state
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap()
-            .with_skip_apply(true);
+            .with_disable_exposure_collection(true);
 
         let resolve_flag_req = flags_resolver::ResolveFlagsRequest {
             evaluation_context: Some(Struct::default()),
@@ -2525,29 +2525,29 @@ mod tests {
         assert!(flag.should_apply);
         assert!(
             response.resolve_token.is_empty(),
-            "skip_assign must not emit a deferred-apply resolve token even when apply=false"
+            "disable_exposure_collection must not emit a deferred-apply resolve token even when apply=false"
         );
         assert!(
-            SkipApplyFalseApplyHost::assign_logs()
+            DisableExposureCollectionFalseApplyHost::assign_logs()
                 .lock()
                 .unwrap()
                 .is_empty(),
-            "skip_assign must not log assignments"
+            "disable_exposure_collection must not log assignments"
         );
         assert_eq!(
-            SkipApplyFalseApplyHost::resolve_logs()
+            DisableExposureCollectionFalseApplyHost::resolve_logs()
                 .lock()
                 .unwrap()
                 .len(),
             1,
-            "skip_assign must still log resolves"
+            "disable_exposure_collection must still log resolves"
         );
     }
 
-    /// apply_flags() with skip_apply: no-op even when a token was minted without skip.
+    /// apply_flags() with disable_exposure_collection: no-op even when a token was minted without skip.
     #[test]
-    fn test_skip_assign_apply_flags_does_not_log() {
-        recording_host!(SkipApplyFlagsHost);
+    fn test_disable_exposure_collection_apply_flags_does_not_log() {
+        recording_host!(DisableExposureCollectionFlagsHost);
 
         let state = ResolverState::from_proto(
             EXAMPLE_STATE.to_owned().try_into().unwrap(),
@@ -2598,15 +2598,15 @@ mod tests {
                 .unwrap();
             assert!(
                 !response.resolve_token.is_empty(),
-                "apply=false without skip_apply should emit a resolve token"
+                "apply=false without disable_exposure_collection should emit a resolve token"
             );
             response.resolve_token
         };
 
-        let skip_resolver: AccountResolver<'_, SkipApplyFlagsHost> = state
+        let skip_resolver: AccountResolver<'_, DisableExposureCollectionFlagsHost> = state
             .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
             .unwrap()
-            .with_skip_apply(true);
+            .with_disable_exposure_collection(true);
 
         let now = Timestamp {
             seconds: 1704067200,
@@ -2628,10 +2628,10 @@ mod tests {
 
         skip_resolver
             .apply_flags(&apply_request)
-            .expect("skip_assign apply_flags should succeed as a no-op");
+            .expect("disable_exposure_collection apply_flags should succeed as a no-op");
         assert!(
-            SkipApplyFlagsHost::assign_logs().lock().unwrap().is_empty(),
-            "skip_assign apply_flags must not log assignments"
+            DisableExposureCollectionFlagsHost::assign_logs().lock().unwrap().is_empty(),
+            "disable_exposure_collection apply_flags must not log assignments"
         );
     }
 

@@ -159,20 +159,20 @@ class TestFlushAssigned:
         assert isinstance(assigned, bytes)
 
 
-class TestSkipApply:
-    """skip_apply on set_resolver_state skips assignment logging."""
+class TestDisableExposureCollection:
+    """disable_exposure_collection on set_resolver_state skips assignment logging."""
 
-    def test_skip_apply_does_not_enqueue_assigns(
+    def test_disable_exposure_collection_does_not_enqueue_assigns(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
         test_account_id: str,
         test_client_secret: str,
     ) -> None:
-        """apply=true with skip_apply still logs resolves and never assigns."""
+        """apply=true with disable_exposure_collection still logs resolves and never assigns."""
         resolver = WasmResolver(wasm_bytes)
         resolver.set_resolver_state(
-            test_resolver_state, test_account_id, skip_apply=True
+            test_resolver_state, test_account_id, disable_exposure_collection=True
         )
 
         resolve_request = api_pb2.ResolveFlagsRequest()

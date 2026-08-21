@@ -437,7 +437,7 @@ func TestSwapWasmResolverApi_ResolveFlagWithStickyRules_MissingMaterializations(
 	}
 }
 
-func TestSkipApply_FlushAllLogsSendsResolvesNotAssigns(t *testing.T) {
+func TestDisableExposureCollection_FlushAllLogsSendsResolvesNotAssigns(t *testing.T) {
 	ctx := context.Background()
 	var captured []*resolverv1.WriteFlagLogsRequest
 	factory := NewWasmResolverFactory(func(logs *resolverv1.WriteFlagLogsRequest) {
@@ -449,9 +449,9 @@ func TestSkipApply_FlushAllLogsSendsResolvesNotAssigns(t *testing.T) {
 	defer resolver.Close(ctx)
 
 	if err := resolver.SetResolverState(&wasm.SetResolverStateRequest{
-		State:     tu.LoadTestResolverState(t),
-		AccountId: tu.LoadTestAccountID(t),
-		SkipApply: true,
+		State:                     tu.LoadTestResolverState(t),
+		AccountId:                 tu.LoadTestAccountID(t),
+		DisableExposureCollection: true,
 	}); err != nil {
 		t.Fatalf("set resolver state: %v", err)
 	}
@@ -472,12 +472,12 @@ func TestSkipApply_FlushAllLogsSendsResolvesNotAssigns(t *testing.T) {
 		flagResolve += len(logs.FlagResolveInfo)
 	}
 	if assigned != 0 {
-		t.Fatalf("skip_apply must not send assigns, got %d", assigned)
+		t.Fatalf("disable_exposure_collection must not send assigns, got %d", assigned)
 	}
 	if clientResolve == 0 {
-		t.Fatal("skip_apply must still send client_resolve_info")
+		t.Fatal("disable_exposure_collection must still send client_resolve_info")
 	}
 	if flagResolve == 0 {
-		t.Fatal("skip_apply must still send flag_resolve_info")
+		t.Fatal("disable_exposure_collection must still send flag_resolve_info")
 	}
 }

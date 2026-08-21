@@ -154,7 +154,7 @@ func TestLocalResolverProvider_ReturnsCorrectValue(t *testing.T) {
 	})
 }
 
-func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
+func TestLocalResolverProvider_DisableExposureCollectionContextKey(t *testing.T) {
 	ctx := context.Background()
 
 	testState := tu.LoadTestResolverState(t)
@@ -193,7 +193,7 @@ func TestLocalResolverProvider_SkipApplyContextKey(t *testing.T) {
 	})
 }
 
-func TestLocalResolverProvider_SkipApplyConfig(t *testing.T) {
+func TestLocalResolverProvider_DisableExposureCollectionConfig(t *testing.T) {
 	ctx := context.Background()
 	mockedResolver := &tu.MockedLocalResolver{
 		Response: &wasm.ResolveProcessResponse{
@@ -219,7 +219,7 @@ func TestLocalResolverProvider_SkipApplyConfig(t *testing.T) {
 		mockFlagLogger,
 		tu.TestClientSecret,
 		slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		WithSkipApply(),
+		WithDisableExposureCollection(),
 	)
 	if err := openfeature.SetProviderAndWait(provider); err != nil {
 		t.Fatalf("SetProviderAndWait: %v", err)
@@ -242,13 +242,13 @@ func TestLocalResolverProvider_SkipApplyConfig(t *testing.T) {
 		t.Fatalf("unexpected resolve request: %#v", mockedResolver.LastRequest)
 	}
 	if req.Apply {
-		t.Fatal("expected apply=false when SkipApply is configured")
+		t.Fatal("expected apply=false when DisableExposureCollection is configured")
 	}
 	if mockedResolver.LastSetResolverState == nil {
 		t.Fatal("expected SetResolverState to be called")
 	}
-	if !mockedResolver.LastSetResolverState.SkipApply {
-		t.Fatal("expected skip_apply=true on SetResolverState when SkipApply is configured")
+	if !mockedResolver.LastSetResolverState.DisableExposureCollection {
+		t.Fatal("expected disable_exposure_collection=true on SetResolverState when DisableExposureCollection is configured")
 	}
 }
 

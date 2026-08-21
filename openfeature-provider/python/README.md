@@ -260,12 +260,12 @@ By default, every flag evaluation records an exposure event (apply). Only disabl
 
 For normal feature delivery and experiments, keep applies enabled. When exposure collection is disabled, Confidence does not receive assignment/exposure events for those evaluations. Experiment results, exposure counts, assignment diagnostics, and downstream reporting that depend on exposures can be incomplete or unavailable. Resolve analytics and telemetry are still sent, so this is not a general logging or privacy-off switch.
 
-To skip exposure collection for **all** OpenFeature evaluations through this provider, pass `skip_apply=True` when constructing the provider:
+To disable exposure collection for **all** OpenFeature evaluations through this provider, pass `disable_exposure_collection=True` when constructing the provider:
 
 ```python
 provider = ConfidenceProvider(
     client_secret="your-client-secret",
-    skip_apply=True,
+    disable_exposure_collection=True,
 )
 ```
 

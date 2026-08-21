@@ -74,7 +74,7 @@ mod tests {
     use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
 
     #[test]
-    fn skip_apply_does_not_enqueue_assigns_but_logs_resolves() {
+    fn disable_exposure_collection_does_not_enqueue_assigns_but_logs_resolves() {
         let (state, _) = create_state_with_flag();
         let mut fields = HashMap::new();
         fields.insert(
@@ -88,7 +88,7 @@ mod tests {
         let resolver = state
             .get_resolver::<NativeHost>(TEST_CLIENT_SECRET, context, &encryption_key)
             .expect("resolver")
-            .with_skip_apply(true);
+            .with_disable_exposure_collection(true);
 
         let _ = ASSIGN_LOGGER.checkpoint();
         let _ = RESOLVE_LOGGER.checkpoint();
@@ -112,18 +112,18 @@ mod tests {
 
         assert!(
             response.resolve_token.is_empty(),
-            "skip_apply must not emit a deferred-apply resolve token"
+            "disable_exposure_collection must not emit a deferred-apply resolve token"
         );
 
         let assigns = ASSIGN_LOGGER.checkpoint();
         let resolves = RESOLVE_LOGGER.checkpoint();
         assert!(
             assigns.flag_assigned.is_empty(),
-            "skip_apply must not enqueue assigns"
+            "disable_exposure_collection must not enqueue assigns"
         );
         assert!(
             !resolves.client_resolve_info.is_empty() || !resolves.flag_resolve_info.is_empty(),
-            "skip_apply must still log resolves"
+            "disable_exposure_collection must still log resolves"
         );
     }
 }

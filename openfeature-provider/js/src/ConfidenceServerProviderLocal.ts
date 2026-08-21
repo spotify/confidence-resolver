@@ -57,7 +57,7 @@ export interface ProviderOptions {
    * through this provider. Use only for exceptional no-exposure modes; resolve
    * logs and telemetry are still sent.
    */
-  skipApply?: boolean;
+  disableExposureCollection?: boolean;
 }
 
 /**
@@ -245,15 +245,15 @@ export class ConfidenceServerProviderLocal implements Provider {
     try {
       const [flagName] = flagKey.split('.', 1);
       const { _confidence_skip_apply, ...cleanContext } = context;
-      // apply=false covers both provider skipApply and per-eval
-      // `_confidence_skip_apply`. Provider skipApply is also set on the WASM
+      // apply=false covers both provider disableExposureCollection and per-eval
+      // `_confidence_skip_apply`. Provider disableExposureCollection is also set on the WASM
       // guest via setResolverState so assign/token are skipped entirely;
       // apply=false alone would still mint a deferred token.
-      const skipApply = this.options.skipApply === true || _confidence_skip_apply === true;
+      const disableExposureCollection = this.options.disableExposureCollection === true || _confidence_skip_apply === true;
 
       let resolution: FlagBundle;
       try {
-        resolution = await this.resolveFlags(cleanContext as EvaluationContext, [flagName], !skipApply);
+        resolution = await this.resolveFlags(cleanContext as EvaluationContext, [flagName], !disableExposureCollection);
       } catch (err) {
         resolution = FlagBundle.error(ErrorCode.GENERAL, String(err));
       }
@@ -284,7 +284,7 @@ export class ConfidenceServerProviderLocal implements Provider {
 
       return result;
     } finally {
-      if (this.options.skipApply !== true) {
+      if (this.options.disableExposureCollection !== true) {
         this.flushAssigned();
       }
     }
@@ -367,7 +367,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         accountId: clientState.account,
         sdk,
         enableApplyDedup: this.options.enableApplyDedup ?? false,
-        skipApply: this.options.skipApply === true,
+        disableExposureCollection: this.options.disableExposureCollection === true,
       }),
     );
   }

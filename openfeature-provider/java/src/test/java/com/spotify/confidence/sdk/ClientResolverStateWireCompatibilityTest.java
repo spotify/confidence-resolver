@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
  * SetResolverStateRequest tags.
  *
  * <p>SetResolverStateRequest uses: tag 1 (state), tag 2 (account_id), tag 3 (Sdk), tag 4
- * (enable_apply_dedup), tag 5 (skip_apply).
+ * (enable_apply_dedup), tag 5 (disable_exposure_collection).
  */
 class ClientResolverStateWireCompatibilityTest {
 
@@ -87,7 +87,7 @@ class ClientResolverStateWireCompatibilityTest {
     assertThat(parsed.hasSdk()).isFalse();
   }
 
-  /** Tag 5 is a bool (skip_apply). Packed int32 uses a different wire type and is skipped. */
+  /** Tag 5 is a bool (disable_exposure_collection). Packed int32 uses a different wire type and is skipped. */
   @Test
   void tag5_packed_int32_is_safely_skipped() throws Exception {
     final byte[] packedInt = new byte[] {0x01};
@@ -113,6 +113,6 @@ class ClientResolverStateWireCompatibilityTest {
     final var parsed = Messages.SetResolverStateRequest.parseFrom(proto.toByteArray());
     assertThat(parsed.getAccountId()).isEqualTo(ACCOUNT);
     assertThat(parsed.getState().toByteArray()).isEqualTo(MINIMAL_STATE);
-    assertThat(parsed.getSkipApply()).isFalse();
+    assertThat(parsed.getDisableExposureCollection()).isFalse();
   }
 }

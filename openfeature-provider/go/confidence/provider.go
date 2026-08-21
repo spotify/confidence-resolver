@@ -31,10 +31,10 @@ type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
 type Option func(*providerOptions)
 
 type providerOptions struct {
-	statePollInterval time.Duration
-	logPollInterval   time.Duration
-	enableApplyDedup  bool
-	skipApply         bool
+	statePollInterval         time.Duration
+	logPollInterval           time.Duration
+	enableApplyDedup          bool
+	disableExposureCollection bool
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -60,31 +60,31 @@ func WithEnableApplyDedup() Option {
 	}
 }
 
-// WithSkipApply disables exposure/assignment collection for all OpenFeature
+// WithDisableExposureCollection disables exposure/assignment collection for all OpenFeature
 // evaluations through this provider. Use only for exceptional no-exposure
 // modes; resolve logs and telemetry are still sent.
-func WithSkipApply() Option {
+func WithDisableExposureCollection() Option {
 	return func(o *providerOptions) {
-		o.skipApply = true
+		o.disableExposureCollection = true
 	}
 }
 
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
-	resolverSupplier  LocalResolverSupplier
-	resolver          lr.LocalResolver
-	stateProvider     StateProvider
-	flagLogger        FlagLogger
-	clientSecret      string
-	logger            *slog.Logger
-	cancelFunc        context.CancelFunc
-	wg                sync.WaitGroup
-	mu                sync.Mutex
-	statePollInterval time.Duration
-	logPollInterval   time.Duration
-	enableApplyDedup  bool
-	skipApply         bool
+	resolverSupplier          LocalResolverSupplier
+	resolver                  lr.LocalResolver
+	stateProvider             StateProvider
+	flagLogger                FlagLogger
+	clientSecret              string
+	logger                    *slog.Logger
+	cancelFunc                context.CancelFunc
+	wg                        sync.WaitGroup
+	mu                        sync.Mutex
+	statePollInterval         time.Duration
+	logPollInterval           time.Duration
+	enableApplyDedup          bool
+	disableExposureCollection bool
 }
 
 // Compile-time interface conformance checks
@@ -126,15 +126,15 @@ func NewLocalResolverProvider(
 	}
 
 	return &LocalResolverProvider{
-		resolverSupplier:  resolverSupplier,
-		stateProvider:     stateProvider,
-		flagLogger:        flagLogger,
-		clientSecret:      clientSecret,
-		logger:            logger,
-		statePollInterval: statePollInterval,
-		logPollInterval:   logPollInterval,
-		enableApplyDedup:  options.enableApplyDedup,
-		skipApply:         options.skipApply,
+		resolverSupplier:          resolverSupplier,
+		stateProvider:             stateProvider,
+		flagLogger:                flagLogger,
+		clientSecret:              clientSecret,
+		logger:                    logger,
+		statePollInterval:         statePollInterval,
+		logPollInterval:           logPollInterval,
+		enableApplyDedup:          options.enableApplyDedup,
+		disableExposureCollection: options.disableExposureCollection,
 	}
 }
 
@@ -273,11 +273,11 @@ func evaluate[T any](
 		})
 	}
 
-	// apply=false covers both provider SkipApply and per-eval
-	// `_confidence_skip_apply`. Provider SkipApply is also forwarded on
+	// apply=false covers both provider DisableExposureCollection and per-eval
+	// `_confidence_skip_apply`. Provider DisableExposureCollection is also forwarded on
 	// setResolverState so the guest skips assign/token entirely; apply=false
 	// alone would still mint a deferred token.
-	apply := !p.skipApply
+	apply := !p.disableExposureCollection
 	if skip, ok := evalCtx["_confidence_skip_apply"]; ok {
 		if b, ok := skip.(bool); ok && b {
 			apply = false
@@ -518,10 +518,10 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 
 	// Update resolver with initial state (triggers WASM compilation and initialization)
 	setResolverStateRequest := &wasm.SetResolverStateRequest{
-		State:            initialState,
-		AccountId:        accountId,
-		EnableApplyDedup: p.enableApplyDedup,
-		SkipApply:        p.skipApply,
+		State:                     initialState,
+		AccountId:                 accountId,
+		EnableApplyDedup:          p.enableApplyDedup,
+		DisableExposureCollection: p.disableExposureCollection,
 		Sdk: &resolvertypes.Sdk{
 			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 			Version: Version,
@@ -627,10 +627,10 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 
 				// Update state
 				setResolverStateRequest := &wasm.SetResolverStateRequest{
-					State:            state,
-					AccountId:        accountId,
-					EnableApplyDedup: p.enableApplyDedup,
-					SkipApply:        p.skipApply,
+					State:                     state,
+					AccountId:                 accountId,
+					EnableApplyDedup:          p.enableApplyDedup,
+					DisableExposureCollection: p.disableExposureCollection,
 					Sdk: &resolvertypes.Sdk{
 						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 						Version: Version,
@@ -656,10 +656,10 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 		defer logTicker.Stop()
 
 		var assignTicker *time.Ticker
-		// Receive-only channel. Left nil when skipApply so the select case
+		// Receive-only channel. Left nil when disableExposureCollection so the select case
 		// below never fires — a nil chan in select is never ready.
 		var assignC <-chan time.Time
-		if !p.skipApply {
+		if !p.disableExposureCollection {
 			assignTicker = time.NewTicker(100 * time.Millisecond)
 			defer assignTicker.Stop()
 			assignC = assignTicker.C

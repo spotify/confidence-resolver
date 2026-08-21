@@ -29,10 +29,10 @@ type ProviderConfig struct {
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
 	EnableApplyDedup              bool                 // Optional, experimental: enable apply-event dedup in the WASM resolver; off by default
-	// SkipApply disables exposure/assignment collection for all OpenFeature
-	// evaluations through this provider. Use only for exceptional no-exposure
-	// modes; resolve logs and telemetry are still sent.
-	SkipApply bool
+	// DisableExposureCollection disables exposure/assignment collection for all
+	// OpenFeature evaluations through this provider. Use only for exceptional
+	// no-exposure modes; resolve logs and telemetry are still sent.
+	DisableExposureCollection bool
 }
 
 type ProviderTestConfig struct {
@@ -45,10 +45,10 @@ type ProviderTestConfig struct {
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter   bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
-	// SkipApply disables exposure/assignment collection for all OpenFeature
-	// evaluations through this provider. Use only for exceptional no-exposure
-	// modes; resolve logs and telemetry are still sent.
-	SkipApply bool
+	// DisableExposureCollection disables exposure/assignment collection for all
+	// OpenFeature evaluations through this provider. Use only for exceptional
+	// no-exposure modes; resolve logs and telemetry are still sent.
+	DisableExposureCollection bool
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
@@ -106,7 +106,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.SkipApply)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.DisableExposureCollection)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
@@ -133,7 +133,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false, config.SkipApply)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false, config.DisableExposureCollection)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
@@ -150,7 +150,7 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool) func(contex
 }
 
 // buildProviderOptions creates options slice from provider config
-func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enableApplyDedup, skipApply bool) []Option {
+func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enableApplyDedup, disableExposureCollection bool) []Option {
 	var opts []Option
 	if statePollInterval > 0 {
 		opts = append(opts, WithStatePollInterval(statePollInterval))
@@ -161,8 +161,8 @@ func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enab
 	if enableApplyDedup {
 		opts = append(opts, WithEnableApplyDedup())
 	}
-	if skipApply {
-		opts = append(opts, WithSkipApply())
+	if disableExposureCollection {
+		opts = append(opts, WithDisableExposureCollection())
 	}
 	return opts
 }

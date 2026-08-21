@@ -349,10 +349,10 @@ By default, every flag evaluation records an exposure event (apply). Only disabl
 
 For normal feature delivery and experiments, keep applies enabled. When exposure collection is disabled, Confidence does not receive assignment/exposure events for those evaluations. Experiment results, exposure counts, assignment diagnostics, and downstream reporting that depend on exposures can be incomplete or unavailable. Resolve analytics and telemetry are still sent, so this is not a general logging or privacy-off switch.
 
-To skip exposure collection for **all** OpenFeature evaluations through this provider, call `with_skip_apply()` on the provider options:
+To disable exposure collection for **all** OpenFeature evaluations through this provider, call `with_disable_exposure_collection()` on the provider options:
 
 ```rust
-let options = ProviderOptions::new("your-client-secret").with_skip_apply();
+let options = ProviderOptions::new("your-client-secret").with_disable_exposure_collection();
 ```
 
 To skip exposure collection for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:

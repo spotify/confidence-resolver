@@ -138,7 +138,7 @@ class ConfidenceProvider(AbstractProvider):
         flag_logger: Optional[FlagLogger] = None,
         wasm_bytes: Optional[bytes] = None,
         enable_apply_dedup: bool = False,
-        skip_apply: bool = False,
+        disable_exposure_collection: bool = False,
     ) -> None:
         """Initialize the Confidence provider.
 
@@ -158,7 +158,7 @@ class ConfidenceProvider(AbstractProvider):
                 the WASM resolver: repeated identical assignments within a
                 short TTL window are logged once. Off by default; the API may
                 change.
-            skip_apply: Disable exposure/assignment collection for all
+            disable_exposure_collection: Disable exposure/assignment collection for all
                 OpenFeature evaluations through this provider. Use only for
                 exceptional no-exposure modes; resolve logs and telemetry are
                 still sent.
@@ -171,7 +171,7 @@ class ConfidenceProvider(AbstractProvider):
         self._http_client = http_client
         self._grpc_channel = grpc_channel
         self._enable_apply_dedup = enable_apply_dedup
-        self._skip_apply = skip_apply
+        self._disable_exposure_collection = disable_exposure_collection
 
         # Initialize resolver (created during initialize())
         self._resolver: Optional[LocalResolver] = None
@@ -271,7 +271,7 @@ class ConfidenceProvider(AbstractProvider):
                     version=__version__,
                 )
                 self._resolver.set_resolver_state(
-                    state, account_id, sdk, self._enable_apply_dedup, self._skip_apply
+                    state, account_id, sdk, self._enable_apply_dedup, self._disable_exposure_collection
                 )
                 self._status = ProviderStatus.READY
                 self.emit_provider_ready(ProviderEventDetails())
@@ -480,9 +480,9 @@ class ConfidenceProvider(AbstractProvider):
         try:
             flag_name, path = self._parse_flag_path(flag_key)
 
-            skip_apply = self._skip_apply
+            disable_exposure_collection = self._disable_exposure_collection
             if evaluation_context and evaluation_context.attributes:
-                skip_apply = skip_apply or (
+                disable_exposure_collection = disable_exposure_collection or (
                     evaluation_context.attributes.get("_confidence_skip_apply", False)
                     is True
                 )
@@ -492,11 +492,11 @@ class ConfidenceProvider(AbstractProvider):
             resolve_req = api_pb2.ResolveFlagsRequest()
             resolve_req.flags.append(f"flags/{flag_name}")
             resolve_req.client_secret = self._client_secret
-            # apply=False covers both provider skip_apply and per-eval
-            # `_confidence_skip_apply`. Provider skip_apply is also set on the
+            # apply=False covers both provider disable_exposure_collection and per-eval
+            # `_confidence_skip_apply`. Provider disable_exposure_collection is also set on the
             # WASM guest via set_resolver_state so assign/token are skipped
             # entirely; apply=False alone would still mint a deferred token.
-            resolve_req.apply = not skip_apply
+            resolve_req.apply = not disable_exposure_collection
             if proto_context is not None:
                 resolve_req.evaluation_context.CopyFrom(proto_context)
             resolve_req.sdk.id = types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER
@@ -866,7 +866,7 @@ class ConfidenceProvider(AbstractProvider):
                             account_id,
                             sdk,
                             self._enable_apply_dedup,
-                            self._skip_apply,
+                            self._disable_exposure_collection,
                         )
                     if flushed_logs and self._flag_logger is not None:
                         self._flag_logger.write(flushed_logs)
@@ -913,9 +913,9 @@ class ConfidenceProvider(AbstractProvider):
                     logger.error("Failed to flush logs: %s", e)
                 last_full_flush = now
 
-            # Assign flush at assign_poll_interval (skipped when skip_apply)
+            # Assign flush at assign_poll_interval (skipped when disable_exposure_collection)
             if (
-                not self._skip_apply
+                not self._disable_exposure_collection
                 and now - last_assign_flush >= self._assign_poll_interval
             ):
                 self._flush_assigned()

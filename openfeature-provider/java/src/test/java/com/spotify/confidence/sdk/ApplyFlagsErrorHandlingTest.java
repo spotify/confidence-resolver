@@ -281,7 +281,7 @@ class ApplyFlagsErrorHandlingTest {
   }
 
   @Test
-  void skipApply_resolveApplyTrue_flushesResolveInfosNotAssigns() {
+  void disableExposureCollection_resolveApplyTrue_flushesResolveInfosNotAssigns() {
     final List<WriteFlagLogsRequest> captured = new ArrayList<>();
     final var resolver = new WasmLocalResolver(captured::add, false, true);
     resolver.setResolverState(buildState(), ACCOUNT, null);
@@ -302,7 +302,7 @@ class ApplyFlagsErrorHandlingTest {
   }
 
   @Test
-  void skipApply_applyFlags_isNoOpAndRecordsNoFlagAssigned() {
+  void disableExposureCollection_applyFlags_isNoOpAndRecordsNoFlagAssigned() {
     final List<WriteFlagLogsRequest> captured = new ArrayList<>();
     final var resolver = new WasmLocalResolver(captured::add, false, true);
     resolver.setResolverState(buildState(), ACCOUNT, null);

@@ -7,13 +7,13 @@ import org.junit.jupiter.api.Test;
 class LocalProviderConfigTest {
 
   @Test
-  void skipApply_defaultsToFalse() {
-    assertThat(new LocalProviderConfig().isSkipApply()).isFalse();
+  void disableExposureCollection_defaultsToFalse() {
+    assertThat(new LocalProviderConfig().isDisableExposureCollection()).isFalse();
   }
 
   @Test
-  void skipApply_canBeEnabled() {
-    final LocalProviderConfig config = LocalProviderConfig.builder().skipApply(true).build();
-    assertThat(config.isSkipApply()).isTrue();
+  void disableExposureCollection_canBeEnabled() {
+    final LocalProviderConfig config = LocalProviderConfig.builder().disableExposureCollection(true).build();
+    assertThat(config.isDisableExposureCollection()).isTrue();
   }
 }

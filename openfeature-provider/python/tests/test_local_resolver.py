@@ -46,10 +46,10 @@ class TestLocalResolverSetState:
             False,
         )
 
-    def test_set_resolver_state_stores_skip_apply(
+    def test_set_resolver_state_stores_disable_exposure_collection(
         self, wasm_bytes: bytes, test_resolver_state: bytes, test_account_id: str
     ) -> None:
-        """set_resolver_state stores skip_apply for recovery."""
+        """set_resolver_state stores disable_exposure_collection for recovery."""
         resolver = LocalResolver(wasm_bytes)
         resolver.set_resolver_state(
             test_resolver_state, test_account_id, None, False, True
@@ -160,14 +160,14 @@ class TestLocalResolverCrashRecovery:
         response = resolver.resolve_process(request)
         assert response is not None
 
-    def test_reload_restores_skip_apply(
+    def test_reload_restores_disable_exposure_collection(
         self,
         wasm_bytes: bytes,
         test_resolver_state: bytes,
         test_account_id: str,
         test_client_secret: str,
     ) -> None:
-        """After recovery, skip_apply is restored so assigns stay off."""
+        """After recovery, disable_exposure_collection is restored so assigns stay off."""
         resolver = LocalResolver(wasm_bytes)
         resolver.set_resolver_state(
             test_resolver_state, test_account_id, None, False, True

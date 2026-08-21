@@ -28,7 +28,7 @@ const SET_STATE_REQUEST = {
   state: stateBytes,
   accountId: 'confidence-test',
   enableApplyDedup: false,
-  skipApply: false,
+  disableExposureCollection: false,
 };
 
 let wasmResolver: WasmResolver;
@@ -84,10 +84,10 @@ describe('basic operation', () => {
       });
     });
 
-    describe('skipApply', () => {
+    describe('disableExposureCollection', () => {
       it('must not enqueue FlagAssigned even when resolve apply=true', () => {
         const resolver = new WasmResolver(module);
-        resolver.setResolverState({ ...SET_STATE_REQUEST, skipApply: true });
+        resolver.setResolverState({ ...SET_STATE_REQUEST, disableExposureCollection: true });
         resolver.resolveProcess(RESOLVE_REQUEST);
 
         const flushedLogs = WriteFlagLogsRequest.decode(resolver.flushLogs());
@@ -101,7 +101,7 @@ describe('basic operation', () => {
 
       it('applyFlags is a no-op and records no FlagAssigned', () => {
         const resolver = new WasmResolver(module);
-        resolver.setResolverState({ ...SET_STATE_REQUEST, skipApply: true });
+        resolver.setResolverState({ ...SET_STATE_REQUEST, disableExposureCollection: true });
         resolver.resolveProcess(RESOLVE_REQUEST);
 
         expect(() =>

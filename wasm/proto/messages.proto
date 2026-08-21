@@ -22,10 +22,11 @@ message SetResolverStateRequest {
     // Experimental: opt-in apply-event deduplication. When true, identical
     // assignments within a short TTL window are logged once. Off by default.
     bool enable_apply_dedup = 4;
-    // Skip apply/assignment logging entirely. When true, WASM never enqueues
-    // FlagAssigned events — the assign queue stays empty. Provider skipApply
-    // config is forwarded here on every setResolverState.
-    bool skip_apply = 5;
+    // Disable exposure (apply/assignment) collection entirely. When true, WASM
+    // never enqueues FlagAssigned events — the assign queue stays empty.
+    // Provider disableExposureCollection config is forwarded here on every
+    // setResolverState.
+    bool disable_exposure_collection = 5;
 }
 
 message ResolveSimpleRequest {

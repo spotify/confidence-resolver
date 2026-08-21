@@ -25,7 +25,7 @@ const SET_STATE_REQUEST = {
   state: stateBytes,
   accountId: 'confidence-test',
   enableApplyDedup: false,
-  skipApply: false,
+  disableExposureCollection: false,
 };
 
 describe('wasm memory stability', () => {
