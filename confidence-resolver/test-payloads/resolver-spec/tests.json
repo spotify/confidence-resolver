@@ -2631,6 +2631,60 @@
     }
   },
   {
+    "name": "starts_with_numeric_context_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/starts-with-numeric-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "code": 42
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/starts-with-numeric-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "ends_with_numeric_context_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/ends-with-numeric-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "code": 42
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/ends-with-numeric-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
     "name": "contains_no_match",
     "resolveRequest": {
       "flags": ["flags/contains-flag"],

@@ -661,6 +661,8 @@ spec_test!(set_no_match);
 spec_test!(range_no_match);
 spec_test!(starts_with_no_match);
 spec_test!(ends_with_no_match);
+spec_test!(starts_with_numeric_context_no_match);
+spec_test!(ends_with_numeric_context_no_match);
 spec_test!(contains_no_match);
 spec_test!(contains_case_sensitive_no_match);
 spec_test!(contains_empty_list_no_match);

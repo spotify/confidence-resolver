@@ -83,39 +83,77 @@ pub fn convert_to_targeting_value(
     })
 }
 
-pub fn convert_to_targeting_value_without_string_coercion(
+pub fn convert_to_targeting_value_for_criterion(
     attribute_value: &Value,
-) -> Fallible<Option<targeting::Value>> {
-    Ok(match &attribute_value.kind {
-        None | Some(Kind::NullValue(_)) => None,
-        Some(Kind::NumberValue(num_value)) => Some(targeting::Value {
-            value: Some(targeting::value::Value::NumberValue(*num_value)),
-        }),
-        Some(Kind::StringValue(str_value)) => Some(targeting::Value {
-            value: Some(targeting::value::Value::StringValue(str_value.clone())),
-        }),
-        Some(Kind::BoolValue(bool_value)) => Some(targeting::Value {
-            value: Some(targeting::value::Value::BoolValue(*bool_value)),
-        }),
+    attribute_criterion: &criterion::AttributeCriterion,
+) -> Fallible<targeting::value::Value> {
+    if uses_strict_string_operator(attribute_criterion) {
+        Ok(convert_to_strict_string_operator_value(attribute_value))
+    } else {
+        convert_to_targeting_value(attribute_value, expected_value_type(attribute_criterion))
+    }
+}
+
+fn uses_strict_string_operator(attribute_criterion: &criterion::AttributeCriterion) -> bool {
+    match attribute_criterion.rule.as_ref() {
+        Some(criterion::attribute_criterion::Rule::StartsWithRule(_))
+        | Some(criterion::attribute_criterion::Rule::EndsWithRule(_))
+        | Some(criterion::attribute_criterion::Rule::ContainsRule(_)) => true,
+        Some(criterion::attribute_criterion::Rule::AnyRule(targeting::AnyRule {
+            rule: Some(inner_rule),
+        }))
+        | Some(criterion::attribute_criterion::Rule::AllRule(targeting::AllRule {
+            rule: Some(inner_rule),
+        })) => uses_strict_string_inner_operator(inner_rule),
+        _ => false,
+    }
+}
+
+fn uses_strict_string_inner_operator(inner_rule: &targeting::InnerRule) -> bool {
+    matches!(
+        inner_rule.rule.as_ref(),
+        Some(targeting::inner_rule::Rule::StartsWithRule(_))
+            | Some(targeting::inner_rule::Rule::EndsWithRule(_))
+            | Some(targeting::inner_rule::Rule::ContainsRule(_))
+    )
+}
+
+fn convert_to_strict_string_operator_value(attribute_value: &Value) -> targeting::value::Value {
+    match &attribute_value.kind {
+        Some(Kind::StringValue(str_value)) => {
+            targeting::value::Value::StringValue(str_value.clone())
+        }
         Some(Kind::ListValue(list_value)) => {
-            let mut converted_values: Vec<targeting::Value> =
-                Vec::with_capacity(list_value.values.len());
-
-            for value in &list_value.values {
-                if let Some(converted) = convert_to_targeting_value_without_string_coercion(value)?
-                {
-                    converted_values.push(converted);
-                }
-            }
-
-            Some(targeting::Value {
-                value: Some(targeting::value::Value::ListValue(targeting::ListValue {
-                    values: converted_values,
-                })),
+            targeting::value::Value::ListValue(targeting::ListValue {
+                values: list_value
+                    .values
+                    .iter()
+                    .map(convert_to_strict_string_operator_list_item)
+                    .collect(),
             })
         }
-        Some(Kind::StructValue(_)) => Some(targeting::Value { value: None }),
-    })
+        _ => targeting::value::Value::ListValue(targeting::ListValue {
+            values: vec![targeting::Value { value: None }],
+        }),
+    }
+}
+
+fn convert_to_strict_string_operator_list_item(attribute_value: &Value) -> targeting::Value {
+    match &attribute_value.kind {
+        Some(Kind::StringValue(str_value)) => targeting::Value {
+            value: Some(targeting::value::Value::StringValue(str_value.clone())),
+        },
+        Some(Kind::ListValue(list_value)) => targeting::Value {
+            value: Some(targeting::value::Value::ListValue(targeting::ListValue {
+                values: list_value
+                    .values
+                    .iter()
+                    .map(convert_to_strict_string_operator_list_item)
+                    .collect(),
+            })),
+        },
+        _ => targeting::Value { value: None },
+    }
 }
 
 pub fn evaluate_criterion(
@@ -461,16 +499,8 @@ pub fn expected_value_type(
     attribute_criterion.expected_value_type()
 }
 
-pub fn uses_contains_rule(attribute_criterion: &targeting::criterion::AttributeCriterion) -> bool {
-    attribute_criterion.uses_contains_rule()
-}
-
 trait ExpectedValueType {
     fn expected_value_type(&self) -> Option<&targeting::value::Value>;
-}
-
-trait UsesContainsRule {
-    fn uses_contains_rule(&self) -> bool;
 }
 
 impl ExpectedValueType for targeting::criterion::AttributeCriterion {
@@ -506,32 +536,6 @@ impl ExpectedValueType for targeting::InnerRule {
             | targeting::inner_rule::Rule::EndsWithRule(_)
             | targeting::inner_rule::Rule::ContainsRule(_) => Some(&STRING_VALUE_TYPE),
         }
-    }
-}
-
-impl UsesContainsRule for targeting::criterion::AttributeCriterion {
-    fn uses_contains_rule(&self) -> bool {
-        match self.rule.as_ref() {
-            Some(criterion::attribute_criterion::Rule::ContainsRule(_)) => true,
-            Some(criterion::attribute_criterion::Rule::AnyRule(any_rule)) => any_rule
-                .rule
-                .as_ref()
-                .is_some_and(UsesContainsRule::uses_contains_rule),
-            Some(criterion::attribute_criterion::Rule::AllRule(all_rule)) => all_rule
-                .rule
-                .as_ref()
-                .is_some_and(UsesContainsRule::uses_contains_rule),
-            _ => false,
-        }
-    }
-}
-
-impl UsesContainsRule for targeting::InnerRule {
-    fn uses_contains_rule(&self) -> bool {
-        matches!(
-            self.rule.as_ref(),
-            Some(targeting::inner_rule::Rule::ContainsRule(_))
-        )
     }
 }
 
