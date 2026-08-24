@@ -65,9 +65,10 @@ Consequences worth knowing before relying on this for billing-grade data:
 
 **Go cannot distinguish `value: 0` from an unset value.** Go's
 `openfeature.TrackingEventDetails` stores `value` as a plain `float64` with no
-"is set" flag, and `NewTrackingEventDetails(v)` is the only constructor. Java
-(`Optional<Number>`) and JS (`number | undefined`) can tell them apart and
-forward an explicit `0` correctly.
+"is set" flag, and `NewTrackingEventDetails(v)` is the only constructor. Every
+other provider can tell them apart and forwards an explicit `0` correctly:
+Java uses `Optional<Number>`, JS `number | undefined`, Python
+`Optional[float]`.
 
 The Go provider therefore treats `0` as unset and omits it. The alternative —
 always sending — would attach a spurious `value: 0` to every event where the

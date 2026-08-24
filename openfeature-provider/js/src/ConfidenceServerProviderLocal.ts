@@ -1,4 +1,11 @@
-import type { EvaluationContext, JsonValue, Provider, ProviderMetadata, ProviderStatus } from '@openfeature/server-sdk';
+import type {
+  EvaluationContext,
+  JsonValue,
+  Provider,
+  ProviderMetadata,
+  ProviderStatus,
+  TrackingEventDetails,
+} from '@openfeature/server-sdk';
 import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
@@ -266,12 +273,12 @@ export class ConfidenceServerProviderLocal implements Provider {
     logger.warn(`Event drain hit the ${MAX_DRAIN_BATCHES}-batch limit on shutdown; dropping the rest`);
   }
 
-  track(eventName: string, context?: EvaluationContext, details?: { value?: number; [key: string]: any }): void {
+  track(trackingEventName: string, context?: EvaluationContext, details?: TrackingEventDetails): void {
     if (!this.eventResolver) return;
 
     const { value, ...customData } = details ?? {};
     const trackRequest: TrackEventRequest = {
-      eventName,
+      eventName: trackingEventName,
       eventTime: new Date(),
       value,
       context: context ? ConfidenceServerProviderLocal.convertEvaluationContext(context) : undefined,

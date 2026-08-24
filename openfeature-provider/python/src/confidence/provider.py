@@ -21,6 +21,7 @@ from openfeature.event import ProviderEventDetails
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 from openfeature.provider import AbstractProvider, Metadata, ProviderStatus
+from openfeature.track import TrackingEventDetails
 
 from confidence.event_resolver import EventResolver
 from confidence.flag_logger import (
@@ -964,29 +965,34 @@ class ConfidenceProvider(AbstractProvider):
 
     def track(
         self,
-        event_name: str,
-        context: Optional[EvaluationContext] = None,
-        value: Optional[float] = None,
-        data: Optional[Dict[str, Any]] = None,
+        tracking_event_name: str,
+        evaluation_context: Optional[EvaluationContext] = None,
+        tracking_event_details: Optional[TrackingEventDetails] = None,
     ) -> None:
         """Track an event for the Confidence events API.
 
-        Requires the provider to be initialized with event_wasm_path or
-        event_wasm_bytes. If event tracking is not configured, this method
-        is a no-op.
+        Implements the OpenFeature ``FeatureProvider.track`` interface. Requires
+        the provider to be initialized with event_wasm_path or event_wasm_bytes;
+        if event tracking is not configured this method is a no-op.
 
         Args:
-            event_name: The bare event name (e.g. "my_event").
-            context: Optional OpenFeature evaluation context.
-            value: Optional numeric value associated with the event.
-            data: Optional custom data dictionary for the event.
+            tracking_event_name: The bare event name (e.g. "my_event"). The WASM
+                engine prepends the "eventDefinitions/" prefix.
+            evaluation_context: Optional OpenFeature evaluation context.
+            tracking_event_details: Optional OpenFeature tracking details, whose
+                ``value`` is an Optional[float] (so an explicit 0 is preserved)
+                and whose ``attributes`` become the event's custom data.
         """
         if self._event_resolver is None:
             return
 
+        context = evaluation_context
+        value = tracking_event_details.value if tracking_event_details else None
+        data = tracking_event_details.attributes if tracking_event_details else None
+
         try:
             request = events_wasm_pb2.TrackEventRequest()
-            request.event_name = event_name
+            request.event_name = tracking_event_name
 
             # Set event_time to now
             now = datetime.now(timezone.utc)
@@ -1013,7 +1019,9 @@ class ConfidenceProvider(AbstractProvider):
             with self._event_resolver_lock:
                 self._event_resolver.track_event(request)
         except Exception:
-            logger.warning("Failed to track event '%s'", event_name, exc_info=True)
+            logger.warning(
+                "Failed to track event '%s'", tracking_event_name, exc_info=True
+            )
 
     def _flush_events(self) -> int:
         """Flush pending events from the event resolver and send them.
