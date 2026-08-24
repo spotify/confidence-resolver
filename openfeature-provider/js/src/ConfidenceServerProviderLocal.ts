@@ -198,8 +198,25 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async onClose(): Promise<void> {
-    await this.flush(timeoutSignal(3000));
-    this.main.abort();
+    const signal = timeoutSignal(3000);
+    try {
+      try {
+        await this.flush(signal);
+      } catch {
+        // best-effort: try an init-only request below
+      }
+      if (this.initTelemetryState !== 'sent') {
+        try {
+          const request = this.addProviderInitTelemetry(new Uint8Array());
+          await this.sendFlagLogs(request, signal);
+          this.initTelemetryState = 'sent';
+        } catch {
+          // best-effort: provider is shutting down
+        }
+      }
+    } finally {
+      this.main.abort();
+    }
   }
 
   async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
@@ -383,16 +400,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       const includeInit = this.initTelemetryState === 'pending';
       if (includeInit) {
         this.initTelemetryState = 'sending';
-        const decoded = WriteFlagLogsRequest.decode(writeFlagLogRequest);
-        if (!decoded.telemetryData) {
-          decoded.telemetryData = { resolverVersion: '', providerInitRate: [] };
-        }
-        decoded.telemetryData.sdk = {
-          id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-          version: VERSION,
-        };
-        decoded.telemetryData.providerInitRate.push({ count: 1, labels: this.initLabels });
-        writeFlagLogRequest = WriteFlagLogsRequest.encode(decoded).finish();
+        writeFlagLogRequest = this.addProviderInitTelemetry(writeFlagLogRequest);
       }
       try {
         await this.sendFlagLogs(writeFlagLogRequest, signal);
@@ -429,7 +437,6 @@ export class ConfidenceServerProviderLocal implements Provider {
           logger.warn('Primary flag log destination returned error, trying fallback');
           continue;
         }
-        throw new Error('Failed to send flag logs to all destinations');
       } catch (err) {
         if (!isLast) {
           logger.warn('Primary flag log destination failed, trying fallback', err);
@@ -440,6 +447,19 @@ export class ConfidenceServerProviderLocal implements Provider {
         throw err;
       }
     }
+  }
+
+  private addProviderInitTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
+    const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
+    if (!request.telemetryData) {
+      request.telemetryData = { resolverVersion: '', providerInitRate: [] };
+    }
+    request.telemetryData.sdk = {
+      id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+      version: VERSION,
+    };
+    request.telemetryData.providerInitRate.push({ count: 1, labels: this.initLabels });
+    return WriteFlagLogsRequest.encode(request).finish();
   }
 
   /**

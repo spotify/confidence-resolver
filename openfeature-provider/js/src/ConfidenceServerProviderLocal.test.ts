@@ -188,7 +188,7 @@ describe('flush behavior', () => {
     ]);
   });
 
-  it('retries provider init telemetry after a failed send', async () => {
+  it('does not retry provider init telemetry after an HTTP failure', async () => {
     const sentBodies: Uint8Array[] = [];
     let attempts = 0;
     net.resolver.flagLogs.handler = async (req: Request) => {
@@ -202,13 +202,13 @@ describe('flush behavior', () => {
       ).finish(),
     );
 
-    await advanceTimersUntil(expect(provider.flush()).rejects.toThrow('Failed to send flag logs'));
+    await advanceTimersUntil(provider.flush());
     await advanceTimersUntil(provider.flush());
 
     const firstAttempt = WriteFlagLogsRequest.decode(sentBodies[0]);
     const retryAttempt = WriteFlagLogsRequest.decode(sentBodies[3]);
     expect(firstAttempt.telemetryData?.providerInitRate).toHaveLength(1);
-    expect(retryAttempt.telemetryData?.providerInitRate).toHaveLength(1);
+    expect(retryAttempt.telemetryData?.providerInitRate).toHaveLength(0);
   });
 
   it('flushes periodically at the configured interval', async () => {
@@ -230,7 +230,7 @@ describe('flush behavior', () => {
     net.resolver.flagLogs.status = 503;
 
     const start = net.resolver.flagLogs.calls;
-    await advanceTimersUntil(expect(provider.flush()).rejects.toThrow('Failed to send flag logs'));
+    await advanceTimersUntil(provider.flush());
 
     const attempts = net.resolver.flagLogs.calls - start;
     expect(attempts).toBe(3);
@@ -244,6 +244,27 @@ describe('flush behavior', () => {
     await advanceTimersUntil(expect(provider.onClose()).resolves.toBeUndefined());
 
     expect(net.resolver.flagLogs.calls).toBe(start + 1);
+  });
+  it('emits provider init telemetry on close when there are no resolver logs', async () => {
+    let sentBody: Uint8Array | undefined;
+    net.resolver.flagLogs.handler = async (req: Request) => {
+      sentBody = new Uint8Array(await req.arrayBuffer());
+      return new Response(null, { status: 200 });
+    };
+    mockedWasmResolver.flushLogs.mockReturnValueOnce(new Uint8Array(0));
+
+    await advanceTimersUntil(expect(provider.onClose()).resolves.toBeUndefined());
+
+    expect(sentBody).toBeDefined();
+    const decoded = WriteFlagLogsRequest.decode(sentBody!);
+    expect(decoded.telemetryData?.sdk).toEqual({ id: 22, customId: undefined, version: VERSION });
+    expect(decoded.telemetryData?.providerInitRate).toEqual([{ count: 1, labels: { encryption: 'false' } }]);
+  });
+  it('keeps close best-effort when provider init telemetry cannot be sent', async () => {
+    mockedWasmResolver.flushLogs.mockReturnValueOnce(new Uint8Array(0));
+    net.resolver.flagLogs.status = 'No network';
+
+    await advanceTimersUntil(expect(provider.onClose()).resolves.toBeUndefined());
   });
   it('skips flush if there are no logs to send', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
