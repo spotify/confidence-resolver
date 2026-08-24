@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -37,6 +38,21 @@ class GrpcWasmFlagLoggerTest {
     // Then
     verify(mockStub, never()).clientWriteFlagLogs(any());
     logger.shutdown();
+  }
+
+  @Test
+  void testTelemetryOnlyRequest_shouldSend() {
+    final var capturedRequest = new AtomicReference<WriteFlagLogsRequest>();
+    final var logger = new GrpcWasmFlagLogger("test-client-secret", capturedRequest::set);
+    final var request =
+        WriteFlagLogsRequest.newBuilder()
+            .setTelemetryData(TelemetryData.getDefaultInstance())
+            .build();
+
+    logger.write(request);
+    logger.shutdown();
+
+    assertEquals(request, capturedRequest.get());
   }
 
   @Test

@@ -77,6 +77,8 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly stateUpdateInterval: number;
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
+  private readonly initLabels: Record<string, string>;
+  private initTelemetryState: 'pending' | 'sending' | 'sent' = 'pending';
   private stateEtag: string | null = null;
   private logDestinations: LogDestination[] = [];
   private accountId = '';
@@ -164,6 +166,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     } else {
       this.materializationStore = null;
     }
+    this.initLabels = { encryption: options.encryptionKey ? 'true' : 'false' };
   }
 
   async initialize(context?: EvaluationContext): Promise<void> {
@@ -195,8 +198,25 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async onClose(): Promise<void> {
-    await this.flush(timeoutSignal(3000));
-    this.main.abort();
+    const signal = timeoutSignal(3000);
+    try {
+      try {
+        await this.flush(signal);
+      } catch {
+        // best-effort: try an init-only request below
+      }
+      if (this.initTelemetryState !== 'sent') {
+        try {
+          const request = this.addProviderInitTelemetry(new Uint8Array());
+          await this.sendFlagLogs(request, signal);
+          this.initTelemetryState = 'sent';
+        } catch {
+          // best-effort: provider is shutting down
+        }
+      }
+    } finally {
+      this.main.abort();
+    }
   }
 
   async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
@@ -375,9 +395,24 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   // TODO should this return success/failure, or even throw?
   async flush(signal?: AbortSignal): Promise<void> {
-    const writeFlagLogRequest = this.resolver.flushLogs();
+    let writeFlagLogRequest = this.resolver.flushLogs();
     if (writeFlagLogRequest.length > 0) {
-      await this.sendFlagLogs(writeFlagLogRequest, signal);
+      const includeInit = this.initTelemetryState === 'pending';
+      if (includeInit) {
+        this.initTelemetryState = 'sending';
+        writeFlagLogRequest = this.addProviderInitTelemetry(writeFlagLogRequest);
+      }
+      try {
+        await this.sendFlagLogs(writeFlagLogRequest, signal);
+        if (includeInit) {
+          this.initTelemetryState = 'sent';
+        }
+      } catch (error) {
+        if (includeInit) {
+          this.initTelemetryState = 'pending';
+        }
+        throw error;
+      }
     }
   }
 
@@ -412,6 +447,19 @@ export class ConfidenceServerProviderLocal implements Provider {
         throw err;
       }
     }
+  }
+
+  private addProviderInitTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
+    const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
+    if (!request.telemetryData) {
+      request.telemetryData = { resolverVersion: '', providerInitRate: [] };
+    }
+    request.telemetryData.sdk = {
+      id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
+      version: VERSION,
+    };
+    request.telemetryData.providerInitRate.push({ count: 1, labels: this.initLabels });
+    return WriteFlagLogsRequest.encode(request).finish();
   }
 
   /**

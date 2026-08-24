@@ -1,5 +1,7 @@
 //! Log management for sending flag logs to the Confidence API.
 
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use prost::Message;
@@ -7,7 +9,9 @@ use reqwest_middleware::ClientWithMiddleware;
 use tokio::sync::RwLock;
 
 use confidence_resolver::assign_logger::AssignLogger;
-use confidence_resolver::proto::confidence::flags::resolver::v1::{Sdk, WriteFlagLogsRequest};
+use confidence_resolver::proto::confidence::flags::resolver::v1::{
+    telemetry_data::ProviderInitRate, Sdk, WriteFlagLogsRequest,
+};
 use confidence_resolver::resolve_logger::ResolveLogger;
 
 use crate::error::Result;
@@ -20,6 +24,35 @@ const CLOUDFLARE_URL: &str =
 
 /// Target size for log batches (4 MB).
 const LOG_TARGET_BYTES: usize = 4 * 1024 * 1024;
+const INIT_PENDING: u8 = 0;
+const INIT_SENDING: u8 = 1;
+const INIT_SENT: u8 = 2;
+
+struct InitTelemetryState(AtomicU8);
+
+impl InitTelemetryState {
+    fn new() -> Self {
+        Self(AtomicU8::new(INIT_PENDING))
+    }
+
+    fn claim(&self) -> bool {
+        self.0
+            .compare_exchange(
+                INIT_PENDING,
+                INIT_SENDING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    fn complete(&self, success: bool) {
+        self.0.store(
+            if success { INIT_SENT } else { INIT_PENDING },
+            Ordering::Release,
+        );
+    }
+}
 
 /// Log sender that sends flag logs to the Confidence API.
 pub struct LogSender {
@@ -156,19 +189,25 @@ fn encode_ingest_request(account_id: &str, batch: &[u8]) -> Vec<u8> {
 pub struct LogManager {
     sender: LogSender,
     sdk: Sdk,
+    init_labels: BTreeMap<String, String>,
+    init_state: InitTelemetryState,
 }
 
 impl LogManager {
+    /// Create a new log manager with the given client, client secret, and SDK identity.
     pub fn new(
         client: ClientWithMiddleware,
         client_secret: String,
         sdk: Sdk,
         account_id: Arc<RwLock<Option<String>>>,
         destinations: Arc<RwLock<Vec<LogDestination>>>,
+        init_labels: BTreeMap<String, String>,
     ) -> Self {
         Self {
             sender: LogSender::new(client, client_secret, account_id, destinations),
             sdk,
+            init_labels,
+            init_state: InitTelemetryState::new(),
         }
     }
 
@@ -183,11 +222,26 @@ impl LogManager {
 
         let mut td = TELEMETRY.delta_snapshot(&LAST_FLUSHED);
         td.sdk = Some(self.sdk.clone());
+        let include_init = self.init_state.claim();
+        if include_init {
+            td.provider_init_rate.push(ProviderInitRate {
+                count: 1,
+                labels: self.init_labels.clone(),
+            });
+        }
         request.telemetry_data = Some(td);
 
         let encoded = request.encode_to_vec();
         if !encoded.is_empty() && has_logs(&request) {
-            self.sender.send(&encoded).await?;
+            if let Err(error) = self.sender.send(&encoded).await {
+                if include_init {
+                    self.init_state.complete(false);
+                }
+                return Err(error);
+            }
+            if include_init {
+                self.init_state.complete(true);
+            }
         }
 
         Ok(())
@@ -246,5 +300,17 @@ mod tests {
 
         assert_eq!(decoded.account_id, "acct");
         assert!(decoded.batch.is_empty());
+    }
+
+    #[test]
+    fn init_telemetry_state_retries_failure_and_stops_after_success() {
+        let state = InitTelemetryState::new();
+
+        assert!(state.claim());
+        assert!(!state.claim());
+        state.complete(false);
+        assert!(state.claim());
+        state.complete(true);
+        assert!(!state.claim());
     }
 }

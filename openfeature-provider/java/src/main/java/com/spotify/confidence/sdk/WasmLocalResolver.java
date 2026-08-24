@@ -63,7 +63,7 @@ class WasmLocalResolver implements LocalResolver {
   private final boolean disableExposureCollection;
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
-    this(logSink, false);
+    this(logSink, false, false);
   }
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink, boolean enableApplyDedup) {
@@ -288,7 +288,8 @@ class WasmLocalResolver implements LocalResolver {
   private static boolean isEmptyLogRequest(WriteFlagLogsRequest request) {
     return request.getFlagAssignedCount() == 0
         && request.getClientResolveInfoCount() == 0
-        && request.getFlagResolveInfoCount() == 0;
+        && request.getFlagResolveInfoCount() == 0
+        && !request.hasTelemetryData();
   }
 
   private <T extends Message> T consumeResponse(int addr, ParserFn<T> codec) {
@@ -296,9 +297,8 @@ class WasmLocalResolver implements LocalResolver {
       final Messages.Response response = Messages.Response.parseFrom(consume(addr));
       if (response.hasError()) {
         throw new RuntimeException(response.getError());
-      } else {
-        return codec.apply(response.getData().toByteArray());
       }
+      return codec.apply(response.getData().toByteArray());
     } catch (InvalidProtocolBufferException e) {
       throw new RuntimeException(e);
     }
