@@ -654,8 +654,9 @@ COPY openfeature-provider/proto ../proto/
 COPY openfeature-provider/python/src ./src/
 COPY openfeature-provider/python/tests ./tests/
 
-# Copy WASM module into resources
+# Copy WASM modules into resources
 COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ./resources/wasm/confidence_resolver.wasm
+COPY --from=wasm-event-guest.artifact /confidence_event_engine.wasm ./resources/wasm/confidence_event_engine.wasm
 
 # Copy test data fixtures (needed by tests)
 # conftest.py expects data at ../../data relative to python dir
