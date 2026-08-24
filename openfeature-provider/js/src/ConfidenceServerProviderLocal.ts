@@ -20,6 +20,11 @@ import { ClientResolverState, LogDestination } from './proto/confidence/flags/ad
 import { IngestFlagLogsRequest, WriteFlagLogsRequest } from './proto/confidence/flags/resolver/v1/internal_api';
 import FlagBundleType, * as FlagBundle from './flag-bundle';
 import { ErrorCode, ResolutionDetails } from './types';
+import type { EventResolver } from './EventWasmResolver';
+import { TrackEventRequest, FlushEventsResponse } from './proto/confidence/events/wasm/v1/wasm_api';
+import { SdkId as EventsSdkId } from './proto/confidence/events/v1/types';
+import { PublishEventsRequest, PublishEventsResponse } from './proto/confidence/events/v1/api';
+import { EventError_Reason } from './proto/confidence/events/v1/types';
 
 type FlagBundle = FlagBundleType;
 const logger = getLogger('provider');
@@ -27,6 +32,8 @@ const logger = getLogger('provider');
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
 export const DEFAULT_FLUSH_INTERVAL = 15_000;
+/** Upper bound on flush calls during shutdown drain, so a failing publish cannot spin forever. */
+const MAX_DRAIN_BATCHES = 100;
 
 /**
  * Configuration for {@link ConfidenceServerProviderLocal.getPrometheusMetrics}.
@@ -58,6 +65,8 @@ export interface ProviderOptions {
    * logs and telemetry are still sent.
    */
   disableExposureCollection?: boolean;
+  /** Optional event resolver for OpenFeature track() support. */
+  eventResolver?: EventResolver | Promise<EventResolver>;
 }
 
 /**
@@ -79,6 +88,8 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly materializationStore: MaterializationStore | null;
   private readonly initLabels: Record<string, string>;
   private initTelemetryState: 'pending' | 'sending' | 'sent' = 'pending';
+  private readonly eventResolverOrPromise: EventResolver | Promise<EventResolver> | null;
+  private eventResolver: EventResolver | null = null;
   private stateEtag: string | null = null;
   private logDestinations: LogDestination[] = [];
   private accountId = '';
@@ -143,6 +154,13 @@ export class ConfidenceServerProviderLocal implements Provider {
             }),
             withTimeout(5 * TimeUnit.SECOND),
           ],
+          'https://events.confidence.dev/*': [
+            withRetry({
+              maxAttempts: 3,
+              baseInterval: 500,
+            }),
+            withTimeout(5 * TimeUnit.SECOND),
+          ],
           '*': [
             withResponse(url => {
               throw new Error(`Unknown route ${url}`);
@@ -153,6 +171,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       ],
       options.fetch ?? fetch,
     );
+    this.eventResolverOrPromise = options.eventResolver ?? null;
     if (options.materializationStore) {
       if (options.materializationStore === 'CONFIDENCE_REMOTE_STORE') {
         this.materializationStore = new ConfidenceRemoteMaterializationStore(
@@ -187,6 +206,12 @@ export class ConfidenceServerProviderLocal implements Provider {
       // TODO if 403 here,
       await this.updateState(initialUpdateSignal);
       scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
+      if (this.eventResolverOrPromise) {
+        this.eventResolver = await this.eventResolverOrPromise;
+      }
+      if (this.eventResolver) {
+        scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
+      }
       // TODO Better with fixed delay so we don't do a double fetch when we're behind. Alt, skip if in progress
       scheduleWithFixedInterval(signal => this.updateState(signal), this.stateUpdateInterval, { signal });
       this.status = castStringToEnum<ProviderStatus>('READY');
@@ -214,8 +239,86 @@ export class ConfidenceServerProviderLocal implements Provider {
           // best-effort: provider is shutting down
         }
       }
+      if (this.eventResolver) {
+        try {
+          await this.drainEvents(signal);
+        } catch {
+          // best-effort: provider is shutting down
+        }
+      }
     } finally {
       this.main.abort();
+    }
+  }
+
+  /**
+   * Drain every buffered event on shutdown. A single flush is capped at the
+   * WASM-side byte limit, so one call can leave a backlog behind. Bounded so a
+   * failing publish cannot spin forever.
+   */
+  private async drainEvents(signal?: AbortSignal): Promise<void> {
+    if (!this.eventResolver) return;
+    for (let i = 0; i < MAX_DRAIN_BATCHES; i++) {
+      const batch = this.eventResolver.flushEvents();
+      if (!batch.events || batch.events.length === 0) return;
+      await this.sendEvents(batch, signal);
+    }
+    logger.warn(`Event drain hit the ${MAX_DRAIN_BATCHES}-batch limit on shutdown; dropping the rest`);
+  }
+
+  track(eventName: string, context?: EvaluationContext, details?: { value?: number; [key: string]: any }): void {
+    if (!this.eventResolver) return;
+
+    const { value, ...customData } = details ?? {};
+    const trackRequest: TrackEventRequest = {
+      eventName,
+      eventTime: new Date(),
+      value,
+      context: context ? ConfidenceServerProviderLocal.convertEvaluationContext(context) : undefined,
+      data: Object.keys(customData).length > 0 ? customData : undefined,
+    };
+    try {
+      this.eventResolver.trackEvent(trackRequest);
+    } catch (err) {
+      logger.warn('Failed to track event:', err);
+    }
+  }
+
+  private async flushEvents(signal?: AbortSignal): Promise<void> {
+    if (!this.eventResolver) return;
+    const batch = this.eventResolver.flushEvents();
+    if (!batch.events || batch.events.length === 0) return;
+    await this.sendEvents(batch, signal);
+  }
+
+  private async sendEvents(batch: FlushEventsResponse, signal = this.main.signal): Promise<void> {
+    const request = PublishEventsRequest.create({
+      clientSecret: this.options.flagClientSecret,
+      events: batch.events ?? [],
+      sendTime: new Date(),
+      sdk: { id: EventsSdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION },
+    });
+    const body = PublishEventsRequest.encode(request).finish();
+
+    try {
+      const response = await this.fetch('https://events.confidence.dev/v1/events:publish', {
+        method: 'post',
+        signal,
+        headers: { 'Content-Type': 'application/x-protobuf' },
+        body: body as Uint8Array<ArrayBuffer>,
+      });
+      if (!response.ok) {
+        logger.error(`Failed to send events: ${response.status} ${response.statusText}`);
+        return;
+      }
+      const { errors } = PublishEventsResponse.decode(new Uint8Array(await response.arrayBuffer()));
+      for (const error of errors) {
+        logger.error(
+          `Failed to publish event at index ${error.index}: ${EventError_Reason[error.reason]} ${error.message}`,
+        );
+      }
+    } catch (err) {
+      logger.warn('Failed to send events:', err);
     }
   }
 

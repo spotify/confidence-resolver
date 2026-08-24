@@ -25,6 +25,25 @@ import java.util.concurrent.TimeUnit;
  */
 public class DefaultChannelFactory implements ChannelFactory {
 
+  private static final Map<String, Object> RETRY_POLICY =
+      Map.of(
+          "maxAttempts",
+          3.0,
+          "initialBackoff",
+          "1s",
+          "maxBackoff",
+          "10s",
+          "backoffMultiplier",
+          2.0,
+          "retryableStatusCodes",
+          List.of("UNAVAILABLE"));
+
+  /**
+   * Retry policies applied to every channel this factory builds. Entries are scoped per service, so
+   * a channel only ever retries the service it actually talks to: the flag-log channel retries
+   * {@code InternalFlagLoggerService}, the events channel (see {@link
+   * GrpcUtil#createConfidenceEventsChannel(ChannelFactory)}) retries {@code EventsService}.
+   */
   static final Map<String, Object> RETRY_SERVICE_CONFIG =
       Map.of(
           "methodConfig",
@@ -34,17 +53,12 @@ public class DefaultChannelFactory implements ChannelFactory {
                   List.of(
                       Map.of("service", "confidence.flags.resolver.v1.InternalFlagLoggerService")),
                   "retryPolicy",
-                  Map.of(
-                      "maxAttempts",
-                      3.0,
-                      "initialBackoff",
-                      "1s",
-                      "maxBackoff",
-                      "10s",
-                      "backoffMultiplier",
-                      2.0,
-                      "retryableStatusCodes",
-                      List.of("UNAVAILABLE")))));
+                  RETRY_POLICY),
+              Map.of(
+                  "name",
+                  List.of(Map.of("service", "confidence.events.v1.EventsService")),
+                  "retryPolicy",
+                  RETRY_POLICY)));
 
   @Override
   public ManagedChannel create(String target, List<ClientInterceptor> defaultInterceptors) {

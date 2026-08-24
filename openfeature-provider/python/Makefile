@@ -88,7 +88,9 @@ proto: $(INSTALL_STAMP)
 		--grpc_python_out=src/confidence/proto \
 		../proto/confidence/flags/resolver/v1/*.proto \
 		../proto/confidence/wasm/*.proto \
-		../proto/confidence/flags/admin/v1/*.proto
+		../proto/confidence/flags/admin/v1/*.proto \
+		../proto/confidence/events/v1/*.proto \
+		../proto/confidence/events/wasm/v1/*.proto
 	find src/confidence/proto/confidence/flags/admin -name '*.py' -exec sed -i.bak \
 		-e 's/^from confidence\.flags\.types\.v1 import/from ...types.v1 import/' \
 		-e 's/^from confidence\.flags\.admin\.v1 import/from . import/' {} +
@@ -101,6 +103,11 @@ proto: $(INSTALL_STAMP)
 		-e 's/^from confidence\.flags\.resolver\.v1 import/from ..flags.resolver.v1 import/' \
 		-e 's/^from confidence\.flags\.types\.v1 import/from ..flags.types.v1 import/' \
 		-e 's/^from confidence\.wasm import/from . import/' {} +
+	find src/confidence/proto/confidence/events/v1 -name '*.py' -exec sed -i.bak \
+		-e 's/^from confidence\.events\.v1 import/from . import/' {} +
+	find src/confidence/proto/confidence/events/wasm -name '*.py' -exec sed -i.bak \
+		-e 's/^from confidence\.events\.v1 import/from ...v1 import/' \
+		-e 's/^from confidence\.events\.wasm\.v1 import/from . import/' {} +
 	find src/confidence/proto -name '*.py.bak' -delete
 
 # Copy WASM file (alias for compatibility)

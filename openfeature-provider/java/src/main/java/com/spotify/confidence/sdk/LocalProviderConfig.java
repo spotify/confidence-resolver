@@ -1,5 +1,9 @@
 package com.spotify.confidence.sdk;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 public class LocalProviderConfig {
   /**
    * Default number of WASM resolver instances in the pool. The actual pool size is capped at {@code
@@ -14,6 +18,7 @@ public class LocalProviderConfig {
   private final String encryptionKey;
   private final boolean enableApplyDedup;
   private final boolean disableExposureCollection;
+  private final byte[] eventWasmBytes;
 
   public LocalProviderConfig() {
     this(null, null);
@@ -55,7 +60,8 @@ public class LocalProviderConfig {
         resolverPoolSize,
         encryptionKey,
         false,
-        false);
+        false,
+        null);
   }
 
   private LocalProviderConfig(
@@ -65,7 +71,8 @@ public class LocalProviderConfig {
       int resolverPoolSize,
       String encryptionKey,
       boolean enableApplyDedup,
-      boolean disableExposureCollection) {
+      boolean disableExposureCollection,
+      byte[] eventWasmBytes) {
     this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
     this.httpClientFactory =
         httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
@@ -74,6 +81,7 @@ public class LocalProviderConfig {
     this.encryptionKey = encryptionKey;
     this.enableApplyDedup = enableApplyDedup;
     this.disableExposureCollection = disableExposureCollection;
+    this.eventWasmBytes = eventWasmBytes;
   }
 
   public ChannelFactory getChannelFactory() {
@@ -115,6 +123,14 @@ public class LocalProviderConfig {
     return disableExposureCollection;
   }
 
+  /**
+   * Returns the raw bytes of the event engine WASM binary, or {@code null} if event tracking is not
+   * enabled.
+   */
+  public byte[] getEventWasmBytes() {
+    return eventWasmBytes;
+  }
+
   public static Builder builder() {
     return new Builder();
   }
@@ -127,6 +143,7 @@ public class LocalProviderConfig {
     private String encryptionKey;
     private boolean enableApplyDedup;
     private boolean disableExposureCollection;
+    private byte[] eventWasmBytes;
 
     public Builder channelFactory(ChannelFactory channelFactory) {
       this.channelFactory = channelFactory;
@@ -180,6 +197,29 @@ public class LocalProviderConfig {
       return this;
     }
 
+    /**
+     * Sets the event engine WASM binary bytes. When set, the provider enables event tracking via
+     * {@code track()} and periodically flushes events to the Confidence events API.
+     *
+     * @param eventWasmBytes the raw bytes of the {@code confidence_event_engine.wasm} binary
+     */
+    public Builder eventWasmBytes(byte[] eventWasmBytes) {
+      this.eventWasmBytes = eventWasmBytes;
+      return this;
+    }
+
+    /**
+     * Loads the event engine WASM binary from the given file path. Convenience alternative to
+     * {@link #eventWasmBytes(byte[])}.
+     *
+     * @param eventWasmPath path to the {@code confidence_event_engine.wasm} file
+     * @throws IOException if the file cannot be read
+     */
+    public Builder eventWasmPath(Path eventWasmPath) throws IOException {
+      this.eventWasmBytes = Files.readAllBytes(eventWasmPath);
+      return this;
+    }
+
     public LocalProviderConfig build() {
       return new LocalProviderConfig(
           channelFactory,
@@ -188,7 +228,8 @@ public class LocalProviderConfig {
           resolverPoolSize,
           encryptionKey,
           enableApplyDedup,
-          disableExposureCollection);
+          disableExposureCollection,
+          eventWasmBytes);
     }
   }
 }

@@ -3,6 +3,13 @@ package com.spotify.confidence.sdk;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.Struct;
+import com.google.protobuf.Timestamp;
+import com.spotify.confidence.sdk.events.v1.EventError;
+import com.spotify.confidence.sdk.events.v1.EventsServiceGrpc;
+import com.spotify.confidence.sdk.events.v1.PublishEventsRequest;
+import com.spotify.confidence.sdk.events.v1.PublishEventsResponse;
+import com.spotify.confidence.sdk.events.wasm.v1.FlushEventsResponse;
+import com.spotify.confidence.sdk.events.wasm.v1.TrackEventRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
@@ -16,13 +23,16 @@ import dev.openfeature.sdk.*;
 import dev.openfeature.sdk.exceptions.FlagNotFoundError;
 import dev.openfeature.sdk.exceptions.GeneralError;
 import dev.openfeature.sdk.exceptions.TypeMismatchError;
+import io.grpc.ManagedChannel;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.slf4j.Logger;
@@ -59,7 +69,20 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final boolean disableExposureCollection;
   private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
   private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
+  private static final Duration EVENT_FLUSH_INTERVAL = Duration.ofSeconds(15);
   private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
+  private static final int MAX_DRAIN_BATCHES = 100;
+
+  /**
+   * Number of event publish attempts between failure-rate log lines. Mirrors {@code
+   * GrpcWasmFlagLogger.STATS_WINDOW}: publish failures are swallowed per batch so that a broken
+   * events backend cannot take down flag resolution, and this window is the only signal that they
+   * are happening.
+   */
+  private static final int EVENT_STATS_WINDOW = 10;
+
+  private final AtomicLong eventPublishAttempts = new AtomicLong();
+  private final AtomicLong eventPublishFailures = new AtomicLong();
   private final ScheduledExecutorService flagsFetcherExecutor = newFlagsFetcherExecutor();
   private final ScheduledExecutorService assignLogExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
@@ -71,6 +94,22 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   @VisibleForTesting boolean forcedFetcherShutdown = false;
   private static final Sdk SDK =
       Sdk.newBuilder().setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER).setVersion(Version.VERSION).build();
+
+  /**
+   * SDK identity reported to the events service. This is a different {@code Sdk}/{@code SdkId} pair
+   * from the flag-resolver one above — same variant name, different proto package.
+   */
+  private static final com.spotify.confidence.sdk.events.v1.Sdk EVENTS_SDK =
+      com.spotify.confidence.sdk.events.v1.Sdk.newBuilder()
+          .setId(com.spotify.confidence.sdk.events.v1.SdkId.SDK_ID_JAVA_LOCAL_PROVIDER)
+          .setVersion(Version.VERSION)
+          .build();
+
+  // Event tracking (optional — null when not configured)
+  private final WasmEventResolver eventResolver;
+  private final ScheduledExecutorService eventFlushExecutor;
+  private final ManagedChannel eventsChannel;
+  private final EventsServiceGrpc.EventsServiceBlockingStub eventsStub;
 
   private static ScheduledExecutorService newFlagsFetcherExecutor() {
     final ScheduledThreadPoolExecutor executor =
@@ -182,6 +221,22 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                                     config.isEnableApplyDedup(),
                                     config.isDisableExposureCollection()))));
     this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
+
+    // Initialize event tracking if event WASM is provided
+    if (config.getEventWasmBytes() != null) {
+      this.eventResolver = new WasmEventResolver(config.getEventWasmBytes());
+      this.eventFlushExecutor =
+          Executors.newScheduledThreadPool(
+              1,
+              new ThreadFactoryBuilder().setDaemon(true).setNameFormat("event-flush-%d").build());
+      this.eventsChannel = GrpcUtil.createConfidenceEventsChannel(config.getChannelFactory());
+      this.eventsStub = EventsServiceGrpc.newBlockingStub(this.eventsChannel);
+    } else {
+      this.eventResolver = null;
+      this.eventFlushExecutor = null;
+      this.eventsChannel = null;
+      this.eventsStub = null;
+    }
   }
 
   /**
@@ -248,6 +303,10 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                                     enableApplyDedup,
                                     disableExposureCollection))));
     this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
+    this.eventResolver = null;
+    this.eventFlushExecutor = null;
+    this.eventsChannel = null;
+    this.eventsStub = null;
   }
 
   @Override
@@ -292,6 +351,15 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
           },
           ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
           ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
+          TimeUnit.MILLISECONDS);
+    }
+
+    // Schedule event flushing if event tracking is enabled
+    if (eventFlushExecutor != null && eventResolver != null) {
+      eventFlushExecutor.scheduleAtFixedRate(
+          this::doFlushAndSendEvents,
+          EVENT_FLUSH_INTERVAL.toMillis(),
+          EVENT_FLUSH_INTERVAL.toMillis(),
           TimeUnit.MILLISECONDS);
     }
   }
@@ -422,6 +490,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     log.debug("Shutting down scheduled executors");
     flagsFetcherExecutor.shutdown();
     assignLogExecutor.shutdown();
+    if (eventFlushExecutor != null) {
+      eventFlushExecutor.shutdown();
+    }
 
     final long graceSeconds = SHUTDOWN_GRACE.toSeconds();
     try {
@@ -436,11 +507,37 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             "Assign log executor did not terminate within {}s, forcing shutdown", graceSeconds);
         assignLogExecutor.shutdownNow();
       }
+      if (eventFlushExecutor != null
+          && !eventFlushExecutor.awaitTermination(graceSeconds, TimeUnit.SECONDS)) {
+        log.warn(
+            "Event flush executor did not terminate within {}s, forcing shutdown", graceSeconds);
+        eventFlushExecutor.shutdownNow();
+      }
     } catch (InterruptedException e) {
       log.warn("Interrupted while waiting for scheduled executors to shut down", e);
       flagsFetcherExecutor.shutdownNow();
       assignLogExecutor.shutdownNow();
+      if (eventFlushExecutor != null) {
+        eventFlushExecutor.shutdownNow();
+      }
       Thread.currentThread().interrupt();
+    }
+
+    // Drain remaining events before closing the event resolver
+    drainEvents();
+    if (eventResolver != null) {
+      eventResolver.close();
+    }
+    if (eventsChannel != null) {
+      eventsChannel.shutdown();
+      try {
+        if (!eventsChannel.awaitTermination(graceSeconds, TimeUnit.SECONDS)) {
+          eventsChannel.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        eventsChannel.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
     }
 
     // if we created the materialization store ourselves we are responsible for shutting it down
@@ -566,6 +663,137 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     } catch (StatusRuntimeException e) {
       handleStatusRuntimeException(e);
       throw new GeneralError("Unknown error occurred when calling the provider backend");
+    }
+  }
+
+  // ── Event Tracking ─────────────────────────────────────────────────────────
+
+  /**
+   * Tracks an event through the Confidence event engine. Events are buffered in the WASM engine and
+   * periodically flushed to the Confidence events API.
+   *
+   * <p>This method is a no-op if event tracking was not configured (i.e., no event WASM binary was
+   * provided in {@link LocalProviderConfig}).
+   *
+   * @param trackingEventName the event name (e.g., "purchase_completed")
+   * @param context the OpenFeature evaluation context
+   * @param details tracking event details including an optional numeric value and custom data
+   */
+  @Override
+  public void track(
+      String trackingEventName, EvaluationContext context, TrackingEventDetails details) {
+    if (eventResolver == null) {
+      return;
+    }
+    try {
+      final Instant now = Instant.now();
+      final TrackEventRequest.Builder reqBuilder =
+          TrackEventRequest.newBuilder()
+              .setEventName(trackingEventName)
+              .setEventTime(
+                  Timestamp.newBuilder()
+                      .setSeconds(now.getEpochSecond())
+                      .setNanos(now.getNano())
+                      .build());
+
+      if (context != null) {
+        reqBuilder.setContext(OpenFeatureUtils.convertToProto(context));
+      }
+
+      if (details != null) {
+        details.getValue().ifPresent(v -> reqBuilder.setValue(v.doubleValue()));
+        // Convert custom data fields from TrackingEventDetails (which extends Structure)
+        if (!details.isEmpty()) {
+          final Struct.Builder dataBuilder = Struct.newBuilder();
+          details
+              .asMap()
+              .forEach(
+                  (key, value) -> dataBuilder.putFields(key, OpenFeatureTypeMapper.from(value)));
+          reqBuilder.setData(dataBuilder.build());
+        }
+      }
+
+      eventResolver.trackEvent(reqBuilder.build());
+    } catch (RuntimeException e) {
+      log.warn("Failed to track event '{}'", trackingEventName, e);
+    }
+  }
+
+  /**
+   * Flushes buffered events from the WASM engine and publishes them to the Confidence events
+   * service.
+   */
+  private void doFlushAndSendEvents() {
+    if (eventResolver == null) {
+      return;
+    }
+    try {
+      final FlushEventsResponse batch = eventResolver.flushEvents();
+      if (batch.getEventsCount() > 0) {
+        sendEvents(batch);
+      }
+    } catch (RuntimeException e) {
+      log.warn("Failed to flush events", e);
+    }
+  }
+
+  /**
+   * Drains all remaining events from the WASM engine by calling flush in a loop until no events
+   * remain.
+   */
+  private void drainEvents() {
+    if (eventResolver == null) {
+      return;
+    }
+    try {
+      // Bounded: sendEvents swallows network failures, so an unbounded loop would
+      // spin forever if the events API is unreachable during shutdown.
+      for (int i = 0; i < MAX_DRAIN_BATCHES; i++) {
+        final FlushEventsResponse batch = eventResolver.flushEvents();
+        if (batch.getEventsCount() == 0) {
+          return;
+        }
+        sendEvents(batch);
+      }
+      log.warn(
+          "Event drain hit the {}-batch limit on shutdown; dropping the rest", MAX_DRAIN_BATCHES);
+    } catch (RuntimeException e) {
+      log.warn("Failed to drain events on shutdown", e);
+    }
+  }
+
+  /** Publishes a batch of events to the Confidence events service over gRPC. */
+  private void sendEvents(FlushEventsResponse batch) {
+    if (eventsStub == null) {
+      return;
+    }
+    final Instant now = Instant.now();
+    final PublishEventsRequest request =
+        PublishEventsRequest.newBuilder()
+            .setClientSecret(clientSecret)
+            .addAllEvents(batch.getEventsList())
+            .setSendTime(
+                Timestamp.newBuilder().setSeconds(now.getEpochSecond()).setNanos(now.getNano()))
+            .setSdk(EVENTS_SDK)
+            .build();
+    try {
+      final PublishEventsResponse response = eventsStub.publishEvents(request);
+      for (final EventError error : response.getErrorsList()) {
+        log.error(
+            "Failed to publish event at index {}: {} {}",
+            error.getIndex(),
+            error.getReason(),
+            error.getMessage());
+      }
+    } catch (StatusRuntimeException e) {
+      eventPublishFailures.incrementAndGet();
+      log.warn("Failed to send events", e);
+    }
+    if (eventPublishAttempts.incrementAndGet() % EVENT_STATS_WINDOW == 0) {
+      final long failCount = eventPublishFailures.getAndSet(0);
+      if (failCount > 0) {
+        log.warn("Event publish failures: {}/{}", failCount, EVENT_STATS_WINDOW);
+      }
     }
   }
 

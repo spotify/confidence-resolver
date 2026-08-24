@@ -35,6 +35,8 @@ mkdir -p confidence/internal/proto/resolverinternal
 mkdir -p confidence/internal/proto/admin
 mkdir -p confidence/internal/proto/types
 mkdir -p confidence/internal/proto/wasm
+mkdir -p confidence/internal/proto/events
+mkdir -p confidence/internal/proto/eventswasm
 
 protoc --proto_path=../proto \
        --go_out=confidence/internal/proto \
@@ -48,7 +50,10 @@ protoc --proto_path=../proto \
        confidence/flags/resolver/v1/internal_api.proto \
        confidence/flags/admin/v1/resolver.proto \
        confidence/wasm/wasm_api.proto \
-       confidence/wasm/messages.proto
+       confidence/wasm/messages.proto \
+       confidence/events/v1/types.proto \
+       confidence/events/v1/api.proto \
+       confidence/events/wasm/v1/wasm_api.proto
 
 echo "Protobuf generation complete!"
 echo "Generated files:"

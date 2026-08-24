@@ -89,7 +89,7 @@ module = ["confidence.proto.*"]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = ["confidence.wasm_resolver", "confidence.local_resolver", "confidence.flag_logger", "confidence.state_fetcher", "confidence.provider", "confidence.materialization"]
+module = ["confidence.wasm_resolver", "confidence.local_resolver", "confidence.flag_logger", "confidence.state_fetcher", "confidence.provider", "confidence.materialization", "confidence.event_resolver"]
 # These modules use generated protobuf code which has incomplete type stubs
 disable_error_code = ["attr-defined", "name-defined", "union-attr", "operator", "override", "no-untyped-call"]
 

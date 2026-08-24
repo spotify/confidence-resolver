@@ -4,20 +4,25 @@ This module provides the ConfidenceProvider class that implements the OpenFeatur
 AbstractProvider interface for local flag resolution using the Confidence WASM resolver.
 """
 
+import json
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import grpc
 import httpx
 from google.protobuf import struct_pb2
+from google.protobuf.timestamp_pb2 import Timestamp
 from openfeature.evaluation_context import EvaluationContext
 from openfeature.event import ProviderEventDetails
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 from openfeature.provider import AbstractProvider, Metadata, ProviderStatus
 
+from confidence.event_resolver import EventResolver
 from confidence.flag_logger import (
     FlagLogger,
     MultiDestinationFlagLogger,
@@ -35,6 +40,10 @@ from confidence.materialization import (
     VariantReadResult,
     VariantWriteOp,
 )
+from confidence.proto.confidence.events.v1 import api_pb2 as events_api_pb2
+from confidence.proto.confidence.events.v1 import api_pb2_grpc as events_api_pb2_grpc
+from confidence.proto.confidence.events.v1 import types_pb2 as events_types_pb2
+from confidence.proto.confidence.events.wasm.v1 import wasm_api_pb2 as events_wasm_pb2
 from confidence.proto.confidence.flags.resolver.v1 import (
     api_pb2,
     internal_api_pb2,
@@ -53,6 +62,41 @@ logger = logging.getLogger(__name__)
 DEFAULT_STATE_POLL_INTERVAL = 30.0
 DEFAULT_LOG_POLL_INTERVAL = 15.0
 DEFAULT_ASSIGN_POLL_INTERVAL = 0.1
+
+# gRPC target for the Confidence events service
+EVENTS_GRPC_TARGET = "edge-grpc.spotify.com:443"
+
+# Timeout in seconds for a single PublishEvents RPC
+EVENTS_PUBLISH_TIMEOUT = 30.0
+
+# Number of PublishEvents attempts between failure-rate log lines. Publish
+# failures are swallowed per batch, so this window is the only signal that
+# events are being dropped. Mirrors the flag logger's stats window.
+EVENTS_STATS_WINDOW = 10
+
+# A single WASM flush is capped (2 MB), so draining a backlog needs several
+# flushes. Bounded because _send_events swallows network failures: an unbounded
+# loop would spin forever if the events API is unreachable during shutdown.
+MAX_EVENT_DRAIN_BATCHES = 100
+
+# Retry transient UNAVAILABLE failures when publishing events. Scoped to the
+# events service so it cannot affect any other RPC on the channel.
+_EVENTS_RETRY_SERVICE_CONFIG = json.dumps(
+    {
+        "methodConfig": [
+            {
+                "name": [{"service": "confidence.events.v1.EventsService"}],
+                "retryPolicy": {
+                    "maxAttempts": 3,
+                    "initialBackoff": "1s",
+                    "maxBackoff": "10s",
+                    "backoffMultiplier": 2.0,
+                    "retryableStatusCodes": ["UNAVAILABLE"],
+                },
+            }
+        ]
+    }
+)
 
 
 class SnapshotConfig:
@@ -141,6 +185,8 @@ class ConfidenceProvider(AbstractProvider):
         state_fetcher: Optional[StateFetcher] = None,
         flag_logger: Optional[FlagLogger] = None,
         wasm_bytes: Optional[bytes] = None,
+        event_wasm_path: Optional[str] = None,
+        event_wasm_bytes: Optional[bytes] = None,
         enable_apply_dedup: bool = False,
         disable_exposure_collection: bool = False,
     ) -> None:
@@ -158,6 +204,10 @@ class ConfidenceProvider(AbstractProvider):
             state_fetcher: Optional state fetcher for testing.
             flag_logger: Optional flag logger for testing.
             wasm_bytes: Optional WASM bytes for testing.
+            event_wasm_path: Optional file path to confidence_event_engine.wasm.
+                When provided, enables event tracking via track().
+            event_wasm_bytes: Optional event engine WASM bytes (for testing).
+                When provided, enables event tracking via track().
             enable_apply_dedup: Experimental — enable apply-event dedup in
                 the WASM resolver: repeated identical assignments within a
                 short TTL window are logged once. Off by default; the API may
@@ -188,6 +238,18 @@ class ConfidenceProvider(AbstractProvider):
 
         # WASM bytes (loaded lazily or from test)
         self._wasm_bytes = wasm_bytes
+
+        # Event engine configuration
+        self._event_wasm_path = event_wasm_path
+        self._event_wasm_bytes = event_wasm_bytes
+        self._event_resolver: Optional[EventResolver] = None
+        self._event_resolver_lock = threading.Lock()
+        self._event_executor = ThreadPoolExecutor(max_workers=2)
+        self._events_channel: Optional[grpc.Channel] = None
+        self._events_stub: Optional[events_api_pb2_grpc.EventsServiceStub] = None
+        self._event_stats_lock = threading.Lock()
+        self._event_publish_attempts = 0
+        self._event_publish_failures = 0
 
         # State fetcher (injected or created)
         self._state_fetcher = state_fetcher
@@ -253,6 +315,34 @@ class ConfidenceProvider(AbstractProvider):
 
         # Create resolver
         self._resolver = LocalResolver(self._wasm_bytes)
+
+        # Initialize event resolver if configured
+        event_bytes = self._event_wasm_bytes
+        if event_bytes is None and self._event_wasm_path is not None:
+            try:
+                with open(self._event_wasm_path, "rb") as f:
+                    event_bytes = f.read()
+            except Exception as e:
+                logger.error(
+                    "Failed to load event engine WASM from %s: %s",
+                    self._event_wasm_path,
+                    e,
+                )
+
+        if event_bytes is not None:
+            try:
+                self._event_resolver = EventResolver(event_bytes)
+                self._events_channel = grpc.secure_channel(
+                    EVENTS_GRPC_TARGET,
+                    grpc.ssl_channel_credentials(),
+                    options=[("grpc.service_config", _EVENTS_RETRY_SERVICE_CONFIG)],
+                )
+                self._events_stub = events_api_pb2_grpc.EventsServiceStub(
+                    self._events_channel
+                )
+                logger.info("Event tracking enabled")
+            except Exception as e:
+                logger.error("Failed to initialize event resolver: %s", e)
 
         # Create state fetcher if not injected
         if self._state_fetcher is None:
@@ -334,6 +424,21 @@ class ConfidenceProvider(AbstractProvider):
                 self._write_logs(self._resolver.flush_logs())
             except Exception as e:
                 logger.error("Failed to flush final logs: %s", e)
+
+        # Drain pending events. A single flush is capped inside the WASM, so
+        # anything beyond that cap needs further flushes or it is dropped.
+        if self._event_resolver is not None:
+            try:
+                self._drain_events()
+            except Exception as e:
+                logger.error("Failed to flush final events: %s", e)
+
+        # Shutdown event executor and gRPC channel
+        self._event_executor.shutdown(wait=True)
+        if self._events_channel is not None:
+            self._events_channel.close()
+            self._events_channel = None
+            self._events_stub = None
 
         # Shutdown flag logger
         if self._flag_logger is not None:
@@ -857,6 +962,149 @@ class ConfidenceProvider(AbstractProvider):
         except Exception as e:
             logger.error("Failed to flush assigned logs: %s", e)
 
+    def track(
+        self,
+        event_name: str,
+        context: Optional[EvaluationContext] = None,
+        value: Optional[float] = None,
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Track an event for the Confidence events API.
+
+        Requires the provider to be initialized with event_wasm_path or
+        event_wasm_bytes. If event tracking is not configured, this method
+        is a no-op.
+
+        Args:
+            event_name: The bare event name (e.g. "my_event").
+            context: Optional OpenFeature evaluation context.
+            value: Optional numeric value associated with the event.
+            data: Optional custom data dictionary for the event.
+        """
+        if self._event_resolver is None:
+            return
+
+        try:
+            request = events_wasm_pb2.TrackEventRequest()
+            request.event_name = event_name
+
+            # Set event_time to now
+            now = datetime.now(timezone.utc)
+            timestamp = Timestamp()
+            timestamp.FromDatetime(now)
+            request.event_time.CopyFrom(timestamp)
+
+            # Set optional value
+            if value is not None:
+                request.value = value
+
+            # Convert context to proto Struct
+            proto_context = self._context_to_proto(context)
+            if proto_context is not None:
+                request.context.CopyFrom(proto_context)
+
+            # Convert data to proto Struct
+            if data:
+                data_struct = struct_pb2.Struct(
+                    fields={k: self._value_to_proto(v) for k, v in data.items()}
+                )
+                request.data.CopyFrom(data_struct)
+
+            with self._event_resolver_lock:
+                self._event_resolver.track_event(request)
+        except Exception:
+            logger.warning("Failed to track event '%s'", event_name, exc_info=True)
+
+    def _flush_events(self) -> int:
+        """Flush pending events from the event resolver and send them.
+
+        Returns:
+            The number of events handed off for publishing. A single flush is
+            capped inside the WASM engine, so a non-zero result does not mean
+            the buffer is now empty.
+        """
+        if self._event_resolver is None:
+            return 0
+
+        with self._event_resolver_lock:
+            batch = self._event_resolver.flush_events()
+
+        if not batch.events:
+            return 0
+
+        self._event_executor.submit(self._send_events, batch)
+        return len(batch.events)
+
+    def _drain_events(self) -> None:
+        """Flush events repeatedly until the event buffer is empty.
+
+        A single flush is capped at 2 MB inside the WASM engine, so one flush
+        can leave a backlog behind. Bounded to MAX_EVENT_DRAIN_BATCHES because
+        _send_events swallows network failures.
+        """
+        if self._event_resolver is None:
+            return
+
+        for _ in range(MAX_EVENT_DRAIN_BATCHES):
+            if self._flush_events() == 0:
+                return
+
+        logger.warning(
+            "Event drain hit the %d-batch limit on shutdown; dropping the rest",
+            MAX_EVENT_DRAIN_BATCHES,
+        )
+
+    def _send_events(self, batch: events_wasm_pb2.FlushEventsResponse) -> None:
+        """Publish a batch of events to the Confidence events service over gRPC.
+
+        Runs in the event executor thread pool.
+
+        Args:
+            batch: The FlushEventsResponse from the WASM flush.
+        """
+        if self._events_stub is None:
+            return
+
+        failed = False
+        try:
+            send_time = Timestamp()
+            send_time.FromDatetime(datetime.now(timezone.utc))
+            request = events_api_pb2.PublishEventsRequest(
+                client_secret=self._client_secret,
+                events=batch.events,
+                send_time=send_time,
+                sdk=events_types_pb2.Sdk(
+                    id=events_types_pb2.SDK_ID_PYTHON_LOCAL_PROVIDER,
+                    version=__version__,
+                ),
+            )
+            response = self._events_stub.PublishEvents(
+                request, timeout=EVENTS_PUBLISH_TIMEOUT
+            )
+            for error in response.errors:
+                logger.error(
+                    "Failed to publish event at index %d: %s %s",
+                    error.index,
+                    events_types_pb2.EventError.Reason.Name(error.reason),
+                    error.message,
+                )
+        except Exception:
+            failed = True
+            logger.warning("Failed to send events", exc_info=True)
+
+        with self._event_stats_lock:
+            if failed:
+                self._event_publish_failures += 1
+            self._event_publish_attempts += 1
+            if self._event_publish_attempts % EVENTS_STATS_WINDOW == 0:
+                if self._event_publish_failures > 0:
+                    logger.warning(
+                        "Event publish failures: %d/%d",
+                        self._event_publish_failures,
+                        EVENTS_STATS_WINDOW,
+                    )
+                self._event_publish_failures = 0
+
     def _start_background_threads(self) -> None:
         """Start background threads for state polling and log flushing."""
         self._shutdown_event.clear()
@@ -939,9 +1187,10 @@ class ConfidenceProvider(AbstractProvider):
                 logger.error("State fetch failed: %s", e)
 
     def _log_flush_loop(self) -> None:
-        """Background loop for log flushing."""
+        """Background loop for log flushing and event flushing."""
         last_full_flush = 0.0
         last_assign_flush = 0.0
+        last_event_flush = 0.0
 
         while not self._shutdown_event.is_set():
             import time
@@ -957,6 +1206,15 @@ class ConfidenceProvider(AbstractProvider):
                 except Exception as e:
                     logger.error("Failed to flush logs: %s", e)
                 last_full_flush = now
+
+            # Event flush at log_poll_interval (same cadence as log flush)
+            if now - last_event_flush >= self._log_poll_interval:
+                if self._event_resolver is not None:
+                    try:
+                        self._flush_events()
+                    except Exception as e:
+                        logger.error("Failed to flush events: %s", e)
+                last_event_flush = now
 
             # Assign flush at assign_poll_interval (skipped when disable_exposure_collection)
             if (
