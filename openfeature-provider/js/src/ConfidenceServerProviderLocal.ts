@@ -387,11 +387,11 @@ export class ConfidenceServerProviderLocal implements Provider {
         if (!decoded.telemetryData) {
           decoded.telemetryData = { resolverVersion: '', providerInitRate: [] };
         }
-        decoded.telemetryData.sdk ??= {
+        decoded.telemetryData.sdk = {
           id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
           version: VERSION,
         };
-        decoded.telemetryData!.providerInitRate = [{ count: 1, labels: this.initLabels }];
+        decoded.telemetryData.providerInitRate.push({ count: 1, labels: this.initLabels });
         writeFlagLogRequest = WriteFlagLogsRequest.encode(decoded).finish();
       }
       try {
