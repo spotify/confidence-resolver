@@ -795,6 +795,7 @@ class ConfidenceProvider(AbstractProvider):
                     version=__version__,
                 )
             )
+            request.telemetry_data.ClearField("provider_init_rate")
             init_rate = request.telemetry_data.provider_init_rate.add()
             init_rate.count = 1
             for k, v in self._init_labels.items():

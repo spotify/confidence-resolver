@@ -458,7 +458,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
       version: VERSION,
     };
-    request.telemetryData.providerInitRate.push({ count: 1, labels: this.initLabels });
+    request.telemetryData.providerInitRate = [{ count: 1, labels: this.initLabels }];
     return WriteFlagLogsRequest.encode(request).finish();
   }
 

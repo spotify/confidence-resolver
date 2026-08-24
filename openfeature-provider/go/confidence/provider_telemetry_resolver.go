@@ -69,10 +69,9 @@ func (r *providerTelemetryResolver) addInitTelemetry(logs *resolverv1.WriteFlagL
 		logs.TelemetryData = &resolverv1.TelemetryData{}
 	}
 	logs.TelemetryData.Sdk = r.sdk
-	logs.TelemetryData.ProviderInitRate = append(
-		logs.TelemetryData.ProviderInitRate,
-		&resolverv1.TelemetryData_ProviderInitRate{Count: 1, Labels: r.labels},
-	)
+	logs.TelemetryData.ProviderInitRate = []*resolverv1.TelemetryData_ProviderInitRate{
+		{Count: 1, Labels: r.labels},
+	}
 }
 
 func (r *providerTelemetryResolver) SetResolverState(request *wasm.SetResolverStateRequest) error {

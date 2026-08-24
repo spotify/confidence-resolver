@@ -51,6 +51,30 @@ func TestProviderTelemetryResolverCloseEmitsWithoutResolve(t *testing.T) {
 	}
 }
 
+func TestProviderTelemetryResolverOwnsSingleInitSample(t *testing.T) {
+	resolver := &providerTelemetryResolver{
+		labels: map[string]string{"encryption": "true"},
+		sdk:    &resolvertypes.Sdk{Version: "test-version"},
+	}
+	logs := &resolverv1.WriteFlagLogsRequest{
+		TelemetryData: &resolverv1.TelemetryData{
+			ProviderInitRate: []*resolverv1.TelemetryData_ProviderInitRate{
+				{Count: 1, Labels: map[string]string{"existing": "true"}},
+			},
+		},
+	}
+
+	resolver.addInitTelemetry(logs)
+
+	got := logs.GetTelemetryData().GetProviderInitRate()
+	if len(got) != 1 {
+		t.Fatalf("expected exactly one provider init sample, got %d", len(got))
+	}
+	if got[0].GetLabels()["encryption"] != "true" {
+		t.Fatalf("expected provider-owned labels, got %v", got[0].GetLabels())
+	}
+}
+
 func TestProviderTelemetryResolverRetriesAfterSinkFailure(t *testing.T) {
 	attempts := 0
 	var captured []*resolverv1.WriteFlagLogsRequest
