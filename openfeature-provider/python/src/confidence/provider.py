@@ -23,7 +23,7 @@ from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 from openfeature.provider import AbstractProvider, Metadata, ProviderStatus
 from openfeature.track import TrackingEventDetails
 
-from confidence.event_resolver import EventResolver
+from confidence.event_tracker import EventTracker
 from confidence.flag_logger import (
     FlagLogger,
     MultiDestinationFlagLogger,
@@ -243,8 +243,8 @@ class ConfidenceProvider(AbstractProvider):
         # Event engine configuration
         self._event_wasm_path = event_wasm_path
         self._event_wasm_bytes = event_wasm_bytes
-        self._event_resolver: Optional[EventResolver] = None
-        self._event_resolver_lock = threading.Lock()
+        self._event_tracker: Optional[EventTracker] = None
+        self._event_tracker_lock = threading.Lock()
         self._event_executor = ThreadPoolExecutor(max_workers=2)
         self._events_channel: Optional[grpc.Channel] = None
         self._events_stub: Optional[events_api_pb2_grpc.EventsServiceStub] = None
@@ -332,7 +332,7 @@ class ConfidenceProvider(AbstractProvider):
 
         if event_bytes is not None:
             try:
-                self._event_resolver = EventResolver(event_bytes)
+                self._event_tracker = EventTracker(event_bytes)
                 self._events_channel = grpc.secure_channel(
                     EVENTS_GRPC_TARGET,
                     grpc.ssl_channel_credentials(),
@@ -428,7 +428,7 @@ class ConfidenceProvider(AbstractProvider):
 
         # Drain pending events. A single flush is capped inside the WASM, so
         # anything beyond that cap needs further flushes or it is dropped.
-        if self._event_resolver is not None:
+        if self._event_tracker is not None:
             try:
                 self._drain_events()
             except Exception as e:
@@ -983,7 +983,7 @@ class ConfidenceProvider(AbstractProvider):
                 ``value`` is an Optional[float] (so an explicit 0 is preserved)
                 and whose ``attributes`` become the event's custom data.
         """
-        if self._event_resolver is None:
+        if self._event_tracker is None:
             return
 
         context = evaluation_context
@@ -1016,8 +1016,8 @@ class ConfidenceProvider(AbstractProvider):
                 )
                 request.data.CopyFrom(data_struct)
 
-            with self._event_resolver_lock:
-                self._event_resolver.track_event(request)
+            with self._event_tracker_lock:
+                self._event_tracker.track_event(request)
         except Exception:
             logger.warning(
                 "Failed to track event '%s'", tracking_event_name, exc_info=True
@@ -1031,11 +1031,11 @@ class ConfidenceProvider(AbstractProvider):
             capped inside the WASM engine, so a non-zero result does not mean
             the buffer is now empty.
         """
-        if self._event_resolver is None:
+        if self._event_tracker is None:
             return 0
 
-        with self._event_resolver_lock:
-            batch = self._event_resolver.flush_events()
+        with self._event_tracker_lock:
+            batch = self._event_tracker.flush_events()
 
         if not batch.events:
             return 0
@@ -1050,7 +1050,7 @@ class ConfidenceProvider(AbstractProvider):
         can leave a backlog behind. Bounded to MAX_EVENT_DRAIN_BATCHES because
         _send_events swallows network failures.
         """
-        if self._event_resolver is None:
+        if self._event_tracker is None:
             return
 
         for _ in range(MAX_EVENT_DRAIN_BATCHES):
@@ -1217,7 +1217,7 @@ class ConfidenceProvider(AbstractProvider):
 
             # Event flush at log_poll_interval (same cadence as log flush)
             if now - last_event_flush >= self._log_poll_interval:
-                if self._event_resolver is not None:
+                if self._event_tracker is not None:
                     try:
                         self._flush_events()
                     except Exception as e:

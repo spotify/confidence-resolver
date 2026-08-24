@@ -1,24 +1,39 @@
-"""Event engine WASM resolver for Confidence event tracking.
+"""Event engine WASM tracker for Confidence event tracking.
 
-This module provides the EventResolver class that interfaces with the
-Confidence event engine WASM module for local event tracking and batching.
+Provides the EventTracker class that interfaces with the Confidence event
+engine WASM module for local event tracking and batching. Named to match the
+Go provider's event_tracking package: it tracks events, it does not resolve
+anything.
 """
 
 import logging
 
 from wasmtime import Config, Engine, Linker, Module, Store
 from wasmtime import Trap as WasmTrap
+from wasmtime import WasmtimeError
 
-from confidence.proto.confidence.wasm import messages_pb2
 from confidence.proto.confidence.events.wasm.v1 import wasm_api_pb2
+from confidence.proto.confidence.wasm import messages_pb2
 
 logger = logging.getLogger(__name__)
 
-# Exception types that indicate a WASM crash requiring reload
-WasmCrashError = (RuntimeError, WasmTrap)
+# Faults that can leave the WASM instance in an undefined state, so the instance
+# must be rebuilt. Deliberately narrow: reloading discards every event buffered
+# inside the instance, so it must not be triggered by errors that leave the
+# engine healthy. Mirrors errWasmFatal in the Go event tracker.
+WasmCrashError = (WasmTrap, WasmtimeError)
 
 
-class _UnsafeEventWasmResolver:
+class EventEngineError(RuntimeError):
+    """An error the guest reported cleanly through the Response envelope.
+
+    The WASM instance is still healthy, so this must NOT trigger a reload —
+    that would throw away the instance's buffered events for nothing. Subclasses
+    RuntimeError so existing callers catching RuntimeError still work.
+    """
+
+
+class _UnsafeEventWasmTracker:
     """Low-level WASM interface for the event engine.
 
     Interfaces with the confidence_event_engine.wasm module using the
@@ -27,7 +42,7 @@ class _UnsafeEventWasmResolver:
     """
 
     def __init__(self, wasm_bytes: bytes) -> None:
-        """Initialize the WASM event resolver.
+        """Initialize the WASM event tracker.
 
         Args:
             wasm_bytes: The compiled event engine WASM binary bytes.
@@ -68,16 +83,22 @@ class _UnsafeEventWasmResolver:
 
         Returns:
             A FlushEventsResponse containing the batched events.
+
+        Raises:
+            EventEngineError: If the guest reported an error.
         """
-        # Pass 0 for unbounded flush
         resp_ptr = self._wasm_msg_guest_bounded_flush_events(self._store, 0)
+        if resp_ptr == 0:
+            # No response to consume. Falling through would make _consume read
+            # the length prefix at addr-4, i.e. a wrapped-around address.
+            return wasm_api_pb2.FlushEventsResponse()
 
         data = self._consume(resp_ptr)
         response = messages_pb2.Response()
         response.ParseFromString(data)
 
         if response.HasField("error") and response.error:
-            raise RuntimeError("WASM error: {}".format(response.error))
+            raise EventEngineError("WASM error: {}".format(response.error))
 
         result = wasm_api_pb2.FlushEventsResponse()
         if response.data:
@@ -118,14 +139,14 @@ class _UnsafeEventWasmResolver:
             addr: The address in WASM memory.
 
         Raises:
-            RuntimeError: If the response contains an error.
+            EventEngineError: If the response contains an error.
         """
         data = self._consume(addr)
         response = messages_pb2.Response()
         response.ParseFromString(data)
 
         if response.HasField("error") and response.error:
-            raise RuntimeError("WASM error: {}".format(response.error))
+            raise EventEngineError("WASM error: {}".format(response.error))
 
     def _consume(self, addr: int) -> bytes:
         """Read data from WASM memory and free it.
@@ -150,45 +171,58 @@ class _UnsafeEventWasmResolver:
         return data_copy
 
 
-class EventResolver:
-    """Event resolver with crash recovery.
+class EventTracker:
+    """Event tracker with crash recovery.
 
-    Wraps _UnsafeEventWasmResolver with automatic WASM instance reload
-    on RuntimeError or wasmtime.Trap, following the same crash-recovery
-    pattern as LocalResolver for the flag resolver.
+    Wraps _UnsafeEventWasmTracker and rebuilds the WASM instance on a genuine
+    WASM fault, following the same crash-recovery pattern LocalResolver uses for
+    the flag resolver.
+
+    A reload discards every event buffered inside the instance, so only faults
+    in WasmCrashError trigger one. Errors the guest reported cleanly
+    (EventEngineError) and protobuf failures leave the instance healthy and are
+    propagated to the caller instead.
     """
 
     def __init__(self, wasm_bytes: bytes) -> None:
-        """Initialize the event resolver.
+        """Initialize the event tracker.
 
         Args:
             wasm_bytes: The compiled event engine WASM binary bytes.
         """
         self._wasm_bytes = wasm_bytes
-        self._delegate = _UnsafeEventWasmResolver(wasm_bytes)
+        self._delegate = _UnsafeEventWasmTracker(wasm_bytes)
 
     def track_event(self, request: wasm_api_pb2.TrackEventRequest) -> None:
-        """Track an event. On WASM crash, reloads the instance silently.
+        """Track an event. On a WASM fault, reloads the instance.
 
         Args:
             request: The track event request protobuf.
+
+        Raises:
+            EventEngineError: If the guest reported an error. The instance is
+                healthy and its buffered events are preserved.
         """
         try:
             self._delegate.track_event(request)
         except WasmCrashError as error:
             logger.error("Event WASM crashed on track_event, reloading: %s", error)
-            self._delegate = _UnsafeEventWasmResolver(self._wasm_bytes)
+            self._delegate = _UnsafeEventWasmTracker(self._wasm_bytes)
 
     def flush_events(self) -> wasm_api_pb2.FlushEventsResponse:
-        """Flush pending events. On WASM crash, reloads and returns empty batch.
+        """Flush pending events. On a WASM fault, reloads and returns empty.
 
         Returns:
-            A FlushEventsResponse containing the batched events,
-            or an empty response on crash.
+            A FlushEventsResponse containing the batched events, or an empty
+            response if the instance faulted and was reloaded.
+
+        Raises:
+            EventEngineError: If the guest reported an error. The instance is
+                healthy and its buffered events are preserved.
         """
         try:
             return self._delegate.flush_events()
         except WasmCrashError as error:
             logger.error("Event WASM crashed on flush_events, reloading: %s", error)
-            self._delegate = _UnsafeEventWasmResolver(self._wasm_bytes)
+            self._delegate = _UnsafeEventWasmTracker(self._wasm_bytes)
             return wasm_api_pb2.FlushEventsResponse()
