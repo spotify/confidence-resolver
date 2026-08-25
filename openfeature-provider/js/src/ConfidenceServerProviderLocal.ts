@@ -301,7 +301,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   private async sendEvents(batch: FlushEventsResponse, signal = this.main.signal): Promise<void> {
     const request = PublishEventsRequest.create({
       clientSecret: this.options.flagClientSecret,
-      events: batch.events ?? [],
+      events: batch.events,
       sendTime: new Date(),
       sdk: { id: EventsSdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION },
     });
