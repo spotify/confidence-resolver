@@ -105,6 +105,58 @@ func TestFatalErrorReloadsInstance(t *testing.T) {
 	}
 }
 
+// TestFatalErrorReloadsToFunctionalInstance verifies that the event tracker is
+// fully functional both before and after a WASM crash. The previous test
+// (TestFatalErrorReloadsInstance) only proves the instance pointer changes; this
+// test proves the new instance can actually track and flush events.
+func TestFatalErrorReloadsToFunctionalInstance(t *testing.T) {
+	tracker := loadTracker(t)
+
+	// ── Before crash: track + flush and verify the event comes through ──
+	if err := tracker.TrackEvent(&eventswasm.TrackEventRequest{
+		EventName: "before_crash",
+		EventTime: timestamppb.Now(),
+	}); err != nil {
+		t.Fatalf("TrackEvent (before crash): %v", err)
+	}
+
+	batch, err := tracker.FlushEvents()
+	if err != nil {
+		t.Fatalf("FlushEvents (before crash): %v", err)
+	}
+	if got := len(batch.GetEvents()); got != 1 {
+		t.Fatalf("before crash: expected 1 event, got %d", got)
+	}
+	if got := batch.GetEvents()[0].GetEventDefinition(); got != "eventDefinitions/before_crash" {
+		t.Errorf("before crash: event_definition = %q, want %q", got, "eventDefinitions/before_crash")
+	}
+
+	// ── Trigger a crash (call a non-existent export) ──
+	err = tracker.call("wasm_msg_guest_does_not_exist", nil, nil)
+	if !errors.Is(err, errWasmFatal) {
+		t.Fatalf("expected a fatal error, got %v", err)
+	}
+
+	// ── After crash: track + flush and verify the new instance works ──
+	if err := tracker.TrackEvent(&eventswasm.TrackEventRequest{
+		EventName: "after_crash",
+		EventTime: timestamppb.Now(),
+	}); err != nil {
+		t.Fatalf("TrackEvent (after crash): %v", err)
+	}
+
+	batch, err = tracker.FlushEvents()
+	if err != nil {
+		t.Fatalf("FlushEvents (after crash): %v", err)
+	}
+	if got := len(batch.GetEvents()); got != 1 {
+		t.Fatalf("after crash: expected 1 event, got %d", got)
+	}
+	if got := batch.GetEvents()[0].GetEventDefinition(); got != "eventDefinitions/after_crash" {
+		t.Errorf("after crash: event_definition = %q, want %q", got, "eventDefinitions/after_crash")
+	}
+}
+
 func TestClosedTrackerRejectsCalls(t *testing.T) {
 	tracker := loadTracker(t)
 	if err := tracker.Close(); err != nil {

@@ -106,7 +106,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
           .build();
 
   // Event tracking (optional — null when not configured)
-  private final WasmEventResolver eventResolver;
+  private final WasmEventTracker eventTracker;
   private final ScheduledExecutorService eventFlushExecutor;
   private final ManagedChannel eventsChannel;
   private final EventsServiceGrpc.EventsServiceBlockingStub eventsStub;
@@ -222,9 +222,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                                     config.isDisableExposureCollection()))));
     this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
 
-    // Initialize event tracking if event WASM is provided
-    if (config.getEventWasmBytes() != null) {
-      this.eventResolver = new WasmEventResolver(config.getEventWasmBytes());
+    // Initialize event tracking if enabled — WASM is loaded from classpath
+    if (config.isEnableEventTracking()) {
+      this.eventTracker = new WasmEventTracker(WasmEventTracker.loadFromClasspath());
       this.eventFlushExecutor =
           Executors.newScheduledThreadPool(
               1,
@@ -232,7 +232,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       this.eventsChannel = GrpcUtil.createConfidenceEventsChannel(config.getChannelFactory());
       this.eventsStub = EventsServiceGrpc.newBlockingStub(this.eventsChannel);
     } else {
-      this.eventResolver = null;
+      this.eventTracker = null;
       this.eventFlushExecutor = null;
       this.eventsChannel = null;
       this.eventsStub = null;
@@ -303,7 +303,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                                     enableApplyDedup,
                                     disableExposureCollection))));
     this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
-    this.eventResolver = null;
+    this.eventTracker = null;
     this.eventFlushExecutor = null;
     this.eventsChannel = null;
     this.eventsStub = null;
@@ -355,7 +355,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     }
 
     // Schedule event flushing if event tracking is enabled
-    if (eventFlushExecutor != null && eventResolver != null) {
+    if (eventFlushExecutor != null && eventTracker != null) {
       eventFlushExecutor.scheduleAtFixedRate(
           this::doFlushAndSendEvents,
           EVENT_FLUSH_INTERVAL.toMillis(),
@@ -525,8 +525,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
     // Drain remaining events before closing the event resolver
     drainEvents();
-    if (eventResolver != null) {
-      eventResolver.close();
+    if (eventTracker != null) {
+      eventTracker.close();
     }
     if (eventsChannel != null) {
       eventsChannel.shutdown();
@@ -682,7 +682,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   @Override
   public void track(
       String trackingEventName, EvaluationContext context, TrackingEventDetails details) {
-    if (eventResolver == null) {
+    if (eventTracker == null) {
       return;
     }
     try {
@@ -713,7 +713,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         }
       }
 
-      eventResolver.trackEvent(reqBuilder.build());
+      eventTracker.trackEvent(reqBuilder.build());
     } catch (RuntimeException e) {
       log.warn("Failed to track event '{}'", trackingEventName, e);
     }
@@ -724,11 +724,11 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * service.
    */
   private void doFlushAndSendEvents() {
-    if (eventResolver == null) {
+    if (eventTracker == null) {
       return;
     }
     try {
-      final FlushEventsResponse batch = eventResolver.flushEvents();
+      final FlushEventsResponse batch = eventTracker.flushEvents();
       if (batch.getEventsCount() > 0) {
         sendEvents(batch);
       }
@@ -742,14 +742,14 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * remain.
    */
   private void drainEvents() {
-    if (eventResolver == null) {
+    if (eventTracker == null) {
       return;
     }
     try {
       // Bounded: sendEvents swallows network failures, so an unbounded loop would
       // spin forever if the events API is unreachable during shutdown.
       for (int i = 0; i < MAX_DRAIN_BATCHES; i++) {
-        final FlushEventsResponse batch = eventResolver.flushEvents();
+        final FlushEventsResponse batch = eventTracker.flushEvents();
         if (batch.getEventsCount() == 0) {
           return;
         }

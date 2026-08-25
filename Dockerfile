@@ -796,8 +796,9 @@ COPY openfeature-provider/proto ../proto/
 # Copy source code
 COPY openfeature-provider/java/src ./src/
 
-# Copy WASM module into resources
+# Copy WASM modules into resources
 COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ../../../wasm/confidence_resolver.wasm
+COPY --from=wasm-event-guest.artifact /confidence_event_engine.wasm ../../../wasm/confidence_event_engine.wasm
 
 # Set environment variable
 ENV IN_DOCKER_BUILD=1

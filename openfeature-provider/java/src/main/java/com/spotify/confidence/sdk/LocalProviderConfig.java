@@ -1,9 +1,5 @@
 package com.spotify.confidence.sdk;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
 public class LocalProviderConfig {
   /**
    * Default number of WASM resolver instances in the pool. The actual pool size is capped at {@code
@@ -18,7 +14,7 @@ public class LocalProviderConfig {
   private final String encryptionKey;
   private final boolean enableApplyDedup;
   private final boolean disableExposureCollection;
-  private final byte[] eventWasmBytes;
+  private final boolean enableEventTracking;
 
   public LocalProviderConfig() {
     this(null, null);
@@ -61,7 +57,7 @@ public class LocalProviderConfig {
         encryptionKey,
         false,
         false,
-        null);
+        false);
   }
 
   private LocalProviderConfig(
@@ -72,7 +68,7 @@ public class LocalProviderConfig {
       String encryptionKey,
       boolean enableApplyDedup,
       boolean disableExposureCollection,
-      byte[] eventWasmBytes) {
+      boolean enableEventTracking) {
     this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
     this.httpClientFactory =
         httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
@@ -81,7 +77,7 @@ public class LocalProviderConfig {
     this.encryptionKey = encryptionKey;
     this.enableApplyDedup = enableApplyDedup;
     this.disableExposureCollection = disableExposureCollection;
-    this.eventWasmBytes = eventWasmBytes;
+    this.enableEventTracking = enableEventTracking;
   }
 
   public ChannelFactory getChannelFactory() {
@@ -124,11 +120,12 @@ public class LocalProviderConfig {
   }
 
   /**
-   * Returns the raw bytes of the event engine WASM binary, or {@code null} if event tracking is not
-   * enabled.
+   * Returns whether event tracking via the WASM event engine is enabled. When {@code true}, the
+   * provider loads the event engine WASM from the classpath and periodically flushes tracked events
+   * to the Confidence events API.
    */
-  public byte[] getEventWasmBytes() {
-    return eventWasmBytes;
+  public boolean isEnableEventTracking() {
+    return enableEventTracking;
   }
 
   public static Builder builder() {
@@ -143,7 +140,7 @@ public class LocalProviderConfig {
     private String encryptionKey;
     private boolean enableApplyDedup;
     private boolean disableExposureCollection;
-    private byte[] eventWasmBytes;
+    private boolean enableEventTracking;
 
     public Builder channelFactory(ChannelFactory channelFactory) {
       this.channelFactory = channelFactory;
@@ -198,25 +195,14 @@ public class LocalProviderConfig {
     }
 
     /**
-     * Sets the event engine WASM binary bytes. When set, the provider enables event tracking via
-     * {@code track()} and periodically flushes events to the Confidence events API.
+     * Enables event tracking via the WASM event engine. When enabled, the provider loads the event
+     * engine WASM from the classpath and exposes {@code track()} for buffering events that are
+     * periodically flushed to the Confidence events API.
      *
-     * @param eventWasmBytes the raw bytes of the {@code confidence_event_engine.wasm} binary
+     * @param enableEventTracking whether to enable event tracking
      */
-    public Builder eventWasmBytes(byte[] eventWasmBytes) {
-      this.eventWasmBytes = eventWasmBytes;
-      return this;
-    }
-
-    /**
-     * Loads the event engine WASM binary from the given file path. Convenience alternative to
-     * {@link #eventWasmBytes(byte[])}.
-     *
-     * @param eventWasmPath path to the {@code confidence_event_engine.wasm} file
-     * @throws IOException if the file cannot be read
-     */
-    public Builder eventWasmPath(Path eventWasmPath) throws IOException {
-      this.eventWasmBytes = Files.readAllBytes(eventWasmPath);
+    public Builder enableEventTracking(boolean enableEventTracking) {
+      this.enableEventTracking = enableEventTracking;
       return this;
     }
 
@@ -229,7 +215,7 @@ public class LocalProviderConfig {
           encryptionKey,
           enableApplyDedup,
           disableExposureCollection,
-          eventWasmBytes);
+          enableEventTracking);
     }
   }
 }

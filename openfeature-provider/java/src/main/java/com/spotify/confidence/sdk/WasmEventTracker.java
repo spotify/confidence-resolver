@@ -23,6 +23,9 @@ import org.slf4j.LoggerFactory;
  * wasm-msg protocol: alloc memory, write a {@code Request} protobuf envelope, call the WASM export,
  * read the {@code Response} envelope from the returned pointer, and free.
  *
+ * <p>The WASM binary is loaded from the classpath via {@link #loadFromClasspath()}, mirroring the
+ * pattern used by the flag resolver WASM.
+ *
  * <p>Thread-safe via {@link ReentrantLock}.
  *
  * <p>If the WASM instance traps, it is rebuilt from the parsed module so subsequent calls run
@@ -31,8 +34,30 @@ import org.slf4j.LoggerFactory;
  * provider. Only genuine WASM faults trigger a reload — protobuf decoding failures and errors
  * reported by the engine in the response envelope leave the instance untouched.
  */
-class WasmEventResolver implements AutoCloseable {
-  private static final Logger logger = LoggerFactory.getLogger(WasmEventResolver.class);
+class WasmEventTracker implements AutoCloseable {
+  private static final Logger logger = LoggerFactory.getLogger(WasmEventTracker.class);
+
+  private static final String CLASSPATH_RESOURCE = "/wasm/confidence_event_engine.wasm";
+
+  /**
+   * Loads the event engine WASM binary from the classpath resource bundled in the JAR. This mirrors
+   * how {@link ConfidenceResolverModule} embeds the resolver WASM, but without Chicory AOT since
+   * the event engine is tiny.
+   *
+   * @return the raw bytes of the event engine WASM binary
+   * @throws IllegalStateException if the resource cannot be found or read
+   */
+  static byte[] loadFromClasspath() {
+    try (var in = WasmEventTracker.class.getResourceAsStream(CLASSPATH_RESOURCE)) {
+      if (in == null) {
+        throw new IllegalStateException(
+            "Event engine WASM resource not found on classpath: " + CLASSPATH_RESOURCE);
+      }
+      return in.readAllBytes();
+    } catch (java.io.IOException e) {
+      throw new IllegalStateException("Failed to read event engine WASM from classpath", e);
+    }
+  }
 
   private final WasmModule module;
   private final ReentrantLock lock = new ReentrantLock();
@@ -43,7 +68,7 @@ class WasmEventResolver implements AutoCloseable {
   private ExportFunction wasmMsgGuestBoundedFlushEvents;
   private boolean closed = false;
 
-  WasmEventResolver(byte[] wasmBytes) {
+  WasmEventTracker(byte[] wasmBytes) {
     this.module = com.dylibso.chicory.wasm.Parser.parse(wasmBytes);
     instantiate();
   }
