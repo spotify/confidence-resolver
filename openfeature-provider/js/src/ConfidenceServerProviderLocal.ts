@@ -27,7 +27,7 @@ import { ClientResolverState, LogDestination } from './proto/confidence/flags/ad
 import { IngestFlagLogsRequest, WriteFlagLogsRequest } from './proto/confidence/flags/resolver/v1/internal_api';
 import FlagBundleType, * as FlagBundle from './flag-bundle';
 import { ErrorCode, ResolutionDetails } from './types';
-import type { EventResolver } from './EventWasmResolver';
+import type { EventTracker } from './EventWasmTracker';
 import { TrackEventRequest, FlushEventsResponse } from './proto/confidence/events/wasm/v1/wasm_api';
 import { SdkId as EventsSdkId } from './proto/confidence/events/v1/types';
 import { PublishEventsRequest, PublishEventsResponse } from './proto/confidence/events/v1/api';
@@ -73,7 +73,7 @@ export interface ProviderOptions {
    */
   disableExposureCollection?: boolean;
   /** Optional event resolver for OpenFeature track() support. */
-  eventResolver?: EventResolver | Promise<EventResolver>;
+  eventTracker?: EventTracker | Promise<EventTracker>;
 }
 
 /**
@@ -95,8 +95,8 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly materializationStore: MaterializationStore | null;
   private readonly initLabels: Record<string, string>;
   private initTelemetryState: 'pending' | 'sending' | 'sent' = 'pending';
-  private readonly eventResolverOrPromise: EventResolver | Promise<EventResolver> | null;
-  private eventResolver: EventResolver | null = null;
+  private readonly eventTrackerOrPromise: EventTracker | Promise<EventTracker> | null;
+  private eventTracker: EventTracker | null = null;
   private stateEtag: string | null = null;
   private logDestinations: LogDestination[] = [];
   private accountId = '';
@@ -178,7 +178,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       ],
       options.fetch ?? fetch,
     );
-    this.eventResolverOrPromise = options.eventResolver ?? null;
+    this.eventTrackerOrPromise = options.eventTracker ?? null;
     if (options.materializationStore) {
       if (options.materializationStore === 'CONFIDENCE_REMOTE_STORE') {
         this.materializationStore = new ConfidenceRemoteMaterializationStore(
@@ -213,10 +213,10 @@ export class ConfidenceServerProviderLocal implements Provider {
       // TODO if 403 here,
       await this.updateState(initialUpdateSignal);
       scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      if (this.eventResolverOrPromise) {
-        this.eventResolver = await this.eventResolverOrPromise;
+      if (this.eventTrackerOrPromise) {
+        this.eventTracker = await this.eventTrackerOrPromise;
       }
-      if (this.eventResolver) {
+      if (this.eventTracker) {
         scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
       }
       // TODO Better with fixed delay so we don't do a double fetch when we're behind. Alt, skip if in progress
@@ -246,7 +246,7 @@ export class ConfidenceServerProviderLocal implements Provider {
           // best-effort: provider is shutting down
         }
       }
-      if (this.eventResolver) {
+      if (this.eventTracker) {
         try {
           await this.drainEvents(signal);
         } catch {
@@ -264,9 +264,9 @@ export class ConfidenceServerProviderLocal implements Provider {
    * failing publish cannot spin forever.
    */
   private async drainEvents(signal?: AbortSignal): Promise<void> {
-    if (!this.eventResolver) return;
+    if (!this.eventTracker) return;
     for (let i = 0; i < MAX_DRAIN_BATCHES; i++) {
-      const batch = this.eventResolver.flushEvents();
+      const batch = this.eventTracker.flushEvents();
       if (!batch.events || batch.events.length === 0) return;
       await this.sendEvents(batch, signal);
     }
@@ -274,7 +274,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   track(trackingEventName: string, context?: EvaluationContext, details?: TrackingEventDetails): void {
-    if (!this.eventResolver) return;
+    if (!this.eventTracker) return;
 
     const { value, ...customData } = details ?? {};
     const trackRequest: TrackEventRequest = {
@@ -285,15 +285,15 @@ export class ConfidenceServerProviderLocal implements Provider {
       data: Object.keys(customData).length > 0 ? customData : undefined,
     };
     try {
-      this.eventResolver.trackEvent(trackRequest);
+      this.eventTracker.trackEvent(trackRequest);
     } catch (err) {
       logger.warn('Failed to track event:', err);
     }
   }
 
   private async flushEvents(signal?: AbortSignal): Promise<void> {
-    if (!this.eventResolver) return;
-    const batch = this.eventResolver.flushEvents();
+    if (!this.eventTracker) return;
+    const batch = this.eventTracker.flushEvents();
     if (!batch.events || batch.events.length === 0) return;
     await this.sendEvents(batch, signal);
   }

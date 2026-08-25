@@ -1,42 +1,42 @@
 import fs from 'node:fs/promises';
 import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
 import { WasmResolver } from './WasmResolver';
-import { EventWasmResolver } from './EventWasmResolver';
+import { EventWasmTracker } from './EventWasmTracker';
 import { LocalResolver } from './LocalResolver';
-import type { EventResolver } from './EventWasmResolver';
+import type { EventTracker } from './EventWasmTracker';
 export type { MaterializationStore } from './materialization';
 export type { SnapshotConfig } from './ConfidenceServerProviderLocal';
 
 let resolver: Promise<LocalResolver> | null = null;
-let eventResolver: Promise<EventResolver> | null = null;
+let eventTracker: Promise<EventTracker> | null = null;
 
 export interface ProviderOptionsExt extends ProviderOptions {
   wasmPath?: string;
   /**
-   * Path to confidence_event_engine.wasm. When set, the provider enables
-   * OpenFeature track() support and publishes events to the Confidence
-   * events API.
+   * Set to false to disable event tracking. When true (the default), the
+   * provider loads the bundled event engine WASM and enables OpenFeature
+   * track() support.
    */
-  eventWasmPath?: string;
+  enableEventTracking?: boolean;
 }
 
 export function createConfidenceServerProvider({
   wasmPath,
-  eventWasmPath,
+  enableEventTracking,
   ...options
 }: ProviderOptionsExt): ConfidenceServerProviderLocal {
   if (!resolver) {
     resolver = createResolver(wasmPath ?? require.resolve('./confidence_resolver.wasm'));
   }
-  if (eventWasmPath && !eventResolver) {
-    eventResolver = createEventResolver(eventWasmPath);
+  if (enableEventTracking !== false && !eventTracker) {
+    eventTracker = createEventTracker(require.resolve('./confidence_event_engine.wasm'));
   }
-  // The provider awaits eventResolver during initialize(), so passing the
+  // The provider awaits eventTracker during initialize(), so passing the
   // pending promise straight through is safe — assigning it after construction
   // would be read too late and silently disable event tracking.
   return new ConfidenceServerProviderLocal(resolver, {
     ...options,
-    ...(eventResolver ? { eventResolver } : {}),
+    ...(eventTracker ? { eventTracker } : {}),
   });
 }
 
@@ -46,8 +46,8 @@ async function createResolver(wasmPath: string): Promise<LocalResolver> {
   return new WasmResolver(module);
 }
 
-async function createEventResolver(wasmPath: string): Promise<EventResolver> {
+async function createEventTracker(wasmPath: string): Promise<EventTracker> {
   const buffer = await fs.readFile(wasmPath);
   const module = await WebAssembly.compile(buffer as BufferSource);
-  return new EventWasmResolver(module);
+  return new EventWasmTracker(module);
 }

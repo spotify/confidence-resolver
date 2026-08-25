@@ -35,10 +35,11 @@ type ProviderConfig struct {
 	// OpenFeature evaluations through this provider. Use only for exceptional
 	// no-exposure modes; resolve logs and telemetry are still sent.
 	DisableExposureCollection bool
-	// EnableEventTracking turns on OpenFeature track() support using the
-	// embedded event engine WASM. Events are batched in WASM and published to
-	// the Confidence events service over gRPC on LogPollInterval.
-	EnableEventTracking bool
+	// DisableEventTracking turns off OpenFeature track() support. By default,
+	// the provider loads the embedded event engine WASM, batches events, and
+	// publishes them to the Confidence events service over gRPC on
+	// LogPollInterval.
+	DisableEventTracking bool
 }
 
 type ProviderTestConfig struct {
@@ -116,7 +117,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.DisableExposureCollection)
-	if config.EnableEventTracking {
+	if !config.DisableEventTracking {
 		providerOpts = append(providerOpts,
 			WithEventTracking(et.EventEngineWasm),
 			WithUseWasmInterpreter(config.UseWasmInterpreter),

@@ -160,6 +160,46 @@ def _load_wasm_from_resources() -> bytes:
     )
 
 
+def _load_event_wasm_from_resources() -> bytes:
+    """Load the event engine WASM binary from package resources."""
+    try:
+        import importlib.resources as resources
+
+        try:
+            files = resources.files("confidence")
+            wasm_path = files.joinpath("wasm").joinpath("confidence_event_engine.wasm")
+            return wasm_path.read_bytes()
+        except (AttributeError, FileNotFoundError, TypeError):
+            pass
+
+    except ImportError:
+        pass
+
+    try:
+        import pkg_resources
+
+        return pkg_resources.resource_string(
+            "confidence", "wasm/confidence_event_engine.wasm"
+        )
+    except Exception:
+        pass
+
+    from pathlib import Path
+
+    dev_path = (
+        Path(__file__).parent.parent.parent
+        / "resources"
+        / "wasm"
+        / "confidence_event_engine.wasm"
+    )
+    if dev_path.exists():
+        return dev_path.read_bytes()
+
+    raise FileNotFoundError(
+        "Could not find confidence_event_engine.wasm in package resources"
+    )
+
+
 class ConfidenceProvider(AbstractProvider):
     """Confidence OpenFeature provider for local flag resolution.
 
@@ -186,8 +226,7 @@ class ConfidenceProvider(AbstractProvider):
         state_fetcher: Optional[StateFetcher] = None,
         flag_logger: Optional[FlagLogger] = None,
         wasm_bytes: Optional[bytes] = None,
-        event_wasm_path: Optional[str] = None,
-        event_wasm_bytes: Optional[bytes] = None,
+        enable_event_tracking: bool = True,
         enable_apply_dedup: bool = False,
         disable_exposure_collection: bool = False,
     ) -> None:
@@ -205,10 +244,9 @@ class ConfidenceProvider(AbstractProvider):
             state_fetcher: Optional state fetcher for testing.
             flag_logger: Optional flag logger for testing.
             wasm_bytes: Optional WASM bytes for testing.
-            event_wasm_path: Optional file path to confidence_event_engine.wasm.
-                When provided, enables event tracking via track().
-            event_wasm_bytes: Optional event engine WASM bytes (for testing).
-                When provided, enables event tracking via track().
+            enable_event_tracking: Enable event tracking via track().
+                When True (the default), the provider loads the event engine
+                WASM from package resources during initialize().
             enable_apply_dedup: Experimental — enable apply-event dedup in
                 the WASM resolver: repeated identical assignments within a
                 short TTL window are logged once. Off by default; the API may
@@ -241,8 +279,7 @@ class ConfidenceProvider(AbstractProvider):
         self._wasm_bytes = wasm_bytes
 
         # Event engine configuration
-        self._event_wasm_path = event_wasm_path
-        self._event_wasm_bytes = event_wasm_bytes
+        self._enable_event_tracking = enable_event_tracking
         self._event_tracker: Optional[EventTracker] = None
         self._event_tracker_lock = threading.Lock()
         self._event_executor = ThreadPoolExecutor(max_workers=2)
@@ -317,21 +354,10 @@ class ConfidenceProvider(AbstractProvider):
         # Create resolver
         self._resolver = LocalResolver(self._wasm_bytes)
 
-        # Initialize event resolver if configured
-        event_bytes = self._event_wasm_bytes
-        if event_bytes is None and self._event_wasm_path is not None:
+        # Initialize event tracking if enabled
+        if self._enable_event_tracking:
             try:
-                with open(self._event_wasm_path, "rb") as f:
-                    event_bytes = f.read()
-            except Exception as e:
-                logger.error(
-                    "Failed to load event engine WASM from %s: %s",
-                    self._event_wasm_path,
-                    e,
-                )
-
-        if event_bytes is not None:
-            try:
+                event_bytes = _load_event_wasm_from_resources()
                 self._event_tracker = EventTracker(event_bytes)
                 self._events_channel = grpc.secure_channel(
                     EVENTS_GRPC_TARGET,
@@ -343,7 +369,7 @@ class ConfidenceProvider(AbstractProvider):
                 )
                 logger.info("Event tracking enabled")
             except Exception as e:
-                logger.error("Failed to initialize event resolver: %s", e)
+                logger.error("Failed to initialize event tracking: %s", e)
 
         # Create state fetcher if not injected
         if self._state_fetcher is None:
@@ -972,7 +998,7 @@ class ConfidenceProvider(AbstractProvider):
         """Track an event for the Confidence events API.
 
         Implements the OpenFeature ``FeatureProvider.track`` interface. Requires
-        the provider to be initialized with event_wasm_path or event_wasm_bytes;
+        the provider to be initialized with enable_event_tracking=True (the default);
         if event tracking is not configured this method is a no-op.
 
         Args:

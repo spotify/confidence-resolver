@@ -12,8 +12,10 @@ PIP := $(VENV)/bin/pip
 SRC := $(shell find src -name '*.py' 2>/dev/null)
 TESTS := $(shell find tests -name '*.py' 2>/dev/null)
 RESOURCES_WASM := resources/wasm/confidence_resolver.wasm
+RESOURCES_EVENT_WASM := resources/wasm/confidence_event_engine.wasm
 # WASM is built from source in wasm/rust-guest, output goes to wasm/confidence_resolver.wasm
 WASM_SOURCE := $(ROOT)/wasm/confidence_resolver.wasm
+EVENT_WASM_SOURCE := $(ROOT)/wasm/confidence_event_engine.wasm
 
 .PHONY: install build test test-e2e lint proto clean wasm format venv
 
@@ -23,6 +25,8 @@ ifeq ($(IN_DOCKER_BUILD),1)
 # In Docker, WASM already exists - don't try to build/copy
 $(RESOURCES_WASM):
 	@test -f $@ || (echo "Error: WASM file not found at $@" && exit 1)
+$(RESOURCES_EVENT_WASM):
+	@test -f $@ || (echo "Error: Event WASM file not found at $@" && exit 1)
 else
 # Locally, build WASM from source (like Go provider does)
 $(WASM_SOURCE):
@@ -33,6 +37,14 @@ $(WASM_SOURCE):
 $(RESOURCES_WASM): $(WASM_SOURCE)
 	@mkdir -p $(dir $@)
 	@cp -p $(WASM_SOURCE) $@
+
+$(EVENT_WASM_SOURCE):
+	@echo "Building event WASM from source..."
+	@$(MAKE) -C $(ROOT) wasm/confidence_event_engine.wasm
+
+$(RESOURCES_EVENT_WASM): $(EVENT_WASM_SOURCE)
+	@mkdir -p $(dir $@)
+	@cp -p $(EVENT_WASM_SOURCE) $@
 endif
 
 # Create virtual environment
@@ -44,14 +56,14 @@ venv: $(VENV)/bin/activate
 
 # Install dependencies only when pyproject.toml changes
 # WASM must exist before editable install (hatchling force-include needs it)
-$(INSTALL_STAMP): $(VENV)/bin/activate pyproject.toml $(RESOURCES_WASM)
+$(INSTALL_STAMP): $(VENV)/bin/activate pyproject.toml $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM)
 	$(PIP) install -e ".[dev]"
 	@touch $@
 
 install: $(INSTALL_STAMP)
 
 # Build package
-$(BUILD_STAMP): pyproject.toml $(INSTALL_STAMP) $(RESOURCES_WASM) $(SRC)
+$(BUILD_STAMP): pyproject.toml $(INSTALL_STAMP) $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM) $(SRC)
 	$(PIP) install build
 	$(PYTHON) -m build
 	@touch $@
@@ -59,11 +71,11 @@ $(BUILD_STAMP): pyproject.toml $(INSTALL_STAMP) $(RESOURCES_WASM) $(SRC)
 build: $(BUILD_STAMP)
 
 # Run unit tests
-test: $(INSTALL_STAMP) $(RESOURCES_WASM)
+test: $(INSTALL_STAMP) $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM)
 	$(PYTHON) -m pytest tests/ -v --ignore=tests/e2e_test.py --ignore=tests/flaglogs_e2e_test.py
 
 # Run e2e tests
-test-e2e: $(INSTALL_STAMP) $(RESOURCES_WASM)
+test-e2e: $(INSTALL_STAMP) $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM)
 	$(PYTHON) -m pytest tests/e2e_test.py tests/flaglogs_e2e_test.py -v
 
 # Run linting
@@ -111,13 +123,13 @@ proto: $(INSTALL_STAMP)
 	find src/confidence/proto -name '*.py.bak' -delete
 
 # Copy WASM file (alias for compatibility)
-wasm: $(RESOURCES_WASM)
+wasm: $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM)
 
 # Clean build artifacts
 clean:
 	rm -rf build/ dist/ *.egg-info .pytest_cache .mypy_cache
 	rm -f $(INSTALL_STAMP) $(BUILD_STAMP)
-	rm -f $(RESOURCES_WASM)
+	rm -f $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM)
 	find . -type d -name __pycache__ -exec rm -rf {} +
 
 .DEFAULT_GOAL := build

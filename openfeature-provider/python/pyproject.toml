@@ -53,6 +53,7 @@ packages = ["src/confidence"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "resources/wasm/confidence_resolver.wasm" = "confidence/wasm/confidence_resolver.wasm"
+"resources/wasm/confidence_event_engine.wasm" = "confidence/wasm/confidence_event_engine.wasm"
 
 [tool.hatch.build.targets.sdist]
 include = [

@@ -3,7 +3,7 @@ import { Request, Response } from './proto/confidence/wasm/messages';
 import { TrackEventRequest, FlushEventsResponse, Void } from './proto/confidence/events/wasm/v1/wasm_api';
 import { getLogger } from './logger';
 
-const logger = getLogger('event-resolver');
+const logger = getLogger('event-tracker');
 
 type Codec<T> = {
   encode(message: T): BinaryWriter;
@@ -33,12 +33,12 @@ function verifyEventExports(exports: WebAssembly.Exports): asserts exports is Ev
   }
 }
 
-export interface EventResolver {
+export interface EventTracker {
   trackEvent(request: TrackEventRequest): void;
   flushEvents(): FlushEventsResponse;
 }
 
-export class UnsafeEventWasmResolver implements EventResolver {
+export class UnsafeEventWasmTracker implements EventTracker {
   private exports: EventExports;
 
   constructor(module: WebAssembly.Module) {
@@ -91,11 +91,11 @@ export class UnsafeEventWasmResolver implements EventResolver {
   }
 }
 
-export class EventWasmResolver implements EventResolver {
-  private delegate: EventResolver;
+export class EventWasmTracker implements EventTracker {
+  private delegate: EventTracker;
 
   constructor(private readonly module: WebAssembly.Module) {
-    this.delegate = new UnsafeEventWasmResolver(module);
+    this.delegate = new UnsafeEventWasmTracker(module);
   }
 
   trackEvent(request: TrackEventRequest): void {
@@ -106,7 +106,7 @@ export class EventWasmResolver implements EventResolver {
         // A trap can leave the instance in an undefined state. Reload it and
         // swallow, mirroring how the Go/Python trackers recover.
         logger.error('Event WASM crashed on trackEvent, reloading instance:', error);
-        this.delegate = new UnsafeEventWasmResolver(this.module);
+        this.delegate = new UnsafeEventWasmTracker(this.module);
         return;
       }
       // Anything else (proto encode failure, a guest-reported error) leaves the
@@ -122,7 +122,7 @@ export class EventWasmResolver implements EventResolver {
     } catch (error: unknown) {
       if (error instanceof WebAssembly.RuntimeError) {
         logger.error('Event WASM crashed on flushEvents, reloading instance:', error);
-        this.delegate = new UnsafeEventWasmResolver(this.module);
+        this.delegate = new UnsafeEventWasmTracker(this.module);
       } else {
         // Never return an empty batch without saying why: the caller cannot
         // otherwise tell a genuine empty flush from a failed one.

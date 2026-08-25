@@ -40,6 +40,7 @@ class TestTrackInterfaceConformance:
             state_fetcher=MockStateFetcher(b"", "acct"),
             flag_logger=MockFlagLogger(),
             wasm_bytes=wasm_bytes,
+            enable_event_tracking=False,
         )
         # Event tracking not configured, so this is a documented no-op.
         provider.track("purchase")
