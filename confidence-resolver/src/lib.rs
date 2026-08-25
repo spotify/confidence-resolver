@@ -1467,11 +1467,22 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 criterion::Criterion::Attribute(attribute_criterion) => {
                     let attribute_value =
                         self.get_attribute_value(&attribute_criterion.attribute_name);
-                    let converted = value::convert_to_targeting_value_for_criterion(
-                        attribute_value,
-                        attribute_criterion,
-                    )?;
-                    let wrapped = list_wrapper(&converted);
+                    let is_collection_rule = matches!(
+                        &attribute_criterion.rule,
+                        Some(criterion::attribute_criterion::Rule::AnyRule(_))
+                            | Some(criterion::attribute_criterion::Rule::AllRule(_))
+                    );
+                    let is_null_or_missing =
+                        matches!(&attribute_value.kind, None | Some(Kind::NullValue(_)));
+                    let wrapped = if is_collection_rule && is_null_or_missing {
+                        targeting::ListValue { values: Vec::new() }
+                    } else {
+                        let converted = value::convert_to_targeting_value_for_criterion(
+                            attribute_value,
+                            attribute_criterion,
+                        )?;
+                        list_wrapper(&converted)
+                    };
 
                     Ok(Some(value::evaluate_criterion(
                         attribute_criterion,
