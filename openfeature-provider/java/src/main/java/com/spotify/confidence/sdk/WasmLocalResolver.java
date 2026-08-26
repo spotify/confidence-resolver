@@ -63,7 +63,7 @@ class WasmLocalResolver implements LocalResolver {
   private final boolean disableExposureCollection;
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
-    this(logSink, false, false);
+    this(logSink, true, false);
   }
 
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink, boolean enableApplyDedup) {
