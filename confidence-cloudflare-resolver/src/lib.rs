@@ -167,20 +167,6 @@ impl Host for H {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        if assigned_flags.is_empty() {
-            FLAG_LOG.with(|f| {
-                if let Some(req) = f.borrow_mut().as_mut() {
-                    req.flag_assigned
-                        .push(assign_logger::build_flag_assigned(
-                            resolve_id,
-                            assigned_flags,
-                            client,
-                            sdk,
-                        ));
-                }
-            });
-            return;
-        }
         let now_seconds = (js_sys::Date::now() / 1000.0) as i64;
         let result = APPLY_DEDUP.with(|dedup| {
             dedup.borrow_mut().filter_duplicates(assigned_flags, now_seconds)
@@ -188,26 +174,23 @@ impl Host for H {
         if result.is_empty() {
             return;
         }
+        let flags_to_log: &[FlagToApply<'_>];
+        let filtered;
+        if result.kept_count() == assigned_flags.len() {
+            flags_to_log = assigned_flags;
+        } else {
+            filtered = result.collect(assigned_flags);
+            flags_to_log = &filtered;
+        }
         FLAG_LOG.with(|f| {
             if let Some(req) = f.borrow_mut().as_mut() {
-                if result.kept_count() == assigned_flags.len() {
-                    req.flag_assigned
-                        .push(assign_logger::build_flag_assigned(
-                            resolve_id,
-                            assigned_flags,
-                            client,
-                            sdk,
-                        ));
-                } else {
-                    let filtered = result.collect(assigned_flags);
-                    req.flag_assigned
-                        .push(assign_logger::build_flag_assigned(
-                            resolve_id,
-                            &filtered,
-                            client,
-                            sdk,
-                        ));
-                }
+                req.flag_assigned
+                    .push(assign_logger::build_flag_assigned(
+                        resolve_id,
+                        flags_to_log,
+                        client,
+                        sdk,
+                    ));
             }
         });
     }
