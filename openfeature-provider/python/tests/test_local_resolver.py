@@ -42,7 +42,7 @@ class TestLocalResolverSetState:
             test_resolver_state,
             test_account_id,
             None,
-            False,
+            True,
             False,
         )
 
