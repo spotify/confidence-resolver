@@ -51,9 +51,8 @@ func WithLogPollInterval(d time.Duration) Option {
 	}
 }
 
-// WithEnableApplyDedup enables experimental apply-event deduplication in the
-// WASM resolver: repeated identical assignments within a short TTL window are
-// logged once. Off by default; the API may change.
+// WithEnableApplyDedup enables apply-event deduplication in the WASM resolver:
+// repeated identical assignments within a short TTL window are logged once.
 func WithEnableApplyDedup() Option {
 	return func(o *providerOptions) {
 		o.enableApplyDedup = true

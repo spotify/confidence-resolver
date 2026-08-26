@@ -29,7 +29,7 @@ type ProviderConfig struct {
 	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
-	EnableApplyDedup              bool                 // Optional, experimental: enable apply-event dedup in the WASM resolver; off by default
+	DisableApplyDedup             bool                 // Optional: disable apply-event dedup in the WASM resolver; on by default
 	// DisableExposureCollection disables exposure/assignment collection for all
 	// OpenFeature evaluations through this provider. Use only for exceptional
 	// no-exposure modes; resolve logs and telemetry are still sent.
@@ -110,7 +110,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.DisableExposureCollection)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.DisableApplyDedup, config.DisableExposureCollection)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
@@ -160,7 +160,7 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels 
 }
 
 // buildProviderOptions creates options slice from provider config
-func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enableApplyDedup, disableExposureCollection bool) []Option {
+func buildProviderOptions(statePollInterval, logPollInterval time.Duration, disableApplyDedup, disableExposureCollection bool) []Option {
 	var opts []Option
 	if statePollInterval > 0 {
 		opts = append(opts, WithStatePollInterval(statePollInterval))
@@ -168,7 +168,7 @@ func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enab
 	if logPollInterval > 0 {
 		opts = append(opts, WithLogPollInterval(logPollInterval))
 	}
-	if enableApplyDedup {
+	if !disableApplyDedup {
 		opts = append(opts, WithEnableApplyDedup())
 	}
 	if disableExposureCollection {

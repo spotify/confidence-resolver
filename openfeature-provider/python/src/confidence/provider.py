@@ -141,7 +141,7 @@ class ConfidenceProvider(AbstractProvider):
         state_fetcher: Optional[StateFetcher] = None,
         flag_logger: Optional[FlagLogger] = None,
         wasm_bytes: Optional[bytes] = None,
-        enable_apply_dedup: bool = False,
+        enable_apply_dedup: bool = True,
         disable_exposure_collection: bool = False,
     ) -> None:
         """Initialize the Confidence provider.
@@ -158,10 +158,9 @@ class ConfidenceProvider(AbstractProvider):
             state_fetcher: Optional state fetcher for testing.
             flag_logger: Optional flag logger for testing.
             wasm_bytes: Optional WASM bytes for testing.
-            enable_apply_dedup: Experimental — enable apply-event dedup in
-                the WASM resolver: repeated identical assignments within a
-                short TTL window are logged once. Off by default; the API may
-                change.
+            enable_apply_dedup: Apply-event dedup in the WASM resolver:
+                repeated identical assignments within a short TTL window
+                are logged once. On by default. Set to False to disable.
             disable_exposure_collection: Disable exposure/assignment collection for all
                 OpenFeature evaluations through this provider. Use only for
                 exceptional no-exposure modes; resolve logs and telemetry are

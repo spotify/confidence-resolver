@@ -92,7 +92,7 @@ class LocalResolver:
         state: bytes,
         account_id: str,
         sdk: Optional[object] = None,
-        enable_apply_dedup: bool = False,
+        enable_apply_dedup: bool = True,
         disable_exposure_collection: bool = False,
     ) -> None:
         """Set the resolver state.
@@ -103,7 +103,7 @@ class LocalResolver:
             state: The serialized resolver state bytes.
             account_id: The account ID for the resolver.
             sdk: Optional SDK identifier and version.
-            enable_apply_dedup: Experimental — enable apply-event dedup (off by default).
+            enable_apply_dedup: Apply-event dedup (on by default).
             disable_exposure_collection: Disable all apply/assignment (exposure) logging; the assign queue stays empty.
         """
         self._current_state = (
