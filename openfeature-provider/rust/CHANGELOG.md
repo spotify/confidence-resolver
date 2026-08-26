@@ -14,7 +14,7 @@
 
 ### Features
 
-* disable exposure collection on local OpenFeature providers ([#527](https://github.com/spotify/confidence-resolver/issues/527)) ([4b3ef41](https://github.com/spotify/confidence-resolver/commit/4b3ef418223c4a4155fa028672710df307057ce0))
+* add option to disable exposure collection on local OpenFeature providers ([#527](https://github.com/spotify/confidence-resolver/issues/527)) ([4b3ef41](https://github.com/spotify/confidence-resolver/commit/4b3ef418223c4a4155fa028672710df307057ce0))
 
 
 ### Dependencies
