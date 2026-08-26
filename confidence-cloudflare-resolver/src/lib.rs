@@ -167,29 +167,32 @@ impl Host for H {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
-        let now_seconds = (js_sys::Date::now() / 1000.0) as i64;
-        let result = APPLY_DEDUP.with(|dedup| {
-            dedup.borrow_mut().filter_duplicates(assigned_flags, now_seconds)
-        });
-        if result.is_empty() {
-            return;
-        }
-        let flags_to_log: &[FlagToApply<'_>];
-        let filtered;
-        if result.kept_count() == assigned_flags.len() {
-            flags_to_log = assigned_flags;
-        } else {
-            filtered = result.collect(assigned_flags);
-            flags_to_log = &filtered;
+        if !assigned_flags.is_empty() {
+            let now_seconds = (js_sys::Date::now() / 1000.0) as i64;
+            let result = APPLY_DEDUP.with(|dedup| {
+                dedup.borrow_mut().filter_duplicates(assigned_flags, now_seconds)
+            });
+            if result.is_empty() {
+                return;
+            }
+            if result.kept_count() < assigned_flags.len() {
+                let filtered = result.collect(assigned_flags);
+                FLAG_LOG.with(|f| {
+                    if let Some(req) = f.borrow_mut().as_mut() {
+                        req.flag_assigned
+                            .push(assign_logger::build_flag_assigned(
+                                resolve_id, &filtered, client, sdk,
+                            ));
+                    }
+                });
+                return;
+            }
         }
         FLAG_LOG.with(|f| {
             if let Some(req) = f.borrow_mut().as_mut() {
                 req.flag_assigned
                     .push(assign_logger::build_flag_assigned(
-                        resolve_id,
-                        flags_to_log,
-                        client,
-                        sdk,
+                        resolve_id, assigned_flags, client, sdk,
                     ));
             }
         });
