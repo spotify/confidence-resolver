@@ -1,6 +1,7 @@
 mod materialization;
 
 use confidence_resolver::{
+    apply_dedup::ApplyDedup,
     assign_logger, flag_logger,
     proto::{confidence, google::Struct},
     resolve_logger,
@@ -48,6 +49,7 @@ thread_local! {
     // Side channel for the `Host` logging callbacks, which are static methods
     // with no way to reach their caller. Only ever `Some` inside `with_log`.
     static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
+    static APPLY_DEDUP: RefCell<ApplyDedup> = RefCell::new(ApplyDedup::new(120, 100_000));
 }
 
 /// Queues one request's flag log. Called via `Context::wait_until`, so it runs
@@ -164,15 +166,49 @@ impl Host for H {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
+        if assigned_flags.is_empty() {
+            FLAG_LOG.with(|f| {
+                if let Some(req) = f.borrow_mut().as_mut() {
+                    req.flag_assigned
+                        .push(assign_logger::build_flag_assigned(
+                            resolve_id,
+                            assigned_flags,
+                            client,
+                            sdk,
+                        ));
+                }
+            });
+            return;
+        }
+        let now_seconds = (js_sys::Date::now() / 1000.0) as i64;
+        let result = APPLY_DEDUP.with(|dedup| {
+            let mut dedup = dedup.borrow_mut();
+            dedup.sweep(now_seconds);
+            dedup.filter_duplicates(assigned_flags, now_seconds)
+        });
+        if result.is_empty() {
+            return;
+        }
         FLAG_LOG.with(|f| {
             if let Some(req) = f.borrow_mut().as_mut() {
-                req.flag_assigned
-                    .push(assign_logger::build_flag_assigned(
-                        resolve_id,
-                        assigned_flags,
-                        client,
-                        sdk,
-                    ));
+                if result.kept_count() == assigned_flags.len() {
+                    req.flag_assigned
+                        .push(assign_logger::build_flag_assigned(
+                            resolve_id,
+                            assigned_flags,
+                            client,
+                            sdk,
+                        ));
+                } else {
+                    let filtered = result.collect(assigned_flags);
+                    req.flag_assigned
+                        .push(assign_logger::build_flag_assigned(
+                            resolve_id,
+                            &filtered,
+                            client,
+                            sdk,
+                        ));
+                }
             }
         });
     }
