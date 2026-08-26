@@ -52,9 +52,10 @@ thread_local! {
     static APPLY_DEDUP: RefCell<ApplyDedup> = RefCell::new(ApplyDedup::new(120, 100_000));
 }
 
-/// Queues one request's flag log. Called via `Context::wait_until`, so it runs
-/// after the response has been returned.
+/// Queues one request's flag log and sweeps the apply-dedup map. Called via
+/// `Context::wait_until`, so both run after the response has been returned.
 async fn queue_flag_log(log: WriteFlagLogsRequest) {
+    APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     match serde_json::to_string(&log) {
         Ok(json) => {
             if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
@@ -182,9 +183,7 @@ impl Host for H {
         }
         let now_seconds = (js_sys::Date::now() / 1000.0) as i64;
         let result = APPLY_DEDUP.with(|dedup| {
-            let mut dedup = dedup.borrow_mut();
-            dedup.sweep(now_seconds);
-            dedup.filter_duplicates(assigned_flags, now_seconds)
+            dedup.borrow_mut().filter_duplicates(assigned_flags, now_seconds)
         });
         if result.is_empty() {
             return;
