@@ -754,7 +754,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         }
         sendEvents(batch);
         if (System.nanoTime() >= deadline) {
-          log.warn("Event drain hit the {}s deadline on shutdown; dropping the rest",
+          log.warn(
+              "Event drain hit the {}s deadline on shutdown; dropping the rest",
               SHUTDOWN_GRACE.toSeconds());
           return;
         }
