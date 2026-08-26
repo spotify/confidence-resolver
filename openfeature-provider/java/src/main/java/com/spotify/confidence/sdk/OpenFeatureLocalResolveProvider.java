@@ -746,14 +746,18 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       return;
     }
     try {
-      // Bounded: sendEvents swallows network failures, so an unbounded loop would
-      // spin forever if the events API is unreachable during shutdown.
+      final long deadline = System.nanoTime() + SHUTDOWN_GRACE.toNanos();
       for (int i = 0; i < MAX_DRAIN_BATCHES; i++) {
         final FlushEventsResponse batch = eventTracker.flushEvents();
         if (batch.getEventsCount() == 0) {
           return;
         }
         sendEvents(batch);
+        if (System.nanoTime() >= deadline) {
+          log.warn("Event drain hit the {}s deadline on shutdown; dropping the rest",
+              SHUTDOWN_GRACE.toSeconds());
+          return;
+        }
       }
       log.warn(
           "Event drain hit the {}-batch limit on shutdown; dropping the rest", MAX_DRAIN_BATCHES);

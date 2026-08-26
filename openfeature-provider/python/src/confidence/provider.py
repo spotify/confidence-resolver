@@ -1069,18 +1069,28 @@ class ConfidenceProvider(AbstractProvider):
         self._event_executor.submit(self._send_events, batch)
         return len(batch.events)
 
-    def _drain_events(self) -> None:
+    def _drain_events(self, deadline_seconds: float = 3.0) -> None:
         """Flush events repeatedly until the event buffer is empty.
 
         A single flush is capped at 2 MB inside the WASM engine, so one flush
-        can leave a backlog behind. Bounded to MAX_EVENT_DRAIN_BATCHES because
-        _send_events swallows network failures.
+        can leave a backlog behind. Bounded by both MAX_EVENT_DRAIN_BATCHES and
+        an overall deadline so shutdown never blocks indefinitely during an
+        outage.
         """
         if self._event_tracker is None:
             return
 
+        import time
+
+        deadline = time.monotonic() + deadline_seconds
         for _ in range(MAX_EVENT_DRAIN_BATCHES):
             if self._flush_events() == 0:
+                return
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "Event drain hit the %.1fs deadline on shutdown; dropping the rest",
+                    deadline_seconds,
+                )
                 return
 
         logger.warning(
