@@ -222,21 +222,13 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                                     config.isDisableExposureCollection()))));
     this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
 
-    // Initialize event tracking if enabled — WASM is loaded from classpath
-    if (config.isEnableEventTracking()) {
-      this.eventTracker = new WasmEventTracker(WasmEventTracker.loadFromClasspath());
-      this.eventFlushExecutor =
-          Executors.newScheduledThreadPool(
-              1,
-              new ThreadFactoryBuilder().setDaemon(true).setNameFormat("event-flush-%d").build());
-      this.eventsChannel = GrpcUtil.createConfidenceEventsChannel(config.getChannelFactory());
-      this.eventsStub = EventsServiceGrpc.newBlockingStub(this.eventsChannel);
-    } else {
-      this.eventTracker = null;
-      this.eventFlushExecutor = null;
-      this.eventsChannel = null;
-      this.eventsStub = null;
-    }
+    // Initialize event tracking — WASM is loaded from classpath
+    this.eventTracker = new WasmEventTracker(WasmEventTracker.loadFromClasspath());
+    this.eventFlushExecutor =
+        Executors.newScheduledThreadPool(
+            1, new ThreadFactoryBuilder().setDaemon(true).setNameFormat("event-flush-%d").build());
+    this.eventsChannel = GrpcUtil.createConfidenceEventsChannel(config.getChannelFactory());
+    this.eventsStub = EventsServiceGrpc.newBlockingStub(this.eventsChannel);
   }
 
   /**

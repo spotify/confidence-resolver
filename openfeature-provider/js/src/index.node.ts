@@ -12,31 +12,21 @@ let eventTracker: Promise<EventTracker> | null = null;
 
 export interface ProviderOptionsExt extends ProviderOptions {
   wasmPath?: string;
-  /**
-   * Set to false to disable event tracking. When true (the default), the
-   * provider loads the bundled event engine WASM and enables OpenFeature
-   * track() support.
-   */
-  enableEventTracking?: boolean;
 }
 
 export function createConfidenceServerProvider({
   wasmPath,
-  enableEventTracking,
   ...options
 }: ProviderOptionsExt): ConfidenceServerProviderLocal {
   if (!resolver) {
     resolver = createResolver(wasmPath ?? require.resolve('./confidence_resolver.wasm'));
   }
-  if (enableEventTracking !== false && !eventTracker) {
+  if (!eventTracker) {
     eventTracker = createEventTracker(require.resolve('./confidence_event_engine.wasm'));
   }
-  // The provider awaits eventTracker during initialize(), so passing the
-  // pending promise straight through is safe — assigning it after construction
-  // would be read too late and silently disable event tracking.
   return new ConfidenceServerProviderLocal(resolver, {
     ...options,
-    ...(eventTracker ? { eventTracker } : {}),
+    eventTracker,
   });
 }
 

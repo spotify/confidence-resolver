@@ -226,7 +226,6 @@ class ConfidenceProvider(AbstractProvider):
         state_fetcher: Optional[StateFetcher] = None,
         flag_logger: Optional[FlagLogger] = None,
         wasm_bytes: Optional[bytes] = None,
-        enable_event_tracking: bool = True,
         enable_apply_dedup: bool = False,
         disable_exposure_collection: bool = False,
     ) -> None:
@@ -244,9 +243,6 @@ class ConfidenceProvider(AbstractProvider):
             state_fetcher: Optional state fetcher for testing.
             flag_logger: Optional flag logger for testing.
             wasm_bytes: Optional WASM bytes for testing.
-            enable_event_tracking: Enable event tracking via track().
-                When True (the default), the provider loads the event engine
-                WASM from package resources during initialize().
             enable_apply_dedup: Experimental — enable apply-event dedup in
                 the WASM resolver: repeated identical assignments within a
                 short TTL window are logged once. Off by default; the API may
@@ -279,7 +275,6 @@ class ConfidenceProvider(AbstractProvider):
         self._wasm_bytes = wasm_bytes
 
         # Event engine configuration
-        self._enable_event_tracking = enable_event_tracking
         self._event_tracker: Optional[EventTracker] = None
         self._event_tracker_lock = threading.Lock()
         self._event_executor = ThreadPoolExecutor(max_workers=2)
@@ -354,22 +349,21 @@ class ConfidenceProvider(AbstractProvider):
         # Create resolver
         self._resolver = LocalResolver(self._wasm_bytes)
 
-        # Initialize event tracking if enabled
-        if self._enable_event_tracking:
-            try:
-                event_bytes = _load_event_wasm_from_resources()
-                self._event_tracker = EventTracker(event_bytes)
-                self._events_channel = grpc.secure_channel(
-                    EVENTS_GRPC_TARGET,
-                    grpc.ssl_channel_credentials(),
-                    options=[("grpc.service_config", _EVENTS_RETRY_SERVICE_CONFIG)],
-                )
-                self._events_stub = events_api_pb2_grpc.EventsServiceStub(
-                    self._events_channel
-                )
-                logger.info("Event tracking enabled")
-            except Exception as e:
-                logger.error("Failed to initialize event tracking: %s", e)
+        # Initialize event tracking
+        try:
+            event_bytes = _load_event_wasm_from_resources()
+            self._event_tracker = EventTracker(event_bytes)
+            self._events_channel = grpc.secure_channel(
+                EVENTS_GRPC_TARGET,
+                grpc.ssl_channel_credentials(),
+                options=[("grpc.service_config", _EVENTS_RETRY_SERVICE_CONFIG)],
+            )
+            self._events_stub = events_api_pb2_grpc.EventsServiceStub(
+                self._events_channel
+            )
+            logger.info("Event tracking initialized")
+        except Exception as e:
+            logger.error("Failed to initialize event tracking: %s", e)
 
         # Create state fetcher if not injected
         if self._state_fetcher is None:
@@ -997,9 +991,8 @@ class ConfidenceProvider(AbstractProvider):
     ) -> None:
         """Track an event for the Confidence events API.
 
-        Implements the OpenFeature ``FeatureProvider.track`` interface. Requires
-        the provider to be initialized with enable_event_tracking=True (the default);
-        if event tracking is not configured this method is a no-op.
+        Implements the OpenFeature ``FeatureProvider.track`` interface. Event
+        tracking is always enabled; if initialization failed this is a no-op.
 
         Args:
             tracking_event_name: The bare event name (e.g. "my_event"). The WASM

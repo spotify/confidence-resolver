@@ -14,7 +14,6 @@ public class LocalProviderConfig {
   private final String encryptionKey;
   private final boolean enableApplyDedup;
   private final boolean disableExposureCollection;
-  private final boolean enableEventTracking;
 
   public LocalProviderConfig() {
     this(null, null);
@@ -56,8 +55,7 @@ public class LocalProviderConfig {
         resolverPoolSize,
         encryptionKey,
         false,
-        false,
-        true);
+        false);
   }
 
   private LocalProviderConfig(
@@ -67,8 +65,7 @@ public class LocalProviderConfig {
       int resolverPoolSize,
       String encryptionKey,
       boolean enableApplyDedup,
-      boolean disableExposureCollection,
-      boolean enableEventTracking) {
+      boolean disableExposureCollection) {
     this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
     this.httpClientFactory =
         httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
@@ -77,7 +74,6 @@ public class LocalProviderConfig {
     this.encryptionKey = encryptionKey;
     this.enableApplyDedup = enableApplyDedup;
     this.disableExposureCollection = disableExposureCollection;
-    this.enableEventTracking = enableEventTracking;
   }
 
   public ChannelFactory getChannelFactory() {
@@ -119,15 +115,6 @@ public class LocalProviderConfig {
     return disableExposureCollection;
   }
 
-  /**
-   * Returns whether event tracking via the WASM event engine is enabled. When {@code true}, the
-   * provider loads the event engine WASM from the classpath and periodically flushes tracked events
-   * to the Confidence events API.
-   */
-  public boolean isEnableEventTracking() {
-    return enableEventTracking;
-  }
-
   public static Builder builder() {
     return new Builder();
   }
@@ -140,7 +127,6 @@ public class LocalProviderConfig {
     private String encryptionKey;
     private boolean enableApplyDedup;
     private boolean disableExposureCollection;
-    private boolean enableEventTracking = true;
 
     public Builder channelFactory(ChannelFactory channelFactory) {
       this.channelFactory = channelFactory;
@@ -194,19 +180,6 @@ public class LocalProviderConfig {
       return this;
     }
 
-    /**
-     * Controls event tracking via the WASM event engine. Event tracking is enabled by default; the
-     * provider loads the event engine WASM from the classpath and exposes {@code track()} for
-     * buffering events that are periodically flushed to the Confidence events API. Pass {@code
-     * false} to disable.
-     *
-     * @param enableEventTracking whether to enable event tracking (default: true)
-     */
-    public Builder enableEventTracking(boolean enableEventTracking) {
-      this.enableEventTracking = enableEventTracking;
-      return this;
-    }
-
     public LocalProviderConfig build() {
       return new LocalProviderConfig(
           channelFactory,
@@ -215,8 +188,7 @@ public class LocalProviderConfig {
           resolverPoolSize,
           encryptionKey,
           enableApplyDedup,
-          disableExposureCollection,
-          enableEventTracking);
+          disableExposureCollection);
     }
   }
 }
