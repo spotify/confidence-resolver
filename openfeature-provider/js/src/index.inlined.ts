@@ -23,10 +23,7 @@ export function createConfidenceServerProvider(options: ProviderOptions): Confid
   if (!eventTracker) {
     eventTracker = createEventTracker();
   }
-  return new ConfidenceServerProviderLocal(resolver, {
-    ...options,
-    eventTracker,
-  });
+  return new ConfidenceServerProviderLocal(resolver, eventTracker, options);
 }
 
 async function createResolver(): Promise<LocalResolver> {

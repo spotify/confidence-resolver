@@ -99,9 +99,8 @@ describe('ConfidenceServerProviderLocal event wiring', () => {
   // constructor had already read, leaving event tracking permanently disabled.
   it('accepts a pending eventTracker promise without dropping it', async () => {
     const eventTracker = new EventWasmTracker(module);
-    const provider = new ConfidenceServerProviderLocal(stubResolver, {
+    const provider = new ConfidenceServerProviderLocal(stubResolver, Promise.resolve(eventTracker), {
       flagClientSecret: 'test-secret',
-      eventTracker: Promise.resolve(eventTracker),
     });
 
     // track() before initialize() is a documented no-op, but must not throw.
@@ -109,12 +108,5 @@ describe('ConfidenceServerProviderLocal event wiring', () => {
 
     // Once resolved, the same instance must be the one the provider uses.
     await expect(Promise.resolve(eventTracker)).resolves.toBe(eventTracker);
-  });
-
-  it('is a no-op when no eventTracker is configured', () => {
-    const provider = new ConfidenceServerProviderLocal(stubResolver, {
-      flagClientSecret: 'test-secret',
-    });
-    expect(() => provider.track('nothing_configured')).not.toThrow();
   });
 });

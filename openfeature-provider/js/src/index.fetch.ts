@@ -23,10 +23,7 @@ export function createConfidenceServerProvider({
   if (!eventTracker) {
     eventTracker = createEventTracker(new URL('confidence_event_engine.wasm', import.meta.url));
   }
-  return new ConfidenceServerProviderLocal(resolver, {
-    ...options,
-    eventTracker,
-  });
+  return new ConfidenceServerProviderLocal(resolver, eventTracker, options);
 }
 
 async function createResolver(wasmUrl: URL | string): Promise<LocalResolver> {

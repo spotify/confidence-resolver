@@ -2,6 +2,12 @@ import { vi } from 'vitest';
 import { abortableSleep, isObject, TimeUnit } from './util';
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { ClientResolverState } from './proto/confidence/flags/admin/v1/resolver';
+import type { EventTracker } from './EventWasmTracker';
+
+export const noopEventTracker: EventTracker = {
+  trackEvent() {},
+  flushEvents: () => ({ events: [] }),
+};
 
 type PayloadFactory = (req: Request) => BodyInit | null;
 type ByteStream = ReadableStream<Uint8Array<ArrayBuffer>>;

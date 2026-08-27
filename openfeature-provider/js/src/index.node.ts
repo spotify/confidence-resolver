@@ -24,10 +24,7 @@ export function createConfidenceServerProvider({
   if (!eventTracker) {
     eventTracker = createEventTracker(require.resolve('./confidence_event_engine.wasm'));
   }
-  return new ConfidenceServerProviderLocal(resolver, {
-    ...options,
-    eventTracker,
-  });
+  return new ConfidenceServerProviderLocal(resolver, eventTracker, options);
 }
 
 async function createResolver(wasmPath: string): Promise<LocalResolver> {

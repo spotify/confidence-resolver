@@ -72,8 +72,6 @@ export interface ProviderOptions {
    * logs and telemetry are still sent.
    */
   disableExposureCollection?: boolean;
-  /** Optional event resolver for OpenFeature track() support. */
-  eventTracker?: EventTracker | Promise<EventTracker>;
 }
 
 /**
@@ -95,21 +93,28 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly materializationStore: MaterializationStore | null;
   private readonly initLabels: Record<string, string>;
   private initTelemetryState: 'pending' | 'sending' | 'sent' = 'pending';
-  private readonly eventTrackerOrPromise: EventTracker | Promise<EventTracker> | null;
+  private resolverInstance: LocalResolver | null = null;
   private eventTracker: EventTracker | null = null;
   private stateEtag: string | null = null;
   private logDestinations: LogDestination[] = [];
   private accountId = '';
 
   private get resolver(): LocalResolver {
-    if (this.resolverOrPromise instanceof Promise) {
+    if (!this.resolverInstance) {
       throw new Error('Resolver not ready');
     }
-    return this.resolverOrPromise;
+    return this.resolverInstance;
   }
 
   // TODO Maybe pass in a resolver factory, so that we can initialize it in initialize and transition to fatal if not.
-  constructor(private resolverOrPromise: LocalResolver | Promise<LocalResolver>, private options: ProviderOptions) {
+  constructor(
+    private readonly resolverOrPromise: LocalResolver | Promise<LocalResolver>,
+    private readonly eventTrackerOrPromise: EventTracker | Promise<EventTracker>,
+    private options: ProviderOptions,
+  ) {
+    if (!(resolverOrPromise instanceof Promise)) {
+      this.resolverInstance = resolverOrPromise;
+    }
     this.stateUpdateInterval = options.stateUpdateInterval ?? DEFAULT_STATE_INTERVAL;
     if (!Number.isInteger(this.stateUpdateInterval) || this.stateUpdateInterval < 1000) {
       throw new Error(`stateUpdateInterval must be an integer >= 1000 (1s), currently: ${this.stateUpdateInterval}`);
@@ -178,7 +183,6 @@ export class ConfidenceServerProviderLocal implements Provider {
       ],
       options.fetch ?? fetch,
     );
-    this.eventTrackerOrPromise = options.eventTracker ?? null;
     if (options.materializationStore) {
       if (options.materializationStore === 'CONFIDENCE_REMOTE_STORE') {
         this.materializationStore = new ConfidenceRemoteMaterializationStore(
@@ -208,17 +212,13 @@ export class ConfidenceServerProviderLocal implements Provider {
       timeoutSignal(this.options.initializeTimeout ?? DEFAULT_INITIALIZE_TIMEOUT),
     ]);
     try {
-      this.resolverOrPromise = await this.resolverOrPromise;
+      this.resolverInstance = await this.resolverOrPromise;
       // TODO set schedulers irrespective of failure
       // TODO if 403 here,
       await this.updateState(initialUpdateSignal);
       scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      if (this.eventTrackerOrPromise) {
-        this.eventTracker = await this.eventTrackerOrPromise;
-      }
-      if (this.eventTracker) {
-        scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      }
+      this.eventTracker = await this.eventTrackerOrPromise;
+      scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
       // TODO Better with fixed delay so we don't do a double fetch when we're behind. Alt, skip if in progress
       scheduleWithFixedInterval(signal => this.updateState(signal), this.stateUpdateInterval, { signal });
       this.status = castStringToEnum<ProviderStatus>('READY');
