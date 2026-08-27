@@ -1,6 +1,7 @@
 mod materialization;
 
 use confidence_resolver::{
+    apply_dedup::ApplyDedup,
     assign_logger, flag_logger,
     proto::{confidence, google::Struct},
     resolve_logger,
@@ -15,7 +16,7 @@ use bytes::Bytes;
 use prost::Message;
 use serde_json::from_slice;
 use serde_json::json;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use wasm_bindgen::JsCast;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
@@ -48,11 +49,16 @@ thread_local! {
     // Side channel for the `Host` logging callbacks, which are static methods
     // with no way to reach their caller. Only ever `Some` inside `with_log`.
     static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
+    static APPLY_DEDUP: RefCell<ApplyDedup> = RefCell::new(ApplyDedup::new(120, 100_000));
+    static APPLY_DEDUP_ENABLED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Queues one request's flag log. Called via `Context::wait_until`, so it runs
-/// after the response has been returned.
+/// Queues one request's flag log and sweeps the apply-dedup map. Called via
+/// `Context::wait_until`, so both run after the response has been returned.
 async fn queue_flag_log(log: WriteFlagLogsRequest) {
+    if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
+        APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
+    }
     match serde_json::to_string(&log) {
         Ok(json) => {
             if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
@@ -164,14 +170,32 @@ impl Host for H {
         client: &Client,
         sdk: &Option<Sdk>,
     ) {
+        if !assigned_flags.is_empty() && APPLY_DEDUP_ENABLED.with(|c| c.get()) {
+            let now_seconds = (js_sys::Date::now() / 1000.0) as i64;
+            let result = APPLY_DEDUP.with(|dedup| {
+                dedup.borrow_mut().filter_duplicates(assigned_flags, now_seconds)
+            });
+            if result.is_empty() {
+                return;
+            }
+            if result.kept_count() < assigned_flags.len() {
+                let filtered = result.collect(assigned_flags);
+                FLAG_LOG.with(|f| {
+                    if let Some(req) = f.borrow_mut().as_mut() {
+                        req.flag_assigned
+                            .push(assign_logger::build_flag_assigned(
+                                resolve_id, &filtered, client, sdk,
+                            ));
+                    }
+                });
+                return;
+            }
+        }
         FLAG_LOG.with(|f| {
             if let Some(req) = f.borrow_mut().as_mut() {
                 req.flag_assigned
                     .push(assign_logger::build_flag_assigned(
-                        resolve_id,
-                        assigned_flags,
-                        client,
-                        sdk,
+                        resolve_id, assigned_flags, client, sdk,
                     ));
             }
         });
@@ -289,6 +313,12 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .var("DEPLOYER_VERSION")
         .map(|var| var.to_string())
         .unwrap_or_default();
+
+    let enable_apply_dedup = env
+        .var("ENABLE_APPLY_DEDUP")
+        .map(|var| var.to_string().trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    APPLY_DEDUP_ENABLED.with(|c| c.set(enable_apply_dedup));
 
     if req.method() == Method::Options {
         return Response::ok("")?.with_cors_headers(&allowed_origin_env);
