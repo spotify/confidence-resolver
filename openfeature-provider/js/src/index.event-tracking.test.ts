@@ -49,8 +49,8 @@ describe.each([
   },
 ])('$name entry point event tracking', ({ name, load, resolverWasmUrl, eventWasmUrl }) => {
   const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
-    const url = String(input);
-    if (url.includes('confidence-resolver-state-cdn.spotifycdn.com')) {
+    const url = new URL(input instanceof Request ? input.url : input);
+    if (url.hostname === 'confidence-resolver-state-cdn.spotifycdn.com') {
       return new Response(new Uint8Array());
     }
     return new Response();
