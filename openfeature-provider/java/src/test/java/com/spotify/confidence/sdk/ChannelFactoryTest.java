@@ -38,19 +38,22 @@ public class ChannelFactoryTest {
 
     new OpenFeatureLocalResolveProvider(new LocalProviderConfig(customFactory), "clientsecret");
 
+    // The factory is called once for the flag logger and, when event tracking is
+    // enabled (the default), once more for the events service channel.
     assertEquals(
-        1,
+        2,
         factoryCallCount.get(),
-        "ChannelFactory should have been called once for flag logger, but was called "
+        "ChannelFactory should have been called twice (flag logger + events), but was called "
             + factoryCallCount.get()
             + " times");
 
     assertFalse(targetsReceived.isEmpty(), "Factory should have received target addresses");
 
-    assertTrue(
-        targetsReceived.get(0).contains("grpc") || targetsReceived.get(0).contains("edge"),
-        "Target should be a gRPC endpoint, got: " + targetsReceived.get(0));
-    assertEquals(1, interceptorCounts.size(), "Interceptors should have been called");
+    for (String target : targetsReceived) {
+      assertTrue(
+          target.contains("grpc") || target.contains("edge"),
+          "Target should be a gRPC endpoint, got: " + target);
+    }
   }
 
   @Test

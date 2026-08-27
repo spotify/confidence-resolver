@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	et "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/event_tracking"
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
@@ -111,6 +112,10 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.DisableExposureCollection)
+	providerOpts = append(providerOpts,
+		WithEventTracking(et.EventEngineWasm),
+		WithUseWasmInterpreter(config.UseWasmInterpreter),
+	)
 	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }

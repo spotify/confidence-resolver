@@ -4,7 +4,7 @@ import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { readFileSync } from 'node:fs';
 import { WasmResolver } from './WasmResolver';
 import { LoggerBackend, logger } from './logger';
-import { createCapturingLoggingBackend } from './test-helpers';
+import { createCapturingLoggingBackend, noopEventTracker } from './test-helpers';
 
 /**
  * End-to-end tests that verify WriteFlagLogs successfully sends to the real backend.
@@ -26,7 +26,7 @@ describe('WriteFlagLogs Backend E2E tests', () => {
 
     const module = new WebAssembly.Module(moduleBytes);
     resolver = new WasmResolver(module);
-    provider = new ConfidenceServerProviderLocal(resolver, {
+    provider = new ConfidenceServerProviderLocal(resolver, noopEventTracker, {
       flagClientSecret: FLAG_CLIENT_SECRET,
     });
 

@@ -3,18 +3,36 @@ import { OpenFeature } from '@openfeature/server-sdk';
 import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { readFileSync } from 'node:fs';
 import { WasmResolver } from './WasmResolver';
+import { EventWasmTracker } from './EventWasmTracker';
+import { PublishEventsResponse } from './proto/confidence/events/v1/api';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
 const module = new WebAssembly.Module(moduleBytes);
+const eventModuleBytes = readFileSync(__dirname + '/../../../wasm/confidence_event_engine.wasm');
+const eventModule = new WebAssembly.Module(eventModuleBytes);
+const EVENT_PUBLISH_URL = 'https://events.confidence.dev/v1/events:publish';
 
 describe.each([
   { name: 'unencrypted', encryptionKey: undefined },
   { name: 'encrypted', encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY },
 ])('ConfidenceServerProvider E2E ($name)', ({ name, encryptionKey }) => {
   const resolver = new WasmResolver(module);
-  const provider = new ConfidenceServerProviderLocal(resolver, {
+  const eventTracker = new EventWasmTracker(eventModule);
+  const eventPublishResults: Array<{ status: number; errors: PublishEventsResponse['errors'] }> = [];
+  const fetchWithEventCapture: typeof fetch = async (input, init) => {
+    const request = new Request(input, init);
+    const response = await fetch(request);
+    if (request.url === EVENT_PUBLISH_URL) {
+      const { errors } = PublishEventsResponse.decode(new Uint8Array(await response.clone().arrayBuffer()));
+      eventPublishResults.push({ status: response.status, errors });
+    }
+    return response;
+  };
+  const provider = new ConfidenceServerProviderLocal(resolver, eventTracker, {
     flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
     encryptionKey,
+    fetch: fetchWithEventCapture,
+    flushInterval: 1000,
   });
 
   beforeAll(async () => {
@@ -82,11 +100,20 @@ describe.each([
 
     expect(await client.getNumberDetails('web-sdk-e2e-flag.obj.double', 1, ctx)).toEqual(expectedObject);
   });
+
+  it('should publish a tracked event', async () => {
+    const client = OpenFeature.getClient(`e2e-${name}`);
+
+    client.track('js-sdk-e2e-tests', ctx, { pants: 'blue' });
+
+    expect(await waitForEventPublish(eventPublishResults)).toEqual({ status: 200, errors: [] });
+  }, 10_000);
 });
 
 describe('ConfidenceServerProvider E2E (sticky)', () => {
   const resolver = new WasmResolver(module);
-  const provider = new ConfidenceServerProviderLocal(resolver, {
+  const eventTracker = new EventWasmTracker(eventModule);
+  const provider = new ConfidenceServerProviderLocal(resolver, eventTracker, {
     flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
     materializationStore: 'CONFIDENCE_REMOTE_STORE',
   });
@@ -116,3 +143,14 @@ describe('ConfidenceServerProvider E2E (sticky)', () => {
     expect(result.reason).toBe('MATCH');
   });
 });
+
+async function waitForEventPublish(
+  results: Array<{ status: number; errors: PublishEventsResponse['errors'] }>,
+): Promise<{ status: number; errors: PublishEventsResponse['errors'] }> {
+  for (let i = 0; i < 50; i++) {
+    const result = results.shift();
+    if (result) return result;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error('Timed out waiting for event publish');
+}

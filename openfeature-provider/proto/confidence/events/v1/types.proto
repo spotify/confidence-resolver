@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package confidence.events.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events";
+option java_package = "com.spotify.confidence.sdk.events.v1";
+option java_multiple_files = true;
+option java_outer_classname = "TypesProto";
+
+// Mirrors confidence/events/v1/types.proto from the Confidence events service.
+// Annotations removed for minimal dependencies (same convention as internal_api.proto).
+
+// The event that you want to publish.
+message Event {
+  // Reference to the definition of the event that you want to publish, on the
+  // format `eventDefinitions/{event_definition_id}`.
+  string event_definition = 1;
+
+  // The json payload of the event. Empty nested records will be discarded.
+  google.protobuf.Struct payload = 2;
+
+  // The client time when the event occurred.
+  google.protobuf.Timestamp event_time = 3;
+}
+
+// Description of an error that occurred during publish.
+message EventError {
+  // The index (zero based) of the event in the request that could not be published.
+  int32 index = 1;
+
+  // The reason for why the event could not be ingested.
+  Reason reason = 2;
+
+  // An optional, human-readable error message set for certain error types.
+  string message = 3;
+
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    EVENT_DEFINITION_NOT_FOUND = 1;
+    EVENT_SCHEMA_VALIDATION_FAILED = 2;
+    EVENT_DEFINITION_INVALID_NAME = 3;
+  }
+}
+
+message Sdk {
+  oneof sdk {
+    // Name of a Confidence SDK.
+    SdkId id = 1;
+    // Custom name for non-Confidence SDKs.
+    string custom_id = 2;
+  }
+
+  // Version of the SDK.
+  string version = 3;
+}
+
+// The SDK used to interact with the API.
+enum SdkId {
+  SDK_ID_UNSPECIFIED = 0;
+  SDK_ID_JAVA_PROVIDER = 1;
+  SDK_ID_KOTLIN_PROVIDER = 2;
+  SDK_ID_SWIFT_PROVIDER = 3;
+  SDK_ID_JS_WEB_PROVIDER = 4;
+  SDK_ID_JS_SERVER_PROVIDER = 5;
+  SDK_ID_PYTHON_PROVIDER = 6;
+  SDK_ID_GO_PROVIDER = 7;
+  SDK_ID_RUBY_PROVIDER = 8;
+  SDK_ID_RUST_PROVIDER = 9;
+  SDK_ID_JAVA_CONFIDENCE = 10;
+  SDK_ID_KOTLIN_CONFIDENCE = 11;
+  SDK_ID_SWIFT_CONFIDENCE = 12;
+  SDK_ID_JS_CONFIDENCE = 13;
+  SDK_ID_PYTHON_CONFIDENCE = 14;
+  SDK_ID_GO_CONFIDENCE = 15;
+  SDK_ID_RUST_CONFIDENCE = 16;
+  SDK_ID_FLUTTER_IOS_CONFIDENCE = 17;
+  SDK_ID_FLUTTER_ANDROID_CONFIDENCE = 18;
+  SDK_ID_DOTNET_CONFIDENCE = 19;
+  // Confidence OpenFeature Go Local Provider.
+  SDK_ID_GO_LOCAL_PROVIDER = 20;
+  // Confidence OpenFeature Java Local Provider.
+  SDK_ID_JAVA_LOCAL_PROVIDER = 21;
+  // Confidence OpenFeature JavaScript Local Server Provider.
+  SDK_ID_JS_LOCAL_SERVER_PROVIDER = 22;
+  // Confidence OpenFeature Python Local Provider.
+  SDK_ID_PYTHON_LOCAL_PROVIDER = 23;
+  // Confidence OpenFeature Rust Local Provider.
+  SDK_ID_RUST_LOCAL_PROVIDER = 24;
+  // Confidence Cloudflare Resolver.
+  SDK_ID_CLOUDFLARE_RESOLVER = 25;
+  // Confidence OpenFeature PHP Provider.
+  SDK_ID_PHP_PROVIDER = 26;
+}

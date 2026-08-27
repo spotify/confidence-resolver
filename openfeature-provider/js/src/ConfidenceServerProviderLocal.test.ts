@@ -6,7 +6,7 @@ import {
   DEFAULT_STATE_INTERVAL,
 } from './ConfidenceServerProviderLocal';
 import { abortableSleep, TimeUnit, timeoutSignal } from './util';
-import { advanceTimersUntil, NetworkMock } from './test-helpers';
+import { advanceTimersUntil, NetworkMock, noopEventTracker } from './test-helpers';
 import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
@@ -39,7 +39,7 @@ beforeEach(() => {
   vi.clearAllTimers();
   vi.setSystemTime(0);
   net = new NetworkMock();
-  provider = new ConfidenceServerProviderLocal(mockedWasmResolver, {
+  provider = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
     flagClientSecret: 'flagClientSecret',
     fetch: net.fetch,
     materializationStore: 'CONFIDENCE_REMOTE_STORE',
@@ -284,7 +284,7 @@ describe('timeouts and aborts', () => {
     // Make resolverStateUri unreachable so initialize must rely on initializeTimeout
     net.cdn.state.status = 'No network';
 
-    const shortTimeoutProvider = new ConfidenceServerProviderLocal(mockedWasmResolver, {
+    const shortTimeoutProvider = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
       flagClientSecret: 'flagClientSecret',
       initializeTimeout: 1000,
       fetch: net.fetch,
@@ -420,7 +420,7 @@ describe('remote materialization for sticky assignments', () => {
   });
 
   it('sets apply=false when disableExposureCollection is configured on the provider', async () => {
-    provider = new ConfidenceServerProviderLocal(mockedWasmResolver, {
+    provider = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
       flagClientSecret: 'flagClientSecret',
       fetch: net.fetch,
       materializationStore: 'CONFIDENCE_REMOTE_STORE',
