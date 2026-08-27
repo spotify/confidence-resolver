@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.20.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.19.1...openfeature-provider-js-v0.20.0) (2026-08-27)
+
+
+### Features
+
+* add provider_init_rate to telemetry ([#485](https://github.com/spotify/confidence-resolver/issues/485)) ([c0e7dbe](https://github.com/spotify/confidence-resolver/commit/c0e7dbe99455a5dc7c131f502606d3a3ec42fffc))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.1 to 0.5.2
+
 ## [0.19.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.19.0...openfeature-provider-js-v0.19.1) (2026-08-21)
 
 

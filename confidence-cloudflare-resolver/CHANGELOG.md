@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.14.1...confidence-cloudflare-resolver-v0.15.0) (2026-08-27)
+
+
+### Features
+
+* **cloudflare:** add opt-in apply-event deduplication ([#542](https://github.com/spotify/confidence-resolver/issues/542)) ([1b0b9d0](https://github.com/spotify/confidence-resolver/commit/1b0b9d028afa72d761b79f44d9dfda45c01dc0ae))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.22.1 to 0.23.0
+
 ## [0.14.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.14.0...confidence-cloudflare-resolver-v0.14.1) (2026-08-21)
 
 

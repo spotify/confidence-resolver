@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.9.1...openfeature-provider/rust-v0.10.0) (2026-08-27)
+
+
+### Features
+
+* add provider_init_rate to telemetry ([#485](https://github.com/spotify/confidence-resolver/issues/485)) ([c0e7dbe](https://github.com/spotify/confidence-resolver/commit/c0e7dbe99455a5dc7c131f502606d3a3ec42fffc))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.22.1 to 0.23.0
+
 ## [0.9.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.9.0...openfeature-provider/rust-v0.9.1) (2026-08-21)
 
 

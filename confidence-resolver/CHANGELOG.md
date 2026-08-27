@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.22.1...confidence_resolver-v0.23.0) (2026-08-27)
+
+
+### Features
+
+* add provider_init_rate to telemetry ([#485](https://github.com/spotify/confidence-resolver/issues/485)) ([c0e7dbe](https://github.com/spotify/confidence-resolver/commit/c0e7dbe99455a5dc7c131f502606d3a3ec42fffc))
+* **resolver:** add string contains targeting ([#535](https://github.com/spotify/confidence-resolver/issues/535)) ([1ac8d80](https://github.com/spotify/confidence-resolver/commit/1ac8d80a65d523f57b6c2c5a63acfcecef6d106a))
+
 ## [0.22.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.22.0...confidence_resolver-v0.22.1) (2026-08-21)
 
 
