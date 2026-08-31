@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.12.0...openfeature-provider-python-v0.13.0) (2026-08-31)
+
+
+### Features
+
+* event tracking support ([#524](https://github.com/spotify/confidence-resolver/issues/524)) ([9eb515a](https://github.com/spotify/confidence-resolver/commit/9eb515a084dea17c90e8c60cb9aa64070146ae22))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.2 to 0.5.3
+
 ## [0.12.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.11.1...openfeature-provider-python-v0.12.0) (2026-08-27)
 
 
