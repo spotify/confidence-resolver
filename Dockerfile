@@ -340,7 +340,7 @@ CMD ["./confidence-cloudflare-resolver/deployer/script.sh"]
 # ==============================================================================
 # OpenFeature Provider (TypeScript) - Build and test
 # ==============================================================================
-FROM node:20-alpine AS openfeature-provider-js-base
+FROM node:22-alpine AS openfeature-provider-js-base
 
 # Install protoc for proto generation
 RUN apk add --no-cache protobuf-dev protoc make
