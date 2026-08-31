@@ -553,8 +553,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                     }
                     "events:publish" => {
                         let body_bytes: Vec<u8> = req.bytes().await?;
-                        let events = match parse_events_from_request(&body_bytes) {
-                            Ok(e) => e,
+                        let parsed = match parse_events_from_request(&body_bytes) {
+                            Ok(p) => p,
                             Err(msg) => {
                                 return Response::error(
                                     format!("Invalid request payload: {}", msg),
@@ -564,6 +564,14 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         };
 
+                        if let Some(expected) = CONFIDENCE_CLIENT_SECRET.get() {
+                            if parsed.client_secret != *expected {
+                                return Response::error("Unauthorized", 401)?
+                                    .with_cors_headers(&allowed_origin);
+                            }
+                        }
+
+                        let events = parsed.events;
                         if !events.is_empty() {
                             if let Some(queue) = EVENTS_QUEUE.get() {
                                 match serde_json::to_string(&events) {
@@ -811,14 +819,29 @@ fn build_publish_events_request(
     })
 }
 
-fn parse_events_from_request(body: &[u8]) -> std::result::Result<Vec<serde_json::Value>, String> {
+struct ParsedEventsRequest {
+    client_secret: String,
+    events: Vec<serde_json::Value>,
+}
+
+fn parse_events_from_request(body: &[u8]) -> std::result::Result<ParsedEventsRequest, String> {
     let req: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {}", e))?;
-    Ok(req
+    let client_secret = req
+        .get("clientSecret")
+        .or_else(|| req.get("client_secret"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let events = req
         .get("events")
         .and_then(|e| e.as_array())
         .cloned()
-        .unwrap_or_default())
+        .unwrap_or_default();
+    Ok(ParsedEventsRequest {
+        client_secret,
+        events,
+    })
 }
 
 async fn consume_events_queue(
@@ -889,23 +912,31 @@ mod tests {
     #[test]
     fn parse_events_valid_request() {
         let body = br#"{"clientSecret":"s","events":[{"eventDefinition":"eventDefinitions/test","payload":{"key":"val"},"eventTime":"2024-01-01T00:00:00Z"}]}"#;
-        let events = parse_events_from_request(body).unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["eventDefinition"], "eventDefinitions/test");
+        let parsed = parse_events_from_request(body).unwrap();
+        assert_eq!(parsed.client_secret, "s");
+        assert_eq!(parsed.events.len(), 1);
+        assert_eq!(parsed.events[0]["eventDefinition"], "eventDefinitions/test");
+    }
+
+    #[test]
+    fn parse_events_snake_case_secret() {
+        let body = br#"{"client_secret":"abc","events":[]}"#;
+        let parsed = parse_events_from_request(body).unwrap();
+        assert_eq!(parsed.client_secret, "abc");
     }
 
     #[test]
     fn parse_events_empty_array() {
         let body = br#"{"events":[]}"#;
-        let events = parse_events_from_request(body).unwrap();
-        assert!(events.is_empty());
+        let parsed = parse_events_from_request(body).unwrap();
+        assert!(parsed.events.is_empty());
     }
 
     #[test]
     fn parse_events_missing_field() {
         let body = br#"{"clientSecret":"s"}"#;
-        let events = parse_events_from_request(body).unwrap();
-        assert!(events.is_empty());
+        let parsed = parse_events_from_request(body).unwrap();
+        assert!(parsed.events.is_empty());
     }
 
     #[test]
