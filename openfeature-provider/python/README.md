@@ -10,6 +10,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 - **Low Latency**: No network calls during flag evaluation
 - **Automatic Sync**: Periodically syncs flag configurations from Confidence
 - **Exposure Logging**: Fully supported exposure logging (and other resolve analytics)
+- **[Event Tracking](#event-tracking)**: Send custom events via the OpenFeature `track()` API
 - **OpenFeature Compatible**: Works with the standard OpenFeature SDK
 
 ## Requirements
@@ -253,6 +254,37 @@ Configure logging to see provider activity:
 import logging
 logging.getLogger("confidence").setLevel(logging.DEBUG)
 ```
+
+## Event Tracking
+
+The provider supports the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking) for sending custom events to the Confidence events backend. Event tracking is automatically enabled — no configuration needed.
+
+**📖 See the [Integration Guide: Event Tracking](../INTEGRATION_GUIDE.md#event-tracking)** for delivery guarantees, payload mapping rules, and cross-provider differences.
+
+### Usage
+
+```python
+client = api.get_client()
+
+context = EvaluationContext(
+    targeting_key="user-123",
+    attributes={"country": "US"},
+)
+
+# Track a simple event
+client.track("checkout_completed", context)
+
+# Track with a numeric value
+client.track("purchase", context, TrackingEventDetails(value=49.99))
+
+# Track with custom data
+client.track("item_added", context, TrackingEventDetails(
+    value=1,
+    attributes={"sku": "ABC-123", "category": "electronics"},
+))
+```
+
+Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `log_poll_interval`). On shutdown, pending events are drained on a best-effort basis (up to 100 batches).
 
 ## Advanced: Controlling Exposure Events
 

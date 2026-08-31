@@ -10,6 +10,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 - **Low Latency**: No network calls during flag evaluation
 - **Automatic Sync**: Periodically syncs flag configurations from Confidence
 - **Exposure Logging**: Fully supported exposure logging and resolve analytics
+- **[Event Tracking](#event-tracking)**: Send custom events via the OpenFeature `Track()` API
 - **OpenFeature Compatible**: Works with the standard OpenFeature Go SDK
 
 ## Installation
@@ -562,6 +563,38 @@ The provider logs at different levels: `Debug` (flag resolution details), `Info`
 4. **Releases WASM instance** and memory
 
 The shutdown respects the context timeout you provide.
+
+## Event Tracking
+
+The provider supports the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking) for sending custom events to the Confidence events backend. Event tracking is automatically enabled when using `NewProvider` — no configuration needed.
+
+**📖 See the [Integration Guide: Event Tracking](../INTEGRATION_GUIDE.md#event-tracking)** for delivery guarantees, payload mapping rules, and cross-provider differences.
+
+### Usage
+
+```go
+client := openfeature.NewClient("my-app")
+
+evalCtx := openfeature.NewEvaluationContext("user-123", map[string]interface{}{
+    "country": "US",
+})
+
+// Track a simple event
+client.Track(ctx, "checkout_completed", evalCtx, openfeature.NewTrackingEventDetails(0))
+
+// Track with a numeric value
+client.Track(ctx, "purchase", evalCtx, openfeature.NewTrackingEventDetails(49.99))
+
+// Track with custom data
+details := openfeature.NewTrackingEventDetails(1)
+details.Add("sku", "ABC-123")
+details.Add("category", "electronics")
+client.Track(ctx, "item_added", evalCtx, details)
+```
+
+Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `LogPollInterval`). On shutdown, pending events are drained on a best-effort basis (up to 100 batches within a 3-second timeout).
+
+> **Note:** Go cannot distinguish `value: 0` from an unset value. The provider treats `0` as unset and omits it. If you need to record a zero-valued event, put it in the custom data instead of `value`. See the [Integration Guide](../INTEGRATION_GUIDE.md#known-provider-differences) for details.
 
 ## Advanced: Controlling Exposure Events
 
