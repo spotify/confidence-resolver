@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine3.22 AS build
+FROM golang:1.25-alpine3.22 AS build
 WORKDIR /src/mock-support-server
 
 # Copy module files and download dependencies (cached)
@@ -24,5 +24,4 @@ COPY data/resolver_state_current.pb /data/resolver_state_current.pb
 ENV PORT=8081
 EXPOSE 8081
 ENTRYPOINT ["/mock-support-server"]
-
 
