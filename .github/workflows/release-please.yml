@@ -30,7 +30,7 @@ jobs:
       python_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/python--release_created'] }}
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -59,7 +59,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -106,7 +106,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Extract confidence-cloudflare-resolver version and tag
         id: extract_ccr_version
@@ -152,7 +152,7 @@ jobs:
     if: ${{ needs.release.outputs.java_provider_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -201,7 +201,7 @@ jobs:
     if: ${{ needs.release.outputs.js_provider_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -215,7 +215,7 @@ jobs:
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -235,7 +235,7 @@ jobs:
     if: ${{ needs.release.outputs.ruby_provider_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -260,7 +260,7 @@ jobs:
     if: ${{ needs.release.outputs.confidence_resolver_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -288,7 +288,7 @@ jobs:
       (needs.publish-confidence-resolver-release.result == 'success' || needs.publish-confidence-resolver-release.result == 'skipped')
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -320,7 +320,7 @@ jobs:
     if: ${{ needs.release.outputs.python_provider_release_created == 'true' }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
