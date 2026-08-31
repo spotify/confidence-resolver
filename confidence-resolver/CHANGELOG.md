@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.23.0...confidence_resolver-v0.23.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **resolver:** reject empty range rules ([#543](https://github.com/spotify/confidence-resolver/issues/543)) ([3e84076](https://github.com/spotify/confidence-resolver/commit/3e84076ce070a5a93e6b2095a80011c42ec2dfef))
+* **resolver:** treat null lists as empty for any/all rules ([#541](https://github.com/spotify/confidence-resolver/issues/541)) ([422cecb](https://github.com/spotify/confidence-resolver/commit/422cecbd8d84c06ce633667dbae5324021399e38))
+
 ## [0.23.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.22.1...confidence_resolver-v0.23.0) (2026-08-27)
 
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.24.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.23.0...openfeature-provider/go/v0.24.0) (2026-08-31)
+
+
+### Features
+
+* event tracking support ([#524](https://github.com/spotify/confidence-resolver/issues/524)) ([9eb515a](https://github.com/spotify/confidence-resolver/commit/9eb515a084dea17c90e8c60cb9aa64070146ae22))
+
+
+### Bug Fixes
+
+* **resolver:** reject empty range rules ([#543](https://github.com/spotify/confidence-resolver/issues/543)) ([3e84076](https://github.com/spotify/confidence-resolver/commit/3e84076ce070a5a93e6b2095a80011c42ec2dfef))
+* **resolver:** treat null lists as empty for any/all rules ([#541](https://github.com/spotify/confidence-resolver/issues/541)) ([422cecb](https://github.com/spotify/confidence-resolver/commit/422cecbd8d84c06ce633667dbae5324021399e38))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.2 to 0.5.3
+
 ## [0.23.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.22.1...openfeature-provider/go/v0.23.0) (2026-08-27)
 
 
