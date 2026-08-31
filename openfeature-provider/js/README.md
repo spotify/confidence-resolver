@@ -387,7 +387,7 @@ client.track('item_added', { targetingKey: 'user-123' }, {
 });
 ```
 
-Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `flushInterval`). On shutdown (`onClose()`), pending events are drained automatically.
+Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `flushInterval`). On shutdown (`onClose()`), pending events are drained on a best-effort basis (up to 100 batches).
 
 ---
 

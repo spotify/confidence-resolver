@@ -284,7 +284,7 @@ client.track("item_added", context, TrackingEventDetails(
 ))
 ```
 
-Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `log_poll_interval`). On shutdown, pending events are drained automatically.
+Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `log_poll_interval`). On shutdown, pending events are drained on a best-effort basis (up to 100 batches).
 
 ## Advanced: Controlling Exposure Events
 

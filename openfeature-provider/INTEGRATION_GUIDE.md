@@ -147,7 +147,7 @@ For debugging, use the `details` methods to get error information:
 
 ## Event Tracking
 
-All local-resolve providers support the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking), enabling you to send custom events to the Confidence events backend. Events are batched inside a shared WebAssembly engine and flushed periodically alongside flag logs — no additional configuration is required.
+All local-resolve providers support the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking), enabling you to send custom events to the [Confidence events backend](https://confidence.spotify.com/docs). Events are batched inside a shared WebAssembly engine and flushed periodically alongside flag logs — no additional configuration is required.
 
 ### How It Works
 
@@ -158,7 +158,13 @@ All local-resolve providers support the [OpenFeature tracking API](https://openf
 
 ### Delivery Guarantees
 
-Events are delivered **at-most-once**. Once a batch is flushed from the WASM buffer, a failed publish drops it — there is no re-queue or persistence. This matches the flag-log path. Transient failures are absorbed by transport-level retries (gRPC retry policy or fetch-layer retries), and sustained failures are surfaced via periodic warning logs rather than per-failure noise.
+Events are delivered **at-most-once, best-effort**. Once a batch is flushed from the WASM buffer, a failed publish drops it — there is no re-queue or persistence. This matches the flag-log path. Transient failures are absorbed by transport-level retries (gRPC retry policy or fetch-layer retries), and sustained failures are surfaced via periodic warning logs rather than per-failure noise.
+
+On shutdown, each provider drains pending events on a best-effort basis (up to 100 batches, with a timeout). Events buffered when the process is killed uncleanly (e.g. `SIGKILL`) are lost.
+
+### Event Name Mapping
+
+You pass bare event names (e.g. `"checkout_completed"`). The WASM engine automatically prepends the `eventDefinitions/` prefix, so the event arrives at the Confidence backend as `eventDefinitions/checkout_completed`. This matches the [event definition](https://confidence.spotify.com/docs) resource naming in Confidence — you do not need to include the prefix yourself.
 
 ### Payload Mapping
 

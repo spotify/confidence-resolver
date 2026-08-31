@@ -592,7 +592,7 @@ details.Add("category", "electronics")
 client.Track(ctx, "item_added", evalCtx, details)
 ```
 
-Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `LogPollInterval`). On shutdown, pending events are drained automatically.
+Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `LogPollInterval`). On shutdown, pending events are drained on a best-effort basis (up to 100 batches within a 3-second timeout).
 
 > **Note:** Go cannot distinguish `value: 0` from an unset value. The provider treats `0` as unset and omits it. If you need to record a zero-valued event, put it in the custom data instead of `value`. See the [Integration Guide](../INTEGRATION_GUIDE.md#known-provider-differences) for details.
 

@@ -427,7 +427,7 @@ details.add("category", "electronics");
 client.track("item_added", ctx, details);
 ```
 
-Events are batched internally and flushed to the Confidence events service every 15 seconds. On shutdown, pending events are drained automatically.
+Events are batched internally and flushed to the Confidence events service every 15 seconds. On shutdown, pending events are drained on a best-effort basis (up to 100 batches within a 5-second grace period).
 
 ## Advanced: Controlling Exposure Events
 
