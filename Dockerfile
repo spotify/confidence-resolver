@@ -453,7 +453,7 @@ COPY --from=openfeature-provider-js.pack /app/package.tgz /package.tgz
 # ==============================================================================
 # OpenFeature Provider (Go) - Build and test
 # ==============================================================================
-FROM golang:1.24-alpine AS openfeature-provider-go-base
+FROM golang:1.25-alpine AS openfeature-provider-go-base
 
 # Install make (needed for Makefile targets)
 RUN apk add --no-cache make
