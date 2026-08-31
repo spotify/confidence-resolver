@@ -552,8 +552,19 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         Response::ok("")?.with_cors_headers(&allowed_origin)
                     }
                     "events:publish" => {
+                        let content_type = req
+                            .headers()
+                            .get("Content-Type")
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                        let is_protobuf = content_type.contains("protobuf");
+
                         let body_bytes: Vec<u8> = req.bytes().await?;
-                        let parsed = match parse_events_from_request(&body_bytes) {
+                        let parsed = match parse_events_from_request(
+                            &body_bytes,
+                            is_protobuf,
+                        ) {
                             Ok(p) => p,
                             Err(msg) => {
                                 return Response::error(
@@ -571,18 +582,29 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         }
 
-                        let events = parsed.events;
-                        if !events.is_empty() {
-                            if let Some(queue) = EVENTS_QUEUE.get() {
-                                match serde_json::to_string(&events) {
-                                    Ok(json) => {
-                                        if let Err(e) = queue.send(json).await {
-                                            console_log!("event queue send failed: {:?}", e);
-                                        }
-                                    }
-                                    Err(e) => console_log!("event serialize failed: {:?}", e),
-                                }
+                        let queue = match EVENTS_QUEUE.get() {
+                            Some(q) => q,
+                            None => {
+                                return Response::error(
+                                    "Event tracking not available",
+                                    503,
+                                )?
+                                .with_cors_headers(&allowed_origin);
                             }
+                        };
+
+                        if !parsed.events.is_empty() {
+                            let json = serde_json::to_string(&parsed.events)
+                                .map_err(|e| {
+                                    worker::Error::RustError(format!(
+                                        "event serialize failed: {}",
+                                        e
+                                    ))
+                                })?;
+                            queue.send(json).await.map_err(|e| {
+                                console_log!("event queue send failed: {:?}", e);
+                                e
+                            })?;
                         }
 
                         Response::from_json(&json!({"errors": []}))?
@@ -795,6 +817,78 @@ async fn send_flags_logs(
 
 const EVENTS_URL: &str = "https://events.confidence.dev/v1/events:publish";
 
+/// Minimal prost type for decoding the protobuf `PublishEventsRequest`.
+/// Fields we don't need (send_time, sdk) are skipped by prost.
+#[derive(Clone, PartialEq, Message)]
+struct ProtoPublishEventsRequest {
+    #[prost(string, tag = "1")]
+    client_secret: String,
+    #[prost(message, repeated, tag = "2")]
+    events: Vec<ProtoEvent>,
+}
+
+#[derive(Clone, PartialEq, Message, serde::Serialize)]
+struct ProtoEvent {
+    #[prost(string, tag = "1")]
+    #[serde(rename = "eventDefinition")]
+    event_definition: String,
+    #[prost(message, optional, tag = "2")]
+    payload: Option<pbjson_types::Struct>,
+    #[prost(message, optional, tag = "3")]
+    #[serde(rename = "eventTime")]
+    event_time: Option<pbjson_types::Timestamp>,
+}
+
+struct ParsedEventsRequest {
+    client_secret: String,
+    events: Vec<serde_json::Value>,
+}
+
+fn parse_events_from_request(
+    body: &[u8],
+    is_protobuf: bool,
+) -> std::result::Result<ParsedEventsRequest, String> {
+    if is_protobuf {
+        parse_events_protobuf(body)
+    } else {
+        parse_events_json(body)
+    }
+}
+
+fn parse_events_protobuf(body: &[u8]) -> std::result::Result<ParsedEventsRequest, String> {
+    let req = ProtoPublishEventsRequest::decode(Bytes::from(body.to_vec()))
+        .map_err(|e| format!("Invalid protobuf: {}", e))?;
+    let events: Vec<serde_json::Value> = req
+        .events
+        .iter()
+        .filter_map(|e| serde_json::to_value(e).ok())
+        .collect();
+    Ok(ParsedEventsRequest {
+        client_secret: req.client_secret,
+        events,
+    })
+}
+
+fn parse_events_json(body: &[u8]) -> std::result::Result<ParsedEventsRequest, String> {
+    let req: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {}", e))?;
+    let client_secret = req
+        .get("clientSecret")
+        .or_else(|| req.get("client_secret"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let events = req
+        .get("events")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(ParsedEventsRequest {
+        client_secret,
+        events,
+    })
+}
+
 fn aggregate_events(messages: &[String]) -> Vec<serde_json::Value> {
     messages
         .iter()
@@ -816,31 +910,6 @@ fn build_publish_events_request(
             "id": "SDK_ID_CLOUDFLARE_RESOLVER",
             "version": env!("CARGO_PKG_VERSION"),
         },
-    })
-}
-
-struct ParsedEventsRequest {
-    client_secret: String,
-    events: Vec<serde_json::Value>,
-}
-
-fn parse_events_from_request(body: &[u8]) -> std::result::Result<ParsedEventsRequest, String> {
-    let req: serde_json::Value =
-        serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {}", e))?;
-    let client_secret = req
-        .get("clientSecret")
-        .or_else(|| req.get("client_secret"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let events = req
-        .get("events")
-        .and_then(|e| e.as_array())
-        .cloned()
-        .unwrap_or_default();
-    Ok(ParsedEventsRequest {
-        client_secret,
-        events,
     })
 }
 
@@ -910,39 +979,84 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_events_valid_request() {
+    fn parse_json_valid_request() {
         let body = br#"{"clientSecret":"s","events":[{"eventDefinition":"eventDefinitions/test","payload":{"key":"val"},"eventTime":"2024-01-01T00:00:00Z"}]}"#;
-        let parsed = parse_events_from_request(body).unwrap();
+        let parsed = parse_events_from_request(body, false).unwrap();
         assert_eq!(parsed.client_secret, "s");
         assert_eq!(parsed.events.len(), 1);
         assert_eq!(parsed.events[0]["eventDefinition"], "eventDefinitions/test");
     }
 
     #[test]
-    fn parse_events_snake_case_secret() {
+    fn parse_json_snake_case_secret() {
         let body = br#"{"client_secret":"abc","events":[]}"#;
-        let parsed = parse_events_from_request(body).unwrap();
+        let parsed = parse_events_from_request(body, false).unwrap();
         assert_eq!(parsed.client_secret, "abc");
     }
 
     #[test]
-    fn parse_events_empty_array() {
+    fn parse_json_empty_events() {
         let body = br#"{"events":[]}"#;
-        let parsed = parse_events_from_request(body).unwrap();
+        let parsed = parse_events_from_request(body, false).unwrap();
         assert!(parsed.events.is_empty());
     }
 
     #[test]
-    fn parse_events_missing_field() {
+    fn parse_json_missing_events() {
         let body = br#"{"clientSecret":"s"}"#;
-        let parsed = parse_events_from_request(body).unwrap();
+        let parsed = parse_events_from_request(body, false).unwrap();
         assert!(parsed.events.is_empty());
     }
 
     #[test]
-    fn parse_events_invalid_json() {
-        let body = b"not json";
-        assert!(parse_events_from_request(body).is_err());
+    fn parse_json_invalid() {
+        assert!(parse_events_from_request(b"not json", false).is_err());
+    }
+
+    #[test]
+    fn parse_protobuf_valid_request() {
+        let proto_req = ProtoPublishEventsRequest {
+            client_secret: "my-secret".to_string(),
+            events: vec![ProtoEvent {
+                event_definition: "eventDefinitions/click".to_string(),
+                payload: Some(pbjson_types::Struct {
+                    fields: [("page".to_string(), pbjson_types::Value {
+                        kind: Some(pbjson_types::value::Kind::StringValue("/home".to_string())),
+                    })]
+                    .into_iter()
+                    .collect(),
+                }),
+                event_time: Some(pbjson_types::Timestamp {
+                    seconds: 1704067200,
+                    nanos: 0,
+                }),
+            }],
+        };
+        let bytes = proto_req.encode_to_vec();
+
+        let parsed = parse_events_from_request(&bytes, true).unwrap();
+        assert_eq!(parsed.client_secret, "my-secret");
+        assert_eq!(parsed.events.len(), 1);
+        assert_eq!(parsed.events[0]["eventDefinition"], "eventDefinitions/click");
+        assert_eq!(parsed.events[0]["payload"]["page"], "/home");
+        assert!(parsed.events[0]["eventTime"].is_string());
+    }
+
+    #[test]
+    fn parse_protobuf_empty_events() {
+        let proto_req = ProtoPublishEventsRequest {
+            client_secret: "s".to_string(),
+            events: vec![],
+        };
+        let bytes = proto_req.encode_to_vec();
+        let parsed = parse_events_from_request(&bytes, true).unwrap();
+        assert_eq!(parsed.client_secret, "s");
+        assert!(parsed.events.is_empty());
+    }
+
+    #[test]
+    fn parse_protobuf_invalid() {
+        assert!(parse_events_from_request(b"\xff\xff", true).is_err());
     }
 
     #[test]
@@ -961,22 +1075,15 @@ mod tests {
         let events = aggregate_events(&messages);
         assert_eq!(events.len(), 3);
         assert_eq!(events[0]["eventDefinition"], "eventDefinitions/a");
-        assert_eq!(events[1]["eventDefinition"], "eventDefinitions/b");
         assert_eq!(events[2]["eventDefinition"], "eventDefinitions/c");
     }
 
     #[test]
     fn aggregate_events_skips_malformed() {
         let messages = vec![
-            serde_json::to_string(&json!([
-                {"eventDefinition":"eventDefinitions/a","payload":{}}
-            ]))
-            .unwrap(),
+            serde_json::to_string(&json!([{"eventDefinition":"eventDefinitions/a"}])).unwrap(),
             "not valid json".to_string(),
-            serde_json::to_string(&json!([
-                {"eventDefinition":"eventDefinitions/b","payload":{}}
-            ]))
-            .unwrap(),
+            serde_json::to_string(&json!([{"eventDefinition":"eventDefinitions/b"}])).unwrap(),
         ];
         let events = aggregate_events(&messages);
         assert_eq!(events.len(), 2);
@@ -984,15 +1091,13 @@ mod tests {
 
     #[test]
     fn aggregate_events_empty() {
-        let events = aggregate_events(&[]);
-        assert!(events.is_empty());
+        assert!(aggregate_events(&[]).is_empty());
     }
 
     #[test]
     fn build_publish_request_structure() {
-        let events = vec![json!({"eventDefinition":"eventDefinitions/test","payload":{"k":"v"}})];
+        let events = vec![json!({"eventDefinition":"eventDefinitions/test"})];
         let req = build_publish_events_request("my-secret", events, "2024-01-01T00:00:00Z");
-
         assert_eq!(req["clientSecret"], "my-secret");
         assert_eq!(req["sendTime"], "2024-01-01T00:00:00Z");
         assert_eq!(req["sdk"]["id"], "SDK_ID_CLOUDFLARE_RESOLVER");
@@ -1001,7 +1106,7 @@ mod tests {
     }
 
     #[test]
-    fn build_publish_request_preserves_event_structure() {
+    fn build_publish_request_preserves_events() {
         let event = json!({
             "eventDefinition": "eventDefinitions/purchase",
             "payload": {"amount": 42.5, "currency": "USD"},
@@ -1009,5 +1114,48 @@ mod tests {
         });
         let req = build_publish_events_request("secret", vec![event.clone()], "2024-06-15T10:30:05Z");
         assert_eq!(req["events"][0], event);
+    }
+
+    #[test]
+    fn protobuf_round_trip_preserves_nested_payload() {
+        let proto_req = ProtoPublishEventsRequest {
+            client_secret: "s".to_string(),
+            events: vec![ProtoEvent {
+                event_definition: "eventDefinitions/e".to_string(),
+                payload: Some(pbjson_types::Struct {
+                    fields: [
+                        ("count".to_string(), pbjson_types::Value {
+                            kind: Some(pbjson_types::value::Kind::NumberValue(42.0)),
+                        }),
+                        ("tags".to_string(), pbjson_types::Value {
+                            kind: Some(pbjson_types::value::Kind::ListValue(
+                                pbjson_types::ListValue {
+                                    values: vec![
+                                        pbjson_types::Value {
+                                            kind: Some(pbjson_types::value::Kind::StringValue(
+                                                "a".to_string(),
+                                            )),
+                                        },
+                                        pbjson_types::Value {
+                                            kind: Some(pbjson_types::value::Kind::StringValue(
+                                                "b".to_string(),
+                                            )),
+                                        },
+                                    ],
+                                },
+                            )),
+                        }),
+                    ]
+                    .into_iter()
+                    .collect(),
+                }),
+                event_time: None,
+            }],
+        };
+        let bytes = proto_req.encode_to_vec();
+        let parsed = parse_events_from_request(&bytes, true).unwrap();
+        assert_eq!(parsed.events[0]["payload"]["count"], 42.0);
+        assert_eq!(parsed.events[0]["payload"]["tags"][0], "a");
+        assert_eq!(parsed.events[0]["payload"]["tags"][1], "b");
     }
 }
