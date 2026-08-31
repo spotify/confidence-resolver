@@ -18,7 +18,8 @@ The tools and SDKs published for direct usage:
 
 Underlying building blocks:
 - `confidence-resolver`: Core resolver crate
-- `wasm` and `wasm-msg`: WASM resolver with communication contract towards the hosting environment 
+- `confidence-event-engine`: Event batching engine compiled to WASM (shared by all providers for `track()` support)
+- `wasm` and `wasm-msg`: WASM resolver with communication contract towards the hosting environment
 - `data`: Sample local development data (e.g., resolver state)
 
 

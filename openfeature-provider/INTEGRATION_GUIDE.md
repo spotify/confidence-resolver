@@ -6,6 +6,7 @@ For language-specific installation and quick start instructions, see your provid
 - [Go Provider](go/README.md)
 - [Java Provider](java/README.md)
 - [JavaScript Provider](js/README.md)
+- [Python Provider](python/README.md)
 - [Ruby Provider](ruby/README.md)
 
 ---
@@ -15,8 +16,9 @@ For language-specific installation and quick start instructions, see your provid
 1. [Getting Your Credentials](#getting-your-credentials)
 2. [Encryption](#encryption)
 3. [Error Handling](#error-handling)
-4. [Sticky Assignments](#sticky-assignments)
-5. [Deferred Apply and Resolve Token Security](#deferred-apply-and-resolve-token-security)
+4. [Event Tracking](#event-tracking)
+5. [Sticky Assignments](#sticky-assignments)
+6. [Deferred Apply and Resolve Token Security](#deferred-apply-and-resolve-token-security)
 
 ---
 
@@ -143,6 +145,46 @@ For debugging, use the `details` methods to get error information:
 
 ---
 
+## Event Tracking
+
+All local-resolve providers support the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking), enabling you to send custom events to the Confidence events backend. Events are batched inside a shared WebAssembly engine and flushed periodically alongside flag logs — no additional configuration is required.
+
+### How It Works
+
+1. You call `track()` on the OpenFeature client with an event name, optional evaluation context, and optional tracking details (a numeric `value` and arbitrary custom data).
+2. The event is queued inside the WASM event engine.
+3. A background flush publishes batches to the Confidence events service at the same interval as flag log flushing.
+4. On provider shutdown, pending events are drained (up to 100 batches).
+
+### Delivery Guarantees
+
+Events are delivered **at-most-once**. Once a batch is flushed from the WASM buffer, a failed publish drops it — there is no re-queue or persistence. This matches the flag-log path. Transient failures are absorbed by transport-level retries (gRPC retry policy or fetch-layer retries), and sustained failures are surfaced via periodic warning logs rather than per-failure noise.
+
+### Payload Mapping
+
+The event payload is built by merging inputs in this order:
+
+1. **`data`** — your custom key-value fields from tracking details
+2. **`value`** — the numeric value from tracking details (overwrites a same-named key from `data`)
+3. **`context`** — the evaluation context (overwrites same-named keys from `data` and `value`)
+
+`value` and `context` are reserved keys. If your custom data contains a key named `"value"` or `"context"`, it will be overwritten.
+
+### Known Provider Differences
+
+**Go cannot distinguish `value: 0` from an unset value.** Go's `TrackingEventDetails` stores `value` as a plain `float64` with no "is set" flag. The Go provider treats `0` as unset and omits it to avoid attaching a spurious `value: 0` to every event. Java (`Optional<Number>`), JavaScript (`number | undefined`), and Python (`Optional[float]`) can distinguish them and forward an explicit `0` correctly. If you need to record a zero-valued event from Go, put it in the custom data instead.
+
+### Language-Specific Examples
+
+See your provider's README for usage examples:
+
+- [JavaScript](js/README.md#event-tracking)
+- [Java](java/README.md#event-tracking)
+- [Go](go/README.md#event-tracking)
+- [Python](python/README.md#event-tracking)
+
+---
+
 ## Sticky Assignments
 
 Confidence provides **sticky** flag assignments to ensure users receive consistent variant assignments across evaluations. It can be used for two things:
@@ -225,6 +267,7 @@ The provider only needs to see the original token at apply time — anything you
   - [Go Provider](go/README.md)
   - [Java Provider](java/README.md)
   - [JavaScript Provider](js/README.md)
+  - [Python Provider](python/README.md)
   - [Ruby Provider](ruby/README.md)
 - [Root Repository README](../README.md)
 - [Sticky Assignments Technical Guide](../STICKY_ASSIGNMENTS.md)

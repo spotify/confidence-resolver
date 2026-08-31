@@ -10,6 +10,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 - **Low Latency**: No network calls during flag evaluation
 - **Automatic Sync**: Periodically syncs flag configurations from Confidence
 - **Exposure Logging**: Fully supported exposure logging (and other resolve analytics)
+- **[Event Tracking](#event-tracking)**: Send custom events via the OpenFeature `track()` API
 - **OpenFeature Compatible**: Works with the standard OpenFeature SDK
 - **HTTP Proxy Service**: Proxy requests from client SDKs through your backend for enhanced control
 
@@ -400,6 +401,33 @@ const confidence = Confidence.create({
   applyBaseUrl: 'https://your-backend.com/confidence-flags',
 });
 ```
+
+## Event Tracking
+
+The provider supports the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking) for sending custom events to the Confidence events backend. Event tracking is automatically enabled — no configuration needed.
+
+**📖 See the [Integration Guide: Event Tracking](../INTEGRATION_GUIDE.md#event-tracking)** for delivery guarantees, payload mapping rules, and cross-provider differences.
+
+### Usage
+
+```java
+Client client = OpenFeatureAPI.getInstance().getClient();
+
+// Track a simple event
+MutableContext ctx = new MutableContext("user-123");
+client.track("checkout_completed", ctx);
+
+// Track with a numeric value
+client.track("purchase", ctx, new MutableTrackingEventDetails(49.99f));
+
+// Track with custom data
+MutableTrackingEventDetails details = new MutableTrackingEventDetails(1.0f);
+details.add("sku", "ABC-123");
+details.add("category", "electronics");
+client.track("item_added", ctx, details);
+```
+
+Events are batched internally and flushed to the Confidence events service every 15 seconds. On shutdown, pending events are drained automatically.
 
 ## Advanced: Controlling Exposure Events
 
