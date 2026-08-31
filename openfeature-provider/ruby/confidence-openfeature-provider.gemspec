@@ -29,7 +29,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "openssl", "~> 3.3" # Required for OpenSSL 3.6+ compatibility
 
   spec.add_development_dependency "rake", "~> 13.0"
-  spec.add_development_dependency "rspec", "~> 3.12.0"
+  spec.add_development_dependency "rspec", "~> 3.13.2"
   spec.add_development_dependency "standard"
   spec.add_development_dependency "standard-performance"
   spec.add_development_dependency "simplecov", "~> 0.22.0"
