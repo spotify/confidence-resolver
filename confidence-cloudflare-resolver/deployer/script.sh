@@ -401,6 +401,44 @@ else
     echo "⚠️ Could not check queue status (HTTP $QUEUE_STATUS)"
 fi
 
+# Create events queue if it doesn't exist
+if [ -n "$WORKER_NAME_PREFIX" ]; then
+    EVENTS_QUEUE_NAME="${WORKER_NAME_PREFIX}-events-queue"
+else
+    EVENTS_QUEUE_NAME="events-queue"
+fi
+
+echo "🔍 Checking if queue '$EVENTS_QUEUE_NAME' exists..."
+EVENTS_QUEUE_CHECK=$(curl -sS -w "%{http_code}" \
+    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+    "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues?name=${EVENTS_QUEUE_NAME}")
+EVENTS_QUEUE_STATUS="${EVENTS_QUEUE_CHECK: -3}"
+EVENTS_QUEUE_BODY="${EVENTS_QUEUE_CHECK%???}"
+
+if [ "$EVENTS_QUEUE_STATUS" = "200" ]; then
+    EVENTS_QUEUE_COUNT=$(printf "%s" "$EVENTS_QUEUE_BODY" | jq -r '.result | length')
+    if [ "$EVENTS_QUEUE_COUNT" = "0" ]; then
+        echo "📦 Queue '$EVENTS_QUEUE_NAME' not found, creating..."
+        EVENTS_CREATE_RESP=$(curl -sS -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"queue_name\": \"${EVENTS_QUEUE_NAME}\"}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues")
+        EVENTS_CREATE_STATUS="${EVENTS_CREATE_RESP: -3}"
+        if [ "$EVENTS_CREATE_STATUS" = "200" ] || [ "$EVENTS_CREATE_STATUS" = "201" ]; then
+            echo "✅ Queue '$EVENTS_QUEUE_NAME' created successfully"
+        else
+            echo "❌ Failed to create events queue (HTTP $EVENTS_CREATE_STATUS)"
+            echo "$EVENTS_CREATE_RESP"
+            exit 1
+        fi
+    else
+        echo "✅ Queue '$EVENTS_QUEUE_NAME' already exists"
+    fi
+else
+    echo "⚠️ Could not check events queue status (HTTP $EVENTS_QUEUE_STATUS)"
+fi
+
 # Create KV namespace for /metrics endpoint if it doesn't exist
 if [ -n "$WORKER_NAME_PREFIX" ]; then
     KV_NAMESPACE_TITLE="${WORKER_NAME_PREFIX}-resolver-metrics"
@@ -523,13 +561,14 @@ else
     echo "ℹ️ Sticky assignments not enabled (set ENABLE_STICKY_ASSIGNMENTS to enable)"
 fi
 
-# Update worker name and queue name in wrangler.toml if using prefix
+# Update worker name and queue names in wrangler.toml if using prefix
 if [ -n "$WORKER_NAME_PREFIX" ]; then
     sed -i.tmp "s/^name = .*/name = \"$WORKER_NAME\"/" wrangler.toml
-    # Update queue name in both producer and consumer sections
+    # Update queue names in both producer and consumer sections
     sed -i.tmp "s/queue = \"flag-logs-queue\"/queue = \"$QUEUE_NAME\"/g" wrangler.toml
+    sed -i.tmp "s/queue = \"events-queue\"/queue = \"$EVENTS_QUEUE_NAME\"/g" wrangler.toml
     echo "✅ Updated worker name to \"$WORKER_NAME\" in wrangler.toml"
-    echo "✅ Updated queue name to \"$QUEUE_NAME\" in wrangler.toml"
+    echo "✅ Updated queue names to \"$QUEUE_NAME\" and \"$EVENTS_QUEUE_NAME\" in wrangler.toml"
 fi
 
 # Prepare ALLOWED_ORIGIN for TOML (escape quotes and backslashes)

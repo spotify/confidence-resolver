@@ -106,6 +106,8 @@ const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8"
 
 static FLAGS_LOGS_QUEUE: OnceLock<Queue> = OnceLock::new();
 
+static EVENTS_QUEUE: OnceLock<Queue> = OnceLock::new();
+
 static CONFIDENCE_CLIENT_SECRET: OnceLock<String> = OnceLock::new();
 
 static RESOLVE_TOKEN_KEY: OnceLock<Bytes> = OnceLock::new();
@@ -281,6 +283,15 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         }
         Err(_e) => {
             console_log!("flag_logs_queue binding is missing; logging disabled");
+        }
+    }
+
+    match env.queue("events_queue") {
+        Ok(queue) => {
+            let _ = EVENTS_QUEUE.set(queue);
+        }
+        Err(_e) => {
+            console_log!("events_queue binding is missing; event tracking disabled");
         }
     }
 
@@ -540,6 +551,35 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                     "telemetry:upload" => {
                         Response::ok("")?.with_cors_headers(&allowed_origin)
                     }
+                    "events:publish" => {
+                        let body_bytes: Vec<u8> = req.bytes().await?;
+                        let events = match parse_events_from_request(&body_bytes) {
+                            Ok(e) => e,
+                            Err(msg) => {
+                                return Response::error(
+                                    format!("Invalid request payload: {}", msg),
+                                    400,
+                                )?
+                                .with_cors_headers(&allowed_origin);
+                            }
+                        };
+
+                        if !events.is_empty() {
+                            if let Some(queue) = EVENTS_QUEUE.get() {
+                                match serde_json::to_string(&events) {
+                                    Ok(json) => {
+                                        if let Err(e) = queue.send(json).await {
+                                            console_log!("event queue send failed: {:?}", e);
+                                        }
+                                    }
+                                    Err(e) => console_log!("event serialize failed: {:?}", e),
+                                }
+                            }
+                        }
+
+                        Response::from_json(&json!({"errors": []}))?
+                            .with_cors_headers(&allowed_origin)
+                    }
                     _ => Response::error("Not found", 404)?.with_cors_headers(&allowed_origin),
                 }
             }
@@ -549,7 +589,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 }
 
 #[event(queue)]
-pub async fn consume_flag_logs_queue(
+pub async fn consume_queue(
     message_batch: MessageBatch<String>,
     env: Env,
     _ctx: Context,
@@ -557,6 +597,18 @@ pub async fn consume_flag_logs_queue(
     set_client_secret(&env);
     seed_resolver_rng();
 
+    let queue_name = message_batch.queue();
+    if queue_name.ends_with("events-queue") {
+        return consume_events_queue(message_batch, env).await;
+    }
+
+    consume_flag_logs(message_batch, env).await
+}
+
+async fn consume_flag_logs(
+    message_batch: MessageBatch<String>,
+    env: Env,
+) -> Result<()> {
     if let Ok(messages) = message_batch.messages() {
         // A message that fails to parse is skipped instead of panicking the
         // whole batch (a panic would retry and eventually drop all of it).
@@ -733,6 +785,88 @@ async fn send_flags_logs(
     Fetch::Request(request).send().await
 }
 
+const EVENTS_URL: &str = "https://events.confidence.dev/v1/events:publish";
+
+fn aggregate_events(messages: &[String]) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .filter_map(|s| serde_json::from_str::<Vec<serde_json::Value>>(s).ok())
+        .flatten()
+        .collect()
+}
+
+fn build_publish_events_request(
+    client_secret: &str,
+    events: Vec<serde_json::Value>,
+    send_time: &str,
+) -> serde_json::Value {
+    json!({
+        "clientSecret": client_secret,
+        "events": events,
+        "sendTime": send_time,
+        "sdk": {
+            "id": "SDK_ID_CLOUDFLARE_RESOLVER",
+            "version": env!("CARGO_PKG_VERSION"),
+        },
+    })
+}
+
+fn parse_events_from_request(body: &[u8]) -> std::result::Result<Vec<serde_json::Value>, String> {
+    let req: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {}", e))?;
+    Ok(req
+        .get("events")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default())
+}
+
+async fn consume_events_queue(
+    message_batch: MessageBatch<String>,
+    _env: Env,
+) -> Result<()> {
+    let messages = message_batch.messages()?;
+    let raw: Vec<String> = messages.iter().map(|m| m.body().clone()).collect();
+    let all_events = aggregate_events(&raw);
+
+    if all_events.is_empty() {
+        return Ok(());
+    }
+
+    let client_secret = CONFIDENCE_CLIENT_SECRET
+        .get()
+        .ok_or_else(|| worker::Error::RustError("client secret not configured".into()))?;
+
+    let now = js_sys::Date::new_0().to_iso_string();
+    let publish_request = build_publish_events_request(
+        client_secret.as_str(),
+        all_events,
+        &now.as_string().unwrap_or_default(),
+    );
+
+    let resp = send_events(&publish_request).await?;
+    if resp.status_code() >= 400 {
+        return Err(worker::Error::RustError(format!(
+            "events delivery failed: HTTP {}",
+            resp.status_code()
+        )));
+    }
+
+    Ok(())
+}
+
+async fn send_events(body: &serde_json::Value) -> Result<Response> {
+    let mut init = RequestInit::new();
+    let headers = Headers::new();
+    headers.set("Content-Type", "application/json")?;
+    init.with_method(Method::Post);
+    init.with_headers(headers);
+    init.with_body(Some(serde_json::to_string(body)?.into()));
+
+    let request = Request::new_with_init(EVENTS_URL, &init)?;
+    Fetch::Request(request).send().await
+}
+
 impl ResponseExt for Response {
     fn with_cors_headers(mut self, allowed_origin: &str) -> Result<Self>
     where
@@ -745,5 +879,104 @@ impl ResponseExt for Response {
         headers.set("Access-Control-Allow-Headers", "*")?;
 
         Ok(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_events_valid_request() {
+        let body = br#"{"clientSecret":"s","events":[{"eventDefinition":"eventDefinitions/test","payload":{"key":"val"},"eventTime":"2024-01-01T00:00:00Z"}]}"#;
+        let events = parse_events_from_request(body).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["eventDefinition"], "eventDefinitions/test");
+    }
+
+    #[test]
+    fn parse_events_empty_array() {
+        let body = br#"{"events":[]}"#;
+        let events = parse_events_from_request(body).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn parse_events_missing_field() {
+        let body = br#"{"clientSecret":"s"}"#;
+        let events = parse_events_from_request(body).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn parse_events_invalid_json() {
+        let body = b"not json";
+        assert!(parse_events_from_request(body).is_err());
+    }
+
+    #[test]
+    fn aggregate_events_multiple_messages() {
+        let messages = vec![
+            serde_json::to_string(&json!([
+                {"eventDefinition":"eventDefinitions/a","payload":{},"eventTime":"2024-01-01T00:00:00Z"},
+                {"eventDefinition":"eventDefinitions/b","payload":{},"eventTime":"2024-01-01T00:00:00Z"},
+            ]))
+            .unwrap(),
+            serde_json::to_string(&json!([
+                {"eventDefinition":"eventDefinitions/c","payload":{},"eventTime":"2024-01-01T00:00:00Z"},
+            ]))
+            .unwrap(),
+        ];
+        let events = aggregate_events(&messages);
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0]["eventDefinition"], "eventDefinitions/a");
+        assert_eq!(events[1]["eventDefinition"], "eventDefinitions/b");
+        assert_eq!(events[2]["eventDefinition"], "eventDefinitions/c");
+    }
+
+    #[test]
+    fn aggregate_events_skips_malformed() {
+        let messages = vec![
+            serde_json::to_string(&json!([
+                {"eventDefinition":"eventDefinitions/a","payload":{}}
+            ]))
+            .unwrap(),
+            "not valid json".to_string(),
+            serde_json::to_string(&json!([
+                {"eventDefinition":"eventDefinitions/b","payload":{}}
+            ]))
+            .unwrap(),
+        ];
+        let events = aggregate_events(&messages);
+        assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn aggregate_events_empty() {
+        let events = aggregate_events(&[]);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn build_publish_request_structure() {
+        let events = vec![json!({"eventDefinition":"eventDefinitions/test","payload":{"k":"v"}})];
+        let req = build_publish_events_request("my-secret", events, "2024-01-01T00:00:00Z");
+
+        assert_eq!(req["clientSecret"], "my-secret");
+        assert_eq!(req["sendTime"], "2024-01-01T00:00:00Z");
+        assert_eq!(req["sdk"]["id"], "SDK_ID_CLOUDFLARE_RESOLVER");
+        assert!(!req["sdk"]["version"].as_str().unwrap().is_empty());
+        assert_eq!(req["events"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn build_publish_request_preserves_event_structure() {
+        let event = json!({
+            "eventDefinition": "eventDefinitions/purchase",
+            "payload": {"amount": 42.5, "currency": "USD"},
+            "eventTime": "2024-06-15T10:30:00Z"
+        });
+        let req = build_publish_events_request("secret", vec![event.clone()], "2024-06-15T10:30:05Z");
+        assert_eq!(req["events"][0], event);
     }
 }
