@@ -1,4 +1,4 @@
-FROM node:20-alpine3.22
+FROM node:22-alpine3.22
 
 WORKDIR /app
 
@@ -15,5 +15,4 @@ COPY openfeature-provider/js/bench ./bench
 ENV NODE_ENV=production
 
 ENTRYPOINT ["node", "bench/bench.mjs"]
-
 
