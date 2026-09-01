@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.15.1...confidence-cloudflare-resolver-v0.16.0) (2026-09-01)
+
+
+### Features
+
+* **cloudflare:** add event tracking via /v1/events:publish ([#572](https://github.com/spotify/confidence-resolver/issues/572)) ([e1f3b58](https://github.com/spotify/confidence-resolver/commit/e1f3b58ab0345ae71f55c0f09e785138156b224a))
+
 ## [0.15.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.15.0...confidence-cloudflare-resolver-v0.15.1) (2026-08-31)
 
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.10.1...openfeature-provider/rust-v0.11.0) (2026-09-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **rust provider:** bump open-feature from 0.2.7 to 0.3.0 ([#562](https://github.com/spotify/confidence-resolver/issues/562))
+
+### Features
+
+* **rust provider:** bump open-feature from 0.2.7 to 0.3.0 ([#562](https://github.com/spotify/confidence-resolver/issues/562)) ([46085a7](https://github.com/spotify/confidence-resolver/commit/46085a730109d9c7ff48b346397afafed54dbb65))
+
 ## [0.10.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.10.0...openfeature-provider/rust-v0.10.1) (2026-08-31)
 
 
