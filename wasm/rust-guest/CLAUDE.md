@@ -2,14 +2,14 @@
 
 ## Overview
 
-The `rust-guest` crate compiles the Confidence resolver to WebAssembly (`wasm32-unknown-unknown`). It is the bridge between host languages (JS, Java, Go, Python, Ruby) and the core resolver.
+The `rust-guest` crate compiles the Confidence resolver to WebAssembly (`wasm32-unknown-unknown`). It is the bridge between host languages (JS, Java, Go, and Python) and the core resolver. Ruby resolves remotely and does not use this guest.
 
 **Note**: This crate uses `std` (not `no_std`). It uses `std::sync::Arc`, `std::sync::LazyLock`, and the standard allocator — even though it targets WASM.
 
 ## Source
 
 The entire crate is a single file: `src/lib.rs`. It:
-1. Manages global state via `static` items (`RESOLVER_STATE`, `RESOLVE_LOGGER`, `ASSIGN_LOGGER`, `TELEMETRY`)
+1. Manages global state via `static` items (resolver state, loggers, telemetry, apply deduplication, and exposure controls)
 2. Implements the `Host` trait for `WasmHost` (logging, time, resolve/assign event dispatch)
 3. Declares guest functions via `wasm_msg_guest!` macro
 4. Declares host imports via `wasm_msg_host!` macro
@@ -25,9 +25,11 @@ The `wasm_msg_guest!` macro generates exported functions with the `wasm_msg_gues
 | `wasm_msg_guest_init_thread` | `InitThreadRequest` | `Void` | Seed RNG for current thread |
 | `wasm_msg_guest_set_resolver_state` | `SetResolverStateRequest` | `Void` | Load resolver state (protobuf-encoded) |
 | `wasm_msg_guest_resolve_flags` | `ResolveProcessRequest` | `ResolveProcessResponse` | Resolve flags |
+| `wasm_msg_guest_register_resolve` | `RegisterResolveRequest` | `Void` | Record host-measured resolve telemetry |
 | `wasm_msg_guest_flush_logs` | `Void` | `WriteFlagLogsRequest` | Flush resolve + assign logs (deprecated) |
 | `wasm_msg_guest_bounded_flush_logs` | `Void` | `WriteFlagLogsRequest` | Flush logs with telemetry delta |
 | `wasm_msg_guest_bounded_flush_assign` | `Void` | `WriteFlagLogsRequest` | Flush assign logs only (bounded) |
+| `wasm_msg_guest_prometheus_snapshot` | `PrometheusSnapshotRequest` | `PrometheusSnapshotResponse` | Render resolver telemetry as Prometheus/OpenMetrics text |
 | `wasm_msg_guest_apply_flags` | `ApplyFlagsRequest` | `Void` | Apply flags (best-effort logging) |
 
 Memory management exports (from `wasm-msg`):
@@ -50,5 +52,3 @@ make lint   # cargo fmt --check + cargo clippy --target wasm32-unknown-unknown
 ```
 
 No `test` target — all resolver logic is tested in the `confidence-resolver` crate. This crate is a thin WASM wrapper.
-
-Typical optimized size: **~450 KB**.

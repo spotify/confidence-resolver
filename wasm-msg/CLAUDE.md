@@ -20,7 +20,7 @@ All allocations store the total allocation size (as `usize`) immediately before 
 
 ## Message Protocol
 
-Every guest↔host call goes through protobuf envelope types (defined in `proto/messages.proto`):
+Every guest↔host call goes through protobuf envelope types (defined in `proto/message.proto`):
 
 - **Request** → `{ data: bytes }` — wraps the serialized request protobuf
 - **Response** → `{ oneof result { data: bytes, error: string } }` — wraps result or error
@@ -69,4 +69,4 @@ make test   # no tests yet (all resolver logic tested in confidence-resolver)
 
 ## Proto Generation
 
-`build.rs` uses `tonic-build` to compile `proto/messages.proto` (unusual — `tonic-build` is used here even though this isn't a gRPC crate).
+`build.rs` uses `tonic-build` to compile `proto/message.proto` (unusual — `tonic-build` is used here even though this isn't a gRPC crate).

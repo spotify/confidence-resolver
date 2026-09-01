@@ -9,7 +9,7 @@ CI is a **single `docker build .`** — the multi-stage Dockerfile is the entire
 
 ## Release & Publish (`release-please.yml`)
 
-Release Please detects version bumps per component independently. Each component has its own conditional publish job.
+Release Please detects version bumps per component independently. Published packages have conditional publish jobs; the Go provider is released by tag only, and internal WASM crates are versioned without separate publish jobs.
 
 ### Publish dependency chain
 
@@ -20,7 +20,7 @@ The Rust provider (`openfeature-provider/rust`) depends on `confidence-resolver`
 3. If only the Rust provider is released (resolver not changed), it skips the wait
 
 
-All publish jobs require the **`deployment` GitHub environment** (environment protection rules apply).
+Package publish jobs require the **`deployment` GitHub environment** (environment protection rules apply). The Cloudflare deployer image jobs publish directly to GHCR and do not use that environment.
 
 ### Post-release
 
