@@ -85,7 +85,7 @@ func main() {
 	var uniqueKeys bool
 	flag.BoolVar(&uniqueKeys, "unique-keys", false, "use a unique targeting key per resolve (apply-dedup worst case)")
 	var enableDedup bool
-	flag.BoolVar(&enableDedup, "enable-dedup", false, "enable experimental apply-event dedup in the provider")
+	flag.BoolVar(&enableDedup, "enable-dedup", false, "explicitly enable apply-event dedup (on by default; pass -enable-dedup=false to disable)")
 	flag.Parse()
 
 	if gomaxprocs > 0 {
@@ -106,7 +106,7 @@ func main() {
 	provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
 		ClientSecret:     clientSecret,
 		TransportHooks:   transportHooks{mockAddr: mockAddr},
-		EnableApplyDedup: enableDedup,
+		EnableApplyDedup: &enableDedup,
 	})
 	provider.Init(openfeature.NewTargetlessEvaluationContext(map[string]any{}))
 	if err != nil {

@@ -54,7 +54,7 @@ public class LocalProviderConfig {
         useRemoteMaterializationStore,
         resolverPoolSize,
         encryptionKey,
-        false,
+        true,
         false);
   }
 
@@ -101,7 +101,7 @@ public class LocalProviderConfig {
     return encryptionKey;
   }
 
-  /** Experimental: returns whether apply-event deduplication in the WASM resolver is enabled. */
+  /** Returns whether apply-event deduplication in the WASM resolver is enabled (on by default). */
   public boolean isEnableApplyDedup() {
     return enableApplyDedup;
   }
@@ -125,7 +125,7 @@ public class LocalProviderConfig {
     private boolean useRemoteMaterializationStore;
     private int resolverPoolSize;
     private String encryptionKey;
-    private boolean enableApplyDedup;
+    private boolean enableApplyDedup = true;
     private boolean disableExposureCollection;
 
     public Builder channelFactory(ChannelFactory channelFactory) {
@@ -162,8 +162,8 @@ public class LocalProviderConfig {
     }
 
     /**
-     * Experimental: enables apply-event deduplication in the WASM resolver — repeated identical
-     * assignments within a short TTL window are logged once. Off by default; the API may change.
+     * Apply-event deduplication in the WASM resolver — repeated identical assignments within a
+     * short TTL window are logged once. On by default. Set to false to disable.
      */
     public Builder enableApplyDedup(boolean enableApplyDedup) {
       this.enableApplyDedup = enableApplyDedup;
