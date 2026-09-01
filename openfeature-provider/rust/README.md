@@ -15,7 +15,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 
 ## Requirements
 
-- Rust 1.80.1+
+- Rust 1.90+
 - Tokio runtime
 - OpenFeature Rust SDK 0.3.0+
 
