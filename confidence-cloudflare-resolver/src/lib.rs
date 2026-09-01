@@ -106,6 +106,8 @@ const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8"
 
 static FLAGS_LOGS_QUEUE: OnceLock<Queue> = OnceLock::new();
 
+static EVENTS_QUEUE: OnceLock<Queue> = OnceLock::new();
+
 static CONFIDENCE_CLIENT_SECRET: OnceLock<String> = OnceLock::new();
 
 static RESOLVE_TOKEN_KEY: OnceLock<Bytes> = OnceLock::new();
@@ -281,6 +283,15 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         }
         Err(_e) => {
             console_log!("flag_logs_queue binding is missing; logging disabled");
+        }
+    }
+
+    match env.queue("events_queue") {
+        Ok(queue) => {
+            let _ = EVENTS_QUEUE.set(queue);
+        }
+        Err(_e) => {
+            console_log!("events_queue binding is missing; event tracking disabled");
         }
     }
 
@@ -540,6 +551,111 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                     "telemetry:upload" => {
                         Response::ok("")?.with_cors_headers(&allowed_origin)
                     }
+                    "events:publish" => {
+                        // Read every header we need up front so the immutable
+                        // borrow of `req` ends before `req.bytes()` takes it
+                        // mutably.
+                        let (is_protobuf, header_secret) = {
+                            let h = req.headers();
+                            (
+                                h.get("Content-Type")
+                                    .ok()
+                                    .flatten()
+                                    .unwrap_or_default()
+                                    .contains("protobuf"),
+                                h.get("Authorization").ok().flatten().and_then(|v| {
+                                    v.strip_prefix("ClientSecret ").map(|s| s.to_string())
+                                }),
+                            )
+                        };
+
+                        let expected = CONFIDENCE_CLIENT_SECRET.get();
+
+                        // Fast path: a caller that sends the secret as an
+                        // `Authorization: ClientSecret ...` header (the
+                        // convention /metrics already uses) is authorized
+                        // without the body being read at all.
+                        let authorized_by_header = match (&header_secret, expected) {
+                            (Some(got), Some(exp)) => {
+                                if got != exp {
+                                    return Response::error("Unauthorized", 401)?
+                                        .with_cors_headers(&allowed_origin);
+                                }
+                                true
+                            }
+                            _ => false,
+                        };
+
+                        let body_bytes: Vec<u8> = req.bytes().await?;
+
+                        // Otherwise the secret is a body field, so it can't be
+                        // checked without touching the body — but it can be
+                        // checked without decoding the events. `probe_client_secret`
+                        // reads only that one field, so an unauthorized caller
+                        // never pays for event materialization.
+                        if !authorized_by_header {
+                            if let Some(exp) = expected {
+                                let probed =
+                                    match probe_client_secret(&body_bytes, is_protobuf) {
+                                        Ok(s) => s,
+                                        Err(msg) => {
+                                            return Response::error(
+                                                format!("Invalid request payload: {}", msg),
+                                                400,
+                                            )?
+                                            .with_cors_headers(&allowed_origin);
+                                        }
+                                    };
+                                if probed != *exp {
+                                    return Response::error("Unauthorized", 401)?
+                                        .with_cors_headers(&allowed_origin);
+                                }
+                            }
+                        }
+
+                        let queue = match EVENTS_QUEUE.get() {
+                            Some(q) => q,
+                            None => {
+                                return Response::error(
+                                    "Event tracking not available",
+                                    503,
+                                )?
+                                .with_cors_headers(&allowed_origin);
+                            }
+                        };
+
+                        // Authorized: now decode the events themselves. The
+                        // inbound secret is not carried forward — the queue
+                        // consumer re-signs the batch with the worker's own
+                        // configured secret.
+                        let events = match parse_events(&body_bytes, is_protobuf) {
+                            Ok(e) => e,
+                            Err(msg) => {
+                                return Response::error(
+                                    format!("Invalid request payload: {}", msg),
+                                    400,
+                                )?
+                                .with_cors_headers(&allowed_origin);
+                            }
+                        };
+
+                        if !events.is_empty() {
+                            let json = serde_json::to_string(&events)
+                                .map_err(|e| {
+                                    worker::Error::RustError(format!(
+                                        "event serialize failed: {}",
+                                        e
+                                    ))
+                                })?;
+                            queue.send(json).await.map_err(|e| {
+                                console_log!("event queue send failed: {:?}", e);
+                                e
+                            })?;
+                        }
+
+                        Response::from_json(&json!({"errors": []}))?
+                            .with_cors_headers(&allowed_origin)
+                    }
                     _ => Response::error("Not found", 404)?.with_cors_headers(&allowed_origin),
                 }
             }
@@ -549,7 +665,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 }
 
 #[event(queue)]
-pub async fn consume_flag_logs_queue(
+pub async fn consume_queue(
     message_batch: MessageBatch<String>,
     env: Env,
     _ctx: Context,
@@ -557,6 +673,18 @@ pub async fn consume_flag_logs_queue(
     set_client_secret(&env);
     seed_resolver_rng();
 
+    let queue_name = message_batch.queue();
+    if queue_name.ends_with("events-queue") {
+        return consume_events_queue(message_batch, env).await;
+    }
+
+    consume_flag_logs(message_batch, env).await
+}
+
+async fn consume_flag_logs(
+    message_batch: MessageBatch<String>,
+    env: Env,
+) -> Result<()> {
     if let Ok(messages) = message_batch.messages() {
         // A message that fails to parse is skipped instead of panicking the
         // whole batch (a panic would retry and eventually drop all of it).
@@ -733,6 +861,159 @@ async fn send_flags_logs(
     Fetch::Request(request).send().await
 }
 
+const EVENTS_URL: &str = "https://events.confidence.dev/v1/events:publish";
+
+/// Minimal prost type for decoding the protobuf `PublishEventsRequest`.
+/// Fields we don't need (send_time, sdk) are skipped by prost.
+#[derive(Clone, PartialEq, Message)]
+struct ProtoPublishEventsRequest {
+    #[prost(string, tag = "1")]
+    client_secret: String,
+    #[prost(message, repeated, tag = "2")]
+    events: Vec<ProtoEvent>,
+}
+
+/// Decodes only `client_secret` (field 1). prost walks past the repeated
+/// `events` field without constructing any `Event`, so authorizing a request
+/// this way costs a buffer scan rather than a full decode.
+#[derive(Clone, PartialEq, Message)]
+struct ProtoClientSecretProbe {
+    #[prost(string, tag = "1")]
+    client_secret: String,
+}
+
+/// JSON counterpart to `ProtoClientSecretProbe`. serde skips the `events`
+/// array without building a `Value` tree for it.
+#[derive(serde::Deserialize)]
+struct JsonClientSecretProbe {
+    #[serde(rename = "clientSecret", alias = "client_secret", default)]
+    client_secret: String,
+}
+
+#[derive(Clone, PartialEq, Message, serde::Serialize)]
+struct ProtoEvent {
+    #[prost(string, tag = "1")]
+    #[serde(rename = "eventDefinition")]
+    event_definition: String,
+    #[prost(message, optional, tag = "2")]
+    payload: Option<pbjson_types::Struct>,
+    #[prost(message, optional, tag = "3")]
+    #[serde(rename = "eventTime")]
+    event_time: Option<pbjson_types::Timestamp>,
+}
+
+/// Extracts just the `client_secret` so the request can be authorized before
+/// the events are decoded. See `ProtoClientSecretProbe`.
+fn probe_client_secret(
+    body: &[u8],
+    is_protobuf: bool,
+) -> std::result::Result<String, String> {
+    if is_protobuf {
+        ProtoClientSecretProbe::decode(body)
+            .map(|p| p.client_secret)
+            .map_err(|e| format!("Invalid protobuf: {}", e))
+    } else {
+        serde_json::from_slice::<JsonClientSecretProbe>(body)
+            .map(|p| p.client_secret)
+            .map_err(|e| format!("Invalid JSON: {}", e))
+    }
+}
+
+/// Decodes the events, normalized to the proto3-JSON shape the queue consumer
+/// forwards. Only called once the request is authorized.
+fn parse_events(
+    body: &[u8],
+    is_protobuf: bool,
+) -> std::result::Result<Vec<serde_json::Value>, String> {
+    if is_protobuf {
+        let req = ProtoPublishEventsRequest::decode(body)
+            .map_err(|e| format!("Invalid protobuf: {}", e))?;
+        Ok(req
+            .events
+            .iter()
+            .filter_map(|e| serde_json::to_value(e).ok())
+            .collect())
+    } else {
+        let req: serde_json::Value =
+            serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {}", e))?;
+        Ok(req
+            .get("events")
+            .and_then(|e| e.as_array())
+            .cloned()
+            .unwrap_or_default())
+    }
+}
+
+fn aggregate_events(messages: &[String]) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .filter_map(|s| serde_json::from_str::<Vec<serde_json::Value>>(s).ok())
+        .flatten()
+        .collect()
+}
+
+fn build_publish_events_request(
+    client_secret: &str,
+    events: Vec<serde_json::Value>,
+    send_time: &str,
+) -> serde_json::Value {
+    json!({
+        "clientSecret": client_secret,
+        "events": events,
+        "sendTime": send_time,
+        "sdk": {
+            "id": "SDK_ID_CLOUDFLARE_RESOLVER",
+            "version": env!("CARGO_PKG_VERSION"),
+        },
+    })
+}
+
+async fn consume_events_queue(
+    message_batch: MessageBatch<String>,
+    _env: Env,
+) -> Result<()> {
+    let messages = message_batch.messages()?;
+    let raw: Vec<String> = messages.iter().map(|m| m.body().clone()).collect();
+    let all_events = aggregate_events(&raw);
+
+    if all_events.is_empty() {
+        return Ok(());
+    }
+
+    let client_secret = CONFIDENCE_CLIENT_SECRET
+        .get()
+        .ok_or_else(|| worker::Error::RustError("client secret not configured".into()))?;
+
+    let now = js_sys::Date::new_0().to_iso_string();
+    let publish_request = build_publish_events_request(
+        client_secret.as_str(),
+        all_events,
+        &now.as_string().unwrap_or_default(),
+    );
+
+    let resp = send_events(&publish_request).await?;
+    if resp.status_code() >= 400 {
+        return Err(worker::Error::RustError(format!(
+            "events delivery failed: HTTP {}",
+            resp.status_code()
+        )));
+    }
+
+    Ok(())
+}
+
+async fn send_events(body: &serde_json::Value) -> Result<Response> {
+    let mut init = RequestInit::new();
+    let headers = Headers::new();
+    headers.set("Content-Type", "application/json")?;
+    init.with_method(Method::Post);
+    init.with_headers(headers);
+    init.with_body(Some(serde_json::to_string(body)?.into()));
+
+    let request = Request::new_with_init(EVENTS_URL, &init)?;
+    Fetch::Request(request).send().await
+}
+
 impl ResponseExt for Response {
     fn with_cors_headers(mut self, allowed_origin: &str) -> Result<Self>
     where
@@ -745,5 +1026,242 @@ impl ResponseExt for Response {
         headers.set("Access-Control-Allow-Headers", "*")?;
 
         Ok(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proto_body(secret: &str, events: Vec<ProtoEvent>) -> Vec<u8> {
+        ProtoPublishEventsRequest {
+            client_secret: secret.to_string(),
+            events,
+        }
+        .encode_to_vec()
+    }
+
+    fn proto_event(name: &str) -> ProtoEvent {
+        ProtoEvent {
+            event_definition: name.to_string(),
+            payload: Some(pbjson_types::Struct {
+                fields: [(
+                    "page".to_string(),
+                    pbjson_types::Value {
+                        kind: Some(pbjson_types::value::Kind::StringValue("/home".to_string())),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            }),
+            event_time: Some(pbjson_types::Timestamp {
+                seconds: 1704067200,
+                nanos: 0,
+            }),
+        }
+    }
+
+    #[test]
+    fn parse_json_valid_request() {
+        let body = br#"{"clientSecret":"s","events":[{"eventDefinition":"eventDefinitions/test","payload":{"key":"val"},"eventTime":"2024-01-01T00:00:00Z"}]}"#;
+        let events = parse_events(body, false).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["eventDefinition"], "eventDefinitions/test");
+    }
+
+    #[test]
+    fn parse_json_empty_events() {
+        assert!(parse_events(br#"{"events":[]}"#, false).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_json_missing_events() {
+        assert!(parse_events(br#"{"clientSecret":"s"}"#, false)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn parse_json_invalid() {
+        assert!(parse_events(b"not json", false).is_err());
+    }
+
+    #[test]
+    fn parse_protobuf_valid_request() {
+        let bytes = proto_body("my-secret", vec![proto_event("eventDefinitions/click")]);
+        let events = parse_events(&bytes, true).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["eventDefinition"], "eventDefinitions/click");
+        assert_eq!(events[0]["payload"]["page"], "/home");
+        assert!(events[0]["eventTime"].is_string());
+    }
+
+    #[test]
+    fn parse_protobuf_empty_events() {
+        let bytes = proto_body("s", vec![]);
+        assert!(parse_events(&bytes, true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_protobuf_invalid() {
+        assert!(parse_events(b"\xff\xff", true).is_err());
+    }
+
+    // --- client secret probe: authorization before the events are decoded ---
+
+    #[test]
+    fn probe_json_camel_case() {
+        let body = br#"{"clientSecret":"s","events":[{"eventDefinition":"x"}]}"#;
+        assert_eq!(probe_client_secret(body, false).unwrap(), "s");
+    }
+
+    #[test]
+    fn probe_json_snake_case() {
+        let body = br#"{"client_secret":"abc","events":[]}"#;
+        assert_eq!(probe_client_secret(body, false).unwrap(), "abc");
+    }
+
+    #[test]
+    fn probe_json_missing_secret_is_empty() {
+        let body = br#"{"events":[]}"#;
+        assert_eq!(probe_client_secret(body, false).unwrap(), "");
+    }
+
+    #[test]
+    fn probe_json_invalid() {
+        assert!(probe_client_secret(b"not json", false).is_err());
+    }
+
+    #[test]
+    fn probe_protobuf_reads_secret_past_events() {
+        // Many events after the secret field: the probe must still return the
+        // secret without depending on the events decoding.
+        let events: Vec<ProtoEvent> = (0..50)
+            .map(|i| proto_event(&format!("eventDefinitions/e{}", i)))
+            .collect();
+        let bytes = proto_body("my-secret", events);
+        assert_eq!(probe_client_secret(&bytes, true).unwrap(), "my-secret");
+    }
+
+    #[test]
+    fn probe_protobuf_empty_secret() {
+        let bytes = proto_body("", vec![proto_event("eventDefinitions/x")]);
+        assert_eq!(probe_client_secret(&bytes, true).unwrap(), "");
+    }
+
+    #[test]
+    fn probe_protobuf_invalid() {
+        assert!(probe_client_secret(b"\xff\xff", true).is_err());
+    }
+
+    #[test]
+    fn probe_agrees_with_full_parse_on_both_encodings() {
+        let bytes = proto_body("secret-123", vec![proto_event("eventDefinitions/a")]);
+        assert_eq!(probe_client_secret(&bytes, true).unwrap(), "secret-123");
+        assert_eq!(parse_events(&bytes, true).unwrap().len(), 1);
+
+        let json = br#"{"clientSecret":"secret-123","events":[{"eventDefinition":"eventDefinitions/a"}]}"#;
+        assert_eq!(probe_client_secret(json, false).unwrap(), "secret-123");
+        assert_eq!(parse_events(json, false).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn aggregate_events_multiple_messages() {
+        let messages = vec![
+            serde_json::to_string(&json!([
+                {"eventDefinition":"eventDefinitions/a","payload":{},"eventTime":"2024-01-01T00:00:00Z"},
+                {"eventDefinition":"eventDefinitions/b","payload":{},"eventTime":"2024-01-01T00:00:00Z"},
+            ]))
+            .unwrap(),
+            serde_json::to_string(&json!([
+                {"eventDefinition":"eventDefinitions/c","payload":{},"eventTime":"2024-01-01T00:00:00Z"},
+            ]))
+            .unwrap(),
+        ];
+        let events = aggregate_events(&messages);
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0]["eventDefinition"], "eventDefinitions/a");
+        assert_eq!(events[2]["eventDefinition"], "eventDefinitions/c");
+    }
+
+    #[test]
+    fn aggregate_events_skips_malformed() {
+        let messages = vec![
+            serde_json::to_string(&json!([{"eventDefinition":"eventDefinitions/a"}])).unwrap(),
+            "not valid json".to_string(),
+            serde_json::to_string(&json!([{"eventDefinition":"eventDefinitions/b"}])).unwrap(),
+        ];
+        let events = aggregate_events(&messages);
+        assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn aggregate_events_empty() {
+        assert!(aggregate_events(&[]).is_empty());
+    }
+
+    #[test]
+    fn build_publish_request_structure() {
+        let events = vec![json!({"eventDefinition":"eventDefinitions/test"})];
+        let req = build_publish_events_request("my-secret", events, "2024-01-01T00:00:00Z");
+        assert_eq!(req["clientSecret"], "my-secret");
+        assert_eq!(req["sendTime"], "2024-01-01T00:00:00Z");
+        assert_eq!(req["sdk"]["id"], "SDK_ID_CLOUDFLARE_RESOLVER");
+        assert!(!req["sdk"]["version"].as_str().unwrap().is_empty());
+        assert_eq!(req["events"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn build_publish_request_preserves_events() {
+        let event = json!({
+            "eventDefinition": "eventDefinitions/purchase",
+            "payload": {"amount": 42.5, "currency": "USD"},
+            "eventTime": "2024-06-15T10:30:00Z"
+        });
+        let req = build_publish_events_request("secret", vec![event.clone()], "2024-06-15T10:30:05Z");
+        assert_eq!(req["events"][0], event);
+    }
+
+    #[test]
+    fn protobuf_round_trip_preserves_nested_payload() {
+        let proto_req = ProtoPublishEventsRequest {
+            client_secret: "s".to_string(),
+            events: vec![ProtoEvent {
+                event_definition: "eventDefinitions/e".to_string(),
+                payload: Some(pbjson_types::Struct {
+                    fields: [
+                        ("count".to_string(), pbjson_types::Value {
+                            kind: Some(pbjson_types::value::Kind::NumberValue(42.0)),
+                        }),
+                        ("tags".to_string(), pbjson_types::Value {
+                            kind: Some(pbjson_types::value::Kind::ListValue(
+                                pbjson_types::ListValue {
+                                    values: vec![
+                                        pbjson_types::Value {
+                                            kind: Some(pbjson_types::value::Kind::StringValue(
+                                                "a".to_string(),
+                                            )),
+                                        },
+                                        pbjson_types::Value {
+                                            kind: Some(pbjson_types::value::Kind::StringValue(
+                                                "b".to_string(),
+                                            )),
+                                        },
+                                    ],
+                                },
+                            )),
+                        }),
+                    ]
+                    .into_iter()
+                    .collect(),
+                }),
+                event_time: None,
+            }],
+        };
+        let bytes = proto_req.encode_to_vec();
+        let events = parse_events(&bytes, true).unwrap();
+        assert_eq!(events[0]["payload"]["count"], 42.0);
+        assert_eq!(events[0]["payload"]["tags"][0], "a");
+        assert_eq!(events[0]["payload"]["tags"][1], "b");
     }
 }

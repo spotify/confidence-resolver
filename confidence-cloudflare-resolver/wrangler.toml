@@ -14,6 +14,15 @@ max_batch_timeout = 10 # seconds
 queue = "flag-logs-queue"
 binding = "flag_logs_queue"
 
+[[queues.consumers]]
+queue = "events-queue"
+max_batch_size = 100
+max_batch_timeout = 10
+
+[[queues.producers]]
+queue = "events-queue"
+binding = "events_queue"
+
 # KV namespace for /metrics endpoint is created and injected by the deployer.
 # See deployer/script.sh for auto-creation of the CONFIDENCE_METRICS_KV binding.
 

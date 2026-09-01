@@ -20,17 +20,27 @@ A Cloudflare Worker that serves the Confidence flag resolver at the edge. Compil
 |--------|------|-------------|
 | POST | `/v1/flags:resolve` | Resolve flags (JSON body, `apply` respected when encryption key is available) |
 | POST | `/v1/flags:apply` | Apply flags (JSON body) |
+| POST | `/v1/events:publish` | Publish events (JSON body, queued and batched before delivery to backend) |
 | GET | `/v1/state:etag` | Returns deployment state ETag and resolver version |
 | OPTIONS | `*` | CORS preflight |
 
 Note: The Worker router uses `*path` matching because `:name` conflicts with Cloudflare router parameter syntax.
 
-## Queue Consumer
+## Queue Consumers
 
-The `#[event(queue)]` handler `consume_flag_logs_queue` processes batched flag log messages:
+The single `#[event(queue)]` handler dispatches on queue name:
+
+**Flag logs queue** (`flag-logs-queue`):
 1. Deserializes each message from JSON to `WriteFlagLogsRequest`
 2. Aggregates the batch via `flag_logger::aggregate_batch`
 3. Ships aggregated logs to the Confidence API
+
+**Events queue** (`events-queue`):
+1. Deserializes each message from JSON (array of Event objects)
+2. Aggregates all events from the batch
+3. Ships as a `PublishEventsRequest` to `events.confidence.dev/v1/events:publish`
+
+Both queues use `max_batch_size=100` and `max_batch_timeout=10s`.
 
 ## Environment Variables
 
