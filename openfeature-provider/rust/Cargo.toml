@@ -32,7 +32,7 @@ http = "1.0.0"
 # Cryptography for CDN URL hash and state decryption
 sha2 = "0.10"
 hex = "0.4"
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 
 # Protobuf and bytes
 prost = "0.13"
