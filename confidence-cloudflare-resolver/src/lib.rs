@@ -552,33 +552,76 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         Response::ok("")?.with_cors_headers(&allowed_origin)
                     }
                     "events:publish" => {
-                        let content_type = req
-                            .headers()
-                            .get("Content-Type")
-                            .ok()
-                            .flatten()
-                            .unwrap_or_default();
-                        let is_protobuf = content_type.contains("protobuf");
-
-                        let body_bytes: Vec<u8> = req.bytes().await?;
-                        let parsed = match parse_events_from_request(
-                            &body_bytes,
-                            is_protobuf,
-                        ) {
-                            Ok(p) => p,
-                            Err(msg) => {
-                                return Response::error(
-                                    format!("Invalid request payload: {}", msg),
-                                    400,
-                                )?
-                                .with_cors_headers(&allowed_origin);
-                            }
+                        // Read every header we need up front so the immutable
+                        // borrow of `req` ends before `req.bytes()` takes it
+                        // mutably.
+                        let (is_protobuf, declared_len, header_secret) = {
+                            let h = req.headers();
+                            (
+                                h.get("Content-Type")
+                                    .ok()
+                                    .flatten()
+                                    .unwrap_or_default()
+                                    .contains("protobuf"),
+                                h.get("Content-Length")
+                                    .ok()
+                                    .flatten()
+                                    .and_then(|v| v.parse::<usize>().ok()),
+                                h.get("Authorization").ok().flatten().and_then(|v| {
+                                    v.strip_prefix("ClientSecret ").map(|s| s.to_string())
+                                }),
+                            )
                         };
 
-                        if let Some(expected) = CONFIDENCE_CLIENT_SECRET.get() {
-                            if parsed.client_secret != *expected {
-                                return Response::error("Unauthorized", 401)?
-                                    .with_cors_headers(&allowed_origin);
+                        // Reject oversized bodies before buffering them, so an
+                        // unauthenticated caller can't make us hold and walk an
+                        // arbitrarily large payload.
+                        if declared_len.is_some_and(|n| n > MAX_EVENTS_BODY_BYTES) {
+                            return Response::error("Payload too large", 413)?
+                                .with_cors_headers(&allowed_origin);
+                        }
+
+                        let expected = CONFIDENCE_CLIENT_SECRET.get();
+
+                        // Fast path: a caller that sends the secret as an
+                        // `Authorization: ClientSecret ...` header (the
+                        // convention /metrics already uses) is authorized
+                        // without the body being read at all.
+                        let authorized_by_header = match (&header_secret, expected) {
+                            (Some(got), Some(exp)) => {
+                                if got != exp {
+                                    return Response::error("Unauthorized", 401)?
+                                        .with_cors_headers(&allowed_origin);
+                                }
+                                true
+                            }
+                            _ => false,
+                        };
+
+                        let body_bytes: Vec<u8> = req.bytes().await?;
+
+                        // Otherwise the secret is a body field, so it can't be
+                        // checked without touching the body — but it can be
+                        // checked without decoding the events. `probe_client_secret`
+                        // reads only that one field, so an unauthorized caller
+                        // never pays for event materialization.
+                        if !authorized_by_header {
+                            if let Some(exp) = expected {
+                                let probed =
+                                    match probe_client_secret(&body_bytes, is_protobuf) {
+                                        Ok(s) => s,
+                                        Err(msg) => {
+                                            return Response::error(
+                                                format!("Invalid request payload: {}", msg),
+                                                400,
+                                            )?
+                                            .with_cors_headers(&allowed_origin);
+                                        }
+                                    };
+                                if probed != *exp {
+                                    return Response::error("Unauthorized", 401)?
+                                        .with_cors_headers(&allowed_origin);
+                                }
                             }
                         }
 
@@ -593,8 +636,23 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             }
                         };
 
-                        if !parsed.events.is_empty() {
-                            let json = serde_json::to_string(&parsed.events)
+                        // Authorized: now decode the events themselves. The
+                        // inbound secret is not carried forward — the queue
+                        // consumer re-signs the batch with the worker's own
+                        // configured secret.
+                        let events = match parse_events(&body_bytes, is_protobuf) {
+                            Ok(e) => e,
+                            Err(msg) => {
+                                return Response::error(
+                                    format!("Invalid request payload: {}", msg),
+                                    400,
+                                )?
+                                .with_cors_headers(&allowed_origin);
+                            }
+                        };
+
+                        if !events.is_empty() {
+                            let json = serde_json::to_string(&events)
                                 .map_err(|e| {
                                     worker::Error::RustError(format!(
                                         "event serialize failed: {}",
@@ -817,6 +875,11 @@ async fn send_flags_logs(
 
 const EVENTS_URL: &str = "https://events.confidence.dev/v1/events:publish";
 
+/// Largest `events:publish` body we will buffer. Bounds the work an
+/// unauthenticated caller can cause; batches whose serialized events exceed
+/// the Cloudflare Queues per-message limit are rejected by `queue.send`.
+const MAX_EVENTS_BODY_BYTES: usize = 1024 * 1024;
+
 /// Minimal prost type for decoding the protobuf `PublishEventsRequest`.
 /// Fields we don't need (send_time, sdk) are skipped by prost.
 #[derive(Clone, PartialEq, Message)]
@@ -825,6 +888,23 @@ struct ProtoPublishEventsRequest {
     client_secret: String,
     #[prost(message, repeated, tag = "2")]
     events: Vec<ProtoEvent>,
+}
+
+/// Decodes only `client_secret` (field 1). prost walks past the repeated
+/// `events` field without constructing any `Event`, so authorizing a request
+/// this way costs a buffer scan rather than a full decode.
+#[derive(Clone, PartialEq, Message)]
+struct ProtoClientSecretProbe {
+    #[prost(string, tag = "1")]
+    client_secret: String,
+}
+
+/// JSON counterpart to `ProtoClientSecretProbe`. serde skips the `events`
+/// array without building a `Value` tree for it.
+#[derive(serde::Deserialize)]
+struct JsonClientSecretProbe {
+    #[serde(rename = "clientSecret", alias = "client_secret", default)]
+    client_secret: String,
 }
 
 #[derive(Clone, PartialEq, Message, serde::Serialize)]
@@ -839,54 +919,46 @@ struct ProtoEvent {
     event_time: Option<pbjson_types::Timestamp>,
 }
 
-struct ParsedEventsRequest {
-    client_secret: String,
-    events: Vec<serde_json::Value>,
-}
-
-fn parse_events_from_request(
+/// Extracts just the `client_secret` so the request can be authorized before
+/// the events are decoded. See `ProtoClientSecretProbe`.
+fn probe_client_secret(
     body: &[u8],
     is_protobuf: bool,
-) -> std::result::Result<ParsedEventsRequest, String> {
+) -> std::result::Result<String, String> {
     if is_protobuf {
-        parse_events_protobuf(body)
+        ProtoClientSecretProbe::decode(body)
+            .map(|p| p.client_secret)
+            .map_err(|e| format!("Invalid protobuf: {}", e))
     } else {
-        parse_events_json(body)
+        serde_json::from_slice::<JsonClientSecretProbe>(body)
+            .map(|p| p.client_secret)
+            .map_err(|e| format!("Invalid JSON: {}", e))
     }
 }
 
-fn parse_events_protobuf(body: &[u8]) -> std::result::Result<ParsedEventsRequest, String> {
-    let req = ProtoPublishEventsRequest::decode(Bytes::from(body.to_vec()))
-        .map_err(|e| format!("Invalid protobuf: {}", e))?;
-    let events: Vec<serde_json::Value> = req
-        .events
-        .iter()
-        .filter_map(|e| serde_json::to_value(e).ok())
-        .collect();
-    Ok(ParsedEventsRequest {
-        client_secret: req.client_secret,
-        events,
-    })
-}
-
-fn parse_events_json(body: &[u8]) -> std::result::Result<ParsedEventsRequest, String> {
-    let req: serde_json::Value =
-        serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {}", e))?;
-    let client_secret = req
-        .get("clientSecret")
-        .or_else(|| req.get("client_secret"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let events = req
-        .get("events")
-        .and_then(|e| e.as_array())
-        .cloned()
-        .unwrap_or_default();
-    Ok(ParsedEventsRequest {
-        client_secret,
-        events,
-    })
+/// Decodes the events, normalized to the proto3-JSON shape the queue consumer
+/// forwards. Only called once the request is authorized.
+fn parse_events(
+    body: &[u8],
+    is_protobuf: bool,
+) -> std::result::Result<Vec<serde_json::Value>, String> {
+    if is_protobuf {
+        let req = ProtoPublishEventsRequest::decode(body)
+            .map_err(|e| format!("Invalid protobuf: {}", e))?;
+        Ok(req
+            .events
+            .iter()
+            .filter_map(|e| serde_json::to_value(e).ok())
+            .collect())
+    } else {
+        let req: serde_json::Value =
+            serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {}", e))?;
+        Ok(req
+            .get("events")
+            .and_then(|e| e.as_array())
+            .cloned()
+            .unwrap_or_default())
+    }
 }
 
 fn aggregate_events(messages: &[String]) -> Vec<serde_json::Value> {
@@ -978,85 +1050,136 @@ impl ResponseExt for Response {
 mod tests {
     use super::*;
 
-    #[test]
-    fn parse_json_valid_request() {
-        let body = br#"{"clientSecret":"s","events":[{"eventDefinition":"eventDefinitions/test","payload":{"key":"val"},"eventTime":"2024-01-01T00:00:00Z"}]}"#;
-        let parsed = parse_events_from_request(body, false).unwrap();
-        assert_eq!(parsed.client_secret, "s");
-        assert_eq!(parsed.events.len(), 1);
-        assert_eq!(parsed.events[0]["eventDefinition"], "eventDefinitions/test");
+    fn proto_body(secret: &str, events: Vec<ProtoEvent>) -> Vec<u8> {
+        ProtoPublishEventsRequest {
+            client_secret: secret.to_string(),
+            events,
+        }
+        .encode_to_vec()
+    }
+
+    fn proto_event(name: &str) -> ProtoEvent {
+        ProtoEvent {
+            event_definition: name.to_string(),
+            payload: Some(pbjson_types::Struct {
+                fields: [(
+                    "page".to_string(),
+                    pbjson_types::Value {
+                        kind: Some(pbjson_types::value::Kind::StringValue("/home".to_string())),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            }),
+            event_time: Some(pbjson_types::Timestamp {
+                seconds: 1704067200,
+                nanos: 0,
+            }),
+        }
     }
 
     #[test]
-    fn parse_json_snake_case_secret() {
-        let body = br#"{"client_secret":"abc","events":[]}"#;
-        let parsed = parse_events_from_request(body, false).unwrap();
-        assert_eq!(parsed.client_secret, "abc");
+    fn parse_json_valid_request() {
+        let body = br#"{"clientSecret":"s","events":[{"eventDefinition":"eventDefinitions/test","payload":{"key":"val"},"eventTime":"2024-01-01T00:00:00Z"}]}"#;
+        let events = parse_events(body, false).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["eventDefinition"], "eventDefinitions/test");
     }
 
     #[test]
     fn parse_json_empty_events() {
-        let body = br#"{"events":[]}"#;
-        let parsed = parse_events_from_request(body, false).unwrap();
-        assert!(parsed.events.is_empty());
+        assert!(parse_events(br#"{"events":[]}"#, false).unwrap().is_empty());
     }
 
     #[test]
     fn parse_json_missing_events() {
-        let body = br#"{"clientSecret":"s"}"#;
-        let parsed = parse_events_from_request(body, false).unwrap();
-        assert!(parsed.events.is_empty());
+        assert!(parse_events(br#"{"clientSecret":"s"}"#, false)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
     fn parse_json_invalid() {
-        assert!(parse_events_from_request(b"not json", false).is_err());
+        assert!(parse_events(b"not json", false).is_err());
     }
 
     #[test]
     fn parse_protobuf_valid_request() {
-        let proto_req = ProtoPublishEventsRequest {
-            client_secret: "my-secret".to_string(),
-            events: vec![ProtoEvent {
-                event_definition: "eventDefinitions/click".to_string(),
-                payload: Some(pbjson_types::Struct {
-                    fields: [("page".to_string(), pbjson_types::Value {
-                        kind: Some(pbjson_types::value::Kind::StringValue("/home".to_string())),
-                    })]
-                    .into_iter()
-                    .collect(),
-                }),
-                event_time: Some(pbjson_types::Timestamp {
-                    seconds: 1704067200,
-                    nanos: 0,
-                }),
-            }],
-        };
-        let bytes = proto_req.encode_to_vec();
-
-        let parsed = parse_events_from_request(&bytes, true).unwrap();
-        assert_eq!(parsed.client_secret, "my-secret");
-        assert_eq!(parsed.events.len(), 1);
-        assert_eq!(parsed.events[0]["eventDefinition"], "eventDefinitions/click");
-        assert_eq!(parsed.events[0]["payload"]["page"], "/home");
-        assert!(parsed.events[0]["eventTime"].is_string());
+        let bytes = proto_body("my-secret", vec![proto_event("eventDefinitions/click")]);
+        let events = parse_events(&bytes, true).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["eventDefinition"], "eventDefinitions/click");
+        assert_eq!(events[0]["payload"]["page"], "/home");
+        assert!(events[0]["eventTime"].is_string());
     }
 
     #[test]
     fn parse_protobuf_empty_events() {
-        let proto_req = ProtoPublishEventsRequest {
-            client_secret: "s".to_string(),
-            events: vec![],
-        };
-        let bytes = proto_req.encode_to_vec();
-        let parsed = parse_events_from_request(&bytes, true).unwrap();
-        assert_eq!(parsed.client_secret, "s");
-        assert!(parsed.events.is_empty());
+        let bytes = proto_body("s", vec![]);
+        assert!(parse_events(&bytes, true).unwrap().is_empty());
     }
 
     #[test]
     fn parse_protobuf_invalid() {
-        assert!(parse_events_from_request(b"\xff\xff", true).is_err());
+        assert!(parse_events(b"\xff\xff", true).is_err());
+    }
+
+    // --- client secret probe: authorization before the events are decoded ---
+
+    #[test]
+    fn probe_json_camel_case() {
+        let body = br#"{"clientSecret":"s","events":[{"eventDefinition":"x"}]}"#;
+        assert_eq!(probe_client_secret(body, false).unwrap(), "s");
+    }
+
+    #[test]
+    fn probe_json_snake_case() {
+        let body = br#"{"client_secret":"abc","events":[]}"#;
+        assert_eq!(probe_client_secret(body, false).unwrap(), "abc");
+    }
+
+    #[test]
+    fn probe_json_missing_secret_is_empty() {
+        let body = br#"{"events":[]}"#;
+        assert_eq!(probe_client_secret(body, false).unwrap(), "");
+    }
+
+    #[test]
+    fn probe_json_invalid() {
+        assert!(probe_client_secret(b"not json", false).is_err());
+    }
+
+    #[test]
+    fn probe_protobuf_reads_secret_past_events() {
+        // Many events after the secret field: the probe must still return the
+        // secret without depending on the events decoding.
+        let events: Vec<ProtoEvent> = (0..50)
+            .map(|i| proto_event(&format!("eventDefinitions/e{}", i)))
+            .collect();
+        let bytes = proto_body("my-secret", events);
+        assert_eq!(probe_client_secret(&bytes, true).unwrap(), "my-secret");
+    }
+
+    #[test]
+    fn probe_protobuf_empty_secret() {
+        let bytes = proto_body("", vec![proto_event("eventDefinitions/x")]);
+        assert_eq!(probe_client_secret(&bytes, true).unwrap(), "");
+    }
+
+    #[test]
+    fn probe_protobuf_invalid() {
+        assert!(probe_client_secret(b"\xff\xff", true).is_err());
+    }
+
+    #[test]
+    fn probe_agrees_with_full_parse_on_both_encodings() {
+        let bytes = proto_body("secret-123", vec![proto_event("eventDefinitions/a")]);
+        assert_eq!(probe_client_secret(&bytes, true).unwrap(), "secret-123");
+        assert_eq!(parse_events(&bytes, true).unwrap().len(), 1);
+
+        let json = br#"{"clientSecret":"secret-123","events":[{"eventDefinition":"eventDefinitions/a"}]}"#;
+        assert_eq!(probe_client_secret(json, false).unwrap(), "secret-123");
+        assert_eq!(parse_events(json, false).unwrap().len(), 1);
     }
 
     #[test]
@@ -1153,9 +1276,9 @@ mod tests {
             }],
         };
         let bytes = proto_req.encode_to_vec();
-        let parsed = parse_events_from_request(&bytes, true).unwrap();
-        assert_eq!(parsed.events[0]["payload"]["count"], 42.0);
-        assert_eq!(parsed.events[0]["payload"]["tags"][0], "a");
-        assert_eq!(parsed.events[0]["payload"]["tags"][1], "b");
+        let events = parse_events(&bytes, true).unwrap();
+        assert_eq!(events[0]["payload"]["count"], 42.0);
+        assert_eq!(events[0]["payload"]["tags"][0], "a");
+        assert_eq!(events[0]["payload"]["tags"][1], "b");
     }
 }
