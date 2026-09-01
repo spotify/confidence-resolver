@@ -4,7 +4,9 @@ resolver = "2"  # Use the new resolver for edition 2021
 members = [
     "wasm-msg",
     "wasm/rust-guest",
+    "wasm/event-guest",
     "confidence-resolver",
+    "confidence-event-engine",
     "confidence-cloudflare-resolver",
     "openfeature-provider/java",
     "openfeature-provider/js",
@@ -18,7 +20,9 @@ members = [
 default-members = [
     "wasm-msg",
     "wasm/rust-guest",
+    "wasm/event-guest",
     "confidence-resolver",
+    "confidence-event-engine",
     "confidence-cloudflare-resolver"
 ]
 [profile.wasm]

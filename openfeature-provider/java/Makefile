@@ -7,7 +7,9 @@ ROOT := $(realpath $(CURDIR)/../..)
 BUILD_STAMP := .build.stamp
 SRC := $(shell find src -name '*.java' 2>/dev/null)
 RESOURCES_WASM := src/main/resources/wasm/confidence_resolver.wasm
+RESOURCES_EVENT_WASM := src/main/resources/wasm/confidence_event_engine.wasm
 LOCAL_WASM := $(ROOT)/wasm/confidence_resolver.wasm
+LOCAL_EVENT_WASM := $(ROOT)/wasm/confidence_event_engine.wasm
 
 .PHONY: build test test-e2e clean
 
@@ -23,7 +25,11 @@ $(RESOURCES_WASM): $(LOCAL_WASM)
 	@mkdir -p $(dir $@)
 	@cp -p $(LOCAL_WASM) $@
 
-$(BUILD_STAMP): pom.xml $(RESOURCES_WASM) $(SRC)
+$(RESOURCES_EVENT_WASM): $(LOCAL_EVENT_WASM)
+	@mkdir -p $(dir $@)
+	@cp -p $(LOCAL_EVENT_WASM) $@
+
+$(BUILD_STAMP): pom.xml $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM) $(SRC)
 	mvn -q package -DskipTests
 	@touch $@
 
@@ -39,5 +45,6 @@ clean:
 	mvn -q clean
 	rm -f $(BUILD_STAMP)
 	rm -f $(RESOURCES_WASM)
+	rm -f $(RESOURCES_EVENT_WASM)
 
 

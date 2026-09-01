@@ -4,7 +4,7 @@ Demo application showing how to use the Confidence OpenFeature Local Provider in
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 - Confidence API credentials
 
 ## Setup

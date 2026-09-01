@@ -40,14 +40,14 @@ export default defineConfig([
   {
     entry: './src/index.node.ts',
     platform: 'node',
-    copy: ['../../wasm/confidence_resolver.wasm'],
+    copy: ['../../wasm/confidence_resolver.wasm', '../../wasm/confidence_event_engine.wasm'],
     ...base,
   },
   // ./fetch: uses fetch + URL (Deno, Bun, browsers with good bundlers)
   {
     entry: './src/index.fetch.ts',
     platform: 'neutral',
-    copy: ['../../wasm/confidence_resolver.wasm'],
+    copy: ['../../wasm/confidence_resolver.wasm', '../../wasm/confidence_event_engine.wasm'],
     ...base,
   },
   // React server component

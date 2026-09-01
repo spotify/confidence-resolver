@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.23.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.23.0...confidence_resolver-v0.23.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **resolver:** reject empty range rules ([#543](https://github.com/spotify/confidence-resolver/issues/543)) ([3e84076](https://github.com/spotify/confidence-resolver/commit/3e84076ce070a5a93e6b2095a80011c42ec2dfef))
+* **resolver:** treat null lists as empty for any/all rules ([#541](https://github.com/spotify/confidence-resolver/issues/541)) ([422cecb](https://github.com/spotify/confidence-resolver/commit/422cecbd8d84c06ce633667dbae5324021399e38))
+
+## [0.23.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.22.1...confidence_resolver-v0.23.0) (2026-08-27)
+
+
+### Features
+
+* add provider_init_rate to telemetry ([#485](https://github.com/spotify/confidence-resolver/issues/485)) ([c0e7dbe](https://github.com/spotify/confidence-resolver/commit/c0e7dbe99455a5dc7c131f502606d3a3ec42fffc))
+* **resolver:** add string contains targeting ([#535](https://github.com/spotify/confidence-resolver/issues/535)) ([1ac8d80](https://github.com/spotify/confidence-resolver/commit/1ac8d80a65d523f57b6c2c5a63acfcecef6d106a))
+
 ## [0.22.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.22.0...confidence_resolver-v0.22.1) (2026-08-21)
 
 
@@ -12,7 +28,7 @@
 
 ### Features
 
-* disable exposure collection on local OpenFeature providers ([#527](https://github.com/spotify/confidence-resolver/issues/527)) ([4b3ef41](https://github.com/spotify/confidence-resolver/commit/4b3ef418223c4a4155fa028672710df307057ce0))
+* add option to disable exposure collection on local OpenFeature providers ([#527](https://github.com/spotify/confidence-resolver/issues/527)) ([4b3ef41](https://github.com/spotify/confidence-resolver/commit/4b3ef418223c4a4155fa028672710df307057ce0))
 * flag apply event deduplication in core resolver and WASM guest ([#517](https://github.com/spotify/confidence-resolver/issues/517)) ([47c5735](https://github.com/spotify/confidence-resolver/commit/47c5735c10b6402ea106328ecc031376000740bb))
 
 ## [0.21.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.20.0...confidence_resolver-v0.21.0) (2026-08-18)

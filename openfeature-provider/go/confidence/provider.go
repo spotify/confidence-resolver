@@ -10,14 +10,21 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
+	et "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/event_tracking"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/eventswasm"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -33,6 +40,9 @@ type Option func(*providerOptions)
 type providerOptions struct {
 	statePollInterval         time.Duration
 	logPollInterval           time.Duration
+	eventWasmBytes            []byte
+	eventsClient              events.EventsServiceClient
+	useWasmInterpreter        bool
 	enableApplyDedup          bool
 	disableExposureCollection bool
 }
@@ -48,6 +58,33 @@ func WithStatePollInterval(d time.Duration) Option {
 func WithLogPollInterval(d time.Duration) Option {
 	return func(o *providerOptions) {
 		o.logPollInterval = d
+	}
+}
+
+// WithEventTracking enables event tracking by providing the event engine WASM
+// binary. The WASM module must export wasm_msg_guest_track_event and
+// wasm_msg_guest_bounded_flush_events. Events are flushed on the same interval
+// as log flushing and published to the Confidence events service over gRPC.
+func WithEventTracking(eventWasmBytes []byte) Option {
+	return func(o *providerOptions) {
+		o.eventWasmBytes = eventWasmBytes
+	}
+}
+
+// WithEventsServiceClient sets the gRPC client used to publish events. If not
+// set, a TLS channel to the Confidence events service is created when event
+// tracking is enabled. Intended for testing and advanced transport setups.
+func WithEventsServiceClient(client events.EventsServiceClient) Option {
+	return func(o *providerOptions) {
+		o.eventsClient = client
+	}
+}
+
+// WithUseWasmInterpreter configures the event engine to use wazero's
+// interpreter mode instead of JIT compilation.
+func WithUseWasmInterpreter(use bool) Option {
+	return func(o *providerOptions) {
+		o.useWasmInterpreter = use
 	}
 }
 
@@ -68,20 +105,41 @@ func WithDisableExposureCollection() Option {
 	}
 }
 
+// eventTracking is the subset of the WASM event tracker used by the provider.
+// Declared as an interface so the publish/drain path can be exercised without a
+// live WASM instance; the only production implementation is *et.EventTracker.
+type eventTracking interface {
+	TrackEvent(request *eventswasm.TrackEventRequest) error
+	FlushEvents() (*eventswasm.FlushEventsResponse, error)
+	Close() error
+}
+
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
-	resolverSupplier          LocalResolverSupplier
-	resolver                  lr.LocalResolver
-	stateProvider             StateProvider
-	flagLogger                FlagLogger
-	clientSecret              string
-	logger                    *slog.Logger
-	cancelFunc                context.CancelFunc
-	wg                        sync.WaitGroup
-	mu                        sync.Mutex
-	statePollInterval         time.Duration
-	logPollInterval           time.Duration
+	resolverSupplier  LocalResolverSupplier
+	resolver          lr.LocalResolver
+	stateProvider     StateProvider
+	flagLogger        FlagLogger
+	clientSecret      string
+	logger            *slog.Logger
+	cancelFunc        context.CancelFunc
+	wg                sync.WaitGroup
+	mu                sync.Mutex
+	statePollInterval time.Duration
+	logPollInterval   time.Duration
+
+	// Event tracking (optional — nil when no event WASM is provided)
+	eventTracker eventTracking
+	eventsClient events.EventsServiceClient
+	eventsConn   *grpc.ClientConn
+
+	// Event publish failure accounting. Failures are counted and reported once
+	// per eventPublishLogWindow attempts instead of logging every failed RPC.
+	eventPublishAttempts atomic.Int64
+	eventPublishFailures atomic.Int64
+
+	// Feature options forwarded to SetResolverState
 	enableApplyDedup          bool
 	disableExposureCollection bool
 }
@@ -90,6 +148,7 @@ type LocalResolverProvider struct {
 var (
 	_ openfeature.FeatureProvider = (*LocalResolverProvider)(nil)
 	_ openfeature.StateHandler    = (*LocalResolverProvider)(nil)
+	_ openfeature.Tracker         = (*LocalResolverProvider)(nil)
 )
 
 // NewLocalResolverProvider creates a new LocalResolverProvider
@@ -124,7 +183,7 @@ func NewLocalResolverProvider(
 		logPollInterval = getLogPollInterval(logger)
 	}
 
-	return &LocalResolverProvider{
+	provider := &LocalResolverProvider{
 		resolverSupplier:          resolverSupplier,
 		stateProvider:             stateProvider,
 		flagLogger:                flagLogger,
@@ -135,6 +194,33 @@ func NewLocalResolverProvider(
 		enableApplyDedup:          options.enableApplyDedup,
 		disableExposureCollection: options.disableExposureCollection,
 	}
+
+	// Initialize the event tracker if event WASM bytes were provided
+	if len(options.eventWasmBytes) > 0 {
+		eventTracker, err := et.NewEventTracker(options.eventWasmBytes, options.useWasmInterpreter)
+		if err != nil {
+			logger.Error("Failed to initialize event tracker, event tracking disabled", "error", err)
+		} else {
+			provider.eventTracker = eventTracker
+			provider.eventsClient = options.eventsClient
+			if provider.eventsClient == nil {
+				conn, err := grpc.NewClient(
+					eventsGrpcTarget,
+					grpc.WithTransportCredentials(credentials.NewTLS(nil)),
+					grpc.WithDefaultServiceConfig(eventsRetryServiceConfig),
+				)
+				if err != nil {
+					logger.Error("Failed to create events service channel, event publishing disabled", "error", err)
+				} else {
+					provider.eventsConn = conn
+					provider.eventsClient = events.NewEventsServiceClient(conn)
+				}
+			}
+			logger.Info("Event tracking enabled")
+		}
+	}
+
+	return provider
 }
 
 // Metadata returns the provider metadata
@@ -411,6 +497,209 @@ func (p *LocalResolverProvider) GetPrometheusMetrics(config SnapshotConfig) stri
 	return p.resolver.PrometheusSnapshot(config.BucketsPerDecade, config.OpenMetrics)
 }
 
+// eventsGrpcTarget is the gRPC target for the Confidence events service.
+const eventsGrpcTarget = "edge-grpc.spotify.com:443"
+
+// eventsPublishTimeout bounds a single PublishEvents RPC.
+const eventsPublishTimeout = 30 * time.Second
+
+// eventsRetryServiceConfig is the gRPC service config applied to the events
+// channel: transparent retries of transient UNAVAILABLE failures with
+// exponential backoff. Kept in sync with the other Confidence SDKs.
+const eventsRetryServiceConfig = `{
+  "methodConfig": [
+    {
+      "name": [{"service": "confidence.events.v1.EventsService"}],
+      "retryPolicy": {
+        "maxAttempts": 3,
+        "initialBackoff": "1s",
+        "maxBackoff": "10s",
+        "backoffMultiplier": 2.0,
+        "retryableStatusCodes": ["UNAVAILABLE"]
+      }
+    }
+  ]
+}`
+
+// eventPublishLogWindow is how many publish attempts are aggregated before
+// failures are reported, mirroring the flag logger's failure accounting.
+const eventPublishLogWindow = 10
+
+// maxDrainBatches bounds the number of flush/publish rounds performed on
+// shutdown. A single flush is capped by the event guest's byte budget, so a
+// backlog needs several rounds to drain; the bound keeps shutdown from
+// spinning forever when the events service is unreachable (publish failures
+// are swallowed).
+const maxDrainBatches = 100
+
+// eventsSdk identifies this SDK to the events service.
+var eventsSdk = &events.Sdk{
+	Sdk:     &events.Sdk_Id{Id: events.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
+	Version: Version,
+}
+
+// Track sends a tracking event to the event engine, implementing the
+// OpenFeature Tracker interface. The event is buffered internally and published
+// in batches by the background flush goroutine. This is a no-op if event
+// tracking was not enabled via WithEventTracking.
+//
+// The numeric value from details is only attached when non-zero: the
+// OpenFeature TrackingEventDetails zero value is indistinguishable from an
+// explicitly-set 0, so events without a measurement are sent without a value.
+func (p *LocalResolverProvider) Track(
+	ctx context.Context,
+	trackingEventName string,
+	evalCtx openfeature.EvaluationContext,
+	details openfeature.TrackingEventDetails,
+) {
+	if p.eventTracker == nil {
+		return
+	}
+
+	// Attributes() returns a fresh copy, so adding the targeting key here does
+	// not mutate the caller's evaluation context.
+	flatCtx := openfeature.FlattenedContext(evalCtx.Attributes())
+	if targetingKey := evalCtx.TargetingKey(); targetingKey != "" {
+		flatCtx[openfeature.TargetingKey] = targetingKey
+	}
+
+	var protoCtx *structpb.Struct
+	if len(flatCtx) > 0 {
+		var err error
+		protoCtx, err = flattenedContextToProto(processTargetingKey(flatCtx))
+		if err != nil {
+			p.logger.Warn("Failed to convert context for event tracking", "error", err)
+			return
+		}
+	}
+
+	var protoData *structpb.Struct
+	if attributes := details.Attributes(); len(attributes) > 0 {
+		var err error
+		protoData, err = structpb.NewStruct(attributes)
+		if err != nil {
+			p.logger.Warn("Failed to convert data for event tracking", "error", err)
+			return
+		}
+	}
+
+	// Go's TrackingEventDetails stores value as a plain float64 with no "is set"
+	// flag, so an explicit 0 is indistinguishable from an unset value. Java
+	// (Optional) and JS (number | undefined) can tell them apart and do forward
+	// an explicit 0. We treat 0 as unset: always sending would attach a spurious
+	// value: 0 to every event where the caller set none, which is far more
+	// common than deliberately tracking a zero. See confidence-event-engine's
+	// README ("Known provider differences").
+	var value *float64
+	if v := details.Value(); v != 0 {
+		value = &v
+	}
+
+	request := &eventswasm.TrackEventRequest{
+		EventName: trackingEventName,
+		EventTime: timestamppb.Now(),
+		Value:     value,
+		Context:   protoCtx,
+		Data:      protoData,
+	}
+
+	if err := p.eventTracker.TrackEvent(request); err != nil {
+		p.logger.Warn("Failed to track event", "event", trackingEventName, "error", err)
+	}
+}
+
+// flushAndPublishEvents retrieves buffered events from the WASM event engine
+// and publishes them to the Confidence events service over gRPC. It returns the
+// number of events flushed, which is 0 when the buffer was empty or the flush
+// itself failed.
+//
+// Publish failures are swallowed (the events are already gone from the WASM
+// buffer); they are counted and reported once per eventPublishLogWindow
+// attempts, mirroring the flag logger's failure accounting.
+func (p *LocalResolverProvider) flushAndPublishEvents(ctx context.Context) int {
+	if p.eventTracker == nil {
+		return 0
+	}
+
+	batch, err := p.eventTracker.FlushEvents()
+	if err != nil {
+		p.logger.Error("Failed to flush events from WASM", "error", err)
+		return 0
+	}
+
+	if len(batch.Events) == 0 {
+		return 0
+	}
+
+	if err := p.publishEvents(ctx, batch); err != nil {
+		p.eventPublishFailures.Add(1)
+		p.logger.Debug("Failed to publish events", "error", err)
+	}
+
+	if p.eventPublishAttempts.Add(1)%eventPublishLogWindow == 0 {
+		if failures := p.eventPublishFailures.Swap(0); failures > 0 {
+			p.logger.Warn("Event publish failures", "failures", failures, "window", eventPublishLogWindow)
+		}
+	}
+
+	return len(batch.Events)
+}
+
+// drainEvents flushes and publishes buffered events repeatedly until the buffer
+// is empty. A single flush is bounded by the event guest's byte budget, so one
+// round is not enough to drain a backlog; the loop is bounded by
+// maxDrainBatches because publish failures are swallowed and would otherwise
+// let an unreachable events service spin forever.
+func (p *LocalResolverProvider) drainEvents(ctx context.Context) {
+	if p.eventTracker == nil {
+		return
+	}
+
+	for i := 0; i < maxDrainBatches; i++ {
+		if p.flushAndPublishEvents(ctx) == 0 {
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+	}
+
+	p.logger.Warn("Event drain hit the batch limit on shutdown; dropping the rest",
+		"max_drain_batches", maxDrainBatches)
+}
+
+// publishEvents wraps a flushed batch in a PublishEventsRequest and sends it to
+// the Confidence events service.
+func (p *LocalResolverProvider) publishEvents(ctx context.Context, batch *eventswasm.FlushEventsResponse) error {
+	if p.eventsClient == nil {
+		return errors.New("events service client is not configured")
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, eventsPublishTimeout)
+	defer cancel()
+
+	request := &events.PublishEventsRequest{
+		ClientSecret: p.clientSecret,
+		Events:       batch.Events,
+		SendTime:     timestamppb.Now(),
+		Sdk:          eventsSdk,
+	}
+
+	response, err := p.eventsClient.PublishEvents(rpcCtx, request)
+	if err != nil {
+		return fmt.Errorf("failed to publish events: %w", err)
+	}
+
+	for _, e := range response.GetErrors() {
+		p.logger.Error("Event publish error",
+			"index", e.GetIndex(),
+			"reason", e.GetReason().String(),
+			"message", e.GetMessage())
+	}
+
+	return nil
+}
+
 // Resolve resolves multiple flags for the given context. If flagNames is empty,
 // all flags available to the client are resolved. When apply is true, exposure
 // events are recorded immediately. When apply is false, the response normally
@@ -568,6 +857,25 @@ func (p *LocalResolverProvider) Shutdown() {
 		}
 	}
 
+	// Drain and close the event tracker
+	if p.eventTracker != nil {
+		drainCtx, drainCancel := context.WithTimeout(ctx, 3*time.Second)
+		p.drainEvents(drainCtx)
+		drainCancel()
+		if err := p.eventTracker.Close(); err != nil && p.logger != nil {
+			p.logger.Warn("Failed to close event tracker", "error", err)
+		}
+		if p.eventsConn != nil {
+			if err := p.eventsConn.Close(); err != nil && p.logger != nil {
+				p.logger.Warn("Failed to close events service channel", "error", err)
+			}
+			p.eventsConn = nil
+		}
+		if p.logger != nil {
+			p.logger.Debug("Closed event tracker")
+		}
+	}
+
 	// Shutdown flag logger (which waits for log sends to complete)
 	if p.flagLogger != nil {
 		p.flagLogger.Shutdown()
@@ -677,6 +985,27 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 			}
 		}
 	}()
+
+	// Goroutine for event flushing (only when event tracking is enabled).
+	// Kept separate from log flushing so a slow PublishEvents RPC cannot delay
+	// resolve/assign log flushes.
+	if p.eventTracker != nil {
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			eventTicker := time.NewTicker(p.logPollInterval)
+			defer eventTicker.Stop()
+
+			for {
+				select {
+				case <-eventTicker.C:
+					p.flushAndPublishEvents(ctx)
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
 }
 
 // getStatePollInterval gets the state poll interval from environment or returns default

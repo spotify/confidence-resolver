@@ -1,0 +1,89 @@
+version: 2
+
+updates:
+  # Keep actions pinned to full SHAs; Dependabot also updates the version comments.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Stockholm"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/mock-support-server"
+      - "/openfeature-provider/go/bench"
+      - "/openfeature-provider/js/bench"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "06:00"
+      timezone: "Europe/Stockholm"
+    groups:
+      docker-images:
+        patterns: ["*"]
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      cargo-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "gomod"
+    directories:
+      - "/mock-support-server"
+      - "/openfeature-provider/go"
+      - "/openfeature-provider/go/bench"
+      - "/openfeature-provider/go/demo"
+    schedule:
+      interval: "monthly"
+    groups:
+      go-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "maven"
+    directory: "/openfeature-provider/java"
+    schedule:
+      interval: "monthly"
+    groups:
+      maven-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directories:
+      - "/openfeature-provider/js"
+      - "/openfeature-provider/js/bench"
+    schedule:
+      interval: "monthly"
+    groups:
+      npm-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/openfeature-provider/python"
+    schedule:
+      interval: "monthly"
+    groups:
+      pip-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "bundler"
+    directory: "/openfeature-provider/ruby"
+    schedule:
+      interval: "monthly"
+    groups:
+      bundler-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

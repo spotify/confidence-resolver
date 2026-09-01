@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.21.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.20.0...openfeature-provider-java-v0.21.0) (2026-08-31)
+
+
+### Features
+
+* event tracking support ([#524](https://github.com/spotify/confidence-resolver/issues/524)) ([9eb515a](https://github.com/spotify/confidence-resolver/commit/9eb515a084dea17c90e8c60cb9aa64070146ae22))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.2 to 0.5.3
+
+## [0.20.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.19.0...openfeature-provider-java-v0.20.0) (2026-08-27)
+
+
+### Features
+
+* add provider_init_rate to telemetry ([#485](https://github.com/spotify/confidence-resolver/issues/485)) ([c0e7dbe](https://github.com/spotify/confidence-resolver/commit/c0e7dbe99455a5dc7c131f502606d3a3ec42fffc))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.1 to 0.5.2
+
 ## [0.19.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.18.0...openfeature-provider-java-v0.19.0) (2026-08-21)
 
 
@@ -23,7 +51,7 @@
 
 ### Features
 
-* disable exposure collection on local OpenFeature providers ([#527](https://github.com/spotify/confidence-resolver/issues/527)) ([4b3ef41](https://github.com/spotify/confidence-resolver/commit/4b3ef418223c4a4155fa028672710df307057ce0))
+* add option to disable exposure collection on local OpenFeature providers ([#527](https://github.com/spotify/confidence-resolver/issues/527)) ([4b3ef41](https://github.com/spotify/confidence-resolver/commit/4b3ef418223c4a4155fa028672710df307057ce0))
 * flag apply event deduplication in core resolver and WASM guest ([#517](https://github.com/spotify/confidence-resolver/issues/517)) ([47c5735](https://github.com/spotify/confidence-resolver/commit/47c5735c10b6402ea106328ecc031376000740bb))
 
 

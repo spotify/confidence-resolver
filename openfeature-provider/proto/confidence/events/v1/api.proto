@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package confidence.events.v1;
+
+import "google/protobuf/timestamp.proto";
+import "confidence/events/v1/types.proto";
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events";
+option java_package = "com.spotify.confidence.sdk.events.v1";
+option java_multiple_files = true;
+option java_outer_classname = "ApiProto";
+
+// Mirrors confidence/events/v1/api.proto from the Confidence events service.
+// Annotations removed for minimal dependencies (same convention as internal_api.proto).
+// Two transports are available, both verified against the live service:
+//   - gRPC via the Spotify edge (edge-grpc.spotify.com), same host as
+//     InternalFlagLoggerService. Used by the Go, Java and Python providers.
+//   - HTTP POST to events.confidence.dev/v1/events:publish, which accepts
+//     either application/json or application/x-protobuf. Used by the JS
+//     provider, which has no gRPC transport.
+// Note that events.confidence.dev serves only the HTTP form: a raw gRPC call
+// to that host returns Unimplemented.
+service EventsService {
+  // Publish events to the Confidence event stream.
+  rpc PublishEvents(PublishEventsRequest) returns (PublishEventsResponse);
+}
+
+// Request to publish events.
+message PublishEventsRequest {
+  // The client secret used to authenticate the request, on the format [A-Za-z0-9]+.
+  string client_secret = 1;
+
+  // The list of events to publish.
+  repeated Event events = 2;
+
+  // The client time when the request was sent.
+  google.protobuf.Timestamp send_time = 3;
+
+  // Information about the SDK used to initiate the request.
+  Sdk sdk = 4;
+}
+
+// Response of the publish events call.
+message PublishEventsResponse {
+  // Possible errors that occurred during the publish request.
+  repeated EventError errors = 1;
+}

@@ -1,6 +1,6 @@
 module github.com/spotify/confidence-resolver/openfeature-provider/go
 
-go 1.24.0
+go 1.25.0
 
 require github.com/open-feature/go-sdk v1.16.0
 

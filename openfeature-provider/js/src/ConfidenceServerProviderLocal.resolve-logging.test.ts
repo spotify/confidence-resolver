@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { WasmResolver } from './WasmResolver';
 import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
-import { advanceTimersUntil, NetworkMock } from './test-helpers';
+import { advanceTimersUntil, NetworkMock, noopEventTracker } from './test-helpers';
 import { WriteFlagLogsRequest } from './proto/test-only';
 import { ClientResolverState } from './proto/confidence/flags/admin/v1/resolver';
 
@@ -48,7 +48,7 @@ describe('flagbundle resolve telemetry', () => {
     const module = new WebAssembly.Module(moduleBytes);
     const resolver = new WasmResolver(module);
 
-    provider = new ConfidenceServerProviderLocal(resolver, {
+    provider = new ConfidenceServerProviderLocal(resolver, noopEventTracker, {
       flagClientSecret: CLIENT_SECRET,
       fetch: net.fetch,
     });

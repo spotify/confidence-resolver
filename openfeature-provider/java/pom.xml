@@ -4,7 +4,7 @@
 
   <groupId>com.spotify.confidence</groupId>
   <artifactId>openfeature-provider-local</artifactId>
-  <version>0.19.0</version>
+  <version>0.21.0</version>
   <name>Confidence local resolve provider</name>
   <description>Confidence OpenFeature provider for local flag resolution using WebAssembly</description>
   <url>https://github.com/spotify/confidence-resolver</url>
@@ -246,6 +246,8 @@
                 <include>confidence/flags/resolver/v1/**/*.proto</include>
                 <include>confidence/flags/types/v1/**/*.proto</include>
                 <include>confidence/flags/admin/v1/**/*.proto</include>
+                <include>confidence/events/v1/**/*.proto</include>
+                <include>confidence/events/wasm/v1/**/*.proto</include>
                 <include>confidence/wasm/*.proto</include>
               </includes>
             </configuration>

@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "confidence-cloudflare-resolver"
-version = "0.14.1"
+version = "0.15.1"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -322,6 +322,7 @@ dependencies = [
  "getrandom 0.3.3",
  "js-sys",
  "once_cell",
+ "pbjson-types",
  "prost",
  "serde",
  "serde_json",
@@ -331,8 +332,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "confidence-event-engine"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-queue",
+ "prost",
+ "prost-build",
+ "prost-types",
+]
+
+[[package]]
 name = "confidence_resolver"
-version = "0.22.1"
+version = "0.23.1"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -519,6 +530,16 @@ checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "event-guest"
+version = "0.1.0"
+dependencies = [
+ "confidence-event-engine",
+ "prost",
+ "prost-types",
+ "wasm-msg",
 ]
 
 [[package]]
@@ -1330,28 +1351,28 @@ dependencies = [
 
 [[package]]
 name = "openfeature-provider-go"
-version = "0.22.1"
+version = "0.24.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-java"
-version = "0.19.0"
+version = "0.21.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-js"
-version = "0.19.1"
+version = "0.21.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-python"
-version = "0.11.1"
+version = "0.13.0"
 dependencies = [
  "rust-guest",
 ]
@@ -1999,7 +2020,7 @@ dependencies = [
 
 [[package]]
 name = "rust-guest"
-version = "0.5.1"
+version = "0.5.3"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -2294,7 +2315,7 @@ dependencies = [
 
 [[package]]
 name = "spotify-confidence-openfeature-provider-local"
-version = "0.9.1"
+version = "0.10.1"
 dependencies = [
  "aes-gcm",
  "arc-swap",

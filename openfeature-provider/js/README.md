@@ -6,6 +6,7 @@ OpenFeature provider for the Spotify Confidence resolver (local mode, powered by
 
 - Local flag evaluation via WASM (no per-eval network calls)
 - Automatic state refresh and batched flag log flushing
+- [Event tracking](#event-tracking) via the OpenFeature `track()` API
 - Pluggable `fetch` with retries, timeouts and routing
 - Optional logging using `debug`
 - **[React integration](./README-REACT.md)** for Next.js with Server Components
@@ -358,6 +359,35 @@ yarn add debug
 
 - You can inject a custom `fetch` via the `fetch` option to stub network behavior in tests.
 - The provider batches logs; call `await provider.onClose()` in tests to flush them deterministically.
+
+---
+
+## Event Tracking
+
+The provider supports the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking) for sending custom events to the Confidence events backend. Event tracking is automatically enabled — no configuration needed.
+
+**📖 See the [Integration Guide: Event Tracking](../INTEGRATION_GUIDE.md#event-tracking)** for delivery guarantees, payload mapping rules, and cross-provider differences.
+
+### Usage
+
+```typescript
+const client = OpenFeature.getClient();
+
+// Track a simple event
+client.track('checkout_completed', { targetingKey: 'user-123' });
+
+// Track with a numeric value
+client.track('purchase', { targetingKey: 'user-123' }, { value: 49.99 });
+
+// Track with custom data
+client.track('item_added', { targetingKey: 'user-123' }, {
+  value: 1,
+  sku: 'ABC-123',
+  category: 'electronics',
+});
+```
+
+Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `flushInterval`). On shutdown (`onClose()`), pending events are drained on a best-effort basis (up to 100 batches).
 
 ---
 

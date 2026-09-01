@@ -1,0 +1,14 @@
+[package]
+name = "event-guest"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "event_guest"
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-msg = { path = "../../wasm-msg", version = "0.3.0" }
+confidence-event-engine = { path = "../../confidence-event-engine", version = "0.1.0" }
+prost = { version = "0.13", default-features = false }
+prost-types = { version = "0.13", default-features = false }

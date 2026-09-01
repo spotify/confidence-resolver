@@ -4,6 +4,7 @@ import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 import { readFileSync } from 'node:fs';
 import { WasmResolver } from './WasmResolver';
 import { WriteFlagLogsRequest } from './proto/test-only';
+import { noopEventTracker } from './test-helpers';
 
 /**
  * Unit tests that verify WriteFlagLogs contains correct flag assignment data.
@@ -27,7 +28,7 @@ describe('WriteFlagLogs tests', () => {
   beforeAll(async () => {
     const module = new WebAssembly.Module(moduleBytes);
     resolver = new WasmResolver(module);
-    provider = new ConfidenceServerProviderLocal(resolver, {
+    provider = new ConfidenceServerProviderLocal(resolver, noopEventTracker, {
       flagClientSecret: FLAG_CLIENT_SECRET,
       // Dedup is opt-in (experimental); these tests exercise its behavior.
       enableApplyDedup: true,
