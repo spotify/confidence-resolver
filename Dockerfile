@@ -3,7 +3,7 @@
 # ==============================================================================
 # Base image with Rust toolchain (Alpine - more reliable than Debian)
 # ==============================================================================
-FROM alpine:3.22 AS rust-base
+FROM alpine:3.24 AS rust-base
 
 # Install system dependencies
 # - protoc/protobuf-dev: Required for prost-build (proto compilation in build.rs)
@@ -340,7 +340,7 @@ CMD ["./confidence-cloudflare-resolver/deployer/script.sh"]
 # ==============================================================================
 # OpenFeature Provider (TypeScript) - Build and test
 # ==============================================================================
-FROM node:22-alpine AS openfeature-provider-js-base
+FROM node:26-alpine AS openfeature-provider-js-base
 
 # Install protoc for proto generation
 RUN apk add --no-cache protobuf-dev protoc make
@@ -348,7 +348,7 @@ RUN apk add --no-cache protobuf-dev protoc make
 WORKDIR /app
 
 # Enable Corepack for Yarn
-RUN corepack enable
+RUN npm install --global corepack@0.35.0 && corepack enable
 
 # Copy package files for dependency caching
 COPY \
@@ -453,7 +453,7 @@ COPY --from=openfeature-provider-js.pack /app/package.tgz /package.tgz
 # ==============================================================================
 # OpenFeature Provider (Go) - Build and test
 # ==============================================================================
-FROM golang:1.25-alpine AS openfeature-provider-go-base
+FROM golang:1.27-alpine AS openfeature-provider-go-base
 
 # Install make (needed for Makefile targets)
 RUN apk add --no-cache make
@@ -478,7 +478,7 @@ ENV IN_DOCKER_BUILD=1
 # ==============================================================================
 # Validate WASM sync for Go Provider
 # ==============================================================================
-FROM alpine:3.22 AS openfeature-provider-go.validate-wasm
+FROM alpine:3.24 AS openfeature-provider-go.validate-wasm
 
 # Install diffutils for cmp command
 RUN apk add --no-cache diffutils
@@ -514,7 +514,7 @@ RUN set -e; \
 # ==============================================================================
 # Validate committed event engine WASM matches a fresh build (Go go:embed)
 # ==============================================================================
-FROM alpine:3.22 AS openfeature-provider-go.validate-event-wasm
+FROM alpine:3.24 AS openfeature-provider-go.validate-event-wasm
 
 RUN apk add --no-cache diffutils
 
@@ -568,7 +568,7 @@ RUN make lint
 # ==============================================================================
 # OpenFeature Provider (Ruby) - Build and test
 # ==============================================================================
-FROM ruby:3.3-alpine AS openfeature-provider-ruby-base
+FROM ruby:4.0-alpine AS openfeature-provider-ruby-base
 
 # Install build dependencies
 RUN apk add --no-cache make git build-base openssl-dev
@@ -631,7 +631,7 @@ RUN --mount=type=secret,id=rubygem_api_key \
 # ==============================================================================
 # OpenFeature Provider (Python) - Build and test
 # ==============================================================================
-FROM python:3.11-slim AS openfeature-provider-python-base
+FROM python:3.14-slim AS openfeature-provider-python-base
 
 # Install protobuf and build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -772,7 +772,7 @@ RUN --mount=type=secret,id=crates_io_token \
 # ==============================================================================
 # OpenFeature Provider (Java) - Build and test
 # ==============================================================================
-FROM eclipse-temurin:17-jdk AS openfeature-provider-java-base
+FROM eclipse-temurin:25-jdk AS openfeature-provider-java-base
 
 # Install Maven and protobuf (Debian-based for glibc compatibility)
 RUN apt-get update && apt-get install -y \

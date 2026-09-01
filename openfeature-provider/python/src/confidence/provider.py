@@ -133,16 +133,6 @@ def _load_wasm_from_resources() -> bytes:
     except ImportError:
         pass
 
-    # Fallback to pkg_resources
-    try:
-        import pkg_resources
-
-        return pkg_resources.resource_string(
-            "confidence", "wasm/confidence_resolver.wasm"
-        )
-    except Exception:
-        pass
-
     # Development fallback: try resources directory
     from pathlib import Path
 
@@ -173,15 +163,6 @@ def _load_event_wasm_from_resources() -> bytes:
             pass
 
     except ImportError:
-        pass
-
-    try:
-        import pkg_resources
-
-        return pkg_resources.resource_string(
-            "confidence", "wasm/confidence_event_engine.wasm"
-        )
-    except Exception:
         pass
 
     from pathlib import Path
