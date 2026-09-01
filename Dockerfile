@@ -348,7 +348,7 @@ RUN apk add --no-cache protobuf-dev protoc make
 WORKDIR /app
 
 # Enable Corepack for Yarn
-RUN corepack enable
+RUN npm install --global corepack@0.35.0 && corepack enable
 
 # Copy package files for dependency caching
 COPY \
