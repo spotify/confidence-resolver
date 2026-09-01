@@ -16,6 +16,9 @@ pub static RESOLVE_LOGGER: LazyLock<ResolveLogger<NativeHost>> = LazyLock::new(R
 /// Global assign logger instance.
 pub static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
 
+#[cfg(test)]
+pub static LOG_TEST_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(Default::default);
+
 /// Global telemetry instance for recording resolve rates and latencies.
 pub static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(Telemetry::new);
 
@@ -73,8 +76,9 @@ mod tests {
 
     use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
 
-    #[test]
-    fn disable_exposure_collection_does_not_enqueue_assigns_but_logs_resolves() {
+    #[tokio::test]
+    async fn disable_exposure_collection_does_not_enqueue_assigns_but_logs_resolves() {
+        let _guard = LOG_TEST_LOCK.lock().await;
         let (state, _) = create_state_with_flag();
         let mut fields = HashMap::new();
         fields.insert(
@@ -118,8 +122,12 @@ mod tests {
         let assigns = ASSIGN_LOGGER.checkpoint();
         let resolves = RESOLVE_LOGGER.checkpoint();
         assert!(
-            assigns.flag_assigned.is_empty(),
-            "disable_exposure_collection must not enqueue assigns"
+            assigns
+                .flag_assigned
+                .iter()
+                .flat_map(|assigned| &assigned.flags)
+                .all(|flag| flag.flag != "flags/test-flag"),
+            "disable_exposure_collection must not enqueue assigns for test-flag"
         );
         assert!(
             !resolves.client_resolve_info.is_empty() || !resolves.flag_resolve_info.is_empty(),
