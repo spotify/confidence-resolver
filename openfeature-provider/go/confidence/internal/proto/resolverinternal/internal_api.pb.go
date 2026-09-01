@@ -248,8 +248,12 @@ type TelemetryData struct {
 	// This must be preserved when providers decode and re-encode telemetry.
 	ResolverVersion  string                            `protobuf:"bytes,8,opt,name=resolver_version,json=resolverVersion,proto3" json:"resolver_version,omitempty"`
 	ProviderInitRate []*TelemetryData_ProviderInitRate `protobuf:"bytes,9,rep,name=provider_init_rate,json=providerInitRate,proto3" json:"provider_init_rate,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Delta counters: WriteFlagLogs batch delivery outcomes since last flush.
+	// Populated by the host SDK after each delivery attempt.
+	FlushSucceeded uint32 `protobuf:"varint,11,opt,name=flush_succeeded,json=flushSucceeded,proto3" json:"flush_succeeded,omitempty"`
+	FlushFailed    uint32 `protobuf:"varint,12,opt,name=flush_failed,json=flushFailed,proto3" json:"flush_failed,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TelemetryData) Reset() {
@@ -301,6 +305,20 @@ func (x *TelemetryData) GetProviderInitRate() []*TelemetryData_ProviderInitRate 
 		return x.ProviderInitRate
 	}
 	return nil
+}
+
+func (x *TelemetryData) GetFlushSucceeded() uint32 {
+	if x != nil {
+		return x.FlushSucceeded
+	}
+	return 0
+}
+
+func (x *TelemetryData) GetFlushFailed() uint32 {
+	if x != nil {
+		return x.FlushFailed
+	}
+	return 0
 }
 
 type ClientInfo struct {
@@ -1582,11 +1600,13 @@ const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\x15IngestFlagLogsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12H\n" +
-	"\x05batch\x18\x02 \x01(\v22.confidence.flags.resolver.v1.WriteFlagLogsRequestR\x05batch\"\xa9\x03\n" +
+	"\x05batch\x18\x02 \x01(\v22.confidence.flags.resolver.v1.WriteFlagLogsRequestR\x05batch\"\xf5\x03\n" +
 	"\rTelemetryData\x123\n" +
 	"\x03sdk\x18\x02 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\x12)\n" +
 	"\x10resolver_version\x18\b \x01(\tR\x0fresolverVersion\x12j\n" +
-	"\x12provider_init_rate\x18\t \x03(\v2<.confidence.flags.resolver.v1.TelemetryData.ProviderInitRateR\x10providerInitRate\x1a\xcb\x01\n" +
+	"\x12provider_init_rate\x18\t \x03(\v2<.confidence.flags.resolver.v1.TelemetryData.ProviderInitRateR\x10providerInitRate\x12'\n" +
+	"\x0fflush_succeeded\x18\v \x01(\rR\x0eflushSucceeded\x12!\n" +
+	"\fflush_failed\x18\f \x01(\rR\vflushFailed\x1a\xcb\x01\n" +
 	"\x10ProviderInitRate\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\rR\x05count\x12`\n" +
 	"\x06labels\x18\x03 \x03(\v2H.confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.LabelsEntryR\x06labels\x1a9\n" +

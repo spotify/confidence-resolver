@@ -57,6 +57,13 @@ message TelemetryData {
 
   repeated ProviderInitRate provider_init_rate = 9;
 
+  // apply_dedup = 10; — set by WASM guest, passes through as unknown fields
+
+  // Delta counters: WriteFlagLogs batch delivery outcomes since last flush.
+  // Populated by the host SDK after each delivery attempt.
+  uint32 flush_succeeded = 11;
+  uint32 flush_failed = 12;
+
   message ProviderInitRate {
     uint32 count = 1;
     reserved 2; // status — tbd

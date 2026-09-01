@@ -284,6 +284,9 @@ class ConfidenceProvider(AbstractProvider):
         self._event_publish_attempts = 0
         self._event_publish_failures = 0
 
+        self._flush_succeeded = 0
+        self._flush_failed = 0
+
         # State fetcher (injected or created)
         self._state_fetcher = state_fetcher
 
@@ -913,28 +916,40 @@ class ConfidenceProvider(AbstractProvider):
                 self._init_telemetry_state = "sending"
                 include_init = True
 
-        if include_init:
+        flush_ok = self._flush_succeeded
+        flush_err = self._flush_failed
+        need_rewrite = include_init or flush_ok > 0 or flush_err > 0
+
+        if need_rewrite:
             request = internal_api_pb2.WriteFlagLogsRequest.FromString(log_data)
-            request.telemetry_data.sdk.CopyFrom(
-                types_pb2.Sdk(
-                    id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
-                    version=__version__,
+            if include_init:
+                request.telemetry_data.sdk.CopyFrom(
+                    types_pb2.Sdk(
+                        id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
+                        version=__version__,
+                    )
                 )
-            )
-            init_rate = request.telemetry_data.provider_init_rate.add()
-            init_rate.count = 1
-            for k, v in self._init_labels.items():
-                init_rate.labels[k] = v
+                init_rate = request.telemetry_data.provider_init_rate.add()
+                init_rate.count = 1
+                for k, v in self._init_labels.items():
+                    init_rate.labels[k] = v
+            if flush_ok > 0 or flush_err > 0:
+                request.telemetry_data.flush_succeeded = flush_ok
+                request.telemetry_data.flush_failed = flush_err
+                self._flush_succeeded = 0
+                self._flush_failed = 0
             log_data = request.SerializeToString()
 
         try:
             self._flag_logger.write(log_data)
         except Exception:
+            self._flush_failed += 1
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "pending"
             raise
         else:
+            self._flush_succeeded += 1
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "sent"

@@ -13,12 +13,14 @@ import (
 )
 
 type GrpcFlagLogger struct {
-	stub         resolverv1.InternalFlagLoggerServiceClient
-	clientSecret string
-	logger       *slog.Logger
-	wg           sync.WaitGroup
-	attempts     atomic.Int64
-	failures     atomic.Int64
+	stub             resolverv1.InternalFlagLoggerServiceClient
+	clientSecret     string
+	logger           *slog.Logger
+	wg               sync.WaitGroup
+	attempts         atomic.Int64
+	failures         atomic.Int64
+	flushSucceeded   atomic.Int64
+	flushFailed      atomic.Int64
 }
 
 func NewGrpcWasmFlagLogger(stub resolverv1.InternalFlagLoggerServiceClient, clientSecret string, logger *slog.Logger) *GrpcFlagLogger {
@@ -57,6 +59,16 @@ func (g *GrpcFlagLogger) Write(request *resolverv1.WriteFlagLogsRequest) {
 		"client_resolve_info", clientResolveCount,
 		"flag_resolve_info", flagResolveCount)
 
+	succeeded := uint32(g.flushSucceeded.Swap(0))
+	failed := uint32(g.flushFailed.Swap(0))
+	if succeeded > 0 || failed > 0 {
+		if request.TelemetryData == nil {
+			request.TelemetryData = &resolverv1.TelemetryData{}
+		}
+		request.TelemetryData.FlushSucceeded = succeeded
+		request.TelemetryData.FlushFailed = failed
+	}
+
 	g.sendAsync(request)
 
 }
@@ -75,7 +87,9 @@ func (g *GrpcFlagLogger) sendAsync(request *resolverv1.WriteFlagLogsRequest) {
 
 		if _, err := g.stub.ClientWriteFlagLogs(rpcCtx, request); err != nil {
 			g.failures.Add(1)
+			g.flushFailed.Add(1)
 		} else {
+			g.flushSucceeded.Add(1)
 			g.logger.Debug("Successfully sent flag log",
 				"flag_assigned", len(request.FlagAssigned),
 				"client_resolve_info", len(request.ClientResolveInfo),

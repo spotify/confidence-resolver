@@ -38,6 +38,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   private final Duration shutdownTimeout;
   private final AtomicLong attempts = new AtomicLong();
   private final AtomicLong failures = new AtomicLong();
+  private final AtomicLong successes = new AtomicLong();
   private final String clientSecret;
   private final HttpClientFactory httpClientFactory;
   private final AtomicReference<List<LogDestination>> logDestinations =
@@ -127,13 +128,19 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
 
     // Default to Edge when no destinations configured
     if (destinations.isEmpty()) {
-      sendToEdge(request);
+      try {
+        sendToEdge(request);
+        successes.incrementAndGet();
+      } catch (Exception e) {
+        failures.incrementAndGet();
+      }
       return;
     }
 
     final LogDestination primary = destinations.get(0);
     try {
       sendToDestination(primary, request);
+      successes.incrementAndGet();
       logger.debug(
           "Successfully sent flag log via {} with {} assigned, {} client_resolve_info, {} flag_resolve_info",
           primary,
@@ -146,6 +153,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
         logger.warn("Primary destination {} failed, trying fallback {}", primary, fallback);
         try {
           sendToDestination(fallback, request);
+          successes.incrementAndGet();
           logger.debug(
               "Successfully sent flag log via fallback {} with {} assigned, {} client_resolve_info, {} flag_resolve_info",
               fallback,
@@ -205,6 +213,11 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
     } catch (Exception e) {
       throw new RuntimeException("Failed to send flag logs to Cloudflare", e);
     }
+  }
+
+  @Override
+  public long[] drainFlushCounters() {
+    return new long[] {successes.getAndSet(0), failures.getAndSet(0)};
   }
 
   /**

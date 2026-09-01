@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::Bytes;
-use confidence_resolver::apply_dedup::ApplyDedup;
+use confidence_resolver::apply_dedup::{ApplyDedup, ApplyDedupSnapshot};
 use confidence_resolver::assign_logger::AssignLogger;
 use confidence_resolver::telemetry::{Telemetry, TelemetrySnapshot};
 use prost::Message;
@@ -72,6 +72,8 @@ static TELEMETRY: LazyLock<Telemetry> = LazyLock::new(|| {
 });
 static LAST_FLUSHED: LazyLock<ArcSwap<TelemetrySnapshot>> =
     LazyLock::new(|| ArcSwap::from_pointee(TelemetrySnapshot::default()));
+static LAST_DEDUP_SNAPSHOT: LazyLock<Mutex<ApplyDedupSnapshot>> =
+    LazyLock::new(|| Mutex::new(ApplyDedupSnapshot::default()));
 
 struct WasmHost;
 
@@ -150,6 +152,13 @@ fn sweep_apply_dedup() {
     match APPLY_DEDUP.lock() {
         Ok(mut dedup) => dedup.sweep(now_seconds),
         Err(poisoned) => poisoned.into_inner().sweep(now_seconds),
+    }
+}
+
+fn dedup_snapshot() -> ApplyDedupSnapshot {
+    match APPLY_DEDUP.lock() {
+        Ok(dedup) => dedup.telemetry_snapshot(),
+        Err(poisoned) => poisoned.into_inner().telemetry_snapshot(),
     }
 }
 
@@ -233,6 +242,17 @@ wasm_msg_guest! {
         if let Some(state) = RESOLVER_STATE.load().as_ref() {
             td.sdk = state.sdk.clone();
         }
+        if APPLY_DEDUP_ENABLED.load(Ordering::Relaxed) {
+            let current = dedup_snapshot();
+            let prev = match LAST_DEDUP_SNAPSHOT.lock() {
+                Ok(mut guard) => std::mem::replace(&mut *guard, current.clone()),
+                Err(poisoned) => std::mem::replace(&mut *poisoned.into_inner(), current.clone()),
+            };
+            let delta = current.to_proto_delta(&prev);
+            if delta.applies_total > 0 || current.map_size > 0 {
+                td.apply_dedup = Some(delta);
+            }
+        }
         req.telemetry_data = Some(td);
         ASSIGN_LOGGER.checkpoint_fill_with_limit(&mut req, LOG_TARGET_BYTES, false);
         Ok(req)
@@ -248,7 +268,11 @@ wasm_msg_guest! {
             buckets_per_decade: request.buckets_per_decade,
             openmetrics: request.openmetrics,
         };
-        let text = TELEMETRY.snapshot().to_prometheus(&request.instance, &config);
+        let mut snap = TELEMETRY.snapshot();
+        if APPLY_DEDUP_ENABLED.load(Ordering::Relaxed) {
+            snap.apply_dedup = Some(dedup_snapshot());
+        }
+        let text = snap.to_prometheus(&request.instance, &config);
         Ok(proto::PrometheusSnapshotResponse { text })
     }
 

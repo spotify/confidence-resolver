@@ -1,7 +1,7 @@
 mod materialization;
 
 use confidence_resolver::{
-    apply_dedup::ApplyDedup,
+    apply_dedup::{ApplyDedup, ApplyDedupSnapshot},
     assign_logger, flag_logger,
     proto::{confidence, google::Struct},
     resolve_logger,
@@ -51,6 +51,22 @@ thread_local! {
     static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
     static APPLY_DEDUP: RefCell<ApplyDedup> = RefCell::new(ApplyDedup::new(120, 100_000));
     static APPLY_DEDUP_ENABLED: Cell<bool> = const { Cell::new(false) };
+    static LAST_DEDUP_SNAPSHOT: RefCell<ApplyDedupSnapshot> =
+        RefCell::new(ApplyDedupSnapshot::default());
+}
+
+fn dedup_telemetry_delta() -> Option<confidence::flags::resolver::v1::telemetry_data::ApplyDedupTelemetry> {
+    if !APPLY_DEDUP_ENABLED.with(|c| c.get()) {
+        return None;
+    }
+    let current = APPLY_DEDUP.with(|d| d.borrow().telemetry_snapshot());
+    let prev = LAST_DEDUP_SNAPSHOT.with(|s| std::mem::replace(&mut *s.borrow_mut(), current.clone()));
+    let delta = current.to_proto_delta(&prev);
+    if delta.applies_total > 0 || current.map_size > 0 {
+        Some(delta)
+    } else {
+        None
+    }
 }
 
 /// Queues one request's flag log and sweeps the apply-dedup map. Called via
@@ -497,6 +513,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
                         let mut td = telemetry::build_request_telemetry(elapsed_us, &reasons);
                         td.sdk = Some(sdk_info());
+                        td.apply_dedup = dedup_telemetry_delta();
                         log.telemetry_data = Some(td);
                         event_ctx.wait_until(queue_flag_log(log));
 
@@ -540,9 +557,10 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                             }
                         };
-                        // Unlike resolve there is no telemetry to attach, so
-                        // skip queueing when the apply logged nothing (an
-                        // errored apply).
+                        if let Some(dedup_delta) = dedup_telemetry_delta() {
+                            let td = log.telemetry_data.get_or_insert_with(Default::default);
+                            td.apply_dedup = Some(dedup_delta);
+                        }
                         if log != WriteFlagLogsRequest::default() {
                             event_ctx.wait_until(queue_flag_log(log));
                         }
@@ -704,11 +722,6 @@ async fn consume_flag_logs(
 
         let req = flag_logger::aggregate_batch(logs);
 
-        // Accumulate telemetry deltas into KV-backed cumulative snapshot for /metrics.
-        if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-            update_prometheus_kv(&kv, &req).await;
-        }
-
         let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
         let account_id = CDN_STATE_REQUEST.account_id.as_str();
         let destinations = &*LOG_DESTINATIONS;
@@ -719,13 +732,15 @@ async fn consume_flag_logs(
             (destinations[0], None)
         };
 
-        if let Err(reason) = deliver_flag_logs(client_secret, account_id, &req, primary).await {
+        let delivered = if let Err(reason) =
+            deliver_flag_logs(client_secret, account_id, &req, primary).await
+        {
             console_log!(
                 "flag log delivery to {:?} failed ({}), trying fallback",
                 primary,
                 reason
             );
-            let fallback_delivered = match fallback {
+            match fallback {
                 Some(fb) => match deliver_flag_logs(client_secret, account_id, &req, fb).await {
                     Ok(()) => true,
                     Err(fb_reason) => {
@@ -738,16 +753,19 @@ async fn consume_flag_logs(
                     }
                 },
                 None => false,
-            };
-            if !fallback_delivered {
-                // Returning Err makes Cloudflare Queues redeliver the batch,
-                // so a delivery outage doesn't silently drop logs. The
-                // telemetry KV update above may run again on redelivery —
-                // acceptable for metrics.
-                return Err(worker::Error::RustError(
-                    "flag log delivery failed on all destinations".to_string(),
-                ));
             }
+        } else {
+            true
+        };
+
+        if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
+            update_prometheus_kv(&kv, &req, Some(delivered)).await;
+        }
+
+        if !delivered {
+            return Err(worker::Error::RustError(
+                "flag log delivery failed on all destinations".to_string(),
+            ));
         }
     }
 
@@ -778,9 +796,16 @@ async fn deliver_flag_logs(
 /// `TelemetrySnapshot` stored in KV, then write its Prometheus text
 /// representation for the /metrics endpoint.
 ///
+/// `flush_result` records the outcome of the batch delivery: `Some(true)`
+/// for success, `Some(false)` for failure, `None` to skip.
+///
 /// Note: concurrent queue consumer invocations can race on KV read-modify-write.
 /// Acceptable for metrics — at worst one batch's deltas are lost, not cumulative state.
-async fn update_prometheus_kv(kv: &kv::KvStore, req: &WriteFlagLogsRequest) {
+async fn update_prometheus_kv(
+    kv: &kv::KvStore,
+    req: &WriteFlagLogsRequest,
+    flush_result: Option<bool>,
+) {
     let mut cumulative = match kv.get("snapshot").text().await {
         Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
         _ => TelemetrySnapshot::default(),
@@ -788,6 +813,16 @@ async fn update_prometheus_kv(kv: &kv::KvStore, req: &WriteFlagLogsRequest) {
 
     if let Some(td) = &req.telemetry_data {
         cumulative.accumulate_delta(td);
+    }
+
+    match flush_result {
+        Some(true) => {
+            cumulative.flush_succeeded = cumulative.flush_succeeded.wrapping_add(1);
+        }
+        Some(false) => {
+            cumulative.flush_failed = cumulative.flush_failed.wrapping_add(1);
+        }
+        None => {}
     }
 
     let prom_text = cumulative.to_prometheus(

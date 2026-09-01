@@ -23,10 +23,10 @@ _sym_db = _symbol_database.Default()
 
 
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
-from . import types_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_types__pb2
+from confidence.flags.resolver.v1 import types_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_types__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n/confidence/flags/resolver/v1/internal_api.proto\x12\x1c\x63onfidence.flags.resolver.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a(confidence/flags/resolver/v1/types.proto\"\xb6\x02\n\x14WriteFlagLogsRequest\x12\x41\n\rflag_assigned\x18\x01 \x03(\x0b\x32*.confidence.flags.resolver.v1.FlagAssigned\x12\x43\n\x0etelemetry_data\x18\x02 \x01(\x0b\x32+.confidence.flags.resolver.v1.TelemetryData\x12L\n\x13\x63lient_resolve_info\x18\x03 \x03(\x0b\x32/.confidence.flags.resolver.v1.ClientResolveInfo\x12H\n\x11\x66lag_resolve_info\x18\x04 \x03(\x0b\x32-.confidence.flags.resolver.v1.FlagResolveInfo\"\x17\n\x15WriteFlagLogsResponse\"n\n\x15IngestFlagLogsRequest\x12\x12\n\naccount_id\x18\x01 \x01(\t\x12\x41\n\x05\x62\x61tch\x18\x02 \x01(\x0b\x32\x32.confidence.flags.resolver.v1.WriteFlagLogsRequest\"\xe6\x02\n\rTelemetryData\x12.\n\x03sdk\x18\x02 \x01(\x0b\x32!.confidence.flags.resolver.v1.Sdk\x12\x18\n\x10resolver_version\x18\x08 \x01(\t\x12X\n\x12provider_init_rate\x18\t \x03(\x0b\x32<.confidence.flags.resolver.v1.TelemetryData.ProviderInitRate\x1a\xb0\x01\n\x10ProviderInitRate\x12\r\n\x05\x63ount\x18\x01 \x01(\r\x12X\n\x06labels\x18\x03 \x03(\x0b\x32H.confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.LabelsEntry\x1a-\n\x0bLabelsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01J\x04\x08\x02\x10\x03\"g\n\nClientInfo\x12\x0e\n\x06\x63lient\x18\x01 \x01(\t\x12\x19\n\x11\x63lient_credential\x18\x02 \x01(\t\x12.\n\x03sdk\x18\x03 \x01(\x0b\x32!.confidence.flags.resolver.v1.Sdk\"\xa4\x07\n\x0c\x46lagAssigned\x12\x12\n\nresolve_id\x18\n \x01(\t\x12=\n\x0b\x63lient_info\x18\x03 \x01(\x0b\x32(.confidence.flags.resolver.v1.ClientInfo\x12\x45\n\x05\x66lags\x18\x0f \x03(\x0b\x32\x36.confidence.flags.resolver.v1.FlagAssigned.AppliedFlag\x1a\xbd\x03\n\x0b\x41ppliedFlag\x12\x0c\n\x04\x66lag\x18\x01 \x01(\t\x12\x15\n\rtargeting_key\x18\x02 \x01(\t\x12\x1e\n\x16targeting_key_selector\x18\x03 \x01(\t\x12T\n\x0f\x61ssignment_info\x18\x04 \x01(\x0b\x32\x39.confidence.flags.resolver.v1.FlagAssigned.AssignmentInfoH\x00\x12Z\n\x12\x64\x65\x66\x61ult_assignment\x18\x05 \x01(\x0b\x32<.confidence.flags.resolver.v1.FlagAssigned.DefaultAssignmentH\x00\x12\x15\n\rassignment_id\x18\x06 \x01(\t\x12\x0c\n\x04rule\x18\x07 \x01(\t\x12T\n\x17\x66\x61llthrough_assignments\x18\x08 \x03(\x0b\x32\x33.confidence.flags.resolver.v1.FallthroughAssignment\x12.\n\napply_time\x18\t \x01(\x0b\x32\x1a.google.protobuf.TimestampB\x0c\n\nassignment\x1a\x32\n\x0e\x41ssignmentInfo\x12\x0f\n\x07segment\x18\x01 \x01(\t\x12\x0f\n\x07variant\x18\x02 \x01(\t\x1a\x85\x02\n\x11\x44\x65\x66\x61ultAssignment\x12\x64\n\x06reason\x18\x01 \x01(\x0e\x32T.confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment.DefaultAssignmentReason\"\x89\x01\n\x17\x44\x65\x66\x61ultAssignmentReason\x12)\n%DEFAULT_ASSIGNMENT_REASON_UNSPECIFIED\x10\x00\x12\x14\n\x10NO_SEGMENT_MATCH\x10\x01\x12\x1a\n\x12NO_TREATMENT_MATCH\x10\x02\x1a\x02\x08\x01\x12\x11\n\rFLAG_ARCHIVED\x10\x03\"s\n\x15\x46\x61llthroughAssignment\x12\x0c\n\x04rule\x18\x01 \x01(\t\x12\x15\n\rassignment_id\x18\x02 \x01(\t\x12\x15\n\rtargeting_key\x18\x03 \x01(\t\x12\x1e\n\x16targeting_key_selector\x18\x04 \x01(\t\"\xdf\x02\n\x11\x43lientResolveInfo\x12\x0e\n\x06\x63lient\x18\x01 \x01(\t\x12\x19\n\x11\x63lient_credential\x18\x02 \x01(\t\x12_\n\x06schema\x18\x03 \x03(\x0b\x32O.confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance\x1a\xbd\x01\n\x1f\x45valuationContextSchemaInstance\x12k\n\x06schema\x18\x01 \x03(\x0b\x32[.confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance.SchemaEntry\x1a-\n\x0bSchemaEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x05:\x02\x38\x01\"\xb5\x01\n\x0f\x46lagResolveInfo\x12\x0c\n\x04\x66lag\x18\x01 \x01(\t\x12^\n\x14variant_resolve_info\x18\x02 \x03(\x0b\x32@.confidence.flags.resolver.v1.FlagResolveInfo.VariantResolveInfo\x1a\x34\n\x12VariantResolveInfo\x12\x0f\n\x07variant\x18\x01 \x01(\t\x12\r\n\x05\x63ount\x18\x03 \x01(\x03\"]\n\x16WriteOperationsRequest\x12\x43\n\x10store_variant_op\x18\x01 \x03(\x0b\x32).confidence.flags.resolver.v1.VariantData\"\x17\n\x15WriteOperationsResult\"D\n\rVariantReadOp\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\x12\x0c\n\x04rule\x18\x03 \x01(\t\"8\n\x0fInclusionReadOp\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\"\xa2\x01\n\x06ReadOp\x12\x46\n\x0fvariant_read_op\x18\x01 \x01(\x0b\x32+.confidence.flags.resolver.v1.VariantReadOpH\x00\x12J\n\x11inclusion_read_op\x18\x02 \x01(\x0b\x32-.confidence.flags.resolver.v1.InclusionReadOpH\x00\x42\x04\n\x02op\"J\n\x15ReadOperationsRequest\x12\x31\n\x03ops\x18\x03 \x03(\x0b\x32$.confidence.flags.resolver.v1.ReadOp\"S\n\x0bVariantData\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\x12\x0c\n\x04rule\x18\x03 \x01(\t\x12\x0f\n\x07variant\x18\x04 \x01(\t\"K\n\rInclusionData\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\x12\x13\n\x0bis_included\x18\x03 \x01(\x08\"\xa4\x01\n\nReadResult\x12\x43\n\x0evariant_result\x18\x01 \x01(\x0b\x32).confidence.flags.resolver.v1.VariantDataH\x00\x12G\n\x10inclusion_result\x18\x02 \x01(\x0b\x32+.confidence.flags.resolver.v1.InclusionDataH\x00\x42\x08\n\x06result\"Q\n\x14ReadOperationsResult\x12\x39\n\x07results\x18\x01 \x03(\x0b\x32(.confidence.flags.resolver.v1.ReadResult2\xb2\x03\n\x19InternalFlagLoggerService\x12~\n\x13\x43lientWriteFlagLogs\x12\x32.confidence.flags.resolver.v1.WriteFlagLogsRequest\x1a\x33.confidence.flags.resolver.v1.WriteFlagLogsResponse\x12\x8a\x01\n\x1bWriteMaterializedOperations\x12\x34.confidence.flags.resolver.v1.WriteOperationsRequest\x1a\x33.confidence.flags.resolver.v1.WriteOperationsResult\"\x00\x12\x87\x01\n\x1aReadMaterializedOperations\x12\x33.confidence.flags.resolver.v1.ReadOperationsRequest\x1a\x32.confidence.flags.resolver.v1.ReadOperationsResult\"\x00\x42\xad\x01\n,com.spotify.confidence.sdk.flags.resolver.v1B\x10InternalApiProtoP\x01Zigithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternalb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n/confidence/flags/resolver/v1/internal_api.proto\x12\x1c\x63onfidence.flags.resolver.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a(confidence/flags/resolver/v1/types.proto\"\xb6\x02\n\x14WriteFlagLogsRequest\x12\x41\n\rflag_assigned\x18\x01 \x03(\x0b\x32*.confidence.flags.resolver.v1.FlagAssigned\x12\x43\n\x0etelemetry_data\x18\x02 \x01(\x0b\x32+.confidence.flags.resolver.v1.TelemetryData\x12L\n\x13\x63lient_resolve_info\x18\x03 \x03(\x0b\x32/.confidence.flags.resolver.v1.ClientResolveInfo\x12H\n\x11\x66lag_resolve_info\x18\x04 \x03(\x0b\x32-.confidence.flags.resolver.v1.FlagResolveInfo\"\x17\n\x15WriteFlagLogsResponse\"n\n\x15IngestFlagLogsRequest\x12\x12\n\naccount_id\x18\x01 \x01(\t\x12\x41\n\x05\x62\x61tch\x18\x02 \x01(\x0b\x32\x32.confidence.flags.resolver.v1.WriteFlagLogsRequest\"\x95\x03\n\rTelemetryData\x12.\n\x03sdk\x18\x02 \x01(\x0b\x32!.confidence.flags.resolver.v1.Sdk\x12\x18\n\x10resolver_version\x18\x08 \x01(\t\x12X\n\x12provider_init_rate\x18\t \x03(\x0b\x32<.confidence.flags.resolver.v1.TelemetryData.ProviderInitRate\x12\x17\n\x0f\x66lush_succeeded\x18\x0b \x01(\r\x12\x14\n\x0c\x66lush_failed\x18\x0c \x01(\r\x1a\xb0\x01\n\x10ProviderInitRate\x12\r\n\x05\x63ount\x18\x01 \x01(\r\x12X\n\x06labels\x18\x03 \x03(\x0b\x32H.confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.LabelsEntry\x1a-\n\x0bLabelsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01J\x04\x08\x02\x10\x03\"g\n\nClientInfo\x12\x0e\n\x06\x63lient\x18\x01 \x01(\t\x12\x19\n\x11\x63lient_credential\x18\x02 \x01(\t\x12.\n\x03sdk\x18\x03 \x01(\x0b\x32!.confidence.flags.resolver.v1.Sdk\"\xa4\x07\n\x0c\x46lagAssigned\x12\x12\n\nresolve_id\x18\n \x01(\t\x12=\n\x0b\x63lient_info\x18\x03 \x01(\x0b\x32(.confidence.flags.resolver.v1.ClientInfo\x12\x45\n\x05\x66lags\x18\x0f \x03(\x0b\x32\x36.confidence.flags.resolver.v1.FlagAssigned.AppliedFlag\x1a\xbd\x03\n\x0b\x41ppliedFlag\x12\x0c\n\x04\x66lag\x18\x01 \x01(\t\x12\x15\n\rtargeting_key\x18\x02 \x01(\t\x12\x1e\n\x16targeting_key_selector\x18\x03 \x01(\t\x12T\n\x0f\x61ssignment_info\x18\x04 \x01(\x0b\x32\x39.confidence.flags.resolver.v1.FlagAssigned.AssignmentInfoH\x00\x12Z\n\x12\x64\x65\x66\x61ult_assignment\x18\x05 \x01(\x0b\x32<.confidence.flags.resolver.v1.FlagAssigned.DefaultAssignmentH\x00\x12\x15\n\rassignment_id\x18\x06 \x01(\t\x12\x0c\n\x04rule\x18\x07 \x01(\t\x12T\n\x17\x66\x61llthrough_assignments\x18\x08 \x03(\x0b\x32\x33.confidence.flags.resolver.v1.FallthroughAssignment\x12.\n\napply_time\x18\t \x01(\x0b\x32\x1a.google.protobuf.TimestampB\x0c\n\nassignment\x1a\x32\n\x0e\x41ssignmentInfo\x12\x0f\n\x07segment\x18\x01 \x01(\t\x12\x0f\n\x07variant\x18\x02 \x01(\t\x1a\x85\x02\n\x11\x44\x65\x66\x61ultAssignment\x12\x64\n\x06reason\x18\x01 \x01(\x0e\x32T.confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment.DefaultAssignmentReason\"\x89\x01\n\x17\x44\x65\x66\x61ultAssignmentReason\x12)\n%DEFAULT_ASSIGNMENT_REASON_UNSPECIFIED\x10\x00\x12\x14\n\x10NO_SEGMENT_MATCH\x10\x01\x12\x1a\n\x12NO_TREATMENT_MATCH\x10\x02\x1a\x02\x08\x01\x12\x11\n\rFLAG_ARCHIVED\x10\x03\"s\n\x15\x46\x61llthroughAssignment\x12\x0c\n\x04rule\x18\x01 \x01(\t\x12\x15\n\rassignment_id\x18\x02 \x01(\t\x12\x15\n\rtargeting_key\x18\x03 \x01(\t\x12\x1e\n\x16targeting_key_selector\x18\x04 \x01(\t\"\xdf\x02\n\x11\x43lientResolveInfo\x12\x0e\n\x06\x63lient\x18\x01 \x01(\t\x12\x19\n\x11\x63lient_credential\x18\x02 \x01(\t\x12_\n\x06schema\x18\x03 \x03(\x0b\x32O.confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance\x1a\xbd\x01\n\x1f\x45valuationContextSchemaInstance\x12k\n\x06schema\x18\x01 \x03(\x0b\x32[.confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance.SchemaEntry\x1a-\n\x0bSchemaEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x05:\x02\x38\x01\"\xb5\x01\n\x0f\x46lagResolveInfo\x12\x0c\n\x04\x66lag\x18\x01 \x01(\t\x12^\n\x14variant_resolve_info\x18\x02 \x03(\x0b\x32@.confidence.flags.resolver.v1.FlagResolveInfo.VariantResolveInfo\x1a\x34\n\x12VariantResolveInfo\x12\x0f\n\x07variant\x18\x01 \x01(\t\x12\r\n\x05\x63ount\x18\x03 \x01(\x03\"]\n\x16WriteOperationsRequest\x12\x43\n\x10store_variant_op\x18\x01 \x03(\x0b\x32).confidence.flags.resolver.v1.VariantData\"\x17\n\x15WriteOperationsResult\"D\n\rVariantReadOp\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\x12\x0c\n\x04rule\x18\x03 \x01(\t\"8\n\x0fInclusionReadOp\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\"\xa2\x01\n\x06ReadOp\x12\x46\n\x0fvariant_read_op\x18\x01 \x01(\x0b\x32+.confidence.flags.resolver.v1.VariantReadOpH\x00\x12J\n\x11inclusion_read_op\x18\x02 \x01(\x0b\x32-.confidence.flags.resolver.v1.InclusionReadOpH\x00\x42\x04\n\x02op\"J\n\x15ReadOperationsRequest\x12\x31\n\x03ops\x18\x03 \x03(\x0b\x32$.confidence.flags.resolver.v1.ReadOp\"S\n\x0bVariantData\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\x12\x0c\n\x04rule\x18\x03 \x01(\t\x12\x0f\n\x07variant\x18\x04 \x01(\t\"K\n\rInclusionData\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12\x17\n\x0fmaterialization\x18\x02 \x01(\t\x12\x13\n\x0bis_included\x18\x03 \x01(\x08\"\xa4\x01\n\nReadResult\x12\x43\n\x0evariant_result\x18\x01 \x01(\x0b\x32).confidence.flags.resolver.v1.VariantDataH\x00\x12G\n\x10inclusion_result\x18\x02 \x01(\x0b\x32+.confidence.flags.resolver.v1.InclusionDataH\x00\x42\x08\n\x06result\"Q\n\x14ReadOperationsResult\x12\x39\n\x07results\x18\x01 \x03(\x0b\x32(.confidence.flags.resolver.v1.ReadResult2\xb2\x03\n\x19InternalFlagLoggerService\x12~\n\x13\x43lientWriteFlagLogs\x12\x32.confidence.flags.resolver.v1.WriteFlagLogsRequest\x1a\x33.confidence.flags.resolver.v1.WriteFlagLogsResponse\x12\x8a\x01\n\x1bWriteMaterializedOperations\x12\x34.confidence.flags.resolver.v1.WriteOperationsRequest\x1a\x33.confidence.flags.resolver.v1.WriteOperationsResult\"\x00\x12\x87\x01\n\x1aReadMaterializedOperations\x12\x33.confidence.flags.resolver.v1.ReadOperationsRequest\x1a\x32.confidence.flags.resolver.v1.ReadOperationsResult\"\x00\x42\xad\x01\n,com.spotify.confidence.sdk.flags.resolver.v1B\x10InternalApiProtoP\x01Zigithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternalb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -47,55 +47,55 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_INGESTFLAGLOGSREQUEST']._serialized_start=494
   _globals['_INGESTFLAGLOGSREQUEST']._serialized_end=604
   _globals['_TELEMETRYDATA']._serialized_start=607
-  _globals['_TELEMETRYDATA']._serialized_end=965
-  _globals['_TELEMETRYDATA_PROVIDERINITRATE']._serialized_start=789
-  _globals['_TELEMETRYDATA_PROVIDERINITRATE']._serialized_end=965
-  _globals['_TELEMETRYDATA_PROVIDERINITRATE_LABELSENTRY']._serialized_start=914
-  _globals['_TELEMETRYDATA_PROVIDERINITRATE_LABELSENTRY']._serialized_end=959
-  _globals['_CLIENTINFO']._serialized_start=967
-  _globals['_CLIENTINFO']._serialized_end=1070
-  _globals['_FLAGASSIGNED']._serialized_start=1073
-  _globals['_FLAGASSIGNED']._serialized_end=2005
-  _globals['_FLAGASSIGNED_APPLIEDFLAG']._serialized_start=1244
-  _globals['_FLAGASSIGNED_APPLIEDFLAG']._serialized_end=1689
-  _globals['_FLAGASSIGNED_ASSIGNMENTINFO']._serialized_start=1691
-  _globals['_FLAGASSIGNED_ASSIGNMENTINFO']._serialized_end=1741
-  _globals['_FLAGASSIGNED_DEFAULTASSIGNMENT']._serialized_start=1744
-  _globals['_FLAGASSIGNED_DEFAULTASSIGNMENT']._serialized_end=2005
-  _globals['_FLAGASSIGNED_DEFAULTASSIGNMENT_DEFAULTASSIGNMENTREASON']._serialized_start=1868
-  _globals['_FLAGASSIGNED_DEFAULTASSIGNMENT_DEFAULTASSIGNMENTREASON']._serialized_end=2005
-  _globals['_FALLTHROUGHASSIGNMENT']._serialized_start=2007
-  _globals['_FALLTHROUGHASSIGNMENT']._serialized_end=2122
-  _globals['_CLIENTRESOLVEINFO']._serialized_start=2125
-  _globals['_CLIENTRESOLVEINFO']._serialized_end=2476
-  _globals['_CLIENTRESOLVEINFO_EVALUATIONCONTEXTSCHEMAINSTANCE']._serialized_start=2287
-  _globals['_CLIENTRESOLVEINFO_EVALUATIONCONTEXTSCHEMAINSTANCE']._serialized_end=2476
-  _globals['_CLIENTRESOLVEINFO_EVALUATIONCONTEXTSCHEMAINSTANCE_SCHEMAENTRY']._serialized_start=2431
-  _globals['_CLIENTRESOLVEINFO_EVALUATIONCONTEXTSCHEMAINSTANCE_SCHEMAENTRY']._serialized_end=2476
-  _globals['_FLAGRESOLVEINFO']._serialized_start=2479
-  _globals['_FLAGRESOLVEINFO']._serialized_end=2660
-  _globals['_FLAGRESOLVEINFO_VARIANTRESOLVEINFO']._serialized_start=2608
-  _globals['_FLAGRESOLVEINFO_VARIANTRESOLVEINFO']._serialized_end=2660
-  _globals['_WRITEOPERATIONSREQUEST']._serialized_start=2662
-  _globals['_WRITEOPERATIONSREQUEST']._serialized_end=2755
-  _globals['_WRITEOPERATIONSRESULT']._serialized_start=2757
-  _globals['_WRITEOPERATIONSRESULT']._serialized_end=2780
-  _globals['_VARIANTREADOP']._serialized_start=2782
-  _globals['_VARIANTREADOP']._serialized_end=2850
-  _globals['_INCLUSIONREADOP']._serialized_start=2852
-  _globals['_INCLUSIONREADOP']._serialized_end=2908
-  _globals['_READOP']._serialized_start=2911
-  _globals['_READOP']._serialized_end=3073
-  _globals['_READOPERATIONSREQUEST']._serialized_start=3075
-  _globals['_READOPERATIONSREQUEST']._serialized_end=3149
-  _globals['_VARIANTDATA']._serialized_start=3151
-  _globals['_VARIANTDATA']._serialized_end=3234
-  _globals['_INCLUSIONDATA']._serialized_start=3236
-  _globals['_INCLUSIONDATA']._serialized_end=3311
-  _globals['_READRESULT']._serialized_start=3314
-  _globals['_READRESULT']._serialized_end=3478
-  _globals['_READOPERATIONSRESULT']._serialized_start=3480
-  _globals['_READOPERATIONSRESULT']._serialized_end=3561
-  _globals['_INTERNALFLAGLOGGERSERVICE']._serialized_start=3564
-  _globals['_INTERNALFLAGLOGGERSERVICE']._serialized_end=3998
+  _globals['_TELEMETRYDATA']._serialized_end=1012
+  _globals['_TELEMETRYDATA_PROVIDERINITRATE']._serialized_start=836
+  _globals['_TELEMETRYDATA_PROVIDERINITRATE']._serialized_end=1012
+  _globals['_TELEMETRYDATA_PROVIDERINITRATE_LABELSENTRY']._serialized_start=961
+  _globals['_TELEMETRYDATA_PROVIDERINITRATE_LABELSENTRY']._serialized_end=1006
+  _globals['_CLIENTINFO']._serialized_start=1014
+  _globals['_CLIENTINFO']._serialized_end=1117
+  _globals['_FLAGASSIGNED']._serialized_start=1120
+  _globals['_FLAGASSIGNED']._serialized_end=2052
+  _globals['_FLAGASSIGNED_APPLIEDFLAG']._serialized_start=1291
+  _globals['_FLAGASSIGNED_APPLIEDFLAG']._serialized_end=1736
+  _globals['_FLAGASSIGNED_ASSIGNMENTINFO']._serialized_start=1738
+  _globals['_FLAGASSIGNED_ASSIGNMENTINFO']._serialized_end=1788
+  _globals['_FLAGASSIGNED_DEFAULTASSIGNMENT']._serialized_start=1791
+  _globals['_FLAGASSIGNED_DEFAULTASSIGNMENT']._serialized_end=2052
+  _globals['_FLAGASSIGNED_DEFAULTASSIGNMENT_DEFAULTASSIGNMENTREASON']._serialized_start=1915
+  _globals['_FLAGASSIGNED_DEFAULTASSIGNMENT_DEFAULTASSIGNMENTREASON']._serialized_end=2052
+  _globals['_FALLTHROUGHASSIGNMENT']._serialized_start=2054
+  _globals['_FALLTHROUGHASSIGNMENT']._serialized_end=2169
+  _globals['_CLIENTRESOLVEINFO']._serialized_start=2172
+  _globals['_CLIENTRESOLVEINFO']._serialized_end=2523
+  _globals['_CLIENTRESOLVEINFO_EVALUATIONCONTEXTSCHEMAINSTANCE']._serialized_start=2334
+  _globals['_CLIENTRESOLVEINFO_EVALUATIONCONTEXTSCHEMAINSTANCE']._serialized_end=2523
+  _globals['_CLIENTRESOLVEINFO_EVALUATIONCONTEXTSCHEMAINSTANCE_SCHEMAENTRY']._serialized_start=2478
+  _globals['_CLIENTRESOLVEINFO_EVALUATIONCONTEXTSCHEMAINSTANCE_SCHEMAENTRY']._serialized_end=2523
+  _globals['_FLAGRESOLVEINFO']._serialized_start=2526
+  _globals['_FLAGRESOLVEINFO']._serialized_end=2707
+  _globals['_FLAGRESOLVEINFO_VARIANTRESOLVEINFO']._serialized_start=2655
+  _globals['_FLAGRESOLVEINFO_VARIANTRESOLVEINFO']._serialized_end=2707
+  _globals['_WRITEOPERATIONSREQUEST']._serialized_start=2709
+  _globals['_WRITEOPERATIONSREQUEST']._serialized_end=2802
+  _globals['_WRITEOPERATIONSRESULT']._serialized_start=2804
+  _globals['_WRITEOPERATIONSRESULT']._serialized_end=2827
+  _globals['_VARIANTREADOP']._serialized_start=2829
+  _globals['_VARIANTREADOP']._serialized_end=2897
+  _globals['_INCLUSIONREADOP']._serialized_start=2899
+  _globals['_INCLUSIONREADOP']._serialized_end=2955
+  _globals['_READOP']._serialized_start=2958
+  _globals['_READOP']._serialized_end=3120
+  _globals['_READOPERATIONSREQUEST']._serialized_start=3122
+  _globals['_READOPERATIONSREQUEST']._serialized_end=3196
+  _globals['_VARIANTDATA']._serialized_start=3198
+  _globals['_VARIANTDATA']._serialized_end=3281
+  _globals['_INCLUSIONDATA']._serialized_start=3283
+  _globals['_INCLUSIONDATA']._serialized_end=3358
+  _globals['_READRESULT']._serialized_start=3361
+  _globals['_READRESULT']._serialized_end=3525
+  _globals['_READOPERATIONSRESULT']._serialized_start=3527
+  _globals['_READOPERATIONSRESULT']._serialized_end=3608
+  _globals['_INTERNALFLAGLOGGERSERVICE']._serialized_start=3611
+  _globals['_INTERNALFLAGLOGGERSERVICE']._serialized_end=4045
 # @@protoc_insertion_point(module_scope)

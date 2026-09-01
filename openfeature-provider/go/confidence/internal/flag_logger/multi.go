@@ -20,12 +20,14 @@ type logSender func(ctx context.Context, request *resolverv1.WriteFlagLogsReques
 // CDN state. The first destination is primary; the second is fallback on error.
 // If no destinations are configured, it defaults to Spotify Edge (gRPC).
 type MultiDestinationFlagLogger struct {
-	senders      map[admin.LogDestination]logSender
-	destinations func() []admin.LogDestination
-	logger       *slog.Logger
-	wg           sync.WaitGroup
-	attempts     atomic.Int64
-	failures     atomic.Int64
+	senders        map[admin.LogDestination]logSender
+	destinations   func() []admin.LogDestination
+	logger         *slog.Logger
+	wg             sync.WaitGroup
+	attempts       atomic.Int64
+	failures       atomic.Int64
+	flushSucceeded atomic.Int64
+	flushFailed    atomic.Int64
 }
 
 // NewMultiDestinationFlagLogger creates a flag logger that routes to multiple
@@ -83,6 +85,16 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 		"client_resolve_info", clientResolveCount,
 		"flag_resolve_info", flagResolveCount)
 
+	succeeded := uint32(m.flushSucceeded.Swap(0))
+	failed := uint32(m.flushFailed.Swap(0))
+	if succeeded > 0 || failed > 0 {
+		if request.TelemetryData == nil {
+			request.TelemetryData = &resolverv1.TelemetryData{}
+		}
+		request.TelemetryData.FlushSucceeded = succeeded
+		request.TelemetryData.FlushFailed = failed
+	}
+
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
@@ -122,6 +134,9 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 
 		if lastErr != nil {
 			m.failures.Add(1)
+			m.flushFailed.Add(1)
+		} else {
+			m.flushSucceeded.Add(1)
 		}
 
 		if m.attempts.Add(1)%10 == 0 {

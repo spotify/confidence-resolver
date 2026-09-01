@@ -208,6 +208,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final LocalResolver telemetryResolver =
         new ProviderTelemetryResolver(
             flagLogger::write,
+            wasmFlagLogger::drainFlushCounters,
             SDK,
             initLabels,
             providerLogSink ->
@@ -282,6 +283,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     final LocalResolver telemetryResolver =
         new ProviderTelemetryResolver(
             wasmFlagLogger::write,
+            wasmFlagLogger::drainFlushCounters,
             SDK,
             Map.of(),
             providerLogSink ->

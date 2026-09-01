@@ -93,6 +93,8 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly materializationStore: MaterializationStore | null;
   private readonly initLabels: Record<string, string>;
   private initTelemetryState: 'pending' | 'sending' | 'sent' = 'pending';
+  private flushSucceeded = 0;
+  private flushFailed = 0;
   private resolverInstance: LocalResolver | null = null;
   private eventTracker: EventTracker | null = null;
   private stateEtag: string | null = null;
@@ -512,12 +514,15 @@ export class ConfidenceServerProviderLocal implements Provider {
         this.initTelemetryState = 'sending';
         writeFlagLogRequest = this.addProviderInitTelemetry(writeFlagLogRequest);
       }
+      writeFlagLogRequest = this.addFlushDeliveryTelemetry(writeFlagLogRequest);
       try {
         await this.sendFlagLogs(writeFlagLogRequest, signal);
+        this.flushSucceeded++;
         if (includeInit) {
           this.initTelemetryState = 'sent';
         }
       } catch (error) {
+        this.flushFailed++;
         if (includeInit) {
           this.initTelemetryState = 'pending';
         }
@@ -557,6 +562,21 @@ export class ConfidenceServerProviderLocal implements Provider {
         throw err;
       }
     }
+  }
+
+  private addFlushDeliveryTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
+    if (this.flushSucceeded === 0 && this.flushFailed === 0) {
+      return encodedWriteFlagLogRequest;
+    }
+    const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
+    if (!request.telemetryData) {
+      request.telemetryData = { resolverVersion: '', providerInitRate: [], flushSucceeded: 0, flushFailed: 0 };
+    }
+    request.telemetryData.flushSucceeded = this.flushSucceeded;
+    request.telemetryData.flushFailed = this.flushFailed;
+    this.flushSucceeded = 0;
+    this.flushFailed = 0;
+    return WriteFlagLogsRequest.encode(request).finish();
   }
 
   private addProviderInitTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
