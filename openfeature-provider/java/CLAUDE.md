@@ -4,13 +4,19 @@
 
 Maven coordinates: `com.spotify.confidence:openfeature-provider-local`
 
-Java OpenFeature provider using the Confidence resolver compiled to WASM, with Chicory AOT compilation for near-native performance.
+Java OpenFeature provider using the Confidence resolver compiled to WASM, with Chicory AOT compilation for near-native flag resolution and a separate event-engine WASM for OpenFeature tracking.
 
 ## Key Architecture
 
 - **Chicory WASM AOT** — The WASM binary (`src/main/resources/wasm/confidence_resolver.wasm`) is AOT-compiled to Java bytecode at build time via `chicory-compiler-maven-plugin`. This generates `com.spotify.confidence.sdk.ConfidenceResolverModule`.
-- **gRPC** — Used for flag log shipping and materialization store communication. Protobuf + gRPC stubs are generated from `../proto/`.
+- **Resolver pool and recovery** — A configurable pool (default 2, capped at available processors) wraps recovering resolver instances.
+- **Event tracking** — `confidence_event_engine.wasm` is loaded through Chicory at runtime; tracked events are flushed every 15 seconds and published over gRPC.
+- **Transport** — Flag logs use destination-aware gRPC/HTTP delivery. gRPC is also used for event publishing and remote materializations. Protobuf + gRPC stubs are generated from `../proto/`.
 - **Shaded JAR** — gRPC, protobuf, and guava are relocated to `com.spotify.confidence.sdk.shaded.*` to avoid version conflicts with consumers.
+
+## Configuration
+
+`LocalProviderConfig.builder()` supports custom channel and HTTP client factories, remote materializations, resolver pool size, an optional AES-256 state encryption key, experimental apply deduplication, and disabling exposure collection.
 
 ## Main Provider Class
 
@@ -28,7 +34,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 ## Build & Test
 
 ```bash
-make build      # build WASM (if needed) + mvn package -DskipTests
+make build      # build both WASM resources (if needed) + mvn package -DskipTests
 make test       # build + mvn test (excludes *E2ETest)
 make test-e2e   # build + mvn verify (integration tests against shaded JAR)
 ```
