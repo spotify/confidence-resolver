@@ -555,7 +555,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         // Read every header we need up front so the immutable
                         // borrow of `req` ends before `req.bytes()` takes it
                         // mutably.
-                        let (is_protobuf, declared_len, header_secret) = {
+                        let (is_protobuf, header_secret) = {
                             let h = req.headers();
                             (
                                 h.get("Content-Type")
@@ -563,23 +563,11 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     .flatten()
                                     .unwrap_or_default()
                                     .contains("protobuf"),
-                                h.get("Content-Length")
-                                    .ok()
-                                    .flatten()
-                                    .and_then(|v| v.parse::<usize>().ok()),
                                 h.get("Authorization").ok().flatten().and_then(|v| {
                                     v.strip_prefix("ClientSecret ").map(|s| s.to_string())
                                 }),
                             )
                         };
-
-                        // Reject oversized bodies before buffering them, so an
-                        // unauthenticated caller can't make us hold and walk an
-                        // arbitrarily large payload.
-                        if declared_len.is_some_and(|n| n > MAX_EVENTS_BODY_BYTES) {
-                            return Response::error("Payload too large", 413)?
-                                .with_cors_headers(&allowed_origin);
-                        }
 
                         let expected = CONFIDENCE_CLIENT_SECRET.get();
 
@@ -874,11 +862,6 @@ async fn send_flags_logs(
 }
 
 const EVENTS_URL: &str = "https://events.confidence.dev/v1/events:publish";
-
-/// Largest `events:publish` body we will buffer. Bounds the work an
-/// unauthenticated caller can cause; batches whose serialized events exceed
-/// the Cloudflare Queues per-message limit are rejected by `queue.send`.
-const MAX_EVENTS_BODY_BYTES: usize = 1024 * 1024;
 
 /// Minimal prost type for decoding the protobuf `PublishEventsRequest`.
 /// Fields we don't need (send_time, sdk) are skipped by prost.
