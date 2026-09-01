@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.25.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.24.0...openfeature-provider/go/v0.25.0) (2026-09-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **go:** require Go 1.25 ([#547](https://github.com/spotify/confidence-resolver/issues/547))
+
+### Build System
+
+* **go:** require Go 1.25 ([#547](https://github.com/spotify/confidence-resolver/issues/547)) ([bb24830](https://github.com/spotify/confidence-resolver/commit/bb248305b54e7faa305896afb60099dcd1f25dbc))
+
 ## [0.24.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.23.0...openfeature-provider/go/v0.24.0) (2026-08-31)
 
 

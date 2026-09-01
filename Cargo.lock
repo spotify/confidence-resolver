@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "confidence-cloudflare-resolver"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "openfeature-provider-go"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "rust-guest",
 ]
@@ -2257,7 +2257,7 @@ dependencies = [
 
 [[package]]
 name = "spotify-confidence-openfeature-provider-local"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "aes-gcm",
  "arc-swap",
