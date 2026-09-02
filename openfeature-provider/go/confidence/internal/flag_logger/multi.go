@@ -20,12 +20,12 @@ type logSender func(ctx context.Context, request *resolverv1.WriteFlagLogsReques
 // CDN state. The first destination is primary; the second is fallback on error.
 // If no destinations are configured, it defaults to Spotify Edge (gRPC).
 type MultiDestinationFlagLogger struct {
-	senders        map[admin.LogDestination]logSender
-	destinations   func() []admin.LogDestination
-	logger         *slog.Logger
-	wg             sync.WaitGroup
-	attempts       atomic.Int64
-	failures       atomic.Int64
+	senders               map[admin.LogDestination]logSender
+	destinations          func() []admin.LogDestination
+	logger                *slog.Logger
+	wg                    sync.WaitGroup
+	attempts              atomic.Int64
+	failures              atomic.Int64
 	flushSucceeded        atomic.Int64
 	flushFailed           atomic.Int64
 	eventsPublished       atomic.Int64

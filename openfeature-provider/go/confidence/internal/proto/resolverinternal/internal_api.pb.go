@@ -256,7 +256,7 @@ type TelemetryData struct {
 	EventBatchesSucceeded uint32 `protobuf:"varint,14,opt,name=event_batches_succeeded,json=eventBatchesSucceeded,proto3" json:"event_batches_succeeded,omitempty"`
 	EventBatchesFailed    uint32 `protobuf:"varint,15,opt,name=event_batches_failed,json=eventBatchesFailed,proto3" json:"event_batches_failed,omitempty"`
 	unknownFields         protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *TelemetryData) Reset() {

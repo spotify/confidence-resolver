@@ -13,12 +13,12 @@ import (
 )
 
 type GrpcFlagLogger struct {
-	stub             resolverv1.InternalFlagLoggerServiceClient
-	clientSecret     string
-	logger           *slog.Logger
-	wg               sync.WaitGroup
-	attempts         atomic.Int64
-	failures         atomic.Int64
+	stub                  resolverv1.InternalFlagLoggerServiceClient
+	clientSecret          string
+	logger                *slog.Logger
+	wg                    sync.WaitGroup
+	attempts              atomic.Int64
+	failures              atomic.Int64
 	flushSucceeded        atomic.Int64
 	flushFailed           atomic.Int64
 	eventsPublished       atomic.Int64
