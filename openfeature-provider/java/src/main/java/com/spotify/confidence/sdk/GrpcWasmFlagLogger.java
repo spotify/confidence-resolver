@@ -38,7 +38,8 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   private final Duration shutdownTimeout;
   private final AtomicLong attempts = new AtomicLong();
   private final AtomicLong failures = new AtomicLong();
-  private final AtomicLong successes = new AtomicLong();
+  private final AtomicLong telemetryFlushSucceeded = new AtomicLong();
+  private final AtomicLong telemetryFlushFailed = new AtomicLong();
   private final String clientSecret;
   private final HttpClientFactory httpClientFactory;
   private final AtomicReference<List<LogDestination>> logDestinations =
@@ -130,9 +131,10 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
     if (destinations.isEmpty()) {
       try {
         sendToEdge(request);
-        successes.incrementAndGet();
+        telemetryFlushSucceeded.incrementAndGet();
       } catch (Exception e) {
         failures.incrementAndGet();
+        telemetryFlushFailed.incrementAndGet();
       }
       return;
     }
@@ -140,7 +142,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
     final LogDestination primary = destinations.get(0);
     try {
       sendToDestination(primary, request);
-      successes.incrementAndGet();
+      telemetryFlushSucceeded.incrementAndGet();
       logger.debug(
           "Successfully sent flag log via {} with {} assigned, {} client_resolve_info, {} flag_resolve_info",
           primary,
@@ -153,7 +155,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
         logger.warn("Primary destination {} failed, trying fallback {}", primary, fallback);
         try {
           sendToDestination(fallback, request);
-          successes.incrementAndGet();
+          telemetryFlushSucceeded.incrementAndGet();
           logger.debug(
               "Successfully sent flag log via fallback {} with {} assigned, {} client_resolve_info, {} flag_resolve_info",
               fallback,
@@ -162,10 +164,12 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
               request.getFlagResolveInfoCount());
         } catch (Exception fallbackEx) {
           failures.incrementAndGet();
+          telemetryFlushFailed.incrementAndGet();
           logger.warn("Fallback destination {} also failed", fallback, fallbackEx);
         }
       } else {
         failures.incrementAndGet();
+        telemetryFlushFailed.incrementAndGet();
       }
     }
   }
@@ -217,7 +221,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
 
   @Override
   public long[] drainFlushCounters() {
-    return new long[] {successes.getAndSet(0), failures.getAndSet(0)};
+    return new long[] {telemetryFlushSucceeded.getAndSet(0), telemetryFlushFailed.getAndSet(0)};
   }
 
   /**

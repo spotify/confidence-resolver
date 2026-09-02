@@ -480,17 +480,6 @@ impl TelemetrySnapshot {
 
         writeln!(
             w,
-            "# HELP confidence_apply_dedup_map_size Current entries in the dedup map."
-        )?;
-        writeln!(w, "# TYPE confidence_apply_dedup_map_size gauge")?;
-        writeln!(
-            w,
-            "confidence_apply_dedup_map_size{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
-            ad.map_size
-        )?;
-
-        writeln!(
-            w,
             "# HELP confidence_apply_dedup_map_capacity Maximum entries allowed in the dedup map."
         )?;
         writeln!(w, "# TYPE confidence_apply_dedup_map_capacity gauge")?;
@@ -580,10 +569,7 @@ impl TelemetrySnapshot {
             } else {
                 "confidence_event_batches_succeeded_total"
             };
-            writeln!(
-                w,
-                "# HELP {type_name} Successful event batch deliveries."
-            )?;
+            writeln!(w, "# HELP {type_name} Successful event batch deliveries.")?;
             writeln!(w, "# TYPE {type_name} counter")?;
             writeln!(
                 w,
@@ -1494,5 +1480,62 @@ mod tests {
         snap.accumulate_delta(&td);
         assert_eq!(snap.flush_succeeded, 10);
         assert_eq!(snap.flush_failed, 2);
+    }
+
+    #[test]
+    fn accumulate_delta_event_counters() {
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            events_published: 42,
+            event_batches_succeeded: 3,
+            event_batches_failed: 1,
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.events_published, 42);
+        assert_eq!(snap.event_batches_succeeded, 3);
+        assert_eq!(snap.event_batches_failed, 1);
+
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.events_published, 84);
+        assert_eq!(snap.event_batches_succeeded, 6);
+        assert_eq!(snap.event_batches_failed, 2);
+    }
+
+    #[test]
+    fn openmetrics_with_all_telemetry() {
+        let tel = Telemetry::with_memory_provider(|| 1_048_576);
+        tel.record_latency_us(100);
+        tel.mark_resolve(ResolveReason::Match);
+
+        let mut snap = tel.snapshot();
+        snap.apply_dedup = Some(ApplyDedupSnapshot {
+            applies_total: 10,
+            applies_deduped: 3,
+            applies_not_cached: 0,
+            sweeps: 1,
+            map_size: 5,
+            map_capacity: 100_000,
+        });
+        snap.flush_succeeded = 2;
+        snap.flush_failed = 1;
+        snap.events_published = 50;
+        snap.event_batches_succeeded = 4;
+        snap.event_batches_failed = 1;
+
+        let config = PrometheusConfig {
+            openmetrics: true,
+            ..PrometheusConfig::default()
+        };
+        let output = snap.to_prometheus("w0", &config);
+
+        assert!(output.trim_end().ends_with("# EOF"));
+        let result = openmetrics_parser::openmetrics::parse_openmetrics(&output);
+        assert!(
+            result.is_ok(),
+            "OpenMetrics parser rejected output with all telemetry: {:?}\n\nRaw:\n{output}",
+            result.err()
+        );
     }
 }

@@ -1059,8 +1059,8 @@ async fn update_events_kv(kv: &kv::KvStore, event_count: u64, succeeded: bool) {
         _ => TelemetrySnapshot::default(),
     };
 
-    cumulative.events_published = cumulative.events_published.wrapping_add(event_count);
     if succeeded {
+        cumulative.events_published = cumulative.events_published.wrapping_add(event_count);
         cumulative.event_batches_succeeded = cumulative.event_batches_succeeded.wrapping_add(1);
     } else {
         cumulative.event_batches_failed = cumulative.event_batches_failed.wrapping_add(1);
