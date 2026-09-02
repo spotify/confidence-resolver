@@ -573,8 +573,7 @@ export class ConfidenceServerProviderLocal implements Provider {
 
   private addFlushDeliveryTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
     const hasFlush = this.flushSucceeded > 0 || this.flushFailed > 0;
-    const hasEvents =
-      this.eventsPublished > 0 || this.eventBatchesSucceeded > 0 || this.eventBatchesFailed > 0;
+    const hasEvents = this.eventsPublished > 0 || this.eventBatchesSucceeded > 0 || this.eventBatchesFailed > 0;
     if (!hasFlush && !hasEvents) {
       return encodedWriteFlagLogRequest;
     }
