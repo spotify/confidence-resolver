@@ -56,6 +56,8 @@ func (t *trackingFlagLogger) Shutdown() {
 	t.actualLogger.Shutdown()
 }
 
+func (t *trackingFlagLogger) RecordEventBatch(eventCount int, succeeded bool) {}
+
 func (t *trackingFlagLogger) GetLogsSentCount() int32 {
 	return atomic.LoadInt32(&t.logsSentCount)
 }

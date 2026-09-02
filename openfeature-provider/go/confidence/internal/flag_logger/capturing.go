@@ -53,6 +53,9 @@ func (c *CapturingFlagLogger) Shutdown() {
 	c.shutdownCalled = true
 }
 
+// RecordEventBatch is a no-op for the capturing logger.
+func (c *CapturingFlagLogger) RecordEventBatch(eventCount int, succeeded bool) {}
+
 // GetCapturedRequests returns a copy of all captured requests
 func (c *CapturingFlagLogger) GetCapturedRequests() []*resolverv1.WriteFlagLogsRequest {
 	c.mu.Lock()
