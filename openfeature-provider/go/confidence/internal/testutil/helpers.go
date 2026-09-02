@@ -437,6 +437,7 @@ type MockedLocalResolver struct {
 	Err                  error
 	LastRequest          *wasm.ResolveProcessRequest
 	LastSetResolverState *wasm.SetResolverStateRequest
+	LastApplyRequest     *resolver.ApplyFlagsRequest
 	// Sequenced responses support
 	Responses []*wasm.ResolveProcessResponse
 	callIdx   int
@@ -464,7 +465,10 @@ func (m *MockedLocalResolver) SetResolverState(req *wasm.SetResolverStateRequest
 }
 func (m MockedLocalResolver) PrometheusSnapshot(_ uint32, _ bool) string   { return "" }
 func (m MockedLocalResolver) RegisterResolve(*wasm.RegisterResolveRequest) {}
-func (m MockedLocalResolver) ApplyFlags(*resolver.ApplyFlagsRequest) error { return nil }
+func (m *MockedLocalResolver) ApplyFlags(req *resolver.ApplyFlagsRequest) error {
+	m.LastApplyRequest = req
+	return nil
+}
 
 func MustJSONToProto(jsonString string) *structpb.Value {
 	var v structpb.Value

@@ -623,10 +623,20 @@ value, err := client.BooleanValue(ctx, "my-flag.enabled", false, evalCtx)
 
 The key is automatically stripped from the context before it reaches the resolver.
 
+To record the exposure at a different time than the resolve, wrap the context with `WithApplyTime`:
+
+```go
+ctx = confidence.WithApplyTime(ctx, messageArrivalTime)
+value, err := client.BooleanValue(ctx, "my-flag.enabled", false, evalCtx)
+```
+
+Use this when the treatment applies to something timestamped before the resolve, e.g. a server resolving a flag while handling a message: facts derived from the message carry its arrival time, so an exposure stamped at resolve time lands after them and the first treated message counts as pre-exposure in analysis.
+
 | Mechanism | Scope | Assignment/exposure events | Resolve logs and telemetry |
 | --- | --- | --- | --- |
 | `DisableExposureCollection` provider config | All OpenFeature evaluations through this provider | Never queued; no deferred apply token is returned | Still sent |
 | `_confidence_skip_apply` context key | One evaluation | No immediate exposure event for that evaluation | Still sent |
+| `WithApplyTime` context | Evaluations made with that context | Recorded with the provided timestamp instead of the resolve time | Still sent |
 
 This is an advanced feature intended for exceptional cases. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
 

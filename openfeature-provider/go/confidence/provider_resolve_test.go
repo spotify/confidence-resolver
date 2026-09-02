@@ -5,14 +5,17 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 	iamv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestLocalResolverProvider_ReturnsDefaultOnError(t *testing.T) {
@@ -402,6 +405,141 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 
 		if result.Reason != openfeature.ErrorReason {
 			t.Errorf("Expected ErrorReason when materializations missing, got %v", result.Reason)
+		}
+	})
+}
+
+func TestLocalResolverProvider_WithApplyTime(t *testing.T) {
+	applyTime := time.Date(2026, 7, 29, 11, 0, 0, 0, time.UTC)
+	ctx := WithApplyTime(context.Background(), applyTime)
+
+	response := func(shouldApply bool) *resolver.ResolveFlagsResponse {
+		return &resolver.ResolveFlagsResponse{
+			ResolvedFlags: []*resolver.ResolvedFlag{{
+				Flag:    "flags/tutorial-feature",
+				Variant: "flags/tutorial-feature/variants/on",
+				Value: &structpb.Struct{Fields: map[string]*structpb.Value{
+					"enabled": structpb.NewBoolValue(true),
+				}},
+				ShouldApply: shouldApply,
+			}},
+			ResolveToken: []byte("test-resolve-token"),
+			ResolveId:    "test-resolve-id",
+		}
+	}
+
+	setup := func(t *testing.T, resp *resolver.ResolveFlagsResponse, opts ...Option) (*tu.MockedLocalResolver, *openfeature.Client) {
+		t.Helper()
+		mockedResolver := &tu.MockedLocalResolver{
+			Response: &wasm.ResolveProcessResponse{
+				Result: &wasm.ResolveProcessResponse_Resolved_{
+					Resolved: &wasm.ResolveProcessResponse_Resolved{Response: resp},
+				},
+			},
+		}
+		stateProvider := &tu.StateProviderMock{
+			State:     tu.LoadTestResolverState(t),
+			AccountID: tu.LoadTestAccountID(t),
+		}
+		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
+			return mockedResolver
+		}, newUnsupportedMaterializationStore())
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, &tu.MockFlagLogger{}, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil)), opts...)
+		if err := openfeature.SetProviderAndWait(provider); err != nil {
+			t.Fatalf("SetProviderAndWait: %v", err)
+		}
+		return mockedResolver, openfeature.NewClient("apply-time-test")
+	}
+
+	resolveRequest := func(t *testing.T, m *tu.MockedLocalResolver) *resolver.ResolveFlagsRequest {
+		t.Helper()
+		if m.LastRequest == nil {
+			t.Fatal("expected ResolveProcess to be called")
+		}
+		req := m.LastRequest.GetWithoutMaterializations()
+		if req == nil {
+			req = m.LastRequest.GetDeferredMaterializations()
+		}
+		if req == nil {
+			t.Fatalf("unexpected resolve request: %#v", m.LastRequest)
+		}
+		return req
+	}
+
+	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
+		"visitor_id": "tutorial_visitor",
+	})
+
+	t.Run("backdates the exposure to the provided apply time", func(t *testing.T) {
+		m, client := setup(t, response(true))
+		result, err := client.BooleanValueDetails(ctx, "tutorial-feature.enabled", false, evalCtx)
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if !result.Value {
+			t.Error("expected flag value true")
+		}
+		if resolveRequest(t, m).Apply {
+			t.Error("expected apply=false on the resolve when an apply time is set")
+		}
+		if m.LastApplyRequest == nil {
+			t.Fatal("expected ApplyFlags to be called")
+		}
+		if got := string(m.LastApplyRequest.ResolveToken); got != "test-resolve-token" {
+			t.Errorf("expected the resolve token from the resolve response, got %q", got)
+		}
+		if len(m.LastApplyRequest.Flags) != 1 {
+			t.Fatalf("expected 1 applied flag, got %d", len(m.LastApplyRequest.Flags))
+		}
+		applied := m.LastApplyRequest.Flags[0]
+		if applied.Flag != "flags/tutorial-feature" {
+			t.Errorf("expected applied flag 'flags/tutorial-feature', got %q", applied.Flag)
+		}
+		if !applied.ApplyTime.AsTime().Equal(applyTime) {
+			t.Errorf("expected apply_time %v, got %v", applyTime, applied.ApplyTime.AsTime())
+		}
+		if m.LastApplyRequest.SendTime.AsTime().Equal(applyTime) {
+			t.Error("expected send_time to be the current time, not the backdated apply time")
+		}
+	})
+
+	t.Run("_confidence_skip_apply wins", func(t *testing.T) {
+		m, client := setup(t, response(true))
+		skipCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
+			"visitor_id":             "tutorial_visitor",
+			"_confidence_skip_apply": true,
+		})
+		if _, err := client.BooleanValueDetails(ctx, "tutorial-feature.enabled", false, skipCtx); err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if resolveRequest(t, m).Apply {
+			t.Error("expected apply=false when _confidence_skip_apply is set")
+		}
+		if m.LastApplyRequest != nil {
+			t.Error("expected no ApplyFlags call when _confidence_skip_apply is set")
+		}
+	})
+
+	t.Run("DisableExposureCollection wins", func(t *testing.T) {
+		m, client := setup(t, response(true), WithDisableExposureCollection())
+		if _, err := client.BooleanValueDetails(ctx, "tutorial-feature.enabled", false, evalCtx); err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if resolveRequest(t, m).Apply {
+			t.Error("expected apply=false when DisableExposureCollection is configured")
+		}
+		if m.LastApplyRequest != nil {
+			t.Error("expected no ApplyFlags call when DisableExposureCollection is configured")
+		}
+	})
+
+	t.Run("no apply when the resolver sets should_apply=false", func(t *testing.T) {
+		m, client := setup(t, response(false))
+		if _, err := client.BooleanValueDetails(ctx, "tutorial-feature.enabled", false, evalCtx); err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if m.LastApplyRequest != nil {
+			t.Error("expected no ApplyFlags call when should_apply=false")
 		}
 	})
 }

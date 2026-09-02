@@ -359,10 +359,11 @@ func evaluate[T any](
 		})
 	}
 
-	// apply=false covers both provider DisableExposureCollection and per-eval
-	// `_confidence_skip_apply`. Provider DisableExposureCollection is also forwarded on
-	// setResolverState so the guest skips assign/token entirely; apply=false
-	// alone would still mint a deferred token.
+	// apply=false on the resolve covers provider DisableExposureCollection, per-eval
+	// `_confidence_skip_apply`, and WithApplyTime (which applies afterwards with the
+	// resolve token). Provider DisableExposureCollection is also forwarded on
+	// setResolverState so the guest skips assign/token entirely; apply=false alone
+	// would still mint a deferred token.
 	apply := !p.disableExposureCollection
 	if skip, ok := evalCtx["_confidence_skip_apply"]; ok {
 		if b, ok := skip.(bool); ok && b {
@@ -370,8 +371,9 @@ func evaluate[T any](
 		}
 		delete(evalCtx, "_confidence_skip_apply")
 	}
+	applyTime, backdateApply := applyTimeFromContext(ctx)
 
-	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, apply)
+	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, apply && !backdateApply)
 	if err != nil {
 		var matErr *MaterializationNotSupportedError
 		if errors.As(err, &matErr) {
@@ -398,6 +400,10 @@ func evaluate[T any](
 				ResolutionError: openfeature.NewGeneralResolutionError(err.Error()),
 			},
 		}
+	}
+
+	if apply && backdateApply {
+		p.applyWithTime(flagName, response, applyTime)
 	}
 
 	if len(response.ResolvedFlags) == 0 {
