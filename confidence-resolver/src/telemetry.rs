@@ -116,6 +116,9 @@ pub struct TelemetrySnapshot {
     pub apply_dedup: Option<ApplyDedupSnapshot>,
     pub flush_succeeded: u64,
     pub flush_failed: u64,
+    pub events_published: u64,
+    pub event_batches_succeeded: u64,
+    pub event_batches_failed: u64,
 }
 
 #[derive(Clone, Default)]
@@ -212,6 +215,15 @@ impl TelemetrySnapshot {
 
         self.flush_succeeded = self.flush_succeeded.wrapping_add(td.flush_succeeded as u64);
         self.flush_failed = self.flush_failed.wrapping_add(td.flush_failed as u64);
+        self.events_published = self
+            .events_published
+            .wrapping_add(td.events_published as u64);
+        self.event_batches_succeeded = self
+            .event_batches_succeeded
+            .wrapping_add(td.event_batches_succeeded as u64);
+        self.event_batches_failed = self
+            .event_batches_failed
+            .wrapping_add(td.event_batches_failed as u64);
     }
 
     /// Format the snapshot as Prometheus exposition text.
@@ -241,6 +253,7 @@ impl TelemetrySnapshot {
         self.write_memory(w, resolver_id, config)?;
         self.write_apply_dedup(w, resolver_id, config)?;
         self.write_flush(w, resolver_id, config)?;
+        self.write_events(w, resolver_id, config)?;
         if config.openmetrics {
             writeln!(w, "# EOF")?;
         }
@@ -531,6 +544,71 @@ impl TelemetrySnapshot {
             self.flush_failed
         )
     }
+
+    fn write_events(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
+        if self.events_published == 0
+            && self.event_batches_succeeded == 0
+            && self.event_batches_failed == 0
+        {
+            return Ok(());
+        }
+        let suffix = if config.openmetrics { ".0" } else { "" };
+
+        if self.events_published > 0 {
+            let type_name = if config.openmetrics {
+                "confidence_events_published"
+            } else {
+                "confidence_events_published_total"
+            };
+            writeln!(w, "# HELP {type_name} Total events published.")?;
+            writeln!(w, "# TYPE {type_name} counter")?;
+            writeln!(
+                w,
+                "confidence_events_published_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+                self.events_published
+            )?;
+        }
+
+        if self.event_batches_succeeded > 0 {
+            let type_name = if config.openmetrics {
+                "confidence_event_batches_succeeded"
+            } else {
+                "confidence_event_batches_succeeded_total"
+            };
+            writeln!(
+                w,
+                "# HELP {type_name} Successful event batch deliveries."
+            )?;
+            writeln!(w, "# TYPE {type_name} counter")?;
+            writeln!(
+                w,
+                "confidence_event_batches_succeeded_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+                self.event_batches_succeeded
+            )?;
+        }
+
+        if self.event_batches_failed > 0 {
+            let type_name = if config.openmetrics {
+                "confidence_event_batches_failed"
+            } else {
+                "confidence_event_batches_failed_total"
+            };
+            writeln!(w, "# HELP {type_name} Failed event batch deliveries.")?;
+            writeln!(w, "# TYPE {type_name} counter")?;
+            writeln!(
+                w,
+                "confidence_event_batches_failed_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+                self.event_batches_failed
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Concurrent telemetry collector.
@@ -600,6 +678,9 @@ impl Telemetry {
             apply_dedup: None,
             flush_succeeded: 0,
             flush_failed: 0,
+            events_published: 0,
+            event_batches_succeeded: 0,
+            event_batches_failed: 0,
         }
     }
 
@@ -682,6 +763,9 @@ impl Telemetry {
             apply_dedup: None,
             flush_succeeded: 0,
             flush_failed: 0,
+            events_published: 0,
+            event_batches_succeeded: 0,
+            event_batches_failed: 0,
         }
     }
 }

@@ -632,9 +632,15 @@ func (p *LocalResolverProvider) flushAndPublishEvents(ctx context.Context) int {
 		return 0
 	}
 
+	eventCount := len(batch.Events)
 	if err := p.publishEvents(ctx, batch); err != nil {
 		p.eventPublishFailures.Add(1)
 		p.logger.Debug("Failed to publish events", "error", err)
+		if p.flagLogger != nil {
+			p.flagLogger.RecordEventBatch(eventCount, false)
+		}
+	} else if p.flagLogger != nil {
+		p.flagLogger.RecordEventBatch(eventCount, true)
 	}
 
 	if p.eventPublishAttempts.Add(1)%eventPublishLogWindow == 0 {

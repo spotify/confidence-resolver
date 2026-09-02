@@ -19,8 +19,11 @@ type GrpcFlagLogger struct {
 	wg               sync.WaitGroup
 	attempts         atomic.Int64
 	failures         atomic.Int64
-	flushSucceeded   atomic.Int64
-	flushFailed      atomic.Int64
+	flushSucceeded        atomic.Int64
+	flushFailed           atomic.Int64
+	eventsPublished       atomic.Int64
+	eventBatchesSucceeded atomic.Int64
+	eventBatchesFailed    atomic.Int64
 }
 
 func NewGrpcWasmFlagLogger(stub resolverv1.InternalFlagLoggerServiceClient, clientSecret string, logger *slog.Logger) *GrpcFlagLogger {
@@ -61,16 +64,31 @@ func (g *GrpcFlagLogger) Write(request *resolverv1.WriteFlagLogsRequest) {
 
 	succeeded := uint32(g.flushSucceeded.Swap(0))
 	failed := uint32(g.flushFailed.Swap(0))
-	if succeeded > 0 || failed > 0 {
+	evPub := uint32(g.eventsPublished.Swap(0))
+	evOk := uint32(g.eventBatchesSucceeded.Swap(0))
+	evFail := uint32(g.eventBatchesFailed.Swap(0))
+	if succeeded > 0 || failed > 0 || evPub > 0 || evOk > 0 || evFail > 0 {
 		if request.TelemetryData == nil {
 			request.TelemetryData = &resolverv1.TelemetryData{}
 		}
 		request.TelemetryData.FlushSucceeded = succeeded
 		request.TelemetryData.FlushFailed = failed
+		request.TelemetryData.EventsPublished = evPub
+		request.TelemetryData.EventBatchesSucceeded = evOk
+		request.TelemetryData.EventBatchesFailed = evFail
 	}
 
 	g.sendAsync(request)
 
+}
+
+func (g *GrpcFlagLogger) RecordEventBatch(eventCount int, succeeded bool) {
+	if succeeded {
+		g.eventsPublished.Add(int64(eventCount))
+		g.eventBatchesSucceeded.Add(1)
+	} else {
+		g.eventBatchesFailed.Add(1)
+	}
 }
 
 func (g *GrpcFlagLogger) sendAsync(request *resolverv1.WriteFlagLogsRequest) {
@@ -122,4 +140,8 @@ func (n *NoOpWasmFlagLogger) Write(request *resolverv1.WriteFlagLogsRequest) {
 
 func (n *NoOpWasmFlagLogger) Shutdown() {
 	// Nothing to shut down
+}
+
+func (n *NoOpWasmFlagLogger) RecordEventBatch(eventCount int, succeeded bool) {
+	// No-op
 }

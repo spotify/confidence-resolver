@@ -1005,7 +1005,7 @@ fn build_publish_events_request(
 
 async fn consume_events_queue(
     message_batch: MessageBatch<String>,
-    _env: Env,
+    env: Env,
 ) -> Result<()> {
     let messages = message_batch.messages()?;
     let raw: Vec<String> = messages.iter().map(|m| m.body().clone()).collect();
@@ -1014,6 +1014,8 @@ async fn consume_events_queue(
     if all_events.is_empty() {
         return Ok(());
     }
+
+    let event_count = all_events.len() as u64;
 
     let client_secret = CONFIDENCE_CLIENT_SECRET
         .get()
@@ -1026,15 +1028,56 @@ async fn consume_events_queue(
         &now.as_string().unwrap_or_default(),
     );
 
-    let resp = send_events(&publish_request).await?;
-    if resp.status_code() >= 400 {
-        return Err(worker::Error::RustError(format!(
-            "events delivery failed: HTTP {}",
-            resp.status_code()
-        )));
+    let delivered = match send_events(&publish_request).await {
+        Ok(resp) if resp.status_code() < 400 => true,
+        Ok(resp) => {
+            console_log!("events delivery failed: HTTP {}", resp.status_code());
+            false
+        }
+        Err(e) => {
+            console_log!("events delivery error: {:?}", e);
+            false
+        }
+    };
+
+    if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
+        update_events_kv(&kv, event_count, delivered).await;
+    }
+
+    if !delivered {
+        return Err(worker::Error::RustError(
+            "events delivery failed".to_string(),
+        ));
     }
 
     Ok(())
+}
+
+async fn update_events_kv(kv: &kv::KvStore, event_count: u64, succeeded: bool) {
+    let mut cumulative = match kv.get("snapshot").text().await {
+        Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
+        _ => TelemetrySnapshot::default(),
+    };
+
+    cumulative.events_published = cumulative.events_published.wrapping_add(event_count);
+    if succeeded {
+        cumulative.event_batches_succeeded = cumulative.event_batches_succeeded.wrapping_add(1);
+    } else {
+        cumulative.event_batches_failed = cumulative.event_batches_failed.wrapping_add(1);
+    }
+
+    let prom_text = cumulative.to_prometheus(
+        "cf-resolver",
+        &confidence_resolver::telemetry::PrometheusConfig::default(),
+    );
+
+    if let Ok(builder) = kv.put("snapshot", serde_json::to_string(&cumulative).unwrap_or_default())
+    {
+        let _ = builder.execute().await;
+    }
+    if let Ok(builder) = kv.put("prometheus", prom_text) {
+        let _ = builder.execute().await;
+    }
 }
 
 async fn send_events(body: &serde_json::Value) -> Result<Response> {

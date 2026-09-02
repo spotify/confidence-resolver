@@ -250,9 +250,12 @@ type TelemetryData struct {
 	ProviderInitRate []*TelemetryData_ProviderInitRate `protobuf:"bytes,9,rep,name=provider_init_rate,json=providerInitRate,proto3" json:"provider_init_rate,omitempty"`
 	// Delta counters: WriteFlagLogs batch delivery outcomes since last flush.
 	// Populated by the host SDK after each delivery attempt.
-	FlushSucceeded uint32 `protobuf:"varint,11,opt,name=flush_succeeded,json=flushSucceeded,proto3" json:"flush_succeeded,omitempty"`
-	FlushFailed    uint32 `protobuf:"varint,12,opt,name=flush_failed,json=flushFailed,proto3" json:"flush_failed,omitempty"`
-	unknownFields  protoimpl.UnknownFields
+	FlushSucceeded        uint32 `protobuf:"varint,11,opt,name=flush_succeeded,json=flushSucceeded,proto3" json:"flush_succeeded,omitempty"`
+	FlushFailed           uint32 `protobuf:"varint,12,opt,name=flush_failed,json=flushFailed,proto3" json:"flush_failed,omitempty"`
+	EventsPublished       uint32 `protobuf:"varint,13,opt,name=events_published,json=eventsPublished,proto3" json:"events_published,omitempty"`
+	EventBatchesSucceeded uint32 `protobuf:"varint,14,opt,name=event_batches_succeeded,json=eventBatchesSucceeded,proto3" json:"event_batches_succeeded,omitempty"`
+	EventBatchesFailed    uint32 `protobuf:"varint,15,opt,name=event_batches_failed,json=eventBatchesFailed,proto3" json:"event_batches_failed,omitempty"`
+	unknownFields         protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
@@ -317,6 +320,27 @@ func (x *TelemetryData) GetFlushSucceeded() uint32 {
 func (x *TelemetryData) GetFlushFailed() uint32 {
 	if x != nil {
 		return x.FlushFailed
+	}
+	return 0
+}
+
+func (x *TelemetryData) GetEventsPublished() uint32 {
+	if x != nil {
+		return x.EventsPublished
+	}
+	return 0
+}
+
+func (x *TelemetryData) GetEventBatchesSucceeded() uint32 {
+	if x != nil {
+		return x.EventBatchesSucceeded
+	}
+	return 0
+}
+
+func (x *TelemetryData) GetEventBatchesFailed() uint32 {
+	if x != nil {
+		return x.EventBatchesFailed
 	}
 	return 0
 }

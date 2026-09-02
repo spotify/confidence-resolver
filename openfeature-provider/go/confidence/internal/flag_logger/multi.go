@@ -26,8 +26,11 @@ type MultiDestinationFlagLogger struct {
 	wg             sync.WaitGroup
 	attempts       atomic.Int64
 	failures       atomic.Int64
-	flushSucceeded atomic.Int64
-	flushFailed    atomic.Int64
+	flushSucceeded        atomic.Int64
+	flushFailed           atomic.Int64
+	eventsPublished       atomic.Int64
+	eventBatchesSucceeded atomic.Int64
+	eventBatchesFailed    atomic.Int64
 }
 
 // NewMultiDestinationFlagLogger creates a flag logger that routes to multiple
@@ -87,12 +90,18 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 
 	succeeded := uint32(m.flushSucceeded.Swap(0))
 	failed := uint32(m.flushFailed.Swap(0))
-	if succeeded > 0 || failed > 0 {
+	evPub := uint32(m.eventsPublished.Swap(0))
+	evOk := uint32(m.eventBatchesSucceeded.Swap(0))
+	evFail := uint32(m.eventBatchesFailed.Swap(0))
+	if succeeded > 0 || failed > 0 || evPub > 0 || evOk > 0 || evFail > 0 {
 		if request.TelemetryData == nil {
 			request.TelemetryData = &resolverv1.TelemetryData{}
 		}
 		request.TelemetryData.FlushSucceeded = succeeded
 		request.TelemetryData.FlushFailed = failed
+		request.TelemetryData.EventsPublished = evPub
+		request.TelemetryData.EventBatchesSucceeded = evOk
+		request.TelemetryData.EventBatchesFailed = evFail
 	}
 
 	m.wg.Add(1)
@@ -160,4 +169,13 @@ func (m *MultiDestinationFlagLogger) resolveDestinations() []admin.LogDestinatio
 // Shutdown waits for all pending async writes to complete.
 func (m *MultiDestinationFlagLogger) Shutdown() {
 	m.wg.Wait()
+}
+
+func (m *MultiDestinationFlagLogger) RecordEventBatch(eventCount int, succeeded bool) {
+	if succeeded {
+		m.eventsPublished.Add(int64(eventCount))
+		m.eventBatchesSucceeded.Add(1)
+	} else {
+		m.eventBatchesFailed.Add(1)
+	}
 }

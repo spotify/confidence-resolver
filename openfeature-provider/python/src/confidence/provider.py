@@ -286,6 +286,9 @@ class ConfidenceProvider(AbstractProvider):
 
         self._flush_succeeded = 0
         self._flush_failed = 0
+        self._event_telemetry_published = 0
+        self._event_telemetry_succeeded = 0
+        self._event_telemetry_failed = 0
 
         # State fetcher (injected or created)
         self._state_fetcher = state_fetcher
@@ -918,7 +921,16 @@ class ConfidenceProvider(AbstractProvider):
 
         flush_ok = self._flush_succeeded
         flush_err = self._flush_failed
-        need_rewrite = include_init or flush_ok > 0 or flush_err > 0
+        with self._event_stats_lock:
+            ev_published = self._event_telemetry_published
+            ev_ok = self._event_telemetry_succeeded
+            ev_err = self._event_telemetry_failed
+            self._event_telemetry_published = 0
+            self._event_telemetry_succeeded = 0
+            self._event_telemetry_failed = 0
+        has_flush = flush_ok > 0 or flush_err > 0
+        has_events = ev_published > 0 or ev_ok > 0 or ev_err > 0
+        need_rewrite = include_init or has_flush or has_events
 
         if need_rewrite:
             request = internal_api_pb2.WriteFlagLogsRequest.FromString(log_data)
@@ -933,11 +945,15 @@ class ConfidenceProvider(AbstractProvider):
                 init_rate.count = 1
                 for k, v in self._init_labels.items():
                     init_rate.labels[k] = v
-            if flush_ok > 0 or flush_err > 0:
+            if has_flush:
                 request.telemetry_data.flush_succeeded = flush_ok
                 request.telemetry_data.flush_failed = flush_err
                 self._flush_succeeded = 0
                 self._flush_failed = 0
+            if has_events:
+                request.telemetry_data.events_published = ev_published
+                request.telemetry_data.event_batches_succeeded = ev_ok
+                request.telemetry_data.event_batches_failed = ev_err
             log_data = request.SerializeToString()
 
         try:
@@ -1147,6 +1163,10 @@ class ConfidenceProvider(AbstractProvider):
         with self._event_stats_lock:
             if failed:
                 self._event_publish_failures += 1
+                self._event_telemetry_failed += 1
+            else:
+                self._event_telemetry_published += len(batch.events)
+                self._event_telemetry_succeeded += 1
             self._event_publish_attempts += 1
             if self._event_publish_attempts % EVENTS_STATS_WINDOW == 0:
                 if self._event_publish_failures > 0:

@@ -7,4 +7,5 @@ import (
 type FlagLogger interface {
 	Write(request *resolverv1.WriteFlagLogsRequest)
 	Shutdown()
+	RecordEventBatch(eventCount int, succeeded bool)
 }

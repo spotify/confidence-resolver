@@ -139,6 +139,12 @@ message TelemetryData {
   uint32 flush_succeeded = 11;
   uint32 flush_failed = 12;
 
+  // Delta counters: event delivery stats since last flush.
+  // Piggybacked here because the events pipeline has no TelemetryData channel.
+  uint32 events_published = 13;
+  uint32 event_batches_succeeded = 14;
+  uint32 event_batches_failed = 15;
+
   message ApplyDedupTelemetry {
     // Delta counters (since last flush):
     uint32 applies_total = 1;

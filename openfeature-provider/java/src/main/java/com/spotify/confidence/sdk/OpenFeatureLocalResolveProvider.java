@@ -83,6 +83,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
   private final AtomicLong eventPublishAttempts = new AtomicLong();
   private final AtomicLong eventPublishFailures = new AtomicLong();
+  private final AtomicLong telemetryEventsPublished = new AtomicLong();
+  private final AtomicLong telemetryEventBatchesSucceeded = new AtomicLong();
+  private final AtomicLong telemetryEventBatchesFailed = new AtomicLong();
   private final ScheduledExecutorService flagsFetcherExecutor = newFlagsFetcherExecutor();
   private final ScheduledExecutorService assignLogExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
@@ -209,6 +212,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         new ProviderTelemetryResolver(
             flagLogger::write,
             wasmFlagLogger::drainFlushCounters,
+            this::drainEventCounters,
             SDK,
             initLabels,
             providerLogSink ->
@@ -284,6 +288,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         new ProviderTelemetryResolver(
             wasmFlagLogger::write,
             wasmFlagLogger::drainFlushCounters,
+            this::drainEventCounters,
             SDK,
             Map.of(),
             providerLogSink ->
@@ -777,6 +782,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             .build();
     try {
       final PublishEventsResponse response = eventsStub.publishEvents(request);
+      telemetryEventsPublished.addAndGet(batch.getEventsCount());
+      telemetryEventBatchesSucceeded.incrementAndGet();
       for (final EventError error : response.getErrorsList()) {
         log.error(
             "Failed to publish event at index {}: {} {}",
@@ -786,6 +793,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       }
     } catch (StatusRuntimeException e) {
       eventPublishFailures.incrementAndGet();
+      telemetryEventBatchesFailed.incrementAndGet();
       log.warn("Failed to send events", e);
     }
     if (eventPublishAttempts.incrementAndGet() % EVENT_STATS_WINDOW == 0) {
@@ -794,6 +802,14 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
         log.warn("Event publish failures: {}/{}", failCount, EVENT_STATS_WINDOW);
       }
     }
+  }
+
+  long[] drainEventCounters() {
+    return new long[] {
+      telemetryEventsPublished.getAndSet(0),
+      telemetryEventBatchesSucceeded.getAndSet(0),
+      telemetryEventBatchesFailed.getAndSet(0)
+    };
   }
 
   private void doRegisterResolve(ResolveReason reason, long startNanos) {
