@@ -582,6 +582,8 @@ export class ConfidenceServerProviderLocal implements Provider {
       request.telemetryData = {
         resolverVersion: '',
         providerInitRate: [],
+        resolveRate: [],
+        memoryBytes: 0,
         flushSucceeded: 0,
         flushFailed: 0,
         eventsPublished: 0,
@@ -589,11 +591,12 @@ export class ConfidenceServerProviderLocal implements Provider {
         eventBatchesFailed: 0,
       };
     }
-    request.telemetryData.flushSucceeded = this.flushSucceeded;
-    request.telemetryData.flushFailed = this.flushFailed;
-    request.telemetryData.eventsPublished = this.eventsPublished;
-    request.telemetryData.eventBatchesSucceeded = this.eventBatchesSucceeded;
-    request.telemetryData.eventBatchesFailed = this.eventBatchesFailed;
+    const td = request.telemetryData!;
+    td.flushSucceeded = this.flushSucceeded;
+    td.flushFailed = this.flushFailed;
+    td.eventsPublished = this.eventsPublished;
+    td.eventBatchesSucceeded = this.eventBatchesSucceeded;
+    td.eventBatchesFailed = this.eventBatchesFailed;
     this.flushSucceeded = 0;
     this.flushFailed = 0;
     this.eventsPublished = 0;
@@ -608,6 +611,8 @@ export class ConfidenceServerProviderLocal implements Provider {
       request.telemetryData = {
         resolverVersion: '',
         providerInitRate: [],
+        resolveRate: [],
+        memoryBytes: 0,
         flushSucceeded: 0,
         flushFailed: 0,
         eventsPublished: 0,
