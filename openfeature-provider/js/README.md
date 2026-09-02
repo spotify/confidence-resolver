@@ -218,6 +218,67 @@ const provider = createConfidenceServerProvider({
 });
 ```
 
+### `./remote` — Thin client against a remote resolver (no WASM)
+
+```ts
+import { ConfidenceClient, evaluate } from '@spotify-confidence/openfeature-server-provider-local/remote';
+```
+
+Ships **no WASM and no OpenFeature** (~9 kB gzipped). Instead of resolving
+locally, it calls a remote resolver over any `fetch`-compatible function — a
+Confidence resolver Cloudflare Worker reached via a service binding, or
+`resolver.confidence.dev` over HTTP.
+
+This is the right choice when flag resolution runs in a *separate* process from
+your application. It exists to support **resolve server-side, apply
+client-side**: an exposure is recorded only when a flag actually affects what a
+user sees, rather than at resolve time.
+
+`ConfidenceClient` is stateless — no `initialize`, no `close`, no background
+timers. Constructing one is free, so it can be created per request or shared at
+module level; it makes no difference.
+
+```ts
+const confidence = new ConfidenceClient({
+  flagClientSecret: env.CONFIDENCE_CLIENT_SECRET,
+  fetch: (input, init) => env.RESOLVER.fetch(input, init), // Cloudflare service binding
+});
+
+// Resolve without recording exposure. The bundle is plain JSON — forward it
+// to the browser and evaluate there with no network and no secrets.
+const bundle = await confidence.resolve(['promo-banner'], { targeting_key: userId }, { apply: false });
+
+// Later, when the flag actually affects the rendered UI:
+await confidence.apply(bundle.resolveToken, 'promo-banner');
+```
+
+`evaluate` is a pure function over a resolved bundle, with a typed default. It
+never throws — errors surface as the default value with an `ERROR` reason:
+
+```ts
+const banner = evaluate(bundle, 'promo-banner', { show: false, text: '' });
+if (banner.value.show) render(banner.value.text);
+```
+
+Notes:
+
+- `apply` defaults to `true` on `resolve`, so naive usage never silently loses
+  exposure data. Deferred apply is the explicit opt-in shown above.
+- `resolve` **never rejects**: on a transport, HTTP or decoding failure it
+  returns an errored bundle (`errorCode`, `errorMessage`, no flags), which
+  `evaluate` turns into the default value with an `ERROR` reason. Because the
+  bundle is still plain JSON, the failure forwards to the browser correctly
+  labelled. Check `bundle.errorCode` if you want to branch on it. `apply` does
+  reject on transport and HTTP errors.
+- Skip `apply` for flags whose `shouldApply` is `false` (e.g. archived flags);
+  an apply is meaningless for them.
+- A resolve token only permits applying the flags it was resolved for; naming
+  any other flag rejects the call in full.
+- Pass an empty array to `resolve` to resolve every flag available to the client.
+- The resolve token is encrypted by the resolver and opaque to clients, so it is
+  safe to round-trip through a browser. The client secret is *not* — proxy
+  applies through your server rather than calling the resolver from the browser.
+
 ### `./react-server` and `./react-client` — React/Next.js Integration
 
 ```ts
