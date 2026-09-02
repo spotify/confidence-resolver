@@ -18,10 +18,15 @@ const (
 	e2eExcludedTargetingKey = "user-x"
 )
 
-func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStore(t *testing.T) {
-	if e2eClientSecret == "" {
-		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
+func requireE2EEnvironmentVariable(t *testing.T, name, value string) {
+	t.Helper()
+	if value == "" {
+		t.Fatalf("%s must be set to run e2e tests", name)
 	}
+}
+
+func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStore(t *testing.T) {
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
 	ctx := context.Background()
 
 	// Create a real provider with a RemoteMaterializationStore
@@ -56,9 +61,7 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationSto
 }
 
 func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStoreNotInSegment(t *testing.T) {
-	if e2eClientSecret == "" {
-		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
-	}
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
 	ctx := context.Background()
 
 	// Create a real provider with a RemoteMaterializationStore
@@ -93,9 +96,7 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationSto
 }
 
 func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUsesBloomFilter(t *testing.T) {
-	if e2eClientSecret == "" {
-		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
-	}
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
 	ctx := context.Background()
 
 	// Without a materialization store, the resolver uses bloom filters
@@ -129,9 +130,8 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUs
 }
 
 func TestFlagResolve_WithEncryptedState(t *testing.T) {
-	if e2eClientSecret == "" {
-		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
-	}
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
 	ctx := context.Background()
 	provider, err := NewProvider(ctx, ProviderConfig{
 		ClientSecret:  e2eClientSecret,

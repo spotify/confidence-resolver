@@ -22,9 +22,7 @@ const flagLogsTargetingKey = "test-a"
 // send WriteFlagLogs to the real Confidence backend and get a successful response.
 // This uses the real gRPC connection to edge-grpc.spotify.com.
 func TestFlagLogs_ShouldSuccessfullySendToRealBackend(t *testing.T) {
-	if flagLogsClientSecret == "" {
-		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
-	}
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", flagLogsClientSecret)
 	ctx := context.Background()
 
 	// Create a custom logger that captures log messages (Debug level to capture all logs)
