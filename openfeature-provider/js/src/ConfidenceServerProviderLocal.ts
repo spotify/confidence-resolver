@@ -605,7 +605,15 @@ export class ConfidenceServerProviderLocal implements Provider {
   private addProviderInitTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
     const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
     if (!request.telemetryData) {
-      request.telemetryData = { resolverVersion: '', providerInitRate: [] };
+      request.telemetryData = {
+        resolverVersion: '',
+        providerInitRate: [],
+        flushSucceeded: 0,
+        flushFailed: 0,
+        eventsPublished: 0,
+        eventBatchesSucceeded: 0,
+        eventBatchesFailed: 0,
+      };
     }
     request.telemetryData.sdk = {
       id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
