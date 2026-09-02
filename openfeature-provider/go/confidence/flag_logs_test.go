@@ -31,9 +31,7 @@ const unitTestTargetingKey = "test-a"
 // Returns the capturing logger, provider, and client.
 // The caller is responsible for calling openfeature.Shutdown() when done.
 func setupFlagLogsUnitTest(t *testing.T) (*fl.CapturingFlagLogger, openfeature.IClient) {
-	if unitTestClientSecret == "" {
-		t.Skip("CONFIDENCE_CLIENT_SECRET not set")
-	}
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", unitTestClientSecret)
 	ctx := context.Background()
 
 	// Create capturing logger
