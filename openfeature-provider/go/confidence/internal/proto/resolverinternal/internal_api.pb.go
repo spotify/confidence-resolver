@@ -255,16 +255,10 @@ type TelemetryData struct {
 	ResolverVersion  string                             `protobuf:"bytes,8,opt,name=resolver_version,json=resolverVersion,proto3" json:"resolver_version,omitempty"`
 	ProviderInitRate []*TelemetryData_ProviderInitRate  `protobuf:"bytes,9,rep,name=provider_init_rate,json=providerInitRate,proto3" json:"provider_init_rate,omitempty"`
 	ApplyDedup       *TelemetryData_ApplyDedupTelemetry `protobuf:"bytes,10,opt,name=apply_dedup,json=applyDedup,proto3" json:"apply_dedup,omitempty"`
-	// Delta counters: WriteFlagLogs batch delivery outcomes since last flush.
-	// Populated by the host SDK after each delivery attempt.
-	FlushSucceeded uint32 `protobuf:"varint,11,opt,name=flush_succeeded,json=flushSucceeded,proto3" json:"flush_succeeded,omitempty"`
-	FlushFailed    uint32 `protobuf:"varint,12,opt,name=flush_failed,json=flushFailed,proto3" json:"flush_failed,omitempty"`
-	// Delta counters: event delivery stats since last flush.
-	EventsPublished       uint32 `protobuf:"varint,13,opt,name=events_published,json=eventsPublished,proto3" json:"events_published,omitempty"`
-	EventBatchesSucceeded uint32 `protobuf:"varint,14,opt,name=event_batches_succeeded,json=eventBatchesSucceeded,proto3" json:"event_batches_succeeded,omitempty"`
-	EventBatchesFailed    uint32 `protobuf:"varint,15,opt,name=event_batches_failed,json=eventBatchesFailed,proto3" json:"event_batches_failed,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	Flush            *TelemetryData_FlushTelemetry      `protobuf:"bytes,11,opt,name=flush,proto3" json:"flush,omitempty"`
+	Events           *TelemetryData_EventsTelemetry     `protobuf:"bytes,12,opt,name=events,proto3" json:"events,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TelemetryData) Reset() {
@@ -353,39 +347,18 @@ func (x *TelemetryData) GetApplyDedup() *TelemetryData_ApplyDedupTelemetry {
 	return nil
 }
 
-func (x *TelemetryData) GetFlushSucceeded() uint32 {
+func (x *TelemetryData) GetFlush() *TelemetryData_FlushTelemetry {
 	if x != nil {
-		return x.FlushSucceeded
+		return x.Flush
 	}
-	return 0
+	return nil
 }
 
-func (x *TelemetryData) GetFlushFailed() uint32 {
+func (x *TelemetryData) GetEvents() *TelemetryData_EventsTelemetry {
 	if x != nil {
-		return x.FlushFailed
+		return x.Events
 	}
-	return 0
-}
-
-func (x *TelemetryData) GetEventsPublished() uint32 {
-	if x != nil {
-		return x.EventsPublished
-	}
-	return 0
-}
-
-func (x *TelemetryData) GetEventBatchesSucceeded() uint32 {
-	if x != nil {
-		return x.EventBatchesSucceeded
-	}
-	return 0
-}
-
-func (x *TelemetryData) GetEventBatchesFailed() uint32 {
-	if x != nil {
-		return x.EventBatchesFailed
-	}
-	return 0
+	return nil
 }
 
 type ClientInfo struct {
@@ -1266,6 +1239,118 @@ func (x *ReadOperationsResult) GetResults() []*ReadResult {
 	return nil
 }
 
+type TelemetryData_FlushTelemetry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Succeeded     uint32                 `protobuf:"varint,1,opt,name=succeeded,proto3" json:"succeeded,omitempty"`
+	Failed        uint32                 `protobuf:"varint,2,opt,name=failed,proto3" json:"failed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TelemetryData_FlushTelemetry) Reset() {
+	*x = TelemetryData_FlushTelemetry{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetryData_FlushTelemetry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetryData_FlushTelemetry) ProtoMessage() {}
+
+func (x *TelemetryData_FlushTelemetry) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetryData_FlushTelemetry.ProtoReflect.Descriptor instead.
+func (*TelemetryData_FlushTelemetry) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 0}
+}
+
+func (x *TelemetryData_FlushTelemetry) GetSucceeded() uint32 {
+	if x != nil {
+		return x.Succeeded
+	}
+	return 0
+}
+
+func (x *TelemetryData_FlushTelemetry) GetFailed() uint32 {
+	if x != nil {
+		return x.Failed
+	}
+	return 0
+}
+
+type TelemetryData_EventsTelemetry struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Published        uint32                 `protobuf:"varint,1,opt,name=published,proto3" json:"published,omitempty"`
+	BatchesSucceeded uint32                 `protobuf:"varint,2,opt,name=batches_succeeded,json=batchesSucceeded,proto3" json:"batches_succeeded,omitempty"`
+	BatchesFailed    uint32                 `protobuf:"varint,3,opt,name=batches_failed,json=batchesFailed,proto3" json:"batches_failed,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *TelemetryData_EventsTelemetry) Reset() {
+	*x = TelemetryData_EventsTelemetry{}
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetryData_EventsTelemetry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetryData_EventsTelemetry) ProtoMessage() {}
+
+func (x *TelemetryData_EventsTelemetry) ProtoReflect() protoreflect.Message {
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetryData_EventsTelemetry.ProtoReflect.Descriptor instead.
+func (*TelemetryData_EventsTelemetry) Descriptor() ([]byte, []int) {
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 1}
+}
+
+func (x *TelemetryData_EventsTelemetry) GetPublished() uint32 {
+	if x != nil {
+		return x.Published
+	}
+	return 0
+}
+
+func (x *TelemetryData_EventsTelemetry) GetBatchesSucceeded() uint32 {
+	if x != nil {
+		return x.BatchesSucceeded
+	}
+	return 0
+}
+
+func (x *TelemetryData_EventsTelemetry) GetBatchesFailed() uint32 {
+	if x != nil {
+		return x.BatchesFailed
+	}
+	return 0
+}
+
 type TelemetryData_ResolveLatency struct {
 	state         protoimpl.MessageState      `protogen:"open.v1"`
 	Sum           uint32                      `protobuf:"varint,1,opt,name=sum,proto3" json:"sum,omitempty"`
@@ -1278,7 +1363,7 @@ type TelemetryData_ResolveLatency struct {
 
 func (x *TelemetryData_ResolveLatency) Reset() {
 	*x = TelemetryData_ResolveLatency{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[19]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1290,7 +1375,7 @@ func (x *TelemetryData_ResolveLatency) String() string {
 func (*TelemetryData_ResolveLatency) ProtoMessage() {}
 
 func (x *TelemetryData_ResolveLatency) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[19]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1303,7 +1388,7 @@ func (x *TelemetryData_ResolveLatency) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryData_ResolveLatency.ProtoReflect.Descriptor instead.
 func (*TelemetryData_ResolveLatency) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 0}
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 2}
 }
 
 func (x *TelemetryData_ResolveLatency) GetSum() uint32 {
@@ -1344,7 +1429,7 @@ type TelemetryData_ResolveRate struct {
 
 func (x *TelemetryData_ResolveRate) Reset() {
 	*x = TelemetryData_ResolveRate{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[20]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1356,7 +1441,7 @@ func (x *TelemetryData_ResolveRate) String() string {
 func (*TelemetryData_ResolveRate) ProtoMessage() {}
 
 func (x *TelemetryData_ResolveRate) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[20]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1369,7 +1454,7 @@ func (x *TelemetryData_ResolveRate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryData_ResolveRate.ProtoReflect.Descriptor instead.
 func (*TelemetryData_ResolveRate) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 1}
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 3}
 }
 
 func (x *TelemetryData_ResolveRate) GetCount() uint32 {
@@ -1395,7 +1480,7 @@ type TelemetryData_StateAge struct {
 
 func (x *TelemetryData_StateAge) Reset() {
 	*x = TelemetryData_StateAge{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[21]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1407,7 +1492,7 @@ func (x *TelemetryData_StateAge) String() string {
 func (*TelemetryData_StateAge) ProtoMessage() {}
 
 func (x *TelemetryData_StateAge) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[21]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1420,7 +1505,7 @@ func (x *TelemetryData_StateAge) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryData_StateAge.ProtoReflect.Descriptor instead.
 func (*TelemetryData_StateAge) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 2}
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 4}
 }
 
 func (x *TelemetryData_StateAge) GetLastStateUpdate() uint64 {
@@ -1440,7 +1525,7 @@ type TelemetryData_BucketSpan struct {
 
 func (x *TelemetryData_BucketSpan) Reset() {
 	*x = TelemetryData_BucketSpan{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[22]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1452,7 +1537,7 @@ func (x *TelemetryData_BucketSpan) String() string {
 func (*TelemetryData_BucketSpan) ProtoMessage() {}
 
 func (x *TelemetryData_BucketSpan) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[22]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1465,7 +1550,7 @@ func (x *TelemetryData_BucketSpan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryData_BucketSpan.ProtoReflect.Descriptor instead.
 func (*TelemetryData_BucketSpan) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 3}
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 5}
 }
 
 func (x *TelemetryData_BucketSpan) GetOffset() int32 {
@@ -1496,7 +1581,7 @@ type TelemetryData_ApplyDedupTelemetry struct {
 
 func (x *TelemetryData_ApplyDedupTelemetry) Reset() {
 	*x = TelemetryData_ApplyDedupTelemetry{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[23]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1508,7 +1593,7 @@ func (x *TelemetryData_ApplyDedupTelemetry) String() string {
 func (*TelemetryData_ApplyDedupTelemetry) ProtoMessage() {}
 
 func (x *TelemetryData_ApplyDedupTelemetry) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[23]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1521,7 +1606,7 @@ func (x *TelemetryData_ApplyDedupTelemetry) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use TelemetryData_ApplyDedupTelemetry.ProtoReflect.Descriptor instead.
 func (*TelemetryData_ApplyDedupTelemetry) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 4}
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 6}
 }
 
 func (x *TelemetryData_ApplyDedupTelemetry) GetAppliesTotal() uint32 {
@@ -1576,7 +1661,7 @@ type TelemetryData_ProviderInitRate struct {
 
 func (x *TelemetryData_ProviderInitRate) Reset() {
 	*x = TelemetryData_ProviderInitRate{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[24]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1588,7 +1673,7 @@ func (x *TelemetryData_ProviderInitRate) String() string {
 func (*TelemetryData_ProviderInitRate) ProtoMessage() {}
 
 func (x *TelemetryData_ProviderInitRate) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[24]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1601,7 +1686,7 @@ func (x *TelemetryData_ProviderInitRate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryData_ProviderInitRate.ProtoReflect.Descriptor instead.
 func (*TelemetryData_ProviderInitRate) Descriptor() ([]byte, []int) {
-	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 5}
+	return file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP(), []int{3, 7}
 }
 
 func (x *TelemetryData_ProviderInitRate) GetCount() uint32 {
@@ -1638,7 +1723,7 @@ type FlagAssigned_AppliedFlag struct {
 
 func (x *FlagAssigned_AppliedFlag) Reset() {
 	*x = FlagAssigned_AppliedFlag{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[26]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1650,7 +1735,7 @@ func (x *FlagAssigned_AppliedFlag) String() string {
 func (*FlagAssigned_AppliedFlag) ProtoMessage() {}
 
 func (x *FlagAssigned_AppliedFlag) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[26]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1766,7 +1851,7 @@ type FlagAssigned_AssignmentInfo struct {
 
 func (x *FlagAssigned_AssignmentInfo) Reset() {
 	*x = FlagAssigned_AssignmentInfo{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[27]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1778,7 +1863,7 @@ func (x *FlagAssigned_AssignmentInfo) String() string {
 func (*FlagAssigned_AssignmentInfo) ProtoMessage() {}
 
 func (x *FlagAssigned_AssignmentInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[27]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,7 +1902,7 @@ type FlagAssigned_DefaultAssignment struct {
 
 func (x *FlagAssigned_DefaultAssignment) Reset() {
 	*x = FlagAssigned_DefaultAssignment{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[28]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1829,7 +1914,7 @@ func (x *FlagAssigned_DefaultAssignment) String() string {
 func (*FlagAssigned_DefaultAssignment) ProtoMessage() {}
 
 func (x *FlagAssigned_DefaultAssignment) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[28]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1863,7 +1948,7 @@ type ClientResolveInfo_EvaluationContextSchemaInstance struct {
 
 func (x *ClientResolveInfo_EvaluationContextSchemaInstance) Reset() {
 	*x = ClientResolveInfo_EvaluationContextSchemaInstance{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[29]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1875,7 +1960,7 @@ func (x *ClientResolveInfo_EvaluationContextSchemaInstance) String() string {
 func (*ClientResolveInfo_EvaluationContextSchemaInstance) ProtoMessage() {}
 
 func (x *ClientResolveInfo_EvaluationContextSchemaInstance) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[29]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1911,7 +1996,7 @@ type FlagResolveInfo_VariantResolveInfo struct {
 
 func (x *FlagResolveInfo_VariantResolveInfo) Reset() {
 	*x = FlagResolveInfo_VariantResolveInfo{}
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[31]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1923,7 +2008,7 @@ func (x *FlagResolveInfo_VariantResolveInfo) String() string {
 func (*FlagResolveInfo_VariantResolveInfo) ProtoMessage() {}
 
 func (x *FlagResolveInfo_VariantResolveInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[31]
+	mi := &file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1967,7 +2052,7 @@ const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\x15IngestFlagLogsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12H\n" +
-	"\x05batch\x18\x02 \x01(\v22.confidence.flags.resolver.v1.WriteFlagLogsRequestR\x05batch\"\xe8\f\n" +
+	"\x05batch\x18\x02 \x01(\v22.confidence.flags.resolver.v1.WriteFlagLogsRequestR\x05batch\"\xfc\r\n" +
 	"\rTelemetryData\x123\n" +
 	"\x03sdk\x18\x02 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\x12c\n" +
 	"\x0fresolve_latency\x18\x04 \x01(\v2:.confidence.flags.resolver.v1.TelemetryData.ResolveLatencyR\x0eresolveLatency\x12Z\n" +
@@ -1978,12 +2063,16 @@ const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\x12provider_init_rate\x18\t \x03(\v2<.confidence.flags.resolver.v1.TelemetryData.ProviderInitRateR\x10providerInitRate\x12`\n" +
 	"\vapply_dedup\x18\n" +
 	" \x01(\v2?.confidence.flags.resolver.v1.TelemetryData.ApplyDedupTelemetryR\n" +
-	"applyDedup\x12'\n" +
-	"\x0fflush_succeeded\x18\v \x01(\rR\x0eflushSucceeded\x12!\n" +
-	"\fflush_failed\x18\f \x01(\rR\vflushFailed\x12)\n" +
-	"\x10events_published\x18\r \x01(\rR\x0feventsPublished\x126\n" +
-	"\x17event_batches_succeeded\x18\x0e \x01(\rR\x15eventBatchesSucceeded\x120\n" +
-	"\x14event_batches_failed\x18\x0f \x01(\rR\x12eventBatchesFailed\x1a\xa5\x01\n" +
+	"applyDedup\x12P\n" +
+	"\x05flush\x18\v \x01(\v2:.confidence.flags.resolver.v1.TelemetryData.FlushTelemetryR\x05flush\x12S\n" +
+	"\x06events\x18\f \x01(\v2;.confidence.flags.resolver.v1.TelemetryData.EventsTelemetryR\x06events\x1aF\n" +
+	"\x0eFlushTelemetry\x12\x1c\n" +
+	"\tsucceeded\x18\x01 \x01(\rR\tsucceeded\x12\x16\n" +
+	"\x06failed\x18\x02 \x01(\rR\x06failed\x1a\x83\x01\n" +
+	"\x0fEventsTelemetry\x12\x1c\n" +
+	"\tpublished\x18\x01 \x01(\rR\tpublished\x12+\n" +
+	"\x11batches_succeeded\x18\x02 \x01(\rR\x10batchesSucceeded\x12%\n" +
+	"\x0ebatches_failed\x18\x03 \x01(\rR\rbatchesFailed\x1a\xa5\x01\n" +
 	"\x0eResolveLatency\x12\x10\n" +
 	"\x03sum\x18\x01 \x01(\rR\x03sum\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\rR\x05count\x12P\n" +
@@ -2118,7 +2207,7 @@ func file_confidence_flags_resolver_v1_internal_api_proto_rawDescGZIP() []byte {
 }
 
 var file_confidence_flags_resolver_v1_internal_api_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_confidence_flags_resolver_v1_internal_api_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_confidence_flags_resolver_v1_internal_api_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_confidence_flags_resolver_v1_internal_api_proto_goTypes = []any{
 	(FlagAssigned_DefaultAssignment_DefaultAssignmentReason)(0), // 0: confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment.DefaultAssignmentReason
 	(*WriteFlagLogsRequest)(nil),                                // 1: confidence.flags.resolver.v1.WriteFlagLogsRequest
@@ -2140,21 +2229,23 @@ var file_confidence_flags_resolver_v1_internal_api_proto_goTypes = []any{
 	(*InclusionData)(nil),                                       // 17: confidence.flags.resolver.v1.InclusionData
 	(*ReadResult)(nil),                                          // 18: confidence.flags.resolver.v1.ReadResult
 	(*ReadOperationsResult)(nil),                                // 19: confidence.flags.resolver.v1.ReadOperationsResult
-	(*TelemetryData_ResolveLatency)(nil),                        // 20: confidence.flags.resolver.v1.TelemetryData.ResolveLatency
-	(*TelemetryData_ResolveRate)(nil),                           // 21: confidence.flags.resolver.v1.TelemetryData.ResolveRate
-	(*TelemetryData_StateAge)(nil),                              // 22: confidence.flags.resolver.v1.TelemetryData.StateAge
-	(*TelemetryData_BucketSpan)(nil),                            // 23: confidence.flags.resolver.v1.TelemetryData.BucketSpan
-	(*TelemetryData_ApplyDedupTelemetry)(nil),                   // 24: confidence.flags.resolver.v1.TelemetryData.ApplyDedupTelemetry
-	(*TelemetryData_ProviderInitRate)(nil),                      // 25: confidence.flags.resolver.v1.TelemetryData.ProviderInitRate
-	nil,                                                         // 26: confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.LabelsEntry
-	(*FlagAssigned_AppliedFlag)(nil),                            // 27: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag
-	(*FlagAssigned_AssignmentInfo)(nil),                         // 28: confidence.flags.resolver.v1.FlagAssigned.AssignmentInfo
-	(*FlagAssigned_DefaultAssignment)(nil),                      // 29: confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment
-	(*ClientResolveInfo_EvaluationContextSchemaInstance)(nil),   // 30: confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance
-	nil, // 31: confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance.SchemaEntry
-	(*FlagResolveInfo_VariantResolveInfo)(nil), // 32: confidence.flags.resolver.v1.FlagResolveInfo.VariantResolveInfo
-	(*resolver.Sdk)(nil),                       // 33: confidence.flags.resolver.v1.Sdk
-	(*timestamppb.Timestamp)(nil),              // 34: google.protobuf.Timestamp
+	(*TelemetryData_FlushTelemetry)(nil),                        // 20: confidence.flags.resolver.v1.TelemetryData.FlushTelemetry
+	(*TelemetryData_EventsTelemetry)(nil),                       // 21: confidence.flags.resolver.v1.TelemetryData.EventsTelemetry
+	(*TelemetryData_ResolveLatency)(nil),                        // 22: confidence.flags.resolver.v1.TelemetryData.ResolveLatency
+	(*TelemetryData_ResolveRate)(nil),                           // 23: confidence.flags.resolver.v1.TelemetryData.ResolveRate
+	(*TelemetryData_StateAge)(nil),                              // 24: confidence.flags.resolver.v1.TelemetryData.StateAge
+	(*TelemetryData_BucketSpan)(nil),                            // 25: confidence.flags.resolver.v1.TelemetryData.BucketSpan
+	(*TelemetryData_ApplyDedupTelemetry)(nil),                   // 26: confidence.flags.resolver.v1.TelemetryData.ApplyDedupTelemetry
+	(*TelemetryData_ProviderInitRate)(nil),                      // 27: confidence.flags.resolver.v1.TelemetryData.ProviderInitRate
+	nil,                                                         // 28: confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.LabelsEntry
+	(*FlagAssigned_AppliedFlag)(nil),                            // 29: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag
+	(*FlagAssigned_AssignmentInfo)(nil),                         // 30: confidence.flags.resolver.v1.FlagAssigned.AssignmentInfo
+	(*FlagAssigned_DefaultAssignment)(nil),                      // 31: confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment
+	(*ClientResolveInfo_EvaluationContextSchemaInstance)(nil),   // 32: confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance
+	nil, // 33: confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance.SchemaEntry
+	(*FlagResolveInfo_VariantResolveInfo)(nil), // 34: confidence.flags.resolver.v1.FlagResolveInfo.VariantResolveInfo
+	(*resolver.Sdk)(nil),                       // 35: confidence.flags.resolver.v1.Sdk
+	(*timestamppb.Timestamp)(nil),              // 36: google.protobuf.Timestamp
 }
 var file_confidence_flags_resolver_v1_internal_api_proto_depIdxs = []int32{
 	6,  // 0: confidence.flags.resolver.v1.WriteFlagLogsRequest.flag_assigned:type_name -> confidence.flags.resolver.v1.FlagAssigned
@@ -2162,43 +2253,45 @@ var file_confidence_flags_resolver_v1_internal_api_proto_depIdxs = []int32{
 	8,  // 2: confidence.flags.resolver.v1.WriteFlagLogsRequest.client_resolve_info:type_name -> confidence.flags.resolver.v1.ClientResolveInfo
 	9,  // 3: confidence.flags.resolver.v1.WriteFlagLogsRequest.flag_resolve_info:type_name -> confidence.flags.resolver.v1.FlagResolveInfo
 	1,  // 4: confidence.flags.resolver.v1.IngestFlagLogsRequest.batch:type_name -> confidence.flags.resolver.v1.WriteFlagLogsRequest
-	33, // 5: confidence.flags.resolver.v1.TelemetryData.sdk:type_name -> confidence.flags.resolver.v1.Sdk
-	20, // 6: confidence.flags.resolver.v1.TelemetryData.resolve_latency:type_name -> confidence.flags.resolver.v1.TelemetryData.ResolveLatency
-	21, // 7: confidence.flags.resolver.v1.TelemetryData.resolve_rate:type_name -> confidence.flags.resolver.v1.TelemetryData.ResolveRate
-	22, // 8: confidence.flags.resolver.v1.TelemetryData.state_age:type_name -> confidence.flags.resolver.v1.TelemetryData.StateAge
-	25, // 9: confidence.flags.resolver.v1.TelemetryData.provider_init_rate:type_name -> confidence.flags.resolver.v1.TelemetryData.ProviderInitRate
-	24, // 10: confidence.flags.resolver.v1.TelemetryData.apply_dedup:type_name -> confidence.flags.resolver.v1.TelemetryData.ApplyDedupTelemetry
-	33, // 11: confidence.flags.resolver.v1.ClientInfo.sdk:type_name -> confidence.flags.resolver.v1.Sdk
-	5,  // 12: confidence.flags.resolver.v1.FlagAssigned.client_info:type_name -> confidence.flags.resolver.v1.ClientInfo
-	27, // 13: confidence.flags.resolver.v1.FlagAssigned.flags:type_name -> confidence.flags.resolver.v1.FlagAssigned.AppliedFlag
-	30, // 14: confidence.flags.resolver.v1.ClientResolveInfo.schema:type_name -> confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance
-	32, // 15: confidence.flags.resolver.v1.FlagResolveInfo.variant_resolve_info:type_name -> confidence.flags.resolver.v1.FlagResolveInfo.VariantResolveInfo
-	16, // 16: confidence.flags.resolver.v1.WriteOperationsRequest.store_variant_op:type_name -> confidence.flags.resolver.v1.VariantData
-	12, // 17: confidence.flags.resolver.v1.ReadOp.variant_read_op:type_name -> confidence.flags.resolver.v1.VariantReadOp
-	13, // 18: confidence.flags.resolver.v1.ReadOp.inclusion_read_op:type_name -> confidence.flags.resolver.v1.InclusionReadOp
-	14, // 19: confidence.flags.resolver.v1.ReadOperationsRequest.ops:type_name -> confidence.flags.resolver.v1.ReadOp
-	16, // 20: confidence.flags.resolver.v1.ReadResult.variant_result:type_name -> confidence.flags.resolver.v1.VariantData
-	17, // 21: confidence.flags.resolver.v1.ReadResult.inclusion_result:type_name -> confidence.flags.resolver.v1.InclusionData
-	18, // 22: confidence.flags.resolver.v1.ReadOperationsResult.results:type_name -> confidence.flags.resolver.v1.ReadResult
-	23, // 23: confidence.flags.resolver.v1.TelemetryData.ResolveLatency.buckets:type_name -> confidence.flags.resolver.v1.TelemetryData.BucketSpan
-	26, // 24: confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.labels:type_name -> confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.LabelsEntry
-	28, // 25: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag.assignment_info:type_name -> confidence.flags.resolver.v1.FlagAssigned.AssignmentInfo
-	29, // 26: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag.default_assignment:type_name -> confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment
-	7,  // 27: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag.fallthrough_assignments:type_name -> confidence.flags.resolver.v1.FallthroughAssignment
-	34, // 28: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag.apply_time:type_name -> google.protobuf.Timestamp
-	0,  // 29: confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment.reason:type_name -> confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment.DefaultAssignmentReason
-	31, // 30: confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance.schema:type_name -> confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance.SchemaEntry
-	1,  // 31: confidence.flags.resolver.v1.InternalFlagLoggerService.ClientWriteFlagLogs:input_type -> confidence.flags.resolver.v1.WriteFlagLogsRequest
-	10, // 32: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteMaterializedOperations:input_type -> confidence.flags.resolver.v1.WriteOperationsRequest
-	15, // 33: confidence.flags.resolver.v1.InternalFlagLoggerService.ReadMaterializedOperations:input_type -> confidence.flags.resolver.v1.ReadOperationsRequest
-	2,  // 34: confidence.flags.resolver.v1.InternalFlagLoggerService.ClientWriteFlagLogs:output_type -> confidence.flags.resolver.v1.WriteFlagLogsResponse
-	11, // 35: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteMaterializedOperations:output_type -> confidence.flags.resolver.v1.WriteOperationsResult
-	19, // 36: confidence.flags.resolver.v1.InternalFlagLoggerService.ReadMaterializedOperations:output_type -> confidence.flags.resolver.v1.ReadOperationsResult
-	34, // [34:37] is the sub-list for method output_type
-	31, // [31:34] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	35, // 5: confidence.flags.resolver.v1.TelemetryData.sdk:type_name -> confidence.flags.resolver.v1.Sdk
+	22, // 6: confidence.flags.resolver.v1.TelemetryData.resolve_latency:type_name -> confidence.flags.resolver.v1.TelemetryData.ResolveLatency
+	23, // 7: confidence.flags.resolver.v1.TelemetryData.resolve_rate:type_name -> confidence.flags.resolver.v1.TelemetryData.ResolveRate
+	24, // 8: confidence.flags.resolver.v1.TelemetryData.state_age:type_name -> confidence.flags.resolver.v1.TelemetryData.StateAge
+	27, // 9: confidence.flags.resolver.v1.TelemetryData.provider_init_rate:type_name -> confidence.flags.resolver.v1.TelemetryData.ProviderInitRate
+	26, // 10: confidence.flags.resolver.v1.TelemetryData.apply_dedup:type_name -> confidence.flags.resolver.v1.TelemetryData.ApplyDedupTelemetry
+	20, // 11: confidence.flags.resolver.v1.TelemetryData.flush:type_name -> confidence.flags.resolver.v1.TelemetryData.FlushTelemetry
+	21, // 12: confidence.flags.resolver.v1.TelemetryData.events:type_name -> confidence.flags.resolver.v1.TelemetryData.EventsTelemetry
+	35, // 13: confidence.flags.resolver.v1.ClientInfo.sdk:type_name -> confidence.flags.resolver.v1.Sdk
+	5,  // 14: confidence.flags.resolver.v1.FlagAssigned.client_info:type_name -> confidence.flags.resolver.v1.ClientInfo
+	29, // 15: confidence.flags.resolver.v1.FlagAssigned.flags:type_name -> confidence.flags.resolver.v1.FlagAssigned.AppliedFlag
+	32, // 16: confidence.flags.resolver.v1.ClientResolveInfo.schema:type_name -> confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance
+	34, // 17: confidence.flags.resolver.v1.FlagResolveInfo.variant_resolve_info:type_name -> confidence.flags.resolver.v1.FlagResolveInfo.VariantResolveInfo
+	16, // 18: confidence.flags.resolver.v1.WriteOperationsRequest.store_variant_op:type_name -> confidence.flags.resolver.v1.VariantData
+	12, // 19: confidence.flags.resolver.v1.ReadOp.variant_read_op:type_name -> confidence.flags.resolver.v1.VariantReadOp
+	13, // 20: confidence.flags.resolver.v1.ReadOp.inclusion_read_op:type_name -> confidence.flags.resolver.v1.InclusionReadOp
+	14, // 21: confidence.flags.resolver.v1.ReadOperationsRequest.ops:type_name -> confidence.flags.resolver.v1.ReadOp
+	16, // 22: confidence.flags.resolver.v1.ReadResult.variant_result:type_name -> confidence.flags.resolver.v1.VariantData
+	17, // 23: confidence.flags.resolver.v1.ReadResult.inclusion_result:type_name -> confidence.flags.resolver.v1.InclusionData
+	18, // 24: confidence.flags.resolver.v1.ReadOperationsResult.results:type_name -> confidence.flags.resolver.v1.ReadResult
+	25, // 25: confidence.flags.resolver.v1.TelemetryData.ResolveLatency.buckets:type_name -> confidence.flags.resolver.v1.TelemetryData.BucketSpan
+	28, // 26: confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.labels:type_name -> confidence.flags.resolver.v1.TelemetryData.ProviderInitRate.LabelsEntry
+	30, // 27: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag.assignment_info:type_name -> confidence.flags.resolver.v1.FlagAssigned.AssignmentInfo
+	31, // 28: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag.default_assignment:type_name -> confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment
+	7,  // 29: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag.fallthrough_assignments:type_name -> confidence.flags.resolver.v1.FallthroughAssignment
+	36, // 30: confidence.flags.resolver.v1.FlagAssigned.AppliedFlag.apply_time:type_name -> google.protobuf.Timestamp
+	0,  // 31: confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment.reason:type_name -> confidence.flags.resolver.v1.FlagAssigned.DefaultAssignment.DefaultAssignmentReason
+	33, // 32: confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance.schema:type_name -> confidence.flags.resolver.v1.ClientResolveInfo.EvaluationContextSchemaInstance.SchemaEntry
+	1,  // 33: confidence.flags.resolver.v1.InternalFlagLoggerService.ClientWriteFlagLogs:input_type -> confidence.flags.resolver.v1.WriteFlagLogsRequest
+	10, // 34: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteMaterializedOperations:input_type -> confidence.flags.resolver.v1.WriteOperationsRequest
+	15, // 35: confidence.flags.resolver.v1.InternalFlagLoggerService.ReadMaterializedOperations:input_type -> confidence.flags.resolver.v1.ReadOperationsRequest
+	2,  // 36: confidence.flags.resolver.v1.InternalFlagLoggerService.ClientWriteFlagLogs:output_type -> confidence.flags.resolver.v1.WriteFlagLogsResponse
+	11, // 37: confidence.flags.resolver.v1.InternalFlagLoggerService.WriteMaterializedOperations:output_type -> confidence.flags.resolver.v1.WriteOperationsResult
+	19, // 38: confidence.flags.resolver.v1.InternalFlagLoggerService.ReadMaterializedOperations:output_type -> confidence.flags.resolver.v1.ReadOperationsResult
+	36, // [36:39] is the sub-list for method output_type
+	33, // [33:36] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_confidence_flags_resolver_v1_internal_api_proto_init() }
@@ -2214,7 +2307,7 @@ func file_confidence_flags_resolver_v1_internal_api_proto_init() {
 		(*ReadResult_VariantResult)(nil),
 		(*ReadResult_InclusionResult)(nil),
 	}
-	file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[26].OneofWrappers = []any{
+	file_confidence_flags_resolver_v1_internal_api_proto_msgTypes[28].OneofWrappers = []any{
 		(*FlagAssigned_AppliedFlag_AssignmentInfo)(nil),
 		(*FlagAssigned_AppliedFlag_DefaultAssignment)(nil),
 	}
@@ -2224,7 +2317,7 @@ func file_confidence_flags_resolver_v1_internal_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_flags_resolver_v1_internal_api_proto_rawDesc), len(file_confidence_flags_resolver_v1_internal_api_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   32,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

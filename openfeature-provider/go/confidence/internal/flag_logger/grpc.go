@@ -71,11 +71,19 @@ func (g *GrpcFlagLogger) Write(request *resolverv1.WriteFlagLogsRequest) {
 		if request.TelemetryData == nil {
 			request.TelemetryData = &resolverv1.TelemetryData{}
 		}
-		request.TelemetryData.FlushSucceeded = succeeded
-		request.TelemetryData.FlushFailed = failed
-		request.TelemetryData.EventsPublished = evPub
-		request.TelemetryData.EventBatchesSucceeded = evOk
-		request.TelemetryData.EventBatchesFailed = evFail
+		if succeeded > 0 || failed > 0 {
+			request.TelemetryData.Flush = &resolverv1.TelemetryData_FlushTelemetry{
+				Succeeded: succeeded,
+				Failed:    failed,
+			}
+		}
+		if evPub > 0 || evOk > 0 || evFail > 0 {
+			request.TelemetryData.Events = &resolverv1.TelemetryData_EventsTelemetry{
+				Published:        evPub,
+				BatchesSucceeded: evOk,
+				BatchesFailed:    evFail,
+			}
+		}
 	}
 
 	g.sendAsync(request)

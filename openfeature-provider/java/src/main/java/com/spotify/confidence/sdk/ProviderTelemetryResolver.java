@@ -71,8 +71,10 @@ final class ProviderTelemetryResolver implements LocalResolver {
     return request.toBuilder()
         .setTelemetryData(
             request.getTelemetryData().toBuilder()
-                .setFlushSucceeded((int) counters[0])
-                .setFlushFailed((int) counters[1])
+                .setFlush(TelemetryData.FlushTelemetry.newBuilder()
+                    .setSucceeded((int) counters[0])
+                    .setFailed((int) counters[1])
+                    .build())
                 .build())
         .build();
   }
@@ -85,9 +87,11 @@ final class ProviderTelemetryResolver implements LocalResolver {
     return request.toBuilder()
         .setTelemetryData(
             request.getTelemetryData().toBuilder()
-                .setEventsPublished((int) counters[0])
-                .setEventBatchesSucceeded((int) counters[1])
-                .setEventBatchesFailed((int) counters[2])
+                .setEvents(TelemetryData.EventsTelemetry.newBuilder()
+                    .setPublished((int) counters[0])
+                    .setBatchesSucceeded((int) counters[1])
+                    .setBatchesFailed((int) counters[2])
+                    .build())
                 .build())
         .build();
   }

@@ -817,10 +817,10 @@ async fn update_prometheus_kv(
 
     match flush_result {
         Some(true) => {
-            cumulative.flush_succeeded = cumulative.flush_succeeded.wrapping_add(1);
+            cumulative.flush.succeeded = cumulative.flush.succeeded.wrapping_add(1);
         }
         Some(false) => {
-            cumulative.flush_failed = cumulative.flush_failed.wrapping_add(1);
+            cumulative.flush.failed = cumulative.flush.failed.wrapping_add(1);
         }
         None => {}
     }
@@ -1060,10 +1060,10 @@ async fn update_events_kv(kv: &kv::KvStore, event_count: u64, succeeded: bool) {
     };
 
     if succeeded {
-        cumulative.events_published = cumulative.events_published.wrapping_add(event_count);
-        cumulative.event_batches_succeeded = cumulative.event_batches_succeeded.wrapping_add(1);
+        cumulative.events.published = cumulative.events.published.wrapping_add(event_count);
+        cumulative.events.batches_succeeded = cumulative.events.batches_succeeded.wrapping_add(1);
     } else {
-        cumulative.event_batches_failed = cumulative.event_batches_failed.wrapping_add(1);
+        cumulative.events.batches_failed = cumulative.events.batches_failed.wrapping_add(1);
     }
 
     let prom_text = cumulative.to_prometheus(

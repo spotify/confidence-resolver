@@ -946,14 +946,14 @@ class ConfidenceProvider(AbstractProvider):
                 for k, v in self._init_labels.items():
                     init_rate.labels[k] = v
             if has_flush:
-                request.telemetry_data.flush_succeeded = flush_ok
-                request.telemetry_data.flush_failed = flush_err
+                request.telemetry_data.flush.succeeded = flush_ok
+                request.telemetry_data.flush.failed = flush_err
                 self._flush_succeeded = 0
                 self._flush_failed = 0
             if has_events:
-                request.telemetry_data.events_published = ev_published
-                request.telemetry_data.event_batches_succeeded = ev_ok
-                request.telemetry_data.event_batches_failed = ev_err
+                request.telemetry_data.events.published = ev_published
+                request.telemetry_data.events.batches_succeeded = ev_ok
+                request.telemetry_data.events.batches_failed = ev_err
             log_data = request.SerializeToString()
 
         try:

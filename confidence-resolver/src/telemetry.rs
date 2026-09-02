@@ -114,11 +114,23 @@ pub struct TelemetrySnapshot {
     pub resolve_rates: Vec<u64>,
     pub memory_bytes: u64,
     pub apply_dedup: Option<ApplyDedupSnapshot>,
-    pub flush_succeeded: u64,
-    pub flush_failed: u64,
-    pub events_published: u64,
-    pub event_batches_succeeded: u64,
-    pub event_batches_failed: u64,
+    pub flush: FlushSnapshot,
+    pub events: EventsSnapshot,
+}
+
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+pub struct FlushSnapshot {
+    pub succeeded: u64,
+    pub failed: u64,
+}
+
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+pub struct EventsSnapshot {
+    pub published: u64,
+    pub batches_succeeded: u64,
+    pub batches_failed: u64,
 }
 
 #[derive(Clone, Default)]
@@ -213,17 +225,22 @@ impl TelemetrySnapshot {
             ad.map_capacity = dedup.map_capacity;
         }
 
-        self.flush_succeeded = self.flush_succeeded.wrapping_add(td.flush_succeeded as u64);
-        self.flush_failed = self.flush_failed.wrapping_add(td.flush_failed as u64);
-        self.events_published = self
-            .events_published
-            .wrapping_add(td.events_published as u64);
-        self.event_batches_succeeded = self
-            .event_batches_succeeded
-            .wrapping_add(td.event_batches_succeeded as u64);
-        self.event_batches_failed = self
-            .event_batches_failed
-            .wrapping_add(td.event_batches_failed as u64);
+        if let Some(flush) = &td.flush {
+            self.flush.succeeded = self.flush.succeeded.wrapping_add(flush.succeeded as u64);
+            self.flush.failed = self.flush.failed.wrapping_add(flush.failed as u64);
+        }
+
+        if let Some(events) = &td.events {
+            self.events.published = self.events.published.wrapping_add(events.published as u64);
+            self.events.batches_succeeded = self
+                .events
+                .batches_succeeded
+                .wrapping_add(events.batches_succeeded as u64);
+            self.events.batches_failed = self
+                .events
+                .batches_failed
+                .wrapping_add(events.batches_failed as u64);
+        }
     }
 
     /// Format the snapshot as Prometheus exposition text.
@@ -496,7 +513,7 @@ impl TelemetrySnapshot {
         resolver_id: &str,
         config: &PrometheusConfig,
     ) -> fmt::Result {
-        if self.flush_succeeded == 0 && self.flush_failed == 0 {
+        if self.flush.succeeded == 0 && self.flush.failed == 0 {
             return Ok(());
         }
         let suffix = if config.openmetrics { ".0" } else { "" };
@@ -514,7 +531,7 @@ impl TelemetrySnapshot {
         writeln!(
             w,
             "confidence_flush_succeeded_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
-            self.flush_succeeded
+            self.flush.succeeded
         )?;
 
         let type_name = if config.openmetrics {
@@ -530,7 +547,7 @@ impl TelemetrySnapshot {
         writeln!(
             w,
             "confidence_flush_failed_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
-            self.flush_failed
+            self.flush.failed
         )
     }
 
@@ -540,15 +557,15 @@ impl TelemetrySnapshot {
         resolver_id: &str,
         config: &PrometheusConfig,
     ) -> fmt::Result {
-        if self.events_published == 0
-            && self.event_batches_succeeded == 0
-            && self.event_batches_failed == 0
+        if self.events.published == 0
+            && self.events.batches_succeeded == 0
+            && self.events.batches_failed == 0
         {
             return Ok(());
         }
         let suffix = if config.openmetrics { ".0" } else { "" };
 
-        if self.events_published > 0 {
+        if self.events.published > 0 {
             let type_name = if config.openmetrics {
                 "confidence_events_published"
             } else {
@@ -559,11 +576,11 @@ impl TelemetrySnapshot {
             writeln!(
                 w,
                 "confidence_events_published_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
-                self.events_published
+                self.events.published
             )?;
         }
 
-        if self.event_batches_succeeded > 0 {
+        if self.events.batches_succeeded > 0 {
             let type_name = if config.openmetrics {
                 "confidence_event_batches_succeeded"
             } else {
@@ -574,11 +591,11 @@ impl TelemetrySnapshot {
             writeln!(
                 w,
                 "confidence_event_batches_succeeded_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
-                self.event_batches_succeeded
+                self.events.batches_succeeded
             )?;
         }
 
-        if self.event_batches_failed > 0 {
+        if self.events.batches_failed > 0 {
             let type_name = if config.openmetrics {
                 "confidence_event_batches_failed"
             } else {
@@ -589,7 +606,7 @@ impl TelemetrySnapshot {
             writeln!(
                 w,
                 "confidence_event_batches_failed_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
-                self.event_batches_failed
+                self.events.batches_failed
             )?;
         }
 
@@ -662,11 +679,8 @@ impl Telemetry {
                 .collect(),
             memory_bytes: (self.memory_provider)(),
             apply_dedup: None,
-            flush_succeeded: 0,
-            flush_failed: 0,
-            events_published: 0,
-            event_batches_succeeded: 0,
-            event_batches_failed: 0,
+            flush: FlushSnapshot::default(),
+            events: EventsSnapshot::default(),
         }
     }
 
@@ -747,11 +761,8 @@ impl Telemetry {
             resolver_version: crate::version::VERSION.to_string(),
             provider_init_rate: Vec::new(),
             apply_dedup: None,
-            flush_succeeded: 0,
-            flush_failed: 0,
-            events_published: 0,
-            event_batches_succeeded: 0,
-            event_batches_failed: 0,
+            flush: None,
+            events: None,
         }
     }
 }
@@ -1454,8 +1465,8 @@ mod tests {
     #[test]
     fn prometheus_flush_counters() {
         let mut snap = TelemetrySnapshot::default();
-        snap.flush_succeeded = 10;
-        snap.flush_failed = 2;
+        snap.flush.succeeded = 10;
+        snap.flush.failed = 2;
 
         let config = PrometheusConfig::default();
         let prom = snap.to_prometheus("w0", &config);
@@ -1466,41 +1477,49 @@ mod tests {
 
     #[test]
     fn accumulate_delta_flush_counters() {
+        use crate::proto::confidence::flags::resolver::v1::telemetry_data::FlushTelemetry;
+
         let mut snap = TelemetrySnapshot::default();
         let td = pb::TelemetryData {
-            flush_succeeded: 5,
-            flush_failed: 1,
+            flush: Some(FlushTelemetry {
+                succeeded: 5,
+                failed: 1,
+            }),
             ..Default::default()
         };
 
         snap.accumulate_delta(&td);
-        assert_eq!(snap.flush_succeeded, 5);
-        assert_eq!(snap.flush_failed, 1);
+        assert_eq!(snap.flush.succeeded, 5);
+        assert_eq!(snap.flush.failed, 1);
 
         snap.accumulate_delta(&td);
-        assert_eq!(snap.flush_succeeded, 10);
-        assert_eq!(snap.flush_failed, 2);
+        assert_eq!(snap.flush.succeeded, 10);
+        assert_eq!(snap.flush.failed, 2);
     }
 
     #[test]
     fn accumulate_delta_event_counters() {
+        use crate::proto::confidence::flags::resolver::v1::telemetry_data::EventsTelemetry;
+
         let mut snap = TelemetrySnapshot::default();
         let td = pb::TelemetryData {
-            events_published: 42,
-            event_batches_succeeded: 3,
-            event_batches_failed: 1,
+            events: Some(EventsTelemetry {
+                published: 42,
+                batches_succeeded: 3,
+                batches_failed: 1,
+            }),
             ..Default::default()
         };
 
         snap.accumulate_delta(&td);
-        assert_eq!(snap.events_published, 42);
-        assert_eq!(snap.event_batches_succeeded, 3);
-        assert_eq!(snap.event_batches_failed, 1);
+        assert_eq!(snap.events.published, 42);
+        assert_eq!(snap.events.batches_succeeded, 3);
+        assert_eq!(snap.events.batches_failed, 1);
 
         snap.accumulate_delta(&td);
-        assert_eq!(snap.events_published, 84);
-        assert_eq!(snap.event_batches_succeeded, 6);
-        assert_eq!(snap.event_batches_failed, 2);
+        assert_eq!(snap.events.published, 84);
+        assert_eq!(snap.events.batches_succeeded, 6);
+        assert_eq!(snap.events.batches_failed, 2);
     }
 
     #[test]
@@ -1518,11 +1537,11 @@ mod tests {
             map_size: 5,
             map_capacity: 100_000,
         });
-        snap.flush_succeeded = 2;
-        snap.flush_failed = 1;
-        snap.events_published = 50;
-        snap.event_batches_succeeded = 4;
-        snap.event_batches_failed = 1;
+        snap.flush.succeeded = 2;
+        snap.flush.failed = 1;
+        snap.events.published = 50;
+        snap.events.batches_succeeded = 4;
+        snap.events.batches_failed = 1;
 
         let config = PrometheusConfig {
             openmetrics: true,
