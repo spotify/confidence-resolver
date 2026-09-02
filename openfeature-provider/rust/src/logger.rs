@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use confidence_resolver::assign_logger::AssignLogger;
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    telemetry_data::ProviderInitRate, Sdk, WriteFlagLogsRequest,
+    telemetry_data::ProviderInitRate, Sdk, TelemetryData, WriteFlagLogsRequest,
 };
 use confidence_resolver::resolve_logger::ResolveLogger;
 
@@ -224,10 +224,7 @@ impl LogManager {
         td.sdk = Some(self.sdk.clone());
         let include_init = self.init_state.claim();
         if include_init {
-            td.provider_init_rate.push(ProviderInitRate {
-                count: 1,
-                labels: self.init_labels.clone(),
-            });
+            set_provider_init_telemetry(&mut td, &self.init_labels);
         }
         request.telemetry_data = Some(td);
 
@@ -260,6 +257,13 @@ impl LogManager {
     }
 }
 
+fn set_provider_init_telemetry(telemetry: &mut TelemetryData, labels: &BTreeMap<String, String>) {
+    telemetry.provider_init_rate = vec![ProviderInitRate {
+        count: 1,
+        labels: labels.clone(),
+    }];
+}
+
 /// Check if a WriteFlagLogsRequest has any logs to send.
 fn has_logs(request: &WriteFlagLogsRequest) -> bool {
     !request.flag_assigned.is_empty()
@@ -271,6 +275,23 @@ fn has_logs(request: &WriteFlagLogsRequest) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_owns_single_init_sample() {
+        let mut telemetry = TelemetryData {
+            provider_init_rate: vec![ProviderInitRate {
+                count: 1,
+                labels: BTreeMap::from([("existing".to_string(), "true".to_string())]),
+            }],
+            ..Default::default()
+        };
+        let labels = BTreeMap::from([("encryption".to_string(), "true".to_string())]);
+
+        set_provider_init_telemetry(&mut telemetry, &labels);
+
+        assert_eq!(telemetry.provider_init_rate.len(), 1);
+        assert_eq!(telemetry.provider_init_rate[0].labels, labels);
+    }
 
     #[test]
     fn test_encode_ingest_request_roundtrip() {

@@ -50,6 +50,7 @@ final class ProviderTelemetryResolver implements LocalResolver {
         .setTelemetryData(
             request.getTelemetryData().toBuilder()
                 .setSdk(sdk)
+                .clearProviderInitRate()
                 .addProviderInitRate(
                     TelemetryData.ProviderInitRate.newBuilder()
                         .setCount(1)
