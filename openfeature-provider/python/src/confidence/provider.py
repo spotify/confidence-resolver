@@ -944,9 +944,7 @@ class ConfidenceProvider(AbstractProvider):
                     init_rate.labels[k] = v
             with self._event_stats_lock:
                 if has_flush:
-                    request.telemetry_data.flush.succeeded = (
-                        self._flush_succeeded
-                    )
+                    request.telemetry_data.flush.succeeded = self._flush_succeeded
                     request.telemetry_data.flush.failed = self._flush_failed
                     self._flush_succeeded = 0
                     self._flush_failed = 0
@@ -975,9 +973,7 @@ class ConfidenceProvider(AbstractProvider):
                     self._flush_succeeded += td.flush.succeeded
                     self._flush_failed += td.flush.failed
                     self._event_telemetry_published += td.events.published
-                    self._event_telemetry_succeeded += (
-                        td.events.batches_succeeded
-                    )
+                    self._event_telemetry_succeeded += td.events.batches_succeeded
                     self._event_telemetry_failed += td.events.batches_failed
             if include_init:
                 with self._init_telemetry_lock:
