@@ -20,17 +20,13 @@ type logSender func(ctx context.Context, request *resolverv1.WriteFlagLogsReques
 // CDN state. The first destination is primary; the second is fallback on error.
 // If no destinations are configured, it defaults to Spotify Edge (gRPC).
 type MultiDestinationFlagLogger struct {
-	senders               map[admin.LogDestination]logSender
-	destinations          func() []admin.LogDestination
-	logger                *slog.Logger
-	wg                    sync.WaitGroup
-	attempts              atomic.Int64
-	failures              atomic.Int64
-	flushSucceeded        atomic.Int64
-	flushFailed           atomic.Int64
-	eventsPublished       atomic.Int64
-	eventBatchesSucceeded atomic.Int64
-	eventBatchesFailed    atomic.Int64
+	senders      map[admin.LogDestination]logSender
+	destinations func() []admin.LogDestination
+	logger       *slog.Logger
+	wg           sync.WaitGroup
+	attempts     atomic.Int64
+	failures     atomic.Int64
+	TelemetryCounters
 }
 
 // NewMultiDestinationFlagLogger creates a flag logger that routes to multiple
@@ -88,29 +84,7 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 		"client_resolve_info", clientResolveCount,
 		"flag_resolve_info", flagResolveCount)
 
-	succeeded := uint32(m.flushSucceeded.Swap(0))
-	failed := uint32(m.flushFailed.Swap(0))
-	evPub := uint32(m.eventsPublished.Swap(0))
-	evOk := uint32(m.eventBatchesSucceeded.Swap(0))
-	evFail := uint32(m.eventBatchesFailed.Swap(0))
-	if succeeded > 0 || failed > 0 || evPub > 0 || evOk > 0 || evFail > 0 {
-		if request.TelemetryData == nil {
-			request.TelemetryData = &resolverv1.TelemetryData{}
-		}
-		if succeeded > 0 || failed > 0 {
-			request.TelemetryData.Flush = &resolverv1.TelemetryData_FlushTelemetry{
-				Succeeded: succeeded,
-				Failed:    failed,
-			}
-		}
-		if evPub > 0 || evOk > 0 || evFail > 0 {
-			request.TelemetryData.Events = &resolverv1.TelemetryData_EventsTelemetry{
-				Published:        evPub,
-				BatchesSucceeded: evOk,
-				BatchesFailed:    evFail,
-			}
-		}
-	}
+	m.DrainAndStamp(request)
 
 	m.wg.Add(1)
 	go func() {
@@ -151,20 +125,9 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 
 		if lastErr != nil {
 			m.failures.Add(1)
-			m.flushFailed.Add(1)
-			if td := request.TelemetryData; td != nil {
-				if td.Flush != nil {
-					m.flushSucceeded.Add(int64(td.Flush.Succeeded))
-					m.flushFailed.Add(int64(td.Flush.Failed))
-				}
-				if td.Events != nil {
-					m.eventsPublished.Add(int64(td.Events.Published))
-					m.eventBatchesSucceeded.Add(int64(td.Events.BatchesSucceeded))
-					m.eventBatchesFailed.Add(int64(td.Events.BatchesFailed))
-				}
-			}
+			m.RestoreOnFailure(request)
 		} else {
-			m.flushSucceeded.Add(1)
+			m.FlushSucceeded.Add(1)
 		}
 
 		if m.attempts.Add(1)%10 == 0 {
@@ -188,13 +151,4 @@ func (m *MultiDestinationFlagLogger) resolveDestinations() []admin.LogDestinatio
 // Shutdown waits for all pending async writes to complete.
 func (m *MultiDestinationFlagLogger) Shutdown() {
 	m.wg.Wait()
-}
-
-func (m *MultiDestinationFlagLogger) RecordEventBatch(eventCount int, succeeded bool) {
-	if succeeded {
-		m.eventsPublished.Add(int64(eventCount))
-		m.eventBatchesSucceeded.Add(1)
-	} else {
-		m.eventBatchesFailed.Add(1)
-	}
 }

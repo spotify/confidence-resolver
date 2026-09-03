@@ -919,8 +919,8 @@ class ConfidenceProvider(AbstractProvider):
                 self._init_telemetry_state = "sending"
                 include_init = True
 
-        has_flush = self._flush_succeeded > 0 or self._flush_failed > 0
         with self._event_stats_lock:
+            has_flush = self._flush_succeeded > 0 or self._flush_failed > 0
             has_events = (
                 self._event_telemetry_published > 0
                 or self._event_telemetry_succeeded > 0
@@ -942,13 +942,15 @@ class ConfidenceProvider(AbstractProvider):
                 init_rate.count = 1
                 for k, v in self._init_labels.items():
                     init_rate.labels[k] = v
-            if has_flush:
-                request.telemetry_data.flush.succeeded = self._flush_succeeded
-                request.telemetry_data.flush.failed = self._flush_failed
-                self._flush_succeeded = 0
-                self._flush_failed = 0
-            if has_events:
-                with self._event_stats_lock:
+            with self._event_stats_lock:
+                if has_flush:
+                    request.telemetry_data.flush.succeeded = (
+                        self._flush_succeeded
+                    )
+                    request.telemetry_data.flush.failed = self._flush_failed
+                    self._flush_succeeded = 0
+                    self._flush_failed = 0
+                if has_events:
                     request.telemetry_data.events.published = (
                         self._event_telemetry_published
                     )
@@ -966,12 +968,12 @@ class ConfidenceProvider(AbstractProvider):
         try:
             self._flag_logger.write(log_data)
         except Exception:
-            self._flush_failed += 1
-            if request is not None:
-                td = request.telemetry_data
-                self._flush_succeeded += td.flush.succeeded
-                self._flush_failed += td.flush.failed
-                with self._event_stats_lock:
+            with self._event_stats_lock:
+                self._flush_failed += 1
+                if request is not None:
+                    td = request.telemetry_data
+                    self._flush_succeeded += td.flush.succeeded
+                    self._flush_failed += td.flush.failed
                     self._event_telemetry_published += td.events.published
                     self._event_telemetry_succeeded += (
                         td.events.batches_succeeded
@@ -982,7 +984,8 @@ class ConfidenceProvider(AbstractProvider):
                     self._init_telemetry_state = "pending"
             raise
         else:
-            self._flush_succeeded += 1
+            with self._event_stats_lock:
+                self._flush_succeeded += 1
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "sent"

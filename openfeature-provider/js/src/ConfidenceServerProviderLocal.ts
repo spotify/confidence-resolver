@@ -244,7 +244,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       }
       if (this.initTelemetryState !== 'sent') {
         try {
-          const request = this.addProviderInitTelemetry(new Uint8Array());
+          const request = this.enrichTelemetry(new Uint8Array(), true);
           await this.sendFlagLogs(request, signal);
           this.initTelemetryState = 'sent';
         } catch {
@@ -519,9 +519,8 @@ export class ConfidenceServerProviderLocal implements Provider {
       const includeInit = this.initTelemetryState === 'pending';
       if (includeInit) {
         this.initTelemetryState = 'sending';
-        writeFlagLogRequest = this.addProviderInitTelemetry(writeFlagLogRequest);
       }
-      writeFlagLogRequest = this.addFlushDeliveryTelemetry(writeFlagLogRequest);
+      writeFlagLogRequest = this.enrichTelemetry(writeFlagLogRequest, includeInit);
       try {
         await this.sendFlagLogs(writeFlagLogRequest, signal);
         this.flushSucceeded++;
@@ -590,10 +589,11 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
   }
 
-  private addFlushDeliveryTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
+  /** Single decode→enrich→encode pass for init + delivery telemetry. */
+  private enrichTelemetry(encodedWriteFlagLogRequest: Uint8Array, includeInit: boolean): Uint8Array {
     const hasFlush = this.flushSucceeded > 0 || this.flushFailed > 0;
     const hasEvents = this.eventsPublished > 0 || this.eventBatchesSucceeded > 0 || this.eventBatchesFailed > 0;
-    if (!hasFlush && !hasEvents) {
+    if (!includeInit && !hasFlush && !hasEvents) {
       return encodedWriteFlagLogRequest;
     }
     const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
@@ -606,6 +606,10 @@ export class ConfidenceServerProviderLocal implements Provider {
       };
     }
     const td = request.telemetryData!;
+    if (includeInit) {
+      td.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
+      td.providerInitRate.push({ count: 1, labels: this.initLabels });
+    }
     if (hasFlush) {
       td.flush = { succeeded: this.flushSucceeded, failed: this.flushFailed };
     }
@@ -621,24 +625,6 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.eventsPublished = 0;
     this.eventBatchesSucceeded = 0;
     this.eventBatchesFailed = 0;
-    return WriteFlagLogsRequest.encode(request).finish();
-  }
-
-  private addProviderInitTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
-    const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
-    if (!request.telemetryData) {
-      request.telemetryData = {
-        resolverVersion: '',
-        providerInitRate: [],
-        resolveRate: [],
-        memoryBytes: 0,
-      };
-    }
-    request.telemetryData.sdk = {
-      id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-      version: VERSION,
-    };
-    request.telemetryData.providerInitRate.push({ count: 1, labels: this.initLabels });
     return WriteFlagLogsRequest.encode(request).finish();
   }
 

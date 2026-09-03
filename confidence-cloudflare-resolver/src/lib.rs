@@ -759,7 +759,7 @@ async fn consume_flag_logs(
         };
 
         if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-            update_prometheus_kv(&kv, &req, Some(delivered)).await;
+            update_kv_snapshot(&kv, req.telemetry_data.as_ref(), Some(delivered), None).await;
         }
 
         if !delivered {
@@ -792,26 +792,28 @@ async fn deliver_flag_logs(
     }
 }
 
-/// Accumulate telemetry deltas from all isolates into a cumulative
-/// `TelemetrySnapshot` stored in KV, then write its Prometheus text
-/// representation for the /metrics endpoint.
+/// Single read-modify-write of the KV-backed cumulative telemetry snapshot.
 ///
-/// `flush_result` records the outcome of the batch delivery: `Some(true)`
-/// for success, `Some(false)` for failure, `None` to skip.
+/// Merges flag-log telemetry deltas, flush delivery results, and event
+/// delivery results into one KV update — avoiding cross-queue races that
+/// would occur if flag-log and event consumers each did independent
+/// read-modify-write cycles on the same "snapshot" key.
 ///
-/// Note: concurrent queue consumer invocations can race on KV read-modify-write.
-/// Acceptable for metrics — at worst one batch's deltas are lost, not cumulative state.
-async fn update_prometheus_kv(
+/// Note: concurrent invocations of the *same* queue can still race on
+/// KV read-modify-write. Acceptable for metrics — at worst one batch's
+/// deltas are lost, not cumulative state.
+async fn update_kv_snapshot(
     kv: &kv::KvStore,
-    req: &WriteFlagLogsRequest,
+    telemetry_delta: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
     flush_result: Option<bool>,
+    event_result: Option<(u64, bool)>,
 ) {
     let mut cumulative = match kv.get("snapshot").text().await {
         Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
         _ => TelemetrySnapshot::default(),
     };
 
-    if let Some(td) = &req.telemetry_data {
+    if let Some(td) = telemetry_delta {
         cumulative.accumulate_delta(td);
     }
 
@@ -823,6 +825,16 @@ async fn update_prometheus_kv(
             cumulative.flush.failed = cumulative.flush.failed.wrapping_add(1);
         }
         None => {}
+    }
+
+    if let Some((event_count, succeeded)) = event_result {
+        if succeeded {
+            cumulative.events.published = cumulative.events.published.wrapping_add(event_count);
+            cumulative.events.batches_succeeded =
+                cumulative.events.batches_succeeded.wrapping_add(1);
+        } else {
+            cumulative.events.batches_failed = cumulative.events.batches_failed.wrapping_add(1);
+        }
     }
 
     let prom_text = cumulative.to_prometheus(
@@ -1041,7 +1053,7 @@ async fn consume_events_queue(
     };
 
     if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-        update_events_kv(&kv, event_count, delivered).await;
+        update_kv_snapshot(&kv, None, None, Some((event_count, delivered))).await;
     }
 
     if !delivered {
@@ -1053,32 +1065,6 @@ async fn consume_events_queue(
     Ok(())
 }
 
-async fn update_events_kv(kv: &kv::KvStore, event_count: u64, succeeded: bool) {
-    let mut cumulative = match kv.get("snapshot").text().await {
-        Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
-        _ => TelemetrySnapshot::default(),
-    };
-
-    if succeeded {
-        cumulative.events.published = cumulative.events.published.wrapping_add(event_count);
-        cumulative.events.batches_succeeded = cumulative.events.batches_succeeded.wrapping_add(1);
-    } else {
-        cumulative.events.batches_failed = cumulative.events.batches_failed.wrapping_add(1);
-    }
-
-    let prom_text = cumulative.to_prometheus(
-        "cf-resolver",
-        &confidence_resolver::telemetry::PrometheusConfig::default(),
-    );
-
-    if let Ok(builder) = kv.put("snapshot", serde_json::to_string(&cumulative).unwrap_or_default())
-    {
-        let _ = builder.execute().await;
-    }
-    if let Ok(builder) = kv.put("prometheus", prom_text) {
-        let _ = builder.execute().await;
-    }
-}
 
 async fn send_events(body: &serde_json::Value) -> Result<Response> {
     let mut init = RequestInit::new();
