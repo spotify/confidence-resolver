@@ -152,6 +152,17 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 		if lastErr != nil {
 			m.failures.Add(1)
 			m.flushFailed.Add(1)
+			if td := request.TelemetryData; td != nil {
+				if td.Flush != nil {
+					m.flushSucceeded.Add(int64(td.Flush.Succeeded))
+					m.flushFailed.Add(int64(td.Flush.Failed))
+				}
+				if td.Events != nil {
+					m.eventsPublished.Add(int64(td.Events.Published))
+					m.eventBatchesSucceeded.Add(int64(td.Events.BatchesSucceeded))
+					m.eventBatchesFailed.Add(int64(td.Events.BatchesFailed))
+				}
+			}
 		} else {
 			m.flushSucceeded.Add(1)
 		}

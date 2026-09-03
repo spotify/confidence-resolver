@@ -6,6 +6,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.spotify.confidence.sdk.flags.admin.v1.LogDestination;
 import com.spotify.confidence.sdk.flags.resolver.v1.IngestFlagLogsRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.InternalFlagLoggerServiceGrpc;
+import com.spotify.confidence.sdk.flags.resolver.v1.TelemetryData;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import io.grpc.*;
 import java.io.OutputStream;
@@ -40,6 +41,9 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   private final AtomicLong failures = new AtomicLong();
   private final AtomicLong telemetryFlushSucceeded = new AtomicLong();
   private final AtomicLong telemetryFlushFailed = new AtomicLong();
+  private final AtomicLong restoredEventsPublished = new AtomicLong();
+  private final AtomicLong restoredEventBatchesSucceeded = new AtomicLong();
+  private final AtomicLong restoredEventBatchesFailed = new AtomicLong();
   private final String clientSecret;
   private final HttpClientFactory httpClientFactory;
   private final AtomicReference<List<LogDestination>> logDestinations =
@@ -135,6 +139,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
       } catch (Exception e) {
         failures.incrementAndGet();
         telemetryFlushFailed.incrementAndGet();
+        restoreDrainedCounters(request);
       }
       return;
     }
@@ -165,12 +170,27 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
         } catch (Exception fallbackEx) {
           failures.incrementAndGet();
           telemetryFlushFailed.incrementAndGet();
+          restoreDrainedCounters(request);
           logger.warn("Fallback destination {} also failed", fallback, fallbackEx);
         }
       } else {
         failures.incrementAndGet();
         telemetryFlushFailed.incrementAndGet();
+        restoreDrainedCounters(request);
       }
+    }
+  }
+
+  private void restoreDrainedCounters(WriteFlagLogsRequest request) {
+    final TelemetryData td = request.getTelemetryData();
+    if (td.hasFlush()) {
+      telemetryFlushSucceeded.addAndGet(td.getFlush().getSucceeded());
+      telemetryFlushFailed.addAndGet(td.getFlush().getFailed());
+    }
+    if (td.hasEvents()) {
+      restoredEventsPublished.addAndGet(td.getEvents().getPublished());
+      restoredEventBatchesSucceeded.addAndGet(td.getEvents().getBatchesSucceeded());
+      restoredEventBatchesFailed.addAndGet(td.getEvents().getBatchesFailed());
     }
   }
 
@@ -222,6 +242,15 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   @Override
   public long[] drainFlushCounters() {
     return new long[] {telemetryFlushSucceeded.getAndSet(0), telemetryFlushFailed.getAndSet(0)};
+  }
+
+  @Override
+  public long[] drainRestoredEventCounters() {
+    return new long[] {
+      restoredEventsPublished.getAndSet(0),
+      restoredEventBatchesSucceeded.getAndSet(0),
+      restoredEventBatchesFailed.getAndSet(0)
+    };
   }
 
   /**

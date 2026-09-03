@@ -213,6 +213,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             flagLogger::write,
             wasmFlagLogger::drainFlushCounters,
             this::drainEventCounters,
+            wasmFlagLogger::drainRestoredEventCounters,
             SDK,
             initLabels,
             providerLogSink ->
@@ -289,6 +290,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             wasmFlagLogger::write,
             wasmFlagLogger::drainFlushCounters,
             this::drainEventCounters,
+            wasmFlagLogger::drainRestoredEventCounters,
             SDK,
             Map.of(),
             providerLogSink ->

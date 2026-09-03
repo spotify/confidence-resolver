@@ -114,6 +114,17 @@ func (g *GrpcFlagLogger) sendAsync(request *resolverv1.WriteFlagLogsRequest) {
 		if _, err := g.stub.ClientWriteFlagLogs(rpcCtx, request); err != nil {
 			g.failures.Add(1)
 			g.flushFailed.Add(1)
+			if td := request.TelemetryData; td != nil {
+				if td.Flush != nil {
+					g.flushSucceeded.Add(int64(td.Flush.Succeeded))
+					g.flushFailed.Add(int64(td.Flush.Failed))
+				}
+				if td.Events != nil {
+					g.eventsPublished.Add(int64(td.Events.Published))
+					g.eventBatchesSucceeded.Add(int64(td.Events.BatchesSucceeded))
+					g.eventBatchesFailed.Add(int64(td.Events.BatchesFailed))
+				}
+			}
 		} else {
 			g.flushSucceeded.Add(1)
 			g.logger.Debug("Successfully sent flag log",

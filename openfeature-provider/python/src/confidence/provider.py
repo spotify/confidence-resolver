@@ -960,6 +960,12 @@ class ConfidenceProvider(AbstractProvider):
             self._flag_logger.write(log_data)
         except Exception:
             self._flush_failed += 1
+            self._flush_succeeded += flush_ok
+            self._flush_failed += flush_err
+            with self._event_stats_lock:
+                self._event_telemetry_published += ev_published
+                self._event_telemetry_succeeded += ev_ok
+                self._event_telemetry_failed += ev_err
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "pending"

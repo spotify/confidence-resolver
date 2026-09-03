@@ -18,6 +18,7 @@ final class ProviderTelemetryResolver implements LocalResolver {
   private final Consumer<WriteFlagLogsRequest> logSink;
   private final Supplier<long[]> flushCounterDrain;
   private final Supplier<long[]> eventCounterDrain;
+  private final Supplier<long[]> restoredEventCounterDrain;
   private final Sdk sdk;
   private final Map<String, String> labels;
   private final LocalResolver delegate;
@@ -47,9 +48,28 @@ final class ProviderTelemetryResolver implements LocalResolver {
       Sdk sdk,
       Map<String, String> labels,
       Function<Consumer<WriteFlagLogsRequest>, LocalResolver> innerFactory) {
+    this(
+        logSink,
+        flushCounterDrain,
+        eventCounterDrain,
+        () -> new long[] {0, 0, 0},
+        sdk,
+        labels,
+        innerFactory);
+  }
+
+  ProviderTelemetryResolver(
+      Consumer<WriteFlagLogsRequest> logSink,
+      Supplier<long[]> flushCounterDrain,
+      Supplier<long[]> eventCounterDrain,
+      Supplier<long[]> restoredEventCounterDrain,
+      Sdk sdk,
+      Map<String, String> labels,
+      Function<Consumer<WriteFlagLogsRequest>, LocalResolver> innerFactory) {
     this.logSink = logSink;
     this.flushCounterDrain = flushCounterDrain;
     this.eventCounterDrain = eventCounterDrain;
+    this.restoredEventCounterDrain = restoredEventCounterDrain;
     this.sdk = sdk;
     this.labels = Map.copyOf(labels);
     this.delegate = innerFactory.apply(this::writeLogs);
@@ -82,7 +102,11 @@ final class ProviderTelemetryResolver implements LocalResolver {
 
   private WriteFlagLogsRequest addEventCounters(WriteFlagLogsRequest request) {
     final long[] counters = eventCounterDrain.get();
-    if (counters[0] == 0 && counters[1] == 0 && counters[2] == 0) {
+    final long[] restored = restoredEventCounterDrain.get();
+    final long published = counters[0] + restored[0];
+    final long succeeded = counters[1] + restored[1];
+    final long failed = counters[2] + restored[2];
+    if (published == 0 && succeeded == 0 && failed == 0) {
       return request;
     }
     return request.toBuilder()
@@ -90,9 +114,9 @@ final class ProviderTelemetryResolver implements LocalResolver {
             request.getTelemetryData().toBuilder()
                 .setEvents(
                     TelemetryData.EventsTelemetry.newBuilder()
-                        .setPublished((int) counters[0])
-                        .setBatchesSucceeded((int) counters[1])
-                        .setBatchesFailed((int) counters[2])
+                        .setPublished((int) published)
+                        .setBatchesSucceeded((int) succeeded)
+                        .setBatchesFailed((int) failed)
                         .build())
                 .build())
         .build();
