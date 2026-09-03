@@ -919,19 +919,16 @@ class ConfidenceProvider(AbstractProvider):
                 self._init_telemetry_state = "sending"
                 include_init = True
 
-        flush_ok = self._flush_succeeded
-        flush_err = self._flush_failed
+        has_flush = self._flush_succeeded > 0 or self._flush_failed > 0
         with self._event_stats_lock:
-            ev_published = self._event_telemetry_published
-            ev_ok = self._event_telemetry_succeeded
-            ev_err = self._event_telemetry_failed
-            self._event_telemetry_published = 0
-            self._event_telemetry_succeeded = 0
-            self._event_telemetry_failed = 0
-        has_flush = flush_ok > 0 or flush_err > 0
-        has_events = ev_published > 0 or ev_ok > 0 or ev_err > 0
+            has_events = (
+                self._event_telemetry_published > 0
+                or self._event_telemetry_succeeded > 0
+                or self._event_telemetry_failed > 0
+            )
         need_rewrite = include_init or has_flush or has_events
 
+        request = None
         if need_rewrite:
             request = internal_api_pb2.WriteFlagLogsRequest.FromString(log_data)
             if include_init:
@@ -946,26 +943,40 @@ class ConfidenceProvider(AbstractProvider):
                 for k, v in self._init_labels.items():
                     init_rate.labels[k] = v
             if has_flush:
-                request.telemetry_data.flush.succeeded = flush_ok
-                request.telemetry_data.flush.failed = flush_err
+                request.telemetry_data.flush.succeeded = self._flush_succeeded
+                request.telemetry_data.flush.failed = self._flush_failed
                 self._flush_succeeded = 0
                 self._flush_failed = 0
             if has_events:
-                request.telemetry_data.events.published = ev_published
-                request.telemetry_data.events.batches_succeeded = ev_ok
-                request.telemetry_data.events.batches_failed = ev_err
+                with self._event_stats_lock:
+                    request.telemetry_data.events.published = (
+                        self._event_telemetry_published
+                    )
+                    request.telemetry_data.events.batches_succeeded = (
+                        self._event_telemetry_succeeded
+                    )
+                    request.telemetry_data.events.batches_failed = (
+                        self._event_telemetry_failed
+                    )
+                    self._event_telemetry_published = 0
+                    self._event_telemetry_succeeded = 0
+                    self._event_telemetry_failed = 0
             log_data = request.SerializeToString()
 
         try:
             self._flag_logger.write(log_data)
         except Exception:
             self._flush_failed += 1
-            self._flush_succeeded += flush_ok
-            self._flush_failed += flush_err
-            with self._event_stats_lock:
-                self._event_telemetry_published += ev_published
-                self._event_telemetry_succeeded += ev_ok
-                self._event_telemetry_failed += ev_err
+            if request is not None:
+                td = request.telemetry_data
+                self._flush_succeeded += td.flush.succeeded
+                self._flush_failed += td.flush.failed
+                with self._event_stats_lock:
+                    self._event_telemetry_published += td.events.published
+                    self._event_telemetry_succeeded += (
+                        td.events.batches_succeeded
+                    )
+                    self._event_telemetry_failed += td.events.batches_failed
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "pending"
