@@ -521,11 +521,6 @@ export class ConfidenceServerProviderLocal implements Provider {
         this.initTelemetryState = 'sending';
         writeFlagLogRequest = this.addProviderInitTelemetry(writeFlagLogRequest);
       }
-      const drainedFlushSucceeded = this.flushSucceeded;
-      const drainedFlushFailed = this.flushFailed;
-      const drainedEventsPublished = this.eventsPublished;
-      const drainedEventBatchesSucceeded = this.eventBatchesSucceeded;
-      const drainedEventBatchesFailed = this.eventBatchesFailed;
       writeFlagLogRequest = this.addFlushDeliveryTelemetry(writeFlagLogRequest);
       try {
         await this.sendFlagLogs(writeFlagLogRequest, signal);
@@ -535,11 +530,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         }
       } catch (error) {
         this.flushFailed++;
-        this.flushSucceeded += drainedFlushSucceeded;
-        this.flushFailed += drainedFlushFailed;
-        this.eventsPublished += drainedEventsPublished;
-        this.eventBatchesSucceeded += drainedEventBatchesSucceeded;
-        this.eventBatchesFailed += drainedEventBatchesFailed;
+        this.restoreDrainedCounters(writeFlagLogRequest);
         if (includeInit) {
           this.initTelemetryState = 'pending';
         }
@@ -578,6 +569,24 @@ export class ConfidenceServerProviderLocal implements Provider {
         logger.warn('Failed to send flag logs', err);
         throw err;
       }
+    }
+  }
+
+  private restoreDrainedCounters(encodedWriteFlagLogRequest: Uint8Array): void {
+    try {
+      const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
+      const td = request.telemetryData;
+      if (td?.flush) {
+        this.flushSucceeded += td.flush.succeeded;
+        this.flushFailed += td.flush.failed;
+      }
+      if (td?.events) {
+        this.eventsPublished += td.events.published;
+        this.eventBatchesSucceeded += td.events.batchesSucceeded;
+        this.eventBatchesFailed += td.events.batchesFailed;
+      }
+    } catch {
+      // Best-effort restore — don't mask the original send error
     }
   }
 
