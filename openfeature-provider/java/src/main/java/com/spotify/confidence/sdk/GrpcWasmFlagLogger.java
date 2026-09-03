@@ -140,7 +140,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
         failures.incrementAndGet();
         telemetryFlushFailed.incrementAndGet();
         restoreDrainedCounters(request);
-        logger.warn("Edge flag log delivery failed", e);
+        logger.debug("Edge flag log delivery failed", e);
       }
       return;
     }
