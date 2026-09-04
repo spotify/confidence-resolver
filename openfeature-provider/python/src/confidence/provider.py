@@ -284,6 +284,12 @@ class ConfidenceProvider(AbstractProvider):
         self._event_publish_attempts = 0
         self._event_publish_failures = 0
 
+        self._flush_succeeded = 0
+        self._flush_failed = 0
+        self._event_telemetry_published = 0
+        self._event_telemetry_succeeded = 0
+        self._event_telemetry_failed = 0
+
         # State fetcher (injected or created)
         self._state_fetcher = state_fetcher
 
@@ -913,28 +919,69 @@ class ConfidenceProvider(AbstractProvider):
                 self._init_telemetry_state = "sending"
                 include_init = True
 
-        if include_init:
-            request = internal_api_pb2.WriteFlagLogsRequest.FromString(log_data)
-            request.telemetry_data.sdk.CopyFrom(
-                types_pb2.Sdk(
-                    id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
-                    version=__version__,
-                )
+        with self._event_stats_lock:
+            has_flush = self._flush_succeeded > 0 or self._flush_failed > 0
+            has_events = (
+                self._event_telemetry_published > 0
+                or self._event_telemetry_succeeded > 0
+                or self._event_telemetry_failed > 0
             )
-            init_rate = request.telemetry_data.provider_init_rate.add()
-            init_rate.count = 1
-            for k, v in self._init_labels.items():
-                init_rate.labels[k] = v
+        need_rewrite = include_init or has_flush or has_events
+
+        request = None
+        if need_rewrite:
+            request = internal_api_pb2.WriteFlagLogsRequest.FromString(log_data)
+            if include_init:
+                request.telemetry_data.sdk.CopyFrom(
+                    types_pb2.Sdk(
+                        id=types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER,
+                        version=__version__,
+                    )
+                )
+                init_rate = request.telemetry_data.provider_init_rate.add()
+                init_rate.count = 1
+                for k, v in self._init_labels.items():
+                    init_rate.labels[k] = v
+            with self._event_stats_lock:
+                if has_flush:
+                    request.telemetry_data.flush.succeeded = self._flush_succeeded
+                    request.telemetry_data.flush.failed = self._flush_failed
+                    self._flush_succeeded = 0
+                    self._flush_failed = 0
+                if has_events:
+                    request.telemetry_data.events.published = (
+                        self._event_telemetry_published
+                    )
+                    request.telemetry_data.events.batches_succeeded = (
+                        self._event_telemetry_succeeded
+                    )
+                    request.telemetry_data.events.batches_failed = (
+                        self._event_telemetry_failed
+                    )
+                    self._event_telemetry_published = 0
+                    self._event_telemetry_succeeded = 0
+                    self._event_telemetry_failed = 0
             log_data = request.SerializeToString()
 
         try:
             self._flag_logger.write(log_data)
         except Exception:
+            with self._event_stats_lock:
+                self._flush_failed += 1
+                if request is not None:
+                    td = request.telemetry_data
+                    self._flush_succeeded += td.flush.succeeded
+                    self._flush_failed += td.flush.failed
+                    self._event_telemetry_published += td.events.published
+                    self._event_telemetry_succeeded += td.events.batches_succeeded
+                    self._event_telemetry_failed += td.events.batches_failed
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "pending"
             raise
         else:
+            with self._event_stats_lock:
+                self._flush_succeeded += 1
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "sent"
@@ -1132,6 +1179,10 @@ class ConfidenceProvider(AbstractProvider):
         with self._event_stats_lock:
             if failed:
                 self._event_publish_failures += 1
+                self._event_telemetry_failed += 1
+            else:
+                self._event_telemetry_published += len(batch.events)
+                self._event_telemetry_succeeded += 1
             self._event_publish_attempts += 1
             if self._event_publish_attempts % EVENTS_STATS_WINDOW == 0:
                 if self._event_publish_failures > 0:

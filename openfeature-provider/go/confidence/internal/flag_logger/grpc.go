@@ -19,6 +19,7 @@ type GrpcFlagLogger struct {
 	wg           sync.WaitGroup
 	attempts     atomic.Int64
 	failures     atomic.Int64
+	TelemetryCounters
 }
 
 func NewGrpcWasmFlagLogger(stub resolverv1.InternalFlagLoggerServiceClient, clientSecret string, logger *slog.Logger) *GrpcFlagLogger {
@@ -57,6 +58,7 @@ func (g *GrpcFlagLogger) Write(request *resolverv1.WriteFlagLogsRequest) {
 		"client_resolve_info", clientResolveCount,
 		"flag_resolve_info", flagResolveCount)
 
+	g.DrainAndStamp(request)
 	g.sendAsync(request)
 
 }
@@ -75,7 +77,9 @@ func (g *GrpcFlagLogger) sendAsync(request *resolverv1.WriteFlagLogsRequest) {
 
 		if _, err := g.stub.ClientWriteFlagLogs(rpcCtx, request); err != nil {
 			g.failures.Add(1)
+			g.RestoreOnFailure(request)
 		} else {
+			g.FlushSucceeded.Add(1)
 			g.logger.Debug("Successfully sent flag log",
 				"flag_assigned", len(request.FlagAssigned),
 				"client_resolve_info", len(request.ClientResolveInfo),
@@ -108,4 +112,8 @@ func (n *NoOpWasmFlagLogger) Write(request *resolverv1.WriteFlagLogsRequest) {
 
 func (n *NoOpWasmFlagLogger) Shutdown() {
 	// Nothing to shut down
+}
+
+func (n *NoOpWasmFlagLogger) RecordEventBatch(eventCount int, succeeded bool) {
+	// No-op
 }

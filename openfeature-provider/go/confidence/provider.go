@@ -632,9 +632,16 @@ func (p *LocalResolverProvider) flushAndPublishEvents(ctx context.Context) int {
 		return 0
 	}
 
-	if err := p.publishEvents(ctx, batch); err != nil {
+	eventCount := len(batch.Events)
+	rejected, err := p.publishEvents(ctx, batch)
+	if err != nil {
 		p.eventPublishFailures.Add(1)
 		p.logger.Debug("Failed to publish events", "error", err)
+		if recorder, ok := p.flagLogger.(interface{ RecordEventBatch(int, bool) }); ok {
+			recorder.RecordEventBatch(eventCount, false)
+		}
+	} else if recorder, ok := p.flagLogger.(interface{ RecordEventBatch(int, bool) }); ok {
+		recorder.RecordEventBatch(eventCount-rejected, true)
 	}
 
 	if p.eventPublishAttempts.Add(1)%eventPublishLogWindow == 0 {
@@ -671,9 +678,9 @@ func (p *LocalResolverProvider) drainEvents(ctx context.Context) {
 
 // publishEvents wraps a flushed batch in a PublishEventsRequest and sends it to
 // the Confidence events service.
-func (p *LocalResolverProvider) publishEvents(ctx context.Context, batch *eventswasm.FlushEventsResponse) error {
+func (p *LocalResolverProvider) publishEvents(ctx context.Context, batch *eventswasm.FlushEventsResponse) (int, error) {
 	if p.eventsClient == nil {
-		return errors.New("events service client is not configured")
+		return 0, errors.New("events service client is not configured")
 	}
 
 	rpcCtx, cancel := context.WithTimeout(ctx, eventsPublishTimeout)
@@ -688,9 +695,10 @@ func (p *LocalResolverProvider) publishEvents(ctx context.Context, batch *events
 
 	response, err := p.eventsClient.PublishEvents(rpcCtx, request)
 	if err != nil {
-		return fmt.Errorf("failed to publish events: %w", err)
+		return 0, fmt.Errorf("failed to publish events: %w", err)
 	}
 
+	rejected := len(response.GetErrors())
 	for _, e := range response.GetErrors() {
 		p.logger.Error("Event publish error",
 			"index", e.GetIndex(),
@@ -698,7 +706,7 @@ func (p *LocalResolverProvider) publishEvents(ctx context.Context, batch *events
 			"message", e.GetMessage())
 	}
 
-	return nil
+	return rejected, nil
 }
 
 // Resolve resolves multiple flags for the given context. If flagNames is empty,

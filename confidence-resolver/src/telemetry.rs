@@ -6,6 +6,8 @@ use arc_swap::ArcSwap;
 
 use crate::ResolveReason;
 
+use crate::apply_dedup::ApplyDedupSnapshot;
+
 mod pb {
     pub use crate::proto::confidence::flags::resolver::v1::telemetry_data::{
         BucketSpan, ResolveLatency, ResolveRate, StateAge,
@@ -111,6 +113,24 @@ pub struct TelemetrySnapshot {
     pub latency: HistogramSnapshot,
     pub resolve_rates: Vec<u64>,
     pub memory_bytes: u64,
+    pub apply_dedup: Option<ApplyDedupSnapshot>,
+    pub flush: FlushSnapshot,
+    pub events: EventsSnapshot,
+}
+
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+pub struct FlushSnapshot {
+    pub succeeded: u64,
+    pub failed: u64,
+}
+
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+pub struct EventsSnapshot {
+    pub published: u64,
+    pub batches_succeeded: u64,
+    pub batches_failed: u64,
 }
 
 #[derive(Clone, Default)]
@@ -188,6 +208,39 @@ impl TelemetrySnapshot {
         if td.memory_bytes > 0 {
             self.memory_bytes = td.memory_bytes;
         }
+
+        if let Some(dedup) = &td.apply_dedup {
+            let ad = self
+                .apply_dedup
+                .get_or_insert_with(ApplyDedupSnapshot::default);
+            ad.applies_total = ad.applies_total.wrapping_add(dedup.applies_total as u64);
+            ad.applies_deduped = ad
+                .applies_deduped
+                .wrapping_add(dedup.applies_deduped as u64);
+            ad.apply_dedup_overflow = ad
+                .apply_dedup_overflow
+                .wrapping_add(dedup.apply_dedup_overflow as u64);
+            ad.sweeps = ad.sweeps.wrapping_add(dedup.sweeps as u64);
+            ad.map_size = dedup.map_size;
+            ad.map_capacity = dedup.map_capacity;
+        }
+
+        if let Some(flush) = &td.flush {
+            self.flush.succeeded = self.flush.succeeded.wrapping_add(flush.succeeded as u64);
+            self.flush.failed = self.flush.failed.wrapping_add(flush.failed as u64);
+        }
+
+        if let Some(events) = &td.events {
+            self.events.published = self.events.published.wrapping_add(events.published as u64);
+            self.events.batches_succeeded = self
+                .events
+                .batches_succeeded
+                .wrapping_add(events.batches_succeeded as u64);
+            self.events.batches_failed = self
+                .events
+                .batches_failed
+                .wrapping_add(events.batches_failed as u64);
+        }
     }
 
     /// Format the snapshot as Prometheus exposition text.
@@ -215,6 +268,9 @@ impl TelemetrySnapshot {
         self.write_histogram(w, resolver_id, config)?;
         self.write_resolve_rates(w, resolver_id, config)?;
         self.write_memory(w, resolver_id, config)?;
+        self.write_apply_dedup(w, resolver_id, config)?;
+        self.write_flush(w, resolver_id, config)?;
+        self.write_events(w, resolver_id, config)?;
         if config.openmetrics {
             writeln!(w, "# EOF")?;
         }
@@ -354,6 +410,208 @@ impl TelemetrySnapshot {
             self.memory_bytes
         )
     }
+
+    fn write_apply_dedup(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
+        let ad = match &self.apply_dedup {
+            Some(ad) if ad.has_activity() => ad,
+            _ => return Ok(()),
+        };
+        let suffix = if config.openmetrics { ".0" } else { "" };
+
+        let type_name = if config.openmetrics {
+            "confidence_apply_dedup_applies"
+        } else {
+            "confidence_apply_dedup_applies_total"
+        };
+        writeln!(
+            w,
+            "# HELP {type_name} Total flag apply events processed by dedup."
+        )?;
+        writeln!(w, "# TYPE {type_name} counter")?;
+        writeln!(
+            w,
+            "confidence_apply_dedup_applies_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            ad.applies_total
+        )?;
+
+        let type_name = if config.openmetrics {
+            "confidence_apply_dedup_deduped"
+        } else {
+            "confidence_apply_dedup_deduped_total"
+        };
+        writeln!(w, "# HELP {type_name} Duplicate apply events filtered out.")?;
+        writeln!(w, "# TYPE {type_name} counter")?;
+        writeln!(
+            w,
+            "confidence_apply_dedup_deduped_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            ad.applies_deduped
+        )?;
+
+        let type_name = if config.openmetrics {
+            "confidence_apply_dedup_overflow"
+        } else {
+            "confidence_apply_dedup_overflow_total"
+        };
+        writeln!(
+            w,
+            "# HELP {type_name} Unique apply events that passed the dedup filter but could not be cached (map full)."
+        )?;
+        writeln!(w, "# TYPE {type_name} counter")?;
+        writeln!(
+            w,
+            "confidence_apply_dedup_overflow_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            ad.apply_dedup_overflow
+        )?;
+
+        let type_name = if config.openmetrics {
+            "confidence_apply_dedup_sweeps"
+        } else {
+            "confidence_apply_dedup_sweeps_total"
+        };
+        writeln!(
+            w,
+            "# HELP {type_name} Number of dedup map sweep operations."
+        )?;
+        writeln!(w, "# TYPE {type_name} counter")?;
+        writeln!(
+            w,
+            "confidence_apply_dedup_sweeps_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            ad.sweeps
+        )?;
+
+        writeln!(
+            w,
+            "# HELP confidence_apply_dedup_map_size Current entries in the dedup map."
+        )?;
+        writeln!(w, "# TYPE confidence_apply_dedup_map_size gauge")?;
+        writeln!(
+            w,
+            "confidence_apply_dedup_map_size{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            ad.map_size
+        )?;
+
+        writeln!(
+            w,
+            "# HELP confidence_apply_dedup_map_capacity Maximum entries allowed in the dedup map."
+        )?;
+        writeln!(w, "# TYPE confidence_apply_dedup_map_capacity gauge")?;
+        writeln!(
+            w,
+            "confidence_apply_dedup_map_capacity{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            ad.map_capacity
+        )
+    }
+
+    fn write_flush(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
+        if self.flush.succeeded == 0 && self.flush.failed == 0 {
+            return Ok(());
+        }
+        let suffix = if config.openmetrics { ".0" } else { "" };
+
+        let type_name = if config.openmetrics {
+            "confidence_flush_succeeded"
+        } else {
+            "confidence_flush_succeeded_total"
+        };
+        writeln!(
+            w,
+            "# HELP {type_name} Successful WriteFlagLogs batch deliveries."
+        )?;
+        writeln!(w, "# TYPE {type_name} counter")?;
+        writeln!(
+            w,
+            "confidence_flush_succeeded_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            self.flush.succeeded
+        )?;
+
+        let type_name = if config.openmetrics {
+            "confidence_flush_failed"
+        } else {
+            "confidence_flush_failed_total"
+        };
+        writeln!(
+            w,
+            "# HELP {type_name} Failed WriteFlagLogs batch deliveries."
+        )?;
+        writeln!(w, "# TYPE {type_name} counter")?;
+        writeln!(
+            w,
+            "confidence_flush_failed_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            self.flush.failed
+        )
+    }
+
+    fn write_events(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
+        if self.events.published == 0
+            && self.events.batches_succeeded == 0
+            && self.events.batches_failed == 0
+        {
+            return Ok(());
+        }
+        let suffix = if config.openmetrics { ".0" } else { "" };
+
+        if self.events.published > 0 {
+            let type_name = if config.openmetrics {
+                "confidence_events_published"
+            } else {
+                "confidence_events_published_total"
+            };
+            writeln!(w, "# HELP {type_name} Total events published.")?;
+            writeln!(w, "# TYPE {type_name} counter")?;
+            writeln!(
+                w,
+                "confidence_events_published_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+                self.events.published
+            )?;
+        }
+
+        if self.events.batches_succeeded > 0 {
+            let type_name = if config.openmetrics {
+                "confidence_event_batches_succeeded"
+            } else {
+                "confidence_event_batches_succeeded_total"
+            };
+            writeln!(w, "# HELP {type_name} Successful event batch deliveries.")?;
+            writeln!(w, "# TYPE {type_name} counter")?;
+            writeln!(
+                w,
+                "confidence_event_batches_succeeded_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+                self.events.batches_succeeded
+            )?;
+        }
+
+        if self.events.batches_failed > 0 {
+            let type_name = if config.openmetrics {
+                "confidence_event_batches_failed"
+            } else {
+                "confidence_event_batches_failed_total"
+            };
+            writeln!(w, "# HELP {type_name} Failed event batch deliveries.")?;
+            writeln!(w, "# TYPE {type_name} counter")?;
+            writeln!(
+                w,
+                "confidence_event_batches_failed_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+                self.events.batches_failed
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Concurrent telemetry collector.
@@ -420,6 +678,9 @@ impl Telemetry {
                 .map(|c| c.load(Ordering::Relaxed))
                 .collect(),
             memory_bytes: (self.memory_provider)(),
+            apply_dedup: None,
+            flush: FlushSnapshot::default(),
+            events: EventsSnapshot::default(),
         }
     }
 
@@ -499,6 +760,9 @@ impl Telemetry {
             memory_bytes: (self.memory_provider)(),
             resolver_version: crate::version::VERSION.to_string(),
             provider_init_rate: Vec::new(),
+            apply_dedup: None,
+            flush: None,
+            events: None,
         }
     }
 }
@@ -1123,5 +1387,174 @@ mod tests {
         assert_eq!(snap.latency.sum, 100);
         let total: u64 = snap.latency.buckets.iter().sum();
         assert_eq!(total, 0);
+    }
+
+    #[test]
+    fn accumulate_delta_with_apply_dedup() {
+        use crate::proto::confidence::flags::resolver::v1::telemetry_data::ApplyDedupTelemetry;
+
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            apply_dedup: Some(ApplyDedupTelemetry {
+                applies_total: 10,
+                applies_deduped: 3,
+                apply_dedup_overflow: 1,
+                sweeps: 2,
+                map_size: 50,
+                map_capacity: 100_000,
+            }),
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        let ad = snap.apply_dedup.as_ref().unwrap();
+        assert_eq!(ad.applies_total, 10);
+        assert_eq!(ad.applies_deduped, 3);
+        assert_eq!(ad.apply_dedup_overflow, 1);
+        assert_eq!(ad.sweeps, 2);
+        assert_eq!(ad.map_size, 50);
+        assert_eq!(ad.map_capacity, 100_000);
+
+        // Second accumulation adds counters, replaces gauges
+        snap.accumulate_delta(&td);
+        let ad = snap.apply_dedup.as_ref().unwrap();
+        assert_eq!(ad.applies_total, 20);
+        assert_eq!(ad.applies_deduped, 6);
+        assert_eq!(ad.map_size, 50); // gauge, replaced
+    }
+
+    #[test]
+    fn prometheus_apply_dedup_metrics() {
+        let mut snap = TelemetrySnapshot::default();
+        snap.apply_dedup = Some(ApplyDedupSnapshot {
+            applies_total: 100,
+            applies_deduped: 40,
+            apply_dedup_overflow: 5,
+            sweeps: 3,
+            map_size: 200,
+            map_capacity: 100_000,
+        });
+
+        let config = PrometheusConfig::default();
+        let prom = snap.to_prometheus("w0", &config);
+
+        assert!(prom.contains("# HELP confidence_apply_dedup_applies_total"));
+        assert!(prom.contains("# TYPE confidence_apply_dedup_applies_total counter"));
+        assert!(prom.contains(r#"confidence_apply_dedup_applies_total{resolver_id="w0"} 100"#));
+
+        assert!(prom.contains(r#"confidence_apply_dedup_deduped_total{resolver_id="w0"} 40"#));
+
+        assert!(prom.contains(r#"confidence_apply_dedup_overflow_total{resolver_id="w0"} 5"#));
+
+        assert!(prom.contains(r#"confidence_apply_dedup_sweeps_total{resolver_id="w0"} 3"#));
+
+        assert!(prom.contains(r#"confidence_apply_dedup_map_size{resolver_id="w0"} 200"#));
+        assert!(prom.contains("# TYPE confidence_apply_dedup_map_size gauge"));
+
+        assert!(prom.contains(r#"confidence_apply_dedup_map_capacity{resolver_id="w0"} 100000"#));
+        assert!(prom.contains("# TYPE confidence_apply_dedup_map_capacity gauge"));
+    }
+
+    #[test]
+    fn prometheus_no_dedup_when_none() {
+        let snap = TelemetrySnapshot::default();
+        let prom = snap.to_prometheus("w0", &PrometheusConfig::default());
+        assert!(!prom.contains("apply_dedup"));
+    }
+
+    #[test]
+    fn prometheus_flush_counters() {
+        let mut snap = TelemetrySnapshot::default();
+        snap.flush.succeeded = 10;
+        snap.flush.failed = 2;
+
+        let config = PrometheusConfig::default();
+        let prom = snap.to_prometheus("w0", &config);
+
+        assert!(prom.contains(r#"confidence_flush_succeeded_total{resolver_id="w0"} 10"#));
+        assert!(prom.contains(r#"confidence_flush_failed_total{resolver_id="w0"} 2"#));
+    }
+
+    #[test]
+    fn accumulate_delta_flush_counters() {
+        use crate::proto::confidence::flags::resolver::v1::telemetry_data::FlushTelemetry;
+
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            flush: Some(FlushTelemetry {
+                succeeded: 5,
+                failed: 1,
+            }),
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.flush.succeeded, 5);
+        assert_eq!(snap.flush.failed, 1);
+
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.flush.succeeded, 10);
+        assert_eq!(snap.flush.failed, 2);
+    }
+
+    #[test]
+    fn accumulate_delta_event_counters() {
+        use crate::proto::confidence::flags::resolver::v1::telemetry_data::EventsTelemetry;
+
+        let mut snap = TelemetrySnapshot::default();
+        let td = pb::TelemetryData {
+            events: Some(EventsTelemetry {
+                published: 42,
+                batches_succeeded: 3,
+                batches_failed: 1,
+            }),
+            ..Default::default()
+        };
+
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.events.published, 42);
+        assert_eq!(snap.events.batches_succeeded, 3);
+        assert_eq!(snap.events.batches_failed, 1);
+
+        snap.accumulate_delta(&td);
+        assert_eq!(snap.events.published, 84);
+        assert_eq!(snap.events.batches_succeeded, 6);
+        assert_eq!(snap.events.batches_failed, 2);
+    }
+
+    #[test]
+    fn openmetrics_with_all_telemetry() {
+        let tel = Telemetry::with_memory_provider(|| 1_048_576);
+        tel.record_latency_us(100);
+        tel.mark_resolve(ResolveReason::Match);
+
+        let mut snap = tel.snapshot();
+        snap.apply_dedup = Some(ApplyDedupSnapshot {
+            applies_total: 10,
+            applies_deduped: 3,
+            apply_dedup_overflow: 0,
+            sweeps: 1,
+            map_size: 5,
+            map_capacity: 100_000,
+        });
+        snap.flush.succeeded = 2;
+        snap.flush.failed = 1;
+        snap.events.published = 50;
+        snap.events.batches_succeeded = 4;
+        snap.events.batches_failed = 1;
+
+        let config = PrometheusConfig {
+            openmetrics: true,
+            ..PrometheusConfig::default()
+        };
+        let output = snap.to_prometheus("w0", &config);
+
+        assert!(output.trim_end().ends_with("# EOF"));
+        let result = openmetrics_parser::openmetrics::parse_openmetrics(&output);
+        assert!(
+            result.is_ok(),
+            "OpenMetrics parser rejected output with all telemetry: {:?}\n\nRaw:\n{output}",
+            result.err()
+        );
     }
 }

@@ -26,6 +26,7 @@ type MultiDestinationFlagLogger struct {
 	wg           sync.WaitGroup
 	attempts     atomic.Int64
 	failures     atomic.Int64
+	TelemetryCounters
 }
 
 // NewMultiDestinationFlagLogger creates a flag logger that routes to multiple
@@ -83,6 +84,8 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 		"client_resolve_info", clientResolveCount,
 		"flag_resolve_info", flagResolveCount)
 
+	m.DrainAndStamp(request)
+
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
@@ -122,6 +125,9 @@ func (m *MultiDestinationFlagLogger) Write(request *resolverv1.WriteFlagLogsRequ
 
 		if lastErr != nil {
 			m.failures.Add(1)
+			m.RestoreOnFailure(request)
+		} else {
+			m.FlushSucceeded.Add(1)
 		}
 
 		if m.attempts.Add(1)%10 == 0 {

@@ -93,6 +93,11 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly materializationStore: MaterializationStore | null;
   private readonly initLabels: Record<string, string>;
   private initTelemetryState: 'pending' | 'sending' | 'sent' = 'pending';
+  private flushSucceeded = 0;
+  private flushFailed = 0;
+  private eventsPublished = 0;
+  private eventBatchesSucceeded = 0;
+  private eventBatchesFailed = 0;
   private resolverInstance: LocalResolver | null = null;
   private eventTracker: EventTracker | null = null;
   private stateEtag: string | null = null;
@@ -239,7 +244,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       }
       if (this.initTelemetryState !== 'sent') {
         try {
-          const request = this.addProviderInitTelemetry(new Uint8Array());
+          const request = this.enrichTelemetry(new Uint8Array(), true);
           await this.sendFlagLogs(request, signal);
           this.initTelemetryState = 'sent';
         } catch {
@@ -315,16 +320,20 @@ export class ConfidenceServerProviderLocal implements Provider {
         body: body as Uint8Array<ArrayBuffer>,
       });
       if (!response.ok) {
+        this.eventBatchesFailed++;
         logger.error(`Failed to send events: ${response.status} ${response.statusText}`);
         return;
       }
+      this.eventBatchesSucceeded++;
       const { errors } = PublishEventsResponse.decode(new Uint8Array(await response.arrayBuffer()));
+      this.eventsPublished += (batch.events?.length ?? 0) - errors.length;
       for (const error of errors) {
         logger.error(
           `Failed to publish event at index ${error.index}: ${EventError_Reason[error.reason]} ${error.message}`,
         );
       }
     } catch (err) {
+      this.eventBatchesFailed++;
       logger.warn('Failed to send events:', err);
     }
   }
@@ -510,14 +519,17 @@ export class ConfidenceServerProviderLocal implements Provider {
       const includeInit = this.initTelemetryState === 'pending';
       if (includeInit) {
         this.initTelemetryState = 'sending';
-        writeFlagLogRequest = this.addProviderInitTelemetry(writeFlagLogRequest);
       }
+      writeFlagLogRequest = this.enrichTelemetry(writeFlagLogRequest, includeInit);
       try {
         await this.sendFlagLogs(writeFlagLogRequest, signal);
+        this.flushSucceeded++;
         if (includeInit) {
           this.initTelemetryState = 'sent';
         }
       } catch (error) {
+        this.flushFailed++;
+        this.restoreDrainedCounters(writeFlagLogRequest);
         if (includeInit) {
           this.initTelemetryState = 'pending';
         }
@@ -557,18 +569,64 @@ export class ConfidenceServerProviderLocal implements Provider {
         throw err;
       }
     }
+    // All destinations returned non-OK responses without throwing
+    throw new Error('All flag log destinations returned error responses');
   }
 
-  private addProviderInitTelemetry(encodedWriteFlagLogRequest: Uint8Array): Uint8Array {
+  private restoreDrainedCounters(encodedWriteFlagLogRequest: Uint8Array): void {
+    try {
+      const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
+      const td = request.telemetryData;
+      if (td?.flush) {
+        this.flushSucceeded += td.flush.succeeded;
+        this.flushFailed += td.flush.failed;
+      }
+      if (td?.events) {
+        this.eventsPublished += td.events.published;
+        this.eventBatchesSucceeded += td.events.batchesSucceeded;
+        this.eventBatchesFailed += td.events.batchesFailed;
+      }
+    } catch {
+      // Best-effort restore — don't mask the original send error
+    }
+  }
+
+  /** Single decode→enrich→encode pass for init + delivery telemetry. */
+  private enrichTelemetry(encodedWriteFlagLogRequest: Uint8Array, includeInit: boolean): Uint8Array {
+    const hasFlush = this.flushSucceeded > 0 || this.flushFailed > 0;
+    const hasEvents = this.eventsPublished > 0 || this.eventBatchesSucceeded > 0 || this.eventBatchesFailed > 0;
+    if (!includeInit && !hasFlush && !hasEvents) {
+      return encodedWriteFlagLogRequest;
+    }
     const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
     if (!request.telemetryData) {
-      request.telemetryData = { resolverVersion: '', providerInitRate: [] };
+      request.telemetryData = {
+        resolverVersion: '',
+        providerInitRate: [],
+        resolveRate: [],
+        memoryBytes: 0,
+      };
     }
-    request.telemetryData.sdk = {
-      id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-      version: VERSION,
-    };
-    request.telemetryData.providerInitRate.push({ count: 1, labels: this.initLabels });
+    const td = request.telemetryData!;
+    if (includeInit) {
+      td.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
+      td.providerInitRate.push({ count: 1, labels: this.initLabels });
+    }
+    if (hasFlush) {
+      td.flush = { succeeded: this.flushSucceeded, failed: this.flushFailed };
+    }
+    if (hasEvents) {
+      td.events = {
+        published: this.eventsPublished,
+        batchesSucceeded: this.eventBatchesSucceeded,
+        batchesFailed: this.eventBatchesFailed,
+      };
+    }
+    this.flushSucceeded = 0;
+    this.flushFailed = 0;
+    this.eventsPublished = 0;
+    this.eventBatchesSucceeded = 0;
+    this.eventBatchesFailed = 0;
     return WriteFlagLogsRequest.encode(request).finish();
   }
 

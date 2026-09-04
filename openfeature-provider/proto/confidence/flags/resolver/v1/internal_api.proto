@@ -51,11 +51,64 @@ message TelemetryData {
   // Information about the SDK/provider
   Sdk sdk = 2;
 
+  // WASM-produced fields. Must be present so decode→encode round-trips
+  // in host SDKs preserve them (ts-proto/protobuf-js drop unknown fields).
+  ResolveLatency resolve_latency = 4;
+  repeated ResolveRate resolve_rate = 5;
+  StateAge state_age = 6;
+  uint64 memory_bytes = 7;
+
   // Version of the embedded resolver (e.g. "0.14.0").
   // This must be preserved when providers decode and re-encode telemetry.
   string resolver_version = 8;
 
   repeated ProviderInitRate provider_init_rate = 9;
+
+  ApplyDedupTelemetry apply_dedup = 10;
+
+  FlushTelemetry flush = 11;
+  EventsTelemetry events = 12;
+
+  message FlushTelemetry {
+    uint32 succeeded = 1;
+    uint32 failed = 2;
+  }
+
+  message EventsTelemetry {
+    uint32 published = 1;
+    uint32 batches_succeeded = 2;
+    uint32 batches_failed = 3;
+  }
+
+  message ResolveLatency {
+    uint32 sum = 1;
+    uint32 count = 2;
+    repeated BucketSpan buckets = 3;
+    double ln_ratio = 4;
+  }
+
+  message ResolveRate {
+    uint32 count = 1;
+    uint32 reason = 2;
+  }
+
+  message StateAge {
+    uint64 last_state_update = 1;
+  }
+
+  message BucketSpan {
+    int32 offset = 1;
+    repeated uint32 counts = 2;
+  }
+
+  message ApplyDedupTelemetry {
+    uint32 applies_total = 1;
+    uint32 applies_deduped = 2;
+    uint32 apply_dedup_overflow = 3;
+    uint32 sweeps = 4;
+    uint32 map_size = 5;
+    uint32 map_capacity = 6;
+  }
 
   message ProviderInitRate {
     uint32 count = 1;
