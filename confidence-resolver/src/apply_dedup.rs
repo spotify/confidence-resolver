@@ -162,7 +162,8 @@ const SWEEP_MIN_INTERVAL_SECONDS: i64 = 10;
 pub struct ApplyDedupSnapshot {
     pub applies_total: u64,
     pub applies_deduped: u64,
-    pub overflow: u64,
+    #[cfg_attr(feature = "json", serde(alias = "overflow"))]
+    pub apply_dedup_overflow: u64,
     pub sweeps: u64,
     pub map_size: u32,
     pub map_capacity: u32,
@@ -175,9 +176,9 @@ impl ApplyDedupSnapshot {
         ApplyDedupTelemetry {
             applies_total: self.applies_total.wrapping_sub(previous.applies_total) as u32,
             applies_deduped: self.applies_deduped.wrapping_sub(previous.applies_deduped) as u32,
-            overflow: self
-                .overflow
-                .wrapping_sub(previous.overflow) as u32,
+            apply_dedup_overflow: self
+                .apply_dedup_overflow
+                .wrapping_sub(previous.apply_dedup_overflow) as u32,
             sweeps: self.sweeps.wrapping_sub(previous.sweeps) as u32,
             map_size: self.map_size,
             map_capacity: self.map_capacity,
@@ -196,7 +197,7 @@ pub struct ApplyDedup {
     last_sweep_seconds: i64,
     applies_total: u64,
     applies_deduped: u64,
-    overflow: u64,
+    apply_dedup_overflow: u64,
     sweeps: u64,
 }
 
@@ -213,7 +214,7 @@ impl ApplyDedup {
             last_sweep_seconds: 0,
             applies_total: 0,
             applies_deduped: 0,
-            overflow: 0,
+            apply_dedup_overflow: 0,
             sweeps: 0,
         }
     }
@@ -222,7 +223,7 @@ impl ApplyDedup {
         ApplyDedupSnapshot {
             applies_total: self.applies_total,
             applies_deduped: self.applies_deduped,
-            overflow: self.overflow,
+            apply_dedup_overflow: self.apply_dedup_overflow,
             sweeps: self.sweeps,
             map_size: self.seen.len() as u32,
             map_capacity: self.max_entries as u32,
@@ -257,7 +258,7 @@ impl ApplyDedup {
             if self.seen.len() < self.max_entries {
                 self.seen.insert(hash, now_seconds);
             } else {
-                self.overflow = self.overflow.wrapping_add(1);
+                self.apply_dedup_overflow = self.apply_dedup_overflow.wrapping_add(1);
             }
             keep.mark(i);
         }
@@ -1245,7 +1246,7 @@ mod tests {
         let snap = dedup.telemetry_snapshot();
         assert_eq!(snap.applies_total, 2);
         assert_eq!(snap.applies_deduped, 0);
-        assert_eq!(snap.overflow, 0);
+        assert_eq!(snap.apply_dedup_overflow, 0);
         assert_eq!(snap.map_size, 2);
         assert_eq!(snap.map_capacity, 1000);
 
@@ -1267,7 +1268,7 @@ mod tests {
 
         let snap = dedup.telemetry_snapshot();
         assert_eq!(snap.applies_total, 3);
-        assert_eq!(snap.overflow, 1);
+        assert_eq!(snap.apply_dedup_overflow, 1);
         assert_eq!(snap.map_size, 2);
     }
 

@@ -104,7 +104,7 @@ message TelemetryData {
   message ApplyDedupTelemetry {
     uint32 applies_total = 1;
     uint32 applies_deduped = 2;
-    uint32 overflow = 3;
+    uint32 apply_dedup_overflow = 3;
     uint32 sweeps = 4;
     uint32 map_size = 5;
     uint32 map_capacity = 6;
