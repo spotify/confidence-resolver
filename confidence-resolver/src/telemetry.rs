@@ -217,9 +217,9 @@ impl TelemetrySnapshot {
             ad.applies_deduped = ad
                 .applies_deduped
                 .wrapping_add(dedup.applies_deduped as u64);
-            ad.applies_not_cached = ad
-                .applies_not_cached
-                .wrapping_add(dedup.applies_not_cached as u64);
+            ad.unique_applies = ad
+                .unique_applies
+                .wrapping_add(dedup.unique_applies as u64);
             ad.sweeps = ad.sweeps.wrapping_add(dedup.sweeps as u64);
             ad.map_size = dedup.map_size;
             ad.map_capacity = dedup.map_capacity;
@@ -453,19 +453,19 @@ impl TelemetrySnapshot {
         )?;
 
         let type_name = if config.openmetrics {
-            "confidence_apply_dedup_not_cached"
+            "confidence_apply_dedup_unique_applies"
         } else {
-            "confidence_apply_dedup_not_cached_total"
+            "confidence_apply_dedup_unique_applies_total"
         };
         writeln!(
             w,
-            "# HELP {type_name} Apply events passed through but not cached (map full)."
+            "# HELP {type_name} Unique apply events that passed the dedup filter but could not be cached (map full)."
         )?;
         writeln!(w, "# TYPE {type_name} counter")?;
         writeln!(
             w,
-            "confidence_apply_dedup_not_cached_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
-            ad.applies_not_cached
+            "confidence_apply_dedup_unique_applies_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            ad.unique_applies
         )?;
 
         let type_name = if config.openmetrics {
@@ -1398,7 +1398,7 @@ mod tests {
             apply_dedup: Some(ApplyDedupTelemetry {
                 applies_total: 10,
                 applies_deduped: 3,
-                applies_not_cached: 1,
+                unique_applies: 1,
                 sweeps: 2,
                 map_size: 50,
                 map_capacity: 100_000,
@@ -1410,7 +1410,7 @@ mod tests {
         let ad = snap.apply_dedup.as_ref().unwrap();
         assert_eq!(ad.applies_total, 10);
         assert_eq!(ad.applies_deduped, 3);
-        assert_eq!(ad.applies_not_cached, 1);
+        assert_eq!(ad.unique_applies, 1);
         assert_eq!(ad.sweeps, 2);
         assert_eq!(ad.map_size, 50);
         assert_eq!(ad.map_capacity, 100_000);
@@ -1429,7 +1429,7 @@ mod tests {
         snap.apply_dedup = Some(ApplyDedupSnapshot {
             applies_total: 100,
             applies_deduped: 40,
-            applies_not_cached: 5,
+            unique_applies: 5,
             sweeps: 3,
             map_size: 200,
             map_capacity: 100_000,
@@ -1444,7 +1444,7 @@ mod tests {
 
         assert!(prom.contains(r#"confidence_apply_dedup_deduped_total{resolver_id="w0"} 40"#));
 
-        assert!(prom.contains(r#"confidence_apply_dedup_not_cached_total{resolver_id="w0"} 5"#));
+        assert!(prom.contains(r#"confidence_apply_dedup_unique_applies_total{resolver_id="w0"} 5"#));
 
         assert!(prom.contains(r#"confidence_apply_dedup_sweeps_total{resolver_id="w0"} 3"#));
 
@@ -1532,7 +1532,7 @@ mod tests {
         snap.apply_dedup = Some(ApplyDedupSnapshot {
             applies_total: 10,
             applies_deduped: 3,
-            applies_not_cached: 0,
+            unique_applies: 0,
             sweeps: 1,
             map_size: 5,
             map_capacity: 100_000,

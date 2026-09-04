@@ -325,8 +325,8 @@ export class ConfidenceServerProviderLocal implements Provider {
         return;
       }
       this.eventBatchesSucceeded++;
-      this.eventsPublished += batch.events?.length ?? 0;
       const { errors } = PublishEventsResponse.decode(new Uint8Array(await response.arrayBuffer()));
+      this.eventsPublished += (batch.events?.length ?? 0) - errors.length;
       for (const error of errors) {
         logger.error(
           `Failed to publish event at index ${error.index}: ${EventError_Reason[error.reason]} ${error.message}`,
@@ -569,6 +569,8 @@ export class ConfidenceServerProviderLocal implements Provider {
         throw err;
       }
     }
+    // All destinations returned non-OK responses without throwing
+    throw new Error('All flag log destinations returned error responses');
   }
 
   private restoreDrainedCounters(encodedWriteFlagLogRequest: Uint8Array): void {

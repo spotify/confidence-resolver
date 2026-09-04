@@ -784,7 +784,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             .build();
     try {
       final PublishEventsResponse response = eventsStub.publishEvents(request);
-      telemetryEventsPublished.addAndGet(batch.getEventsCount());
+      final int rejected = response.getErrorsCount();
+      telemetryEventsPublished.addAndGet(batch.getEventsCount() - rejected);
       telemetryEventBatchesSucceeded.incrementAndGet();
       for (final EventError error : response.getErrorsList()) {
         log.error(

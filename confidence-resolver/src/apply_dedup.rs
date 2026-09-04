@@ -162,7 +162,7 @@ const SWEEP_MIN_INTERVAL_SECONDS: i64 = 10;
 pub struct ApplyDedupSnapshot {
     pub applies_total: u64,
     pub applies_deduped: u64,
-    pub applies_not_cached: u64,
+    pub unique_applies: u64,
     pub sweeps: u64,
     pub map_size: u32,
     pub map_capacity: u32,
@@ -175,9 +175,9 @@ impl ApplyDedupSnapshot {
         ApplyDedupTelemetry {
             applies_total: self.applies_total.wrapping_sub(previous.applies_total) as u32,
             applies_deduped: self.applies_deduped.wrapping_sub(previous.applies_deduped) as u32,
-            applies_not_cached: self
-                .applies_not_cached
-                .wrapping_sub(previous.applies_not_cached) as u32,
+            unique_applies: self
+                .unique_applies
+                .wrapping_sub(previous.unique_applies) as u32,
             sweeps: self.sweeps.wrapping_sub(previous.sweeps) as u32,
             map_size: self.map_size,
             map_capacity: self.map_capacity,
@@ -196,7 +196,7 @@ pub struct ApplyDedup {
     last_sweep_seconds: i64,
     applies_total: u64,
     applies_deduped: u64,
-    applies_not_cached: u64,
+    unique_applies: u64,
     sweeps: u64,
 }
 
@@ -213,7 +213,7 @@ impl ApplyDedup {
             last_sweep_seconds: 0,
             applies_total: 0,
             applies_deduped: 0,
-            applies_not_cached: 0,
+            unique_applies: 0,
             sweeps: 0,
         }
     }
@@ -222,7 +222,7 @@ impl ApplyDedup {
         ApplyDedupSnapshot {
             applies_total: self.applies_total,
             applies_deduped: self.applies_deduped,
-            applies_not_cached: self.applies_not_cached,
+            unique_applies: self.unique_applies,
             sweeps: self.sweeps,
             map_size: self.seen.len() as u32,
             map_capacity: self.max_entries as u32,
@@ -257,7 +257,7 @@ impl ApplyDedup {
             if self.seen.len() < self.max_entries {
                 self.seen.insert(hash, now_seconds);
             } else {
-                self.applies_not_cached = self.applies_not_cached.wrapping_add(1);
+                self.unique_applies = self.unique_applies.wrapping_add(1);
             }
             keep.mark(i);
         }
@@ -1245,7 +1245,7 @@ mod tests {
         let snap = dedup.telemetry_snapshot();
         assert_eq!(snap.applies_total, 2);
         assert_eq!(snap.applies_deduped, 0);
-        assert_eq!(snap.applies_not_cached, 0);
+        assert_eq!(snap.unique_applies, 0);
         assert_eq!(snap.map_size, 2);
         assert_eq!(snap.map_capacity, 1000);
 
@@ -1257,7 +1257,7 @@ mod tests {
     }
 
     #[test]
-    fn telemetry_not_cached_when_full() {
+    fn telemetry_unique_applies_when_full() {
         let mut dedup = ApplyDedup::new(120, 2);
 
         dedup.filter_duplicates(&[make_flag_to_apply("flags/a", "u1", "on")], 1000);
@@ -1267,7 +1267,7 @@ mod tests {
 
         let snap = dedup.telemetry_snapshot();
         assert_eq!(snap.applies_total, 3);
-        assert_eq!(snap.applies_not_cached, 1);
+        assert_eq!(snap.unique_applies, 1);
         assert_eq!(snap.map_size, 2);
     }
 
