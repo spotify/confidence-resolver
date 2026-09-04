@@ -217,9 +217,9 @@ impl TelemetrySnapshot {
             ad.applies_deduped = ad
                 .applies_deduped
                 .wrapping_add(dedup.applies_deduped as u64);
-            ad.unique_applies = ad
-                .unique_applies
-                .wrapping_add(dedup.unique_applies as u64);
+            ad.overflow = ad
+                .overflow
+                .wrapping_add(dedup.overflow as u64);
             ad.sweeps = ad.sweeps.wrapping_add(dedup.sweeps as u64);
             ad.map_size = dedup.map_size;
             ad.map_capacity = dedup.map_capacity;
@@ -453,9 +453,9 @@ impl TelemetrySnapshot {
         )?;
 
         let type_name = if config.openmetrics {
-            "confidence_apply_dedup_unique_applies"
+            "confidence_apply_dedup_overflow"
         } else {
-            "confidence_apply_dedup_unique_applies_total"
+            "confidence_apply_dedup_overflow_total"
         };
         writeln!(
             w,
@@ -464,8 +464,8 @@ impl TelemetrySnapshot {
         writeln!(w, "# TYPE {type_name} counter")?;
         writeln!(
             w,
-            "confidence_apply_dedup_unique_applies_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
-            ad.unique_applies
+            "confidence_apply_dedup_overflow_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+            ad.overflow
         )?;
 
         let type_name = if config.openmetrics {
@@ -1398,7 +1398,7 @@ mod tests {
             apply_dedup: Some(ApplyDedupTelemetry {
                 applies_total: 10,
                 applies_deduped: 3,
-                unique_applies: 1,
+                overflow: 1,
                 sweeps: 2,
                 map_size: 50,
                 map_capacity: 100_000,
@@ -1410,7 +1410,7 @@ mod tests {
         let ad = snap.apply_dedup.as_ref().unwrap();
         assert_eq!(ad.applies_total, 10);
         assert_eq!(ad.applies_deduped, 3);
-        assert_eq!(ad.unique_applies, 1);
+        assert_eq!(ad.overflow, 1);
         assert_eq!(ad.sweeps, 2);
         assert_eq!(ad.map_size, 50);
         assert_eq!(ad.map_capacity, 100_000);
@@ -1429,7 +1429,7 @@ mod tests {
         snap.apply_dedup = Some(ApplyDedupSnapshot {
             applies_total: 100,
             applies_deduped: 40,
-            unique_applies: 5,
+            overflow: 5,
             sweeps: 3,
             map_size: 200,
             map_capacity: 100_000,
@@ -1444,7 +1444,7 @@ mod tests {
 
         assert!(prom.contains(r#"confidence_apply_dedup_deduped_total{resolver_id="w0"} 40"#));
 
-        assert!(prom.contains(r#"confidence_apply_dedup_unique_applies_total{resolver_id="w0"} 5"#));
+        assert!(prom.contains(r#"confidence_apply_dedup_overflow_total{resolver_id="w0"} 5"#));
 
         assert!(prom.contains(r#"confidence_apply_dedup_sweeps_total{resolver_id="w0"} 3"#));
 
@@ -1532,7 +1532,7 @@ mod tests {
         snap.apply_dedup = Some(ApplyDedupSnapshot {
             applies_total: 10,
             applies_deduped: 3,
-            unique_applies: 0,
+            overflow: 0,
             sweeps: 1,
             map_size: 5,
             map_capacity: 100_000,
