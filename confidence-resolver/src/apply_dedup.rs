@@ -178,7 +178,8 @@ impl ApplyDedupSnapshot {
             applies_deduped: self.applies_deduped.wrapping_sub(previous.applies_deduped) as u32,
             apply_dedup_overflow: self
                 .apply_dedup_overflow
-                .wrapping_sub(previous.apply_dedup_overflow) as u32,
+                .wrapping_sub(previous.apply_dedup_overflow)
+                as u32,
             sweeps: self.sweeps.wrapping_sub(previous.sweeps) as u32,
             map_size: self.map_size,
             map_capacity: self.map_capacity,
