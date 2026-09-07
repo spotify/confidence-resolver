@@ -131,6 +131,7 @@ pub struct EventsSnapshot {
     pub published: u64,
     pub batches_succeeded: u64,
     pub batches_failed: u64,
+    pub events_rejected: u64,
 }
 
 #[derive(Clone, Default)]
@@ -240,6 +241,10 @@ impl TelemetrySnapshot {
                 .events
                 .batches_failed
                 .wrapping_add(events.batches_failed as u64);
+            self.events.events_rejected = self
+                .events
+                .events_rejected
+                .wrapping_add(events.events_rejected as u64);
         }
     }
 
@@ -560,6 +565,7 @@ impl TelemetrySnapshot {
         if self.events.published == 0
             && self.events.batches_succeeded == 0
             && self.events.batches_failed == 0
+            && self.events.events_rejected == 0
         {
             return Ok(());
         }
@@ -607,6 +613,24 @@ impl TelemetrySnapshot {
                 w,
                 "confidence_event_batches_failed_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
                 self.events.batches_failed
+            )?;
+        }
+
+        if self.events.events_rejected > 0 {
+            let type_name = if config.openmetrics {
+                "confidence_events_rejected"
+            } else {
+                "confidence_events_rejected_total"
+            };
+            writeln!(
+                w,
+                "# HELP {type_name} Total events rejected by the events service."
+            )?;
+            writeln!(w, "# TYPE {type_name} counter")?;
+            writeln!(
+                w,
+                "confidence_events_rejected_total{{resolver_id=\"{resolver_id}\"}} {}{suffix}",
+                self.events.events_rejected
             )?;
         }
 
@@ -1507,6 +1531,7 @@ mod tests {
                 published: 42,
                 batches_succeeded: 3,
                 batches_failed: 1,
+                events_rejected: 2,
             }),
             ..Default::default()
         };
@@ -1515,11 +1540,25 @@ mod tests {
         assert_eq!(snap.events.published, 42);
         assert_eq!(snap.events.batches_succeeded, 3);
         assert_eq!(snap.events.batches_failed, 1);
+        assert_eq!(snap.events.events_rejected, 2);
 
         snap.accumulate_delta(&td);
         assert_eq!(snap.events.published, 84);
         assert_eq!(snap.events.batches_succeeded, 6);
         assert_eq!(snap.events.batches_failed, 2);
+        assert_eq!(snap.events.events_rejected, 4);
+    }
+
+    #[test]
+    fn events_rejected_alone_is_rendered() {
+        // A snapshot carrying only rejections must still produce output, so a
+        // batch that delivered but had every event refused is visible.
+        let mut snap = TelemetrySnapshot::default();
+        snap.events.events_rejected = 7;
+
+        let output = snap.to_prometheus("w0", &PrometheusConfig::default());
+
+        assert!(output.contains(r#"confidence_events_rejected_total{resolver_id="w0"} 7"#));
     }
 
     #[test]
@@ -1542,6 +1581,7 @@ mod tests {
         snap.events.published = 50;
         snap.events.batches_succeeded = 4;
         snap.events.batches_failed = 1;
+        snap.events.events_rejected = 3;
 
         let config = PrometheusConfig {
             openmetrics: true,

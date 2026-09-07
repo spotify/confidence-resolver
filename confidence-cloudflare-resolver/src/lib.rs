@@ -802,11 +802,14 @@ async fn deliver_flag_logs(
 /// Note: concurrent invocations of the *same* queue can still race on
 /// KV read-modify-write. Acceptable for metrics — at worst one batch's
 /// deltas are lost, not cumulative state.
+///
+/// `event_result` is `(published, rejected, succeeded)`, where `published` is
+/// already net of the events the service refused.
 async fn update_kv_snapshot(
     kv: &kv::KvStore,
     telemetry_delta: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
     flush_result: Option<bool>,
-    event_result: Option<(u64, bool)>,
+    event_result: Option<(u64, u64, bool)>,
 ) {
     let mut cumulative = match kv.get("snapshot").text().await {
         Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
@@ -827,9 +830,11 @@ async fn update_kv_snapshot(
         None => {}
     }
 
-    if let Some((event_count, succeeded)) = event_result {
+    if let Some((event_count, rejected, succeeded)) = event_result {
         if succeeded {
             cumulative.events.published = cumulative.events.published.wrapping_add(event_count);
+            cumulative.events.events_rejected =
+                cumulative.events.events_rejected.wrapping_add(rejected);
             cumulative.events.batches_succeeded =
                 cumulative.events.batches_succeeded.wrapping_add(1);
         } else {
@@ -1040,20 +1045,41 @@ async fn consume_events_queue(
         &now.as_string().unwrap_or_default(),
     );
 
-    let delivered = match send_events(&publish_request).await {
-        Ok(resp) if resp.status_code() < 400 => true,
+    let (delivered, rejected) = match send_events(&publish_request).await {
+        Ok(mut resp) if resp.status_code() < 400 => {
+            // The events API answers 2xx even when it refuses individual
+            // events; those come back in an "errors" array.
+            let rejected = resp
+                .text()
+                .await
+                .ok()
+                .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+                .and_then(|v| {
+                    v.get("errors")
+                        .and_then(|e| e.as_array())
+                        .map(|a| a.len() as u64)
+                })
+                .unwrap_or(0);
+            (true, rejected)
+        }
         Ok(resp) => {
             console_log!("events delivery failed: HTTP {}", resp.status_code());
-            false
+            (false, 0)
         }
         Err(e) => {
             console_log!("events delivery error: {:?}", e);
-            false
+            (false, 0)
         }
     };
 
     if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-        update_kv_snapshot(&kv, None, None, Some((event_count, delivered))).await;
+        update_kv_snapshot(
+            &kv,
+            None,
+            None,
+            Some((event_count.saturating_sub(rejected), rejected, delivered)),
+        )
+        .await;
     }
 
     if !delivered {

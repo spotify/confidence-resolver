@@ -44,6 +44,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
   private final AtomicLong restoredEventsPublished = new AtomicLong();
   private final AtomicLong restoredEventBatchesSucceeded = new AtomicLong();
   private final AtomicLong restoredEventBatchesFailed = new AtomicLong();
+  private final AtomicLong restoredEventsRejected = new AtomicLong();
   private final String clientSecret;
   private final HttpClientFactory httpClientFactory;
   private final AtomicReference<List<LogDestination>> logDestinations =
@@ -192,6 +193,7 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
       restoredEventsPublished.addAndGet(td.getEvents().getPublished());
       restoredEventBatchesSucceeded.addAndGet(td.getEvents().getBatchesSucceeded());
       restoredEventBatchesFailed.addAndGet(td.getEvents().getBatchesFailed());
+      restoredEventsRejected.addAndGet(td.getEvents().getEventsRejected());
     }
   }
 
@@ -250,7 +252,8 @@ public class GrpcWasmFlagLogger implements WasmFlagLogger {
     return new long[] {
       restoredEventsPublished.getAndSet(0),
       restoredEventBatchesSucceeded.getAndSet(0),
-      restoredEventBatchesFailed.getAndSet(0)
+      restoredEventBatchesFailed.getAndSet(0),
+      restoredEventsRejected.getAndSet(0)
     };
   }
 

@@ -1296,8 +1296,11 @@ type TelemetryData_EventsTelemetry struct {
 	Published        uint32                 `protobuf:"varint,1,opt,name=published,proto3" json:"published,omitempty"`
 	BatchesSucceeded uint32                 `protobuf:"varint,2,opt,name=batches_succeeded,json=batchesSucceeded,proto3" json:"batches_succeeded,omitempty"`
 	BatchesFailed    uint32                 `protobuf:"varint,3,opt,name=batches_failed,json=batchesFailed,proto3" json:"batches_failed,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Events the service refused within an otherwise successful batch
+	// (unknown event definition, schema validation failure).
+	EventsRejected uint32 `protobuf:"varint,4,opt,name=events_rejected,json=eventsRejected,proto3" json:"events_rejected,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TelemetryData_EventsTelemetry) Reset() {
@@ -1347,6 +1350,13 @@ func (x *TelemetryData_EventsTelemetry) GetBatchesSucceeded() uint32 {
 func (x *TelemetryData_EventsTelemetry) GetBatchesFailed() uint32 {
 	if x != nil {
 		return x.BatchesFailed
+	}
+	return 0
+}
+
+func (x *TelemetryData_EventsTelemetry) GetEventsRejected() uint32 {
+	if x != nil {
+		return x.EventsRejected
 	}
 	return 0
 }
@@ -1568,15 +1578,15 @@ func (x *TelemetryData_BucketSpan) GetCounts() []uint32 {
 }
 
 type TelemetryData_ApplyDedupTelemetry struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	AppliesTotal     uint32                 `protobuf:"varint,1,opt,name=applies_total,json=appliesTotal,proto3" json:"applies_total,omitempty"`
-	AppliesDeduped   uint32                 `protobuf:"varint,2,opt,name=applies_deduped,json=appliesDeduped,proto3" json:"applies_deduped,omitempty"`
-	AppliesNotCached uint32                 `protobuf:"varint,3,opt,name=applies_not_cached,json=appliesNotCached,proto3" json:"applies_not_cached,omitempty"`
-	Sweeps           uint32                 `protobuf:"varint,4,opt,name=sweeps,proto3" json:"sweeps,omitempty"`
-	MapSize          uint32                 `protobuf:"varint,5,opt,name=map_size,json=mapSize,proto3" json:"map_size,omitempty"`
-	MapCapacity      uint32                 `protobuf:"varint,6,opt,name=map_capacity,json=mapCapacity,proto3" json:"map_capacity,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	AppliesTotal       uint32                 `protobuf:"varint,1,opt,name=applies_total,json=appliesTotal,proto3" json:"applies_total,omitempty"`
+	AppliesDeduped     uint32                 `protobuf:"varint,2,opt,name=applies_deduped,json=appliesDeduped,proto3" json:"applies_deduped,omitempty"`
+	ApplyDedupOverflow uint32                 `protobuf:"varint,3,opt,name=apply_dedup_overflow,json=applyDedupOverflow,proto3" json:"apply_dedup_overflow,omitempty"`
+	Sweeps             uint32                 `protobuf:"varint,4,opt,name=sweeps,proto3" json:"sweeps,omitempty"`
+	MapSize            uint32                 `protobuf:"varint,5,opt,name=map_size,json=mapSize,proto3" json:"map_size,omitempty"`
+	MapCapacity        uint32                 `protobuf:"varint,6,opt,name=map_capacity,json=mapCapacity,proto3" json:"map_capacity,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *TelemetryData_ApplyDedupTelemetry) Reset() {
@@ -1623,9 +1633,9 @@ func (x *TelemetryData_ApplyDedupTelemetry) GetAppliesDeduped() uint32 {
 	return 0
 }
 
-func (x *TelemetryData_ApplyDedupTelemetry) GetAppliesNotCached() uint32 {
+func (x *TelemetryData_ApplyDedupTelemetry) GetApplyDedupOverflow() uint32 {
 	if x != nil {
-		return x.AppliesNotCached
+		return x.ApplyDedupOverflow
 	}
 	return 0
 }
@@ -2052,7 +2062,7 @@ const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\x15IngestFlagLogsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12H\n" +
-	"\x05batch\x18\x02 \x01(\v22.confidence.flags.resolver.v1.WriteFlagLogsRequestR\x05batch\"\xfc\r\n" +
+	"\x05batch\x18\x02 \x01(\v22.confidence.flags.resolver.v1.WriteFlagLogsRequestR\x05batch\"\xa9\x0e\n" +
 	"\rTelemetryData\x123\n" +
 	"\x03sdk\x18\x02 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\x12c\n" +
 	"\x0fresolve_latency\x18\x04 \x01(\v2:.confidence.flags.resolver.v1.TelemetryData.ResolveLatencyR\x0eresolveLatency\x12Z\n" +
@@ -2068,11 +2078,12 @@ const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\x06events\x18\f \x01(\v2;.confidence.flags.resolver.v1.TelemetryData.EventsTelemetryR\x06events\x1aF\n" +
 	"\x0eFlushTelemetry\x12\x1c\n" +
 	"\tsucceeded\x18\x01 \x01(\rR\tsucceeded\x12\x16\n" +
-	"\x06failed\x18\x02 \x01(\rR\x06failed\x1a\x83\x01\n" +
+	"\x06failed\x18\x02 \x01(\rR\x06failed\x1a\xac\x01\n" +
 	"\x0fEventsTelemetry\x12\x1c\n" +
 	"\tpublished\x18\x01 \x01(\rR\tpublished\x12+\n" +
 	"\x11batches_succeeded\x18\x02 \x01(\rR\x10batchesSucceeded\x12%\n" +
-	"\x0ebatches_failed\x18\x03 \x01(\rR\rbatchesFailed\x1a\xa5\x01\n" +
+	"\x0ebatches_failed\x18\x03 \x01(\rR\rbatchesFailed\x12'\n" +
+	"\x0fevents_rejected\x18\x04 \x01(\rR\x0eeventsRejected\x1a\xa5\x01\n" +
 	"\x0eResolveLatency\x12\x10\n" +
 	"\x03sum\x18\x01 \x01(\rR\x03sum\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\rR\x05count\x12P\n" +
@@ -2086,11 +2097,11 @@ const file_confidence_flags_resolver_v1_internal_api_proto_rawDesc = "" +
 	"\n" +
 	"BucketSpan\x12\x16\n" +
 	"\x06offset\x18\x01 \x01(\x05R\x06offset\x12\x16\n" +
-	"\x06counts\x18\x02 \x03(\rR\x06counts\x1a\xe7\x01\n" +
+	"\x06counts\x18\x02 \x03(\rR\x06counts\x1a\xeb\x01\n" +
 	"\x13ApplyDedupTelemetry\x12#\n" +
 	"\rapplies_total\x18\x01 \x01(\rR\fappliesTotal\x12'\n" +
-	"\x0fapplies_deduped\x18\x02 \x01(\rR\x0eappliesDeduped\x12,\n" +
-	"\x12applies_not_cached\x18\x03 \x01(\rR\x10appliesNotCached\x12\x16\n" +
+	"\x0fapplies_deduped\x18\x02 \x01(\rR\x0eappliesDeduped\x120\n" +
+	"\x14apply_dedup_overflow\x18\x03 \x01(\rR\x12applyDedupOverflow\x12\x16\n" +
 	"\x06sweeps\x18\x04 \x01(\rR\x06sweeps\x12\x19\n" +
 	"\bmap_size\x18\x05 \x01(\rR\amapSize\x12!\n" +
 	"\fmap_capacity\x18\x06 \x01(\rR\vmapCapacity\x1a\xcb\x01\n" +

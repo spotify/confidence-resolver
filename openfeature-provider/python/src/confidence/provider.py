@@ -289,6 +289,7 @@ class ConfidenceProvider(AbstractProvider):
         self._event_telemetry_published = 0
         self._event_telemetry_succeeded = 0
         self._event_telemetry_failed = 0
+        self._event_telemetry_rejected = 0
 
         # State fetcher (injected or created)
         self._state_fetcher = state_fetcher
@@ -925,6 +926,7 @@ class ConfidenceProvider(AbstractProvider):
                 self._event_telemetry_published > 0
                 or self._event_telemetry_succeeded > 0
                 or self._event_telemetry_failed > 0
+                or self._event_telemetry_rejected > 0
             )
         need_rewrite = include_init or has_flush or has_events
 
@@ -958,9 +960,13 @@ class ConfidenceProvider(AbstractProvider):
                     request.telemetry_data.events.batches_failed = (
                         self._event_telemetry_failed
                     )
+                    request.telemetry_data.events.events_rejected = (
+                        self._event_telemetry_rejected
+                    )
                     self._event_telemetry_published = 0
                     self._event_telemetry_succeeded = 0
                     self._event_telemetry_failed = 0
+                    self._event_telemetry_rejected = 0
             log_data = request.SerializeToString()
 
         try:
@@ -975,6 +981,7 @@ class ConfidenceProvider(AbstractProvider):
                     self._event_telemetry_published += td.events.published
                     self._event_telemetry_succeeded += td.events.batches_succeeded
                     self._event_telemetry_failed += td.events.batches_failed
+                    self._event_telemetry_rejected += td.events.events_rejected
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "pending"
@@ -1188,6 +1195,7 @@ class ConfidenceProvider(AbstractProvider):
                 # count as published.
                 self._event_telemetry_published += len(batch.events) - rejected
                 self._event_telemetry_succeeded += 1
+                self._event_telemetry_rejected += rejected
             self._event_publish_attempts += 1
             if self._event_publish_attempts % EVENTS_STATS_WINDOW == 0:
                 if self._event_publish_failures > 0:

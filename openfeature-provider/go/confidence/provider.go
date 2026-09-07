@@ -637,11 +637,15 @@ func (p *LocalResolverProvider) flushAndPublishEvents(ctx context.Context) int {
 	if err != nil {
 		p.eventPublishFailures.Add(1)
 		p.logger.Debug("Failed to publish events", "error", err)
-		if recorder, ok := p.flagLogger.(interface{ RecordEventBatch(int, bool) }); ok {
-			recorder.RecordEventBatch(eventCount, false)
+		if recorder, ok := p.flagLogger.(interface {
+			RecordEventBatch(int, int, bool)
+		}); ok {
+			recorder.RecordEventBatch(eventCount, 0, false)
 		}
-	} else if recorder, ok := p.flagLogger.(interface{ RecordEventBatch(int, bool) }); ok {
-		recorder.RecordEventBatch(eventCount-rejected, true)
+	} else if recorder, ok := p.flagLogger.(interface {
+		RecordEventBatch(int, int, bool)
+	}); ok {
+		recorder.RecordEventBatch(eventCount-rejected, rejected, true)
 	}
 
 	if p.eventPublishAttempts.Add(1)%eventPublishLogWindow == 0 {

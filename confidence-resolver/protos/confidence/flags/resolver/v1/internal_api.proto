@@ -146,6 +146,9 @@ message TelemetryData {
     uint32 published = 1;
     uint32 batches_succeeded = 2;
     uint32 batches_failed = 3;
+    // Events the service refused within an otherwise successful batch
+    // (unknown event definition, schema validation failure).
+    uint32 events_rejected = 4;
   }
 
   message ApplyDedupTelemetry {

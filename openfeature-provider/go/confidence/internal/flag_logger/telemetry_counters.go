@@ -15,6 +15,7 @@ type TelemetryCounters struct {
 	EventsPublished       atomic.Int64
 	EventBatchesSucceeded atomic.Int64
 	EventBatchesFailed    atomic.Int64
+	EventsRejected        atomic.Int64
 }
 
 // DrainAndStamp atomically drains all counters and stamps them onto the
@@ -25,7 +26,8 @@ func (tc *TelemetryCounters) DrainAndStamp(request *resolverv1.WriteFlagLogsRequ
 	evPub := uint32(tc.EventsPublished.Swap(0))
 	evOk := uint32(tc.EventBatchesSucceeded.Swap(0))
 	evFail := uint32(tc.EventBatchesFailed.Swap(0))
-	if succeeded > 0 || failed > 0 || evPub > 0 || evOk > 0 || evFail > 0 {
+	evRejected := uint32(tc.EventsRejected.Swap(0))
+	if succeeded > 0 || failed > 0 || evPub > 0 || evOk > 0 || evFail > 0 || evRejected > 0 {
 		if request.TelemetryData == nil {
 			request.TelemetryData = &resolverv1.TelemetryData{}
 		}
@@ -35,11 +37,12 @@ func (tc *TelemetryCounters) DrainAndStamp(request *resolverv1.WriteFlagLogsRequ
 				Failed:    failed,
 			}
 		}
-		if evPub > 0 || evOk > 0 || evFail > 0 {
+		if evPub > 0 || evOk > 0 || evFail > 0 || evRejected > 0 {
 			request.TelemetryData.Events = &resolverv1.TelemetryData_EventsTelemetry{
 				Published:        evPub,
 				BatchesSucceeded: evOk,
 				BatchesFailed:    evFail,
+				EventsRejected:   evRejected,
 			}
 		}
 	}
@@ -59,15 +62,19 @@ func (tc *TelemetryCounters) RestoreOnFailure(request *resolverv1.WriteFlagLogsR
 			tc.EventsPublished.Add(int64(td.Events.Published))
 			tc.EventBatchesSucceeded.Add(int64(td.Events.BatchesSucceeded))
 			tc.EventBatchesFailed.Add(int64(td.Events.BatchesFailed))
+			tc.EventsRejected.Add(int64(td.Events.EventsRejected))
 		}
 	}
 }
 
-// RecordEventBatch records an event batch delivery outcome.
-func (tc *TelemetryCounters) RecordEventBatch(eventCount int, succeeded bool) {
+// RecordEventBatch records an event batch delivery outcome. publishedCount is
+// the number of events the service ingested (already net of rejections) and
+// rejectedCount the number it refused within an otherwise successful batch.
+func (tc *TelemetryCounters) RecordEventBatch(publishedCount, rejectedCount int, succeeded bool) {
 	if succeeded {
-		tc.EventsPublished.Add(int64(eventCount))
+		tc.EventsPublished.Add(int64(publishedCount))
 		tc.EventBatchesSucceeded.Add(1)
+		tc.EventsRejected.Add(int64(rejectedCount))
 	} else {
 		tc.EventBatchesFailed.Add(1)
 	}

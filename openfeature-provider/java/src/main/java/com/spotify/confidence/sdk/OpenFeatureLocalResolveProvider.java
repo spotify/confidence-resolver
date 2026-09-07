@@ -86,6 +86,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final AtomicLong telemetryEventsPublished = new AtomicLong();
   private final AtomicLong telemetryEventBatchesSucceeded = new AtomicLong();
   private final AtomicLong telemetryEventBatchesFailed = new AtomicLong();
+  private final AtomicLong telemetryEventsRejected = new AtomicLong();
   private final ScheduledExecutorService flagsFetcherExecutor = newFlagsFetcherExecutor();
   private final ScheduledExecutorService assignLogExecutor =
       Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
@@ -787,6 +788,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       final int rejected = response.getErrorsCount();
       telemetryEventsPublished.addAndGet(batch.getEventsCount() - rejected);
       telemetryEventBatchesSucceeded.incrementAndGet();
+      telemetryEventsRejected.addAndGet(rejected);
       for (final EventError error : response.getErrorsList()) {
         log.error(
             "Failed to publish event at index {}: {} {}",
@@ -811,7 +813,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     return new long[] {
       telemetryEventsPublished.getAndSet(0),
       telemetryEventBatchesSucceeded.getAndSet(0),
-      telemetryEventBatchesFailed.getAndSet(0)
+      telemetryEventBatchesFailed.getAndSet(0),
+      telemetryEventsRejected.getAndSet(0)
     };
   }
 

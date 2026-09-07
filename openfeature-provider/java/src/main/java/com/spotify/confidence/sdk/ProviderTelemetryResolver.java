@@ -106,7 +106,8 @@ final class ProviderTelemetryResolver implements LocalResolver {
     final long published = counters[0] + restored[0];
     final long succeeded = counters[1] + restored[1];
     final long failed = counters[2] + restored[2];
-    if (published == 0 && succeeded == 0 && failed == 0) {
+    final long rejected = counters[3] + restored[3];
+    if (published == 0 && succeeded == 0 && failed == 0 && rejected == 0) {
       return request;
     }
     return request.toBuilder()
@@ -117,6 +118,7 @@ final class ProviderTelemetryResolver implements LocalResolver {
                         .setPublished((int) published)
                         .setBatchesSucceeded((int) succeeded)
                         .setBatchesFailed((int) failed)
+                        .setEventsRejected((int) rejected)
                         .build())
                 .build())
         .build();

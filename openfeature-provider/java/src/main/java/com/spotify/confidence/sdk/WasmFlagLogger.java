@@ -28,10 +28,10 @@ interface WasmFlagLogger {
   }
 
   /**
-   * Drains event counters restored from failed sends. Returns [published, succeeded, failed]. These
-   * are merged with the provider's own event counters before the next send.
+   * Drains event counters restored from failed sends. Returns [published, succeeded, failed,
+   * rejected]. These are merged with the provider's own event counters before the next send.
    */
   default long[] drainRestoredEventCounters() {
-    return new long[] {0, 0, 0};
+    return new long[] {0, 0, 0, 0};
   }
 }

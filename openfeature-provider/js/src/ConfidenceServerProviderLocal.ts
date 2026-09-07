@@ -98,6 +98,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   private eventsPublished = 0;
   private eventBatchesSucceeded = 0;
   private eventBatchesFailed = 0;
+  private eventsRejected = 0;
   private resolverInstance: LocalResolver | null = null;
   private eventTracker: EventTracker | null = null;
   private stateEtag: string | null = null;
@@ -327,6 +328,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       this.eventBatchesSucceeded++;
       const { errors } = PublishEventsResponse.decode(new Uint8Array(await response.arrayBuffer()));
       this.eventsPublished += (batch.events?.length ?? 0) - errors.length;
+      this.eventsRejected += errors.length;
       for (const error of errors) {
         logger.error(
           `Failed to publish event at index ${error.index}: ${EventError_Reason[error.reason]} ${error.message}`,
@@ -600,6 +602,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         this.eventsPublished += td.events.published;
         this.eventBatchesSucceeded += td.events.batchesSucceeded;
         this.eventBatchesFailed += td.events.batchesFailed;
+        this.eventsRejected += td.events.eventsRejected;
       }
     } catch {
       // Best-effort restore — don't mask the original send error
@@ -609,7 +612,11 @@ export class ConfidenceServerProviderLocal implements Provider {
   /** Single decode→enrich→encode pass for init + delivery telemetry. */
   private enrichTelemetry(encodedWriteFlagLogRequest: Uint8Array, includeInit: boolean): Uint8Array {
     const hasFlush = this.flushSucceeded > 0 || this.flushFailed > 0;
-    const hasEvents = this.eventsPublished > 0 || this.eventBatchesSucceeded > 0 || this.eventBatchesFailed > 0;
+    const hasEvents =
+      this.eventsPublished > 0 ||
+      this.eventBatchesSucceeded > 0 ||
+      this.eventBatchesFailed > 0 ||
+      this.eventsRejected > 0;
     if (!includeInit && !hasFlush && !hasEvents) {
       return encodedWriteFlagLogRequest;
     }
@@ -635,6 +642,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         published: this.eventsPublished,
         batchesSucceeded: this.eventBatchesSucceeded,
         batchesFailed: this.eventBatchesFailed,
+        eventsRejected: this.eventsRejected,
       };
     }
     this.flushSucceeded = 0;
@@ -642,6 +650,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.eventsPublished = 0;
     this.eventBatchesSucceeded = 0;
     this.eventBatchesFailed = 0;
+    this.eventsRejected = 0;
     return WriteFlagLogsRequest.encode(request).finish();
   }
 

@@ -114,6 +114,6 @@ func (n *NoOpWasmFlagLogger) Shutdown() {
 	// Nothing to shut down
 }
 
-func (n *NoOpWasmFlagLogger) RecordEventBatch(eventCount int, succeeded bool) {
+func (n *NoOpWasmFlagLogger) RecordEventBatch(publishedCount, rejectedCount int, succeeded bool) {
 	// No-op
 }
