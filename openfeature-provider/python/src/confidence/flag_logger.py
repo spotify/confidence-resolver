@@ -7,7 +7,7 @@ to the Confidence backend via gRPC or HTTP.
 import json
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import List, Optional, Protocol, runtime_checkable
 
 import grpc
@@ -54,15 +54,43 @@ _RETRY_SERVICE_CONFIG = json.dumps(
 )
 
 
+def _has_payload(request: internal_api_pb2.WriteFlagLogsRequest) -> bool:
+    """Whether a request carries anything worth sending.
+
+    Beyond the flag/resolve record lists this also considers ``telemetry_data``:
+    a full WASM flush can legitimately contain only telemetry, and the provider
+    drains its flush/event counters into that field before writing. Ignoring it
+    silently discards those counters whenever there are no flag or resolve
+    records.
+
+    An all-default ``telemetry_data`` is treated as empty, so merely touching
+    the submessage does not keep an otherwise-empty request alive.
+    """
+    if (
+        len(request.flag_assigned) > 0
+        or len(request.client_resolve_info) > 0
+        or len(request.flag_resolve_info) > 0
+    ):
+        return True
+    return request.HasField("telemetry_data") and request.telemetry_data.ByteSize() > 0
+
+
 @runtime_checkable
 class FlagLogger(Protocol):
     """Protocol for flag logging."""
 
-    def write(self, request_bytes: bytes) -> None:
+    def write(self, request_bytes: bytes) -> Optional["Future[bool]"]:
         """Write flag logs asynchronously.
 
         Args:
             request_bytes: Serialized WriteFlagLogsRequest proto bytes.
+
+        Returns:
+            A future resolving to ``True`` when the request was delivered and
+            ``False`` when delivery failed, or ``None`` when no delivery was
+            attempted (empty/skipped request, or a logger that drops writes).
+            Callers use this to attribute flush success to the actual delivery
+            rather than to the enqueue.
         """
         ...
 
@@ -109,18 +137,22 @@ class GrpcFlagLogger:
 
         self._stub = internal_api_pb2_grpc.InternalFlagLoggerServiceStub(self._channel)
 
-    def write(self, request_bytes: bytes) -> None:
+    def write(self, request_bytes: bytes) -> Optional["Future[bool]"]:
         """Write flag logs asynchronously.
 
         Skips empty requests (no data).
 
         Args:
             request_bytes: Serialized WriteFlagLogsRequest proto bytes.
+
+        Returns:
+            A future resolving to the delivery outcome, or ``None`` if nothing
+            was submitted.
         """
         # Skip empty bytes
         if not request_bytes:
             logger.debug("Skipping empty flag log request (empty bytes)")
-            return
+            return None
 
         # Parse the request to check if it has any data
         try:
@@ -128,25 +160,23 @@ class GrpcFlagLogger:
             request.ParseFromString(request_bytes)
         except Exception as e:
             logger.error("Failed to parse WriteFlagLogsRequest: %s", e)
-            return
+            return None
 
-        # Skip if all lists are empty
-        if (
-            len(request.flag_assigned) == 0
-            and len(request.client_resolve_info) == 0
-            and len(request.flag_resolve_info) == 0
-        ):
+        if not _has_payload(request):
             logger.debug("Skipping empty flag log request (no data)")
-            return
+            return None
 
-        # Submit async write
-        self._executor.submit(self._send_request, request)
+        # Submit async write; the future carries the delivery outcome
+        return self._executor.submit(self._send_request, request)
 
-    def _send_request(self, request: internal_api_pb2.WriteFlagLogsRequest) -> None:
+    def _send_request(self, request: internal_api_pb2.WriteFlagLogsRequest) -> bool:
         """Send the request to the backend (runs in thread pool).
 
         Args:
             request: The WriteFlagLogsRequest to send.
+
+        Returns:
+            ``True`` when the request was delivered, ``False`` on failure.
         """
         failed = False
         try:
@@ -170,6 +200,8 @@ class GrpcFlagLogger:
                 if self._failures > 0:
                     logger.warning("Flag log write failures: %d/10", self._failures)
                 self._failures = 0
+
+        return not failed
 
     def shutdown(self) -> None:
         """Shutdown the logger and wait for pending writes to complete."""
@@ -222,40 +254,43 @@ class HttpFlagLogger:
         """
         self._account_id = account_id
 
-    def write(self, request_bytes: bytes) -> None:
+    def write(self, request_bytes: bytes) -> Optional["Future[bool]"]:
         """Write flag logs asynchronously via HTTP.
 
         Skips empty requests (no data).
 
         Args:
             request_bytes: Serialized WriteFlagLogsRequest proto bytes.
+
+        Returns:
+            A future resolving to the delivery outcome, or ``None`` if nothing
+            was submitted.
         """
         if not request_bytes:
             logger.debug("Skipping empty flag log request (empty bytes)")
-            return
+            return None
 
         try:
             request = internal_api_pb2.WriteFlagLogsRequest()
             request.ParseFromString(request_bytes)
         except Exception as e:
             logger.error("Failed to parse WriteFlagLogsRequest: %s", e)
-            return
+            return None
 
-        if (
-            len(request.flag_assigned) == 0
-            and len(request.client_resolve_info) == 0
-            and len(request.flag_resolve_info) == 0
-        ):
+        if not _has_payload(request):
             logger.debug("Skipping empty flag log request (no data)")
-            return
+            return None
 
-        self._executor.submit(self._send_request, request)
+        return self._executor.submit(self._send_request, request)
 
-    def _send_request(self, request: internal_api_pb2.WriteFlagLogsRequest) -> None:
+    def _send_request(self, request: internal_api_pb2.WriteFlagLogsRequest) -> bool:
         """Send the request via HTTP POST (runs in thread pool).
 
         Args:
             request: The WriteFlagLogsRequest to send.
+
+        Returns:
+            ``True`` when the request was delivered, ``False`` on failure.
         """
         failed = False
         try:
@@ -300,6 +335,8 @@ class HttpFlagLogger:
                         "HTTP flag log write failures: %d/10", self._failures
                     )
                 self._failures = 0
+
+        return not failed
 
     def shutdown(self) -> None:
         """Shutdown the logger and wait for pending writes to complete."""
@@ -352,30 +389,34 @@ class MultiDestinationFlagLogger:
             self._http_client = httpx.Client(timeout=30.0)
             self._owns_http_client = True
 
-    def write(self, request_bytes: bytes) -> None:
+    def write(self, request_bytes: bytes) -> Optional["Future[bool]"]:
         if not request_bytes:
-            return
+            return None
         try:
             request = internal_api_pb2.WriteFlagLogsRequest()
             request.ParseFromString(request_bytes)
         except Exception as e:
             logger.error("Failed to parse WriteFlagLogsRequest: %s", e)
-            return
-        if (
-            len(request.flag_assigned) == 0
-            and len(request.client_resolve_info) == 0
-            and len(request.flag_resolve_info) == 0
-        ):
-            return
-        self._executor.submit(self._send_with_failover, request)
+            return None
+        if not _has_payload(request):
+            return None
+        return self._executor.submit(self._send_with_failover, request)
 
     def _send_with_failover(
         self, request: internal_api_pb2.WriteFlagLogsRequest
-    ) -> None:
+    ) -> bool:
+        """Send to the primary destination, falling back to the secondary.
+
+        Returns:
+            ``True`` when some destination accepted the request, ``False`` when
+            every attempt failed.
+        """
         dests = self._destinations or [LOG_DESTINATION_SPOTIFY_EDGE]
         primary = dests[0]
+        delivered = False
         try:
             self._send_to_destination(primary, request)
+            delivered = True
         except Exception as e:
             if len(dests) > 1:
                 fallback = dests[1]
@@ -384,6 +425,7 @@ class MultiDestinationFlagLogger:
                 )
                 try:
                     self._send_to_destination(fallback, request)
+                    delivered = True
                 except Exception as fallback_error:
                     logger.warning(
                         "Fallback flag log destination also failed: %s",
@@ -394,6 +436,7 @@ class MultiDestinationFlagLogger:
                 self._record_failure()
         finally:
             self._record_attempt()
+        return delivered
 
     def _send_to_destination(
         self, dest: int, request: internal_api_pb2.WriteFlagLogsRequest
@@ -458,13 +501,17 @@ class NoOpFlagLogger:
     Useful for testing or when flag logging should be disabled.
     """
 
-    def write(self, request_bytes: bytes) -> None:
+    def write(self, request_bytes: bytes) -> Optional["Future[bool]"]:
         """Drop the request (do nothing).
 
         Args:
             request_bytes: Ignored.
+
+        Returns:
+            ``None`` — no delivery is attempted, so there is no outcome to
+            report.
         """
-        pass
+        return None
 
     def shutdown(self) -> None:
         """Do nothing (no resources to clean up)."""

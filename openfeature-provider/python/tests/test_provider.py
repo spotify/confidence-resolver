@@ -97,6 +97,86 @@ class TestInitialize:
         )
         assert len(decoded.telemetry_data.provider_init_rate) == 1
 
+    def test_flush_counted_failed_when_async_delivery_fails(
+        self,
+        wasm_bytes: bytes,
+        test_client_secret: str,
+    ) -> None:
+        """Flush accounting must follow the real delivery, not the enqueue.
+
+        Regression: write() only submits background work and the worker
+        swallowed delivery failures, so flush_succeeded incremented for every
+        flush while flush_failed and counter restoration never saw a
+        network/HTTP failure.
+        """
+        from concurrent.futures import Future
+
+        class FailingDeliveryLogger(MockFlagLogger):
+            def write(self, request_bytes: bytes):  # type: ignore[override]
+                super().write(request_bytes)
+                future: "Future[bool]" = Future()
+                future.set_result(False)  # enqueue OK, delivery failed
+                return future
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            flag_logger=FailingDeliveryLogger(),
+            wasm_bytes=wasm_bytes,
+        )
+
+        # Counters the flush will drain into the request.
+        provider._flush_succeeded = 5
+        provider._flush_failed = 0
+        provider._event_telemetry_published = 40
+        provider._event_telemetry_succeeded = 2
+        provider._event_telemetry_failed = 1
+        provider._event_telemetry_rejected = 3
+
+        request = internal_api_pb2.WriteFlagLogsRequest()
+        request.flag_assigned.add()
+        provider._write_logs(request.SerializeToString())
+
+        # The failed flush is counted, and every drained counter is restored so
+        # the next flush re-reports it.
+        assert provider._flush_failed >= 1, "delivery failure was not counted"
+        assert provider._flush_succeeded == 5, "drained flush counter was not restored"
+        assert provider._event_telemetry_published == 40
+        assert provider._event_telemetry_succeeded == 2
+        assert provider._event_telemetry_failed == 1
+        assert provider._event_telemetry_rejected == 3
+
+    def test_flush_counted_succeeded_when_async_delivery_succeeds(
+        self,
+        wasm_bytes: bytes,
+        test_client_secret: str,
+    ) -> None:
+        """A delivered flush increments flush_succeeded and keeps counters drained."""
+        from concurrent.futures import Future
+
+        class SucceedingDeliveryLogger(MockFlagLogger):
+            def write(self, request_bytes: bytes):  # type: ignore[override]
+                super().write(request_bytes)
+                future: "Future[bool]" = Future()
+                future.set_result(True)
+                return future
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            flag_logger=SucceedingDeliveryLogger(),
+            wasm_bytes=wasm_bytes,
+        )
+        provider._flush_succeeded = 0
+        provider._event_telemetry_published = 7
+
+        request = internal_api_pb2.WriteFlagLogsRequest()
+        request.flag_assigned.add()
+        provider._write_logs(request.SerializeToString())
+
+        assert provider._flush_succeeded == 1
+        assert provider._event_telemetry_published == 0, (
+            "counters were restored despite a successful delivery"
+        )
+
     def test_initialize_fetches_state(
         self,
         wasm_bytes: bytes,

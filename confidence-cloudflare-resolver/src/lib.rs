@@ -374,11 +374,13 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             .with_cors_headers(&allowed_origin);
                     }
                 }
-                let text = match ctx.env.kv("CONFIDENCE_METRICS_KV") {
-                    Ok(kv) => kv.get("prometheus").text().await.unwrap_or(None),
-                    Err(_) => None,
+                // Rendered on read by summing the per-pipeline snapshot keys,
+                // rather than served from a pre-rendered key that either
+                // consumer could clobber.
+                let body = match ctx.env.kv("CONFIDENCE_METRICS_KV") {
+                    Ok(kv) => render_metrics(&kv).await,
+                    Err(_) => String::new(),
                 };
-                let body = text.unwrap_or_default();
                 let headers = Headers::new();
                 headers.set("Content-Type", PROMETHEUS_CONTENT_TYPE)?;
                 headers.set("Cache-Control", "no-store")?;
@@ -759,7 +761,14 @@ async fn consume_flag_logs(
         };
 
         if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-            update_kv_snapshot(&kv, req.telemetry_data.as_ref(), Some(delivered), None).await;
+            update_kv_snapshot(
+                &kv,
+                SnapshotPipeline::FlagLogs,
+                req.telemetry_data.as_ref(),
+                Some(delivered),
+                None,
+            )
+            .await;
         }
 
         if !delivered {
@@ -792,26 +801,142 @@ async fn deliver_flag_logs(
     }
 }
 
-/// Single read-modify-write of the KV-backed cumulative telemetry snapshot.
+/// KV key accumulated exclusively by the flag-log queue consumer.
+const SNAPSHOT_KEY_FLAG_LOGS: &str = "snapshot:flaglogs";
+/// KV key accumulated exclusively by the events queue consumer.
+const SNAPSHOT_KEY_EVENTS: &str = "snapshot:events";
+/// Pre-split key, written by earlier deployments. Read-only from now on: it is
+/// folded into `/metrics` so already-accumulated totals are not lost, but is
+/// never written again, so it stays frozen at its final pre-upgrade value.
+const SNAPSHOT_KEY_LEGACY: &str = "snapshot";
+
+/// Which pipeline is reporting, and therefore which KV key it owns.
 ///
-/// Merges flag-log telemetry deltas, flush delivery results, and event
-/// delivery results into one KV update — avoiding cross-queue races that
-/// would occur if flag-log and event consumers each did independent
-/// read-modify-write cycles on the same "snapshot" key.
+/// The two queue consumers accumulate into separate keys so they cannot clobber
+/// one another: a shared key means both can read the same version and the last
+/// writer wins. `/metrics` merges the keys at read time instead.
+#[derive(Copy, Clone)]
+enum SnapshotPipeline {
+    FlagLogs,
+    Events,
+}
+
+impl SnapshotPipeline {
+    fn key(self) -> &'static str {
+        match self {
+            SnapshotPipeline::FlagLogs => SNAPSHOT_KEY_FLAG_LOGS,
+            SnapshotPipeline::Events => SNAPSHOT_KEY_EVENTS,
+        }
+    }
+}
+
+/// Sums two cumulative snapshots.
 ///
-/// Note: concurrent invocations of the *same* queue can still race on
-/// KV read-modify-write. Acceptable for metrics — at worst one batch's
-/// deltas are lost, not cumulative state.
+/// Lives here rather than on `TelemetrySnapshot` because only the Cloudflare
+/// worker splits its accumulation across keys.
+///
+/// MAINTENANCE: every field of `TelemetrySnapshot` must be handled here. A new
+/// field that is not added will silently read as zero on `/metrics` for one of
+/// the two pipelines.
+fn merge_snapshots(mut acc: TelemetrySnapshot, other: &TelemetrySnapshot) -> TelemetrySnapshot {
+    // Latency histogram: sums add, buckets add index-wise (the wider of the two wins).
+    acc.latency.sum = acc.latency.sum.wrapping_add(other.latency.sum);
+    acc.latency.count = acc.latency.count.wrapping_add(other.latency.count);
+    if acc.latency.buckets.len() < other.latency.buckets.len() {
+        acc.latency.buckets.resize(other.latency.buckets.len(), 0);
+    }
+    for (slot, add) in acc.latency.buckets.iter_mut().zip(&other.latency.buckets) {
+        *slot = slot.wrapping_add(*add);
+    }
+
+    // Resolve rates are indexed by reason.
+    if acc.resolve_rates.len() < other.resolve_rates.len() {
+        acc.resolve_rates.resize(other.resolve_rates.len(), 0);
+    }
+    for (slot, add) in acc.resolve_rates.iter_mut().zip(&other.resolve_rates) {
+        *slot = slot.wrapping_add(*add);
+    }
+
+    // Gauge: keep whichever pipeline reported a value.
+    if other.memory_bytes > 0 {
+        acc.memory_bytes = other.memory_bytes;
+    }
+
+    acc.flush.succeeded = acc.flush.succeeded.wrapping_add(other.flush.succeeded);
+    acc.flush.failed = acc.flush.failed.wrapping_add(other.flush.failed);
+
+    acc.events.published = acc.events.published.wrapping_add(other.events.published);
+    acc.events.batches_succeeded = acc
+        .events
+        .batches_succeeded
+        .wrapping_add(other.events.batches_succeeded);
+    acc.events.batches_failed = acc
+        .events
+        .batches_failed
+        .wrapping_add(other.events.batches_failed);
+    acc.events.events_rejected = acc
+        .events
+        .events_rejected
+        .wrapping_add(other.events.events_rejected);
+
+    match (&mut acc.apply_dedup, &other.apply_dedup) {
+        (Some(a), Some(b)) => {
+            // Counters add; map_size/map_capacity are point-in-time gauges.
+            a.applies_total = a.applies_total.wrapping_add(b.applies_total);
+            a.applies_deduped = a.applies_deduped.wrapping_add(b.applies_deduped);
+            a.apply_dedup_overflow = a.apply_dedup_overflow.wrapping_add(b.apply_dedup_overflow);
+            a.sweeps = a.sweeps.wrapping_add(b.sweeps);
+            a.map_size = b.map_size;
+            a.map_capacity = b.map_capacity;
+        }
+        (None, Some(b)) => acc.apply_dedup = Some(b.clone()),
+        _ => {}
+    }
+
+    acc
+}
+
+/// Reads and sums every snapshot key, rendering the Prometheus exposition.
+async fn render_metrics(kv: &kv::KvStore) -> String {
+    let mut total = TelemetrySnapshot::default();
+    for key in [
+        SNAPSHOT_KEY_FLAG_LOGS,
+        SNAPSHOT_KEY_EVENTS,
+        SNAPSHOT_KEY_LEGACY,
+    ] {
+        if let Ok(Some(text)) = kv.get(key).text().await {
+            if let Ok(part) = serde_json::from_str::<TelemetrySnapshot>(&text) {
+                total = merge_snapshots(total, &part);
+            }
+        }
+    }
+    total.to_prometheus(
+        "cf-resolver",
+        &confidence_resolver::telemetry::PrometheusConfig::default(),
+    )
+}
+
+/// Read-modify-write of one pipeline's cumulative telemetry snapshot.
+///
+/// Each pipeline owns its own KV key, so the flag-log and events consumers can
+/// no longer overwrite each other. `/metrics` sums the keys at read time.
+///
+/// Concurrency that REMAINS: two concurrent invocations of the *same* consumer
+/// still race on this read-modify-write, so one batch's deltas can be lost.
+/// Accepted for metrics — the loss is bounded to a single batch and does not
+/// corrupt cumulative state. KV offers no compare-and-swap to close this.
 ///
 /// `event_result` is `(published, rejected, succeeded)`, where `published` is
 /// already net of the events the service refused.
 async fn update_kv_snapshot(
     kv: &kv::KvStore,
+    pipeline: SnapshotPipeline,
     telemetry_delta: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
     flush_result: Option<bool>,
     event_result: Option<(u64, u64, bool)>,
 ) {
-    let mut cumulative = match kv.get("snapshot").text().await {
+    let key = pipeline.key();
+    let mut cumulative = match kv.get(key).text().await {
         Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
         _ => TelemetrySnapshot::default(),
     };
@@ -842,15 +967,7 @@ async fn update_kv_snapshot(
         }
     }
 
-    let prom_text = cumulative.to_prometheus(
-        "cf-resolver",
-        &confidence_resolver::telemetry::PrometheusConfig::default(),
-    );
-
-    if let Ok(builder) = kv.put("snapshot", serde_json::to_string(&cumulative).unwrap_or_default()) {
-        let _ = builder.execute().await;
-    }
-    if let Ok(builder) = kv.put("prometheus", prom_text) {
+    if let Ok(builder) = kv.put(key, serde_json::to_string(&cumulative).unwrap_or_default()) {
         let _ = builder.execute().await;
     }
 }
@@ -1075,6 +1192,7 @@ async fn consume_events_queue(
     if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
         update_kv_snapshot(
             &kv,
+            SnapshotPipeline::Events,
             None,
             None,
             Some((event_count.saturating_sub(rejected), rejected, delivered)),
@@ -1116,6 +1234,123 @@ impl ResponseExt for Response {
         headers.set("Access-Control-Allow-Headers", "*")?;
 
         Ok(self)
+    }
+}
+
+#[cfg(test)]
+mod snapshot_merge_tests {
+    use super::*;
+    use confidence_resolver::apply_dedup::ApplyDedupSnapshot;
+
+    /// Each pipeline owns a key, so `/metrics` must sum them rather than pick one.
+    #[test]
+    fn merges_counters_from_both_pipelines() {
+        let flag_logs = TelemetrySnapshot {
+            flush: confidence_resolver::telemetry::FlushSnapshot {
+                succeeded: 7,
+                failed: 2,
+            },
+            ..Default::default()
+        };
+        let mut events = TelemetrySnapshot::default();
+        events.events.published = 50;
+        events.events.batches_succeeded = 3;
+        events.events.batches_failed = 1;
+        events.events.events_rejected = 4;
+
+        let merged = merge_snapshots(merge_snapshots(TelemetrySnapshot::default(), &flag_logs), &events);
+
+        assert_eq!(merged.flush.succeeded, 7, "flush from the flag-log key was lost");
+        assert_eq!(merged.flush.failed, 2);
+        assert_eq!(merged.events.published, 50, "events from the events key were lost");
+        assert_eq!(merged.events.batches_succeeded, 3);
+        assert_eq!(merged.events.batches_failed, 1);
+        assert_eq!(merged.events.events_rejected, 4);
+    }
+
+    /// Counters accumulate across keys; map_size/map_capacity are gauges.
+    #[test]
+    fn apply_dedup_counters_add_but_gauges_do_not() {
+        let mut a = TelemetrySnapshot::default();
+        a.apply_dedup = Some(ApplyDedupSnapshot {
+            applies_total: 10,
+            applies_deduped: 4,
+            apply_dedup_overflow: 1,
+            sweeps: 2,
+            map_size: 100,
+            map_capacity: 500,
+        });
+        let mut b = TelemetrySnapshot::default();
+        b.apply_dedup = Some(ApplyDedupSnapshot {
+            applies_total: 5,
+            applies_deduped: 3,
+            apply_dedup_overflow: 2,
+            sweeps: 1,
+            map_size: 120,
+            map_capacity: 500,
+        });
+
+        let merged = merge_snapshots(a, &b);
+        let ad = merged.apply_dedup.expect("apply_dedup dropped by merge");
+
+        assert_eq!(ad.applies_total, 15);
+        assert_eq!(ad.applies_deduped, 7);
+        assert_eq!(ad.apply_dedup_overflow, 3);
+        assert_eq!(ad.sweeps, 3);
+        assert_eq!(ad.map_size, 120, "gauge must not be summed");
+        assert_eq!(ad.map_capacity, 500, "gauge must not be summed");
+    }
+
+    /// A missing accumulator side must adopt the other's apply_dedup.
+    #[test]
+    fn adopts_apply_dedup_when_accumulator_has_none() {
+        let mut b = TelemetrySnapshot::default();
+        b.apply_dedup = Some(ApplyDedupSnapshot {
+            applies_total: 9,
+            ..Default::default()
+        });
+        let merged = merge_snapshots(TelemetrySnapshot::default(), &b);
+        assert_eq!(merged.apply_dedup.expect("not adopted").applies_total, 9);
+    }
+
+    /// Histograms and rate vectors of differing width must not panic or truncate.
+    #[test]
+    fn histogram_and_rates_merge_across_differing_widths() {
+        let a = TelemetrySnapshot {
+            latency: confidence_resolver::telemetry::HistogramSnapshot {
+                sum: 100,
+                count: 2,
+                buckets: vec![1, 2],
+            },
+            resolve_rates: vec![5],
+            ..Default::default()
+        };
+        let b = TelemetrySnapshot {
+            latency: confidence_resolver::telemetry::HistogramSnapshot {
+                sum: 50,
+                count: 1,
+                buckets: vec![3, 4, 5],
+            },
+            resolve_rates: vec![1, 7],
+            ..Default::default()
+        };
+
+        let merged = merge_snapshots(a, &b);
+        assert_eq!(merged.latency.sum, 150);
+        assert_eq!(merged.latency.count, 3);
+        assert_eq!(merged.latency.buckets, vec![4, 6, 5]);
+        assert_eq!(merged.resolve_rates, vec![6, 7]);
+    }
+
+    /// memory_bytes is a gauge: a reporting pipeline wins, a silent one does not zero it.
+    #[test]
+    fn memory_gauge_prefers_a_reported_value() {
+        let a = TelemetrySnapshot {
+            memory_bytes: 4096,
+            ..Default::default()
+        };
+        let merged = merge_snapshots(a, &TelemetrySnapshot::default());
+        assert_eq!(merged.memory_bytes, 4096, "silent pipeline zeroed the gauge");
     }
 }
 

@@ -154,6 +154,129 @@ class TestGrpcFlagLoggerEmptyRequests:
             # Should not have called the stub
             mock_stub.ClientWriteFlagLogs.assert_not_called()
 
+    def test_telemetry_only_request_is_sent(self) -> None:
+        """A request carrying only telemetry must NOT be skipped.
+
+        Regression: the emptiness check considered only the flag/resolve record
+        lists, so a full WASM flush containing just telemetry was dropped and
+        the provider's drained counters were silently lost.
+        """
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with patch(stub_path, return_value=mock_stub):
+            logger = GrpcFlagLogger(client_secret="test-secret", channel=mock_channel)
+
+            # No flag_assigned / client_resolve_info / flag_resolve_info —
+            # telemetry only, exactly what a telemetry-only flush looks like.
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.telemetry_data.flush.succeeded = 3
+            request.telemetry_data.flush.failed = 1
+            request_bytes = request.SerializeToString()
+
+            logger.write(request_bytes)
+
+            time.sleep(0.1)
+            logger.shutdown()
+
+            assert mock_stub.ClientWriteFlagLogs.call_count == 1, (
+                "telemetry-only request was dropped; drained counters would be lost"
+            )
+            sent = mock_stub.ClientWriteFlagLogs.call_args[0][0]
+            assert sent.telemetry_data.flush.succeeded == 3
+            assert sent.telemetry_data.flush.failed == 1
+
+    def test_all_default_telemetry_is_still_skipped(self) -> None:
+        """An all-default telemetry_data must not keep an empty request alive.
+
+        Merely touching the submessage marks it present, so presence alone is
+        not enough of a signal.
+        """
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        with patch(stub_path, return_value=mock_stub):
+            logger = GrpcFlagLogger(client_secret="test-secret", channel=mock_channel)
+
+            request = internal_api_pb2.WriteFlagLogsRequest()
+            request.telemetry_data.SetInParent()  # present but all-default
+            logger.write(request.SerializeToString())
+
+            time.sleep(0.1)
+            logger.shutdown()
+
+            mock_stub.ClientWriteFlagLogs.assert_not_called()
+
+
+class TestGrpcFlagLoggerDeliveryOutcome:
+    """write() must report the real delivery outcome, not just the enqueue."""
+
+    def _logger_with(self, side_effect):
+        mock_channel = MagicMock()
+        mock_stub = MagicMock()
+        mock_stub.ClientWriteFlagLogs.side_effect = side_effect
+        stub_path = (
+            "confidence.flag_logger.internal_api_pb2_grpc.InternalFlagLoggerServiceStub"
+        )
+        patcher = patch(stub_path, return_value=mock_stub)
+        patcher.start()
+        logger = GrpcFlagLogger(client_secret="test-secret", channel=mock_channel)
+        return logger, patcher
+
+    @staticmethod
+    def _request_bytes() -> bytes:
+        request = internal_api_pb2.WriteFlagLogsRequest()
+        request.flag_assigned.add()
+        return request.SerializeToString()
+
+    def test_future_reports_success(self) -> None:
+        """A delivered request resolves the future to True."""
+        logger, patcher = self._logger_with(
+            lambda *a, **k: internal_api_pb2.WriteFlagLogsResponse()
+        )
+        try:
+            future = logger.write(self._request_bytes())
+            assert future is not None, "write() must return a future for a real send"
+            assert future.result(timeout=5.0) is True
+        finally:
+            logger.shutdown()
+            patcher.stop()
+
+    def test_future_reports_delivery_failure(self) -> None:
+        """A failed send resolves the future to False rather than swallowing it.
+
+        Regression: _send_request caught the exception internally, so callers
+        could never distinguish a successful delivery from a failed one and
+        counted every flush as succeeded.
+        """
+        logger, patcher = self._logger_with(RuntimeError("network down"))
+        try:
+            future = logger.write(self._request_bytes())
+            assert future is not None
+            assert future.result(timeout=5.0) is False, (
+                "delivery failure was reported as success"
+            )
+        finally:
+            logger.shutdown()
+            patcher.stop()
+
+    def test_skipped_request_returns_none(self) -> None:
+        """No delivery attempted => no outcome to report."""
+        logger, patcher = self._logger_with(
+            lambda *a, **k: internal_api_pb2.WriteFlagLogsResponse()
+        )
+        try:
+            assert logger.write(b"") is None
+        finally:
+            logger.shutdown()
+            patcher.stop()
+
 
 class TestGrpcFlagLoggerAuthorization:
     """Test authorization header handling."""

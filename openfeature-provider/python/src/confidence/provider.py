@@ -8,7 +8,7 @@ import json
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
@@ -970,28 +970,74 @@ class ConfidenceProvider(AbstractProvider):
             log_data = request.SerializeToString()
 
         try:
-            self._flag_logger.write(log_data)
+            future = self._flag_logger.write(log_data)
         except Exception:
-            with self._event_stats_lock:
-                self._flush_failed += 1
-                if request is not None:
-                    td = request.telemetry_data
-                    self._flush_succeeded += td.flush.succeeded
-                    self._flush_failed += td.flush.failed
-                    self._event_telemetry_published += td.events.published
-                    self._event_telemetry_succeeded += td.events.batches_succeeded
-                    self._event_telemetry_failed += td.events.batches_failed
-                    self._event_telemetry_rejected += td.events.events_rejected
+            # Failed to even submit the write.
+            self._record_flush_failure(request)
             if include_init:
                 with self._init_telemetry_lock:
                     self._init_telemetry_state = "pending"
             raise
+
+        if future is None:
+            # No delivery was attempted: an empty/skipped request, a dropping
+            # logger, or a custom logger predating the future contract. There
+            # is no outcome to wait for, so keep the optimistic accounting.
+            self._record_flush_success(include_init)
+            return
+
+        # write() only enqueues; the delivery happens on the logger's worker
+        # thread. Attribute the flush to the real outcome rather than to the
+        # enqueue, otherwise every flush counts as succeeded and flush_failed
+        # never reflects a network/HTTP failure.
+        future.add_done_callback(
+            lambda completed: self._on_flush_complete(completed, request, include_init)
+        )
+
+    def _on_flush_complete(
+        self,
+        future: "Future[bool]",
+        request: Optional[internal_api_pb2.WriteFlagLogsRequest],
+        include_init: bool,
+    ) -> None:
+        """Record the asynchronous delivery outcome of a flush.
+
+        Runs on the flag logger's worker thread.
+        """
+        try:
+            delivered = future.result()
+        except Exception:
+            delivered = False
+
+        if delivered:
+            self._record_flush_success(include_init)
         else:
-            with self._event_stats_lock:
-                self._flush_succeeded += 1
+            self._record_flush_failure(request)
             if include_init:
                 with self._init_telemetry_lock:
-                    self._init_telemetry_state = "sent"
+                    self._init_telemetry_state = "pending"
+
+    def _record_flush_success(self, include_init: bool) -> None:
+        with self._event_stats_lock:
+            self._flush_succeeded += 1
+        if include_init:
+            with self._init_telemetry_lock:
+                self._init_telemetry_state = "sent"
+
+    def _record_flush_failure(
+        self, request: Optional[internal_api_pb2.WriteFlagLogsRequest]
+    ) -> None:
+        """Count the failed flush and restore the counters it had drained."""
+        with self._event_stats_lock:
+            self._flush_failed += 1
+            if request is not None:
+                td = request.telemetry_data
+                self._flush_succeeded += td.flush.succeeded
+                self._flush_failed += td.flush.failed
+                self._event_telemetry_published += td.events.published
+                self._event_telemetry_succeeded += td.events.batches_succeeded
+                self._event_telemetry_failed += td.events.batches_failed
+                self._event_telemetry_rejected += td.events.events_rejected
 
     def _create_flag_logger(
         self, account_id: str, log_destinations: List[int]
