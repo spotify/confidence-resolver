@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from confidence.flags.resolver.v1 import internal_api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_internal__api__pb2
+from . import internal_api_pb2 as confidence_dot_flags_dot_resolver_dot_v1_dot_internal__api__pb2
 
 GRPC_GENERATED_VERSION = '1.70.0'
 GRPC_VERSION = grpc.__version__
