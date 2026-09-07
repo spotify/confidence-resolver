@@ -157,8 +157,16 @@ const SWEEP_MIN_INTERVAL_SECONDS: i64 = 10;
 ///
 /// Counter fields are cumulative (monotonically increasing). Gauge fields
 /// (`map_size`, `map_capacity`) are latest values.
+///
+/// `serde(default)`: this is nested inside `TelemetrySnapshot`, which is
+/// persisted in Cloudflare KV and recovered with `unwrap_or_default()`. The
+/// parent's container-level default only rescues an absent `apply_dedup` key;
+/// an object that is present but missing a field a later version added would
+/// otherwise fail the whole snapshot parse, resetting every counter for that
+/// pipeline.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(default))]
 pub struct ApplyDedupSnapshot {
     pub applies_total: u64,
     pub applies_deduped: u64,
@@ -173,14 +181,20 @@ impl ApplyDedupSnapshot {
     /// Compute a proto delta relative to a previous snapshot, using wrapping
     /// subtraction for counters and latest values for gauges.
     pub fn to_proto_delta(&self, previous: &ApplyDedupSnapshot) -> ApplyDedupTelemetry {
+        // The counters are u64 but the proto fields are uint32. Saturate rather
+        // than truncate: a bare `as u32` wraps a delta above u32::MAX back to a
+        // small number, silently under-reporting by ~4.29e9. Not reachable at a
+        // seconds-scale flush interval, but saturation costs nothing and errs
+        // visibly high instead of invisibly low.
+        let narrow = |delta: u64| u32::try_from(delta).unwrap_or(u32::MAX);
         ApplyDedupTelemetry {
-            applies_total: self.applies_total.wrapping_sub(previous.applies_total) as u32,
-            applies_deduped: self.applies_deduped.wrapping_sub(previous.applies_deduped) as u32,
-            apply_dedup_overflow: self
-                .apply_dedup_overflow
-                .wrapping_sub(previous.apply_dedup_overflow)
-                as u32,
-            sweeps: self.sweeps.wrapping_sub(previous.sweeps) as u32,
+            applies_total: narrow(self.applies_total.wrapping_sub(previous.applies_total)),
+            applies_deduped: narrow(self.applies_deduped.wrapping_sub(previous.applies_deduped)),
+            apply_dedup_overflow: narrow(
+                self.apply_dedup_overflow
+                    .wrapping_sub(previous.apply_dedup_overflow),
+            ),
+            sweeps: narrow(self.sweeps.wrapping_sub(previous.sweeps)),
             map_size: self.map_size,
             map_capacity: self.map_capacity,
         }
@@ -1425,5 +1439,32 @@ mod tests {
         assert_eq!(delta.applies_deduped, 1);
         assert_eq!(delta.map_size, 2);
         assert_eq!(delta.map_capacity, 1000);
+    }
+
+    /// The counters are u64 and the proto fields uint32. A truncating `as u32`
+    /// wraps a delta above u32::MAX back to a small number, under-reporting by
+    /// ~4.29e9; saturation errs visibly high instead.
+    #[test]
+    fn to_proto_delta_saturates_instead_of_truncating() {
+        let previous = ApplyDedupSnapshot::default();
+        let current = ApplyDedupSnapshot {
+            applies_total: u64::from(u32::MAX) + 1,
+            applies_deduped: u64::from(u32::MAX) + 5,
+            apply_dedup_overflow: u64::from(u32::MAX) * 3,
+            sweeps: u64::from(u32::MAX) + 2,
+            map_size: 7,
+            map_capacity: 9,
+        };
+
+        let delta = current.to_proto_delta(&previous);
+
+        // Truncation would wrap these to 0, 4, MAX-2 and 1 respectively.
+        assert_eq!(delta.applies_total, u32::MAX);
+        assert_eq!(delta.applies_deduped, u32::MAX);
+        assert_eq!(delta.apply_dedup_overflow, u32::MAX);
+        assert_eq!(delta.sweeps, u32::MAX);
+        // Gauges are already u32 and pass through untouched.
+        assert_eq!(delta.map_size, 7);
+        assert_eq!(delta.map_capacity, 9);
     }
 }

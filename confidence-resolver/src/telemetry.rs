@@ -139,22 +139,37 @@ pub struct TelemetrySnapshot {
 ///
 /// Modelled as a list entry rather than a map keyed by the label set, because
 /// the snapshot is serialized to JSON and JSON object keys must be strings.
+///
+/// `serde(default)` for the same reason as [`TelemetrySnapshot`], and it is
+/// needed here too: the container-level default on the parent only rescues an
+/// absent `provider_init_rate` key, not an entry that is present but missing a
+/// field a later version added. Without it such an entry fails the whole
+/// snapshot parse, which resets every counter for that pipeline.
 #[derive(Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(default))]
 pub struct ProviderInitSnapshot {
     pub labels: BTreeMap<String, String>,
     pub count: u64,
 }
 
+/// `serde(default)`: persisted in KV and recovered with `unwrap_or_default()`,
+/// so a partial object written by an older deployment must default its missing
+/// fields rather than failing the whole snapshot parse.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(default))]
 pub struct FlushSnapshot {
     pub succeeded: u64,
     pub failed: u64,
 }
 
+/// `serde(default)`: see [`FlushSnapshot`]. This struct has already gained a
+/// field once (`events_rejected`), so a partial object is the expected shape of
+/// anything written before that.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(default))]
 pub struct EventsSnapshot {
     pub published: u64,
     pub batches_succeeded: u64,
@@ -162,8 +177,12 @@ pub struct EventsSnapshot {
     pub events_rejected: u64,
 }
 
+/// `serde(default)`: see [`FlushSnapshot`]. This is the one nested snapshot
+/// that older deployments do write, so it is the most likely to be read back
+/// partial if a field is ever added.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(default))]
 pub struct HistogramSnapshot {
     pub sum: u64,
     pub count: u64,
@@ -226,11 +245,20 @@ impl TelemetrySnapshot {
         }
 
         for rate in &td.resolve_rate {
-            let idx = rate.reason as usize;
+            // `reason` is a plain proto i32 over an open enum, so an older,
+            // newer or buggy SDK can report a value outside the known range.
+            // A bare `as usize` would sign-extend -1 to ~1.8e19 and the
+            // resize() below would abort the process; a large positive would
+            // attempt a multi-gigabyte allocation. Bounded by REASON_COUNT the
+            // same way the bucket offsets above are bounded by BUCKET_COUNT.
+            let idx = match usize::try_from(rate.reason) {
+                Ok(i) if i < REASON_COUNT => i,
+                _ => continue, // skip unknown reason
+            };
             if idx >= self.resolve_rates.len() {
                 self.resolve_rates.resize(idx.saturating_add(1), 0);
             }
-            // Safety: we just resized to at least idx+1
+            // Safety: idx < REASON_COUNT and we just resized to at least idx+1
             self.resolve_rates[idx] = self.resolve_rates[idx].wrapping_add(rate.count as u64);
         }
 
@@ -719,6 +747,21 @@ impl TelemetrySnapshot {
             // is stable across runs.
             let mut labels = String::new();
             for (key, value) in &entry.labels {
+                // Label names arrive from an SDK-supplied `map<string, string>`
+                // and are never validated upstream. Unlike a bad label *value*,
+                // which escaping contains, a bad label *name* is a scrape-level
+                // parse error: Prometheus discards every metric from this
+                // resolver, not just this line. `__`-prefixed names are
+                // reserved (`__name__` would redefine the metric) and a second
+                // `resolver_id` is a duplicate-label error.
+                //
+                // Skip rather than sanitise. Rewriting `a-b` to `a_b` could
+                // fabricate a name that collides with a genuine label and
+                // silently merge two distinct series, which is harder to notice
+                // than a missing one.
+                if !is_valid_label_name(key) || key.starts_with("__") || key == "resolver_id" {
+                    continue;
+                }
                 labels.push(',');
                 labels.push_str(key);
                 labels.push_str("=\"");
@@ -734,6 +777,17 @@ impl TelemetrySnapshot {
 
         Ok(())
     }
+}
+
+/// True if `name` is a valid Prometheus label name, i.e. matches
+/// `[a-zA-Z_][a-zA-Z0-9_]*`. Unlike a label value there is no escaping that
+/// makes an invalid name safe, so callers must skip it.
+fn is_valid_label_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    if !matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Escape a Prometheus label value per the exposition format: backslash,
@@ -1923,5 +1977,137 @@ mod tests {
         assert_eq!(restored.events.events_rejected, 3);
         assert_eq!(restored.provider_init_rate.len(), 1);
         assert_eq!(restored.provider_init_rate[0].count, 9);
+    }
+
+    /// Container-level `serde(default)` on the parent only rescues an ABSENT
+    /// nested key. A nested object that is present but partial — the shape a
+    /// deployment writes before a field is added to it — must also default
+    /// rather than failing the whole snapshot parse.
+    ///
+    /// Every payload below omits at least one field of the struct it
+    /// exercises; a payload containing all of them would assert nothing.
+    #[test]
+    fn partial_nested_objects_still_deserialize() {
+        let json = r#"{
+            "latency": {"sum": 11},
+            "flush": {"succeeded": 22},
+            "events": {"published": 33},
+            "apply_dedup": {"applies_total": 44},
+            "provider_init_rate": [{"count": 55}]
+        }"#;
+
+        let restored: TelemetrySnapshot = serde_json::from_str(json)
+            .expect("a partial nested object must deserialize, not fail the whole snapshot");
+
+        // Present fields survive.
+        assert_eq!(restored.latency.sum, 11);
+        assert_eq!(restored.flush.succeeded, 22);
+        assert_eq!(restored.events.published, 33);
+        assert_eq!(restored.apply_dedup.as_ref().unwrap().applies_total, 44);
+        assert_eq!(restored.provider_init_rate[0].count, 55);
+
+        // Omitted siblings default instead of erroring.
+        assert_eq!(restored.latency.count, 0);
+        assert!(restored.latency.buckets.is_empty());
+        assert_eq!(restored.flush.failed, 0);
+        assert_eq!(restored.events.batches_succeeded, 0);
+        assert_eq!(restored.events.events_rejected, 0);
+        assert_eq!(restored.apply_dedup.as_ref().unwrap().sweeps, 0);
+        assert_eq!(restored.apply_dedup.as_ref().unwrap().map_capacity, 0);
+        assert!(restored.provider_init_rate[0].labels.is_empty());
+    }
+
+    fn resolve_rate_td(reason: i32, count: u32) -> pb::TelemetryData {
+        pb::TelemetryData {
+            resolve_rate: vec![pb::ResolveRate { count, reason }],
+            ..Default::default()
+        }
+    }
+
+    /// `reason` is a plain proto i32 over an open enum. A bare `as usize`
+    /// sign-extends -1 to ~1.8e19, and the resize() would abort the process.
+    #[test]
+    fn accumulate_delta_negative_reason_skipped() {
+        let mut snap = TelemetrySnapshot::default();
+
+        snap.accumulate_delta(&resolve_rate_td(-1, 7));
+
+        let total: u64 = snap.resolve_rates.iter().sum();
+        assert_eq!(
+            total, 0,
+            "a negative reason must be skipped, not indexed or allocated for"
+        );
+    }
+
+    /// A large positive reason would attempt a multi-gigabyte allocation.
+    #[test]
+    fn accumulate_delta_oversized_reason_skipped() {
+        let mut snap = TelemetrySnapshot::default();
+
+        snap.accumulate_delta(&resolve_rate_td(2_000_000_000, 7));
+
+        let total: u64 = snap.resolve_rates.iter().sum();
+        assert_eq!(total, 0, "an out-of-range reason must be skipped");
+        assert!(
+            snap.resolve_rates.len() <= REASON_COUNT,
+            "the reasons vec must never grow past REASON_COUNT, got {}",
+            snap.resolve_rates.len()
+        );
+    }
+
+    /// The guard must not reject legitimate reasons.
+    #[test]
+    fn accumulate_delta_valid_reason_still_accumulates() {
+        let mut snap = TelemetrySnapshot::default();
+        let reason = ResolveReason::Match as i32;
+
+        snap.accumulate_delta(&resolve_rate_td(reason, 7));
+        snap.accumulate_delta(&resolve_rate_td(reason, 5));
+
+        assert_eq!(snap.resolve_rates[reason as usize], 12);
+    }
+
+    /// Label VALUES are escaped, but an invalid label NAME cannot be escaped
+    /// safe — Prometheus rejects the entire scrape, losing every metric from
+    /// this resolver rather than just this line.
+    #[test]
+    fn provider_init_invalid_label_names_are_skipped() {
+        let mut snap = TelemetrySnapshot::default();
+        snap.accumulate_delta(&provider_init_td(
+            &[
+                ("encryption-mode", "true"), // hyphen is invalid
+                ("0leading", "x"),           // may not start with a digit
+                ("has space", "x"),
+                ("__reserved", "x"),    // `__` prefix is reserved
+                ("resolver_id", "x"),   // would duplicate the built-in label
+                ("encryption", "true"), // valid, must survive
+            ],
+            1,
+        ));
+
+        let out = snap.to_prometheus("w0", &PrometheusConfig::default());
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("confidence_provider_init_total{"))
+            .expect("the sample line must still be rendered");
+
+        for bad in [
+            "encryption-mode",
+            "0leading",
+            "has space",
+            "__reserved",
+            "resolver_id=\"x\"",
+        ] {
+            assert!(
+                !line.contains(bad),
+                "invalid label name {bad:?} must be skipped, got: {line}"
+            );
+        }
+        assert!(
+            line.contains("encryption=\"true\""),
+            "a valid label alongside invalid ones must still render, got: {line}"
+        );
+        // Exactly one resolver_id, so the line is not a duplicate-label error.
+        assert_eq!(line.matches("resolver_id=").count(), 1);
     }
 }
