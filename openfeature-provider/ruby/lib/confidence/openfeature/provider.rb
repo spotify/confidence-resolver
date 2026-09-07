@@ -103,12 +103,21 @@ module Confidence
       #
       # Raises APIError if the request fails, EventPublishError if the batch is
       # accepted but the event is refused, InvalidContextInPayloadError on a
-      # reserved-key collision and TypeMismatchError if +value+ is not numeric.
+      # reserved-key collision and TypeMismatchError if +value+ is not numeric
+      # or +event_time+ is not a valid timestamp.
       #
-      # +event_time+ backdates the event. It can also be supplied as an
-      # "event_time" entry in +tracking_event_details+, which is the only route
-      # available through the spec-conformant +track+; it is removed from the
-      # payload rather than published as a custom field.
+      # +event_time+ backdates the event and accepts a Time or an ISO-8601
+      # String. It can also be supplied as an "event_time" entry in
+      # +tracking_event_details+, which is the only route available through the
+      # spec-conformant +track+; it is removed from the payload rather than
+      # published as a custom field.
+      #
+      # "event_time" is therefore reserved in +tracking_event_details+. A value
+      # that is neither a Time nor a parseable ISO-8601 String raises
+      # TypeMismatchError rather than being published as an ordinary string
+      # field. Failing loudly is deliberate: publishing the event stamped
+      # "now" instead of the intended time, or dropping it silently, is far
+      # harder to diagnose than a logged failure.
       def track!(tracking_event_name, evaluation_context: nil, tracking_event_details: nil, event_time: nil)
         details = normalize_details(tracking_event_details)
         at = details.delete("event_time") || event_time

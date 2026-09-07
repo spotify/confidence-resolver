@@ -6,6 +6,8 @@ require "json"
 require "uri"
 require "net/http"
 require "net/https"
+# Time.iso8601, used to coerce a String event_time.
+require "time"
 
 module Confidence
   module OpenFeature
@@ -123,8 +125,34 @@ module Confidence
 
       # getutc rather than utc: the latter mutates its receiver, which would
       # convert a caller-supplied event_time to UTC in place.
+      #
+      # Accepts a String as well as a Time. Spec 6.2.2 permits string custom
+      # fields, and an "event_time" entry in tracking event details is the only
+      # route to set the event time through the spec-conformant +track+, so a
+      # caller passing an ISO-8601 string is expected rather than exceptional.
+      # An unparseable value raises TypeMismatchError rather than falling back
+      # to "now": a silently wrong timestamp is harder to diagnose than a
+      # logged failure, and +track+ turns the raise into a warning.
       def rfc3339(time)
-        time.getutc.strftime("%Y-%m-%dT%H:%M:%S.%LZ")
+        coerce_time(time).getutc.strftime("%Y-%m-%dT%H:%M:%S.%LZ")
+      end
+
+      def coerce_time(time)
+        return time if time.is_a?(Time)
+
+        if time.is_a?(String)
+          begin
+            return Time.iso8601(time)
+          rescue ArgumentError => ex
+            raise TypeMismatchError.new(
+              "event_time #{time.inspect} is not a valid ISO-8601 timestamp: #{ex.message}"
+            )
+          end
+        end
+
+        raise TypeMismatchError.new(
+          "event_time must be a Time or an ISO-8601 String, got #{time.class}"
+        )
       end
 
       # Takes the target URI rather than a prepared agent so that every request

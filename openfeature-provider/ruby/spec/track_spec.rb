@@ -5,14 +5,21 @@ require "json"
 RSpec.describe "event tracking" do
   describe Confidence::OpenFeature::APIClient do
     let(:requests) { [] }
+    # Net::HTTP::Post carries only a path, so the request alone cannot show
+    # which endpoint was used. The agent instance holds the host, and the host
+    # is the only difference between the events and resolver endpoints — so
+    # capture it. Without this, a regression posting events to the resolver
+    # host would satisfy every other assertion here.
+    let(:hosts) { [] }
 
     subject {
       Confidence::OpenFeature::APIClient.new(client_secret: "sekret")
     }
 
     def stub_events_response(code:, body:)
-      allow_any_instance_of(Net::HTTP).to receive(:request) do |_agent, request|
+      allow_any_instance_of(Net::HTTP).to receive(:request) do |agent, request|
         requests << request
+        hosts << agent.address
         FakeHTTPResponse.new(code: code, body: body)
       end
     end
@@ -25,6 +32,55 @@ RSpec.describe "event tracking" do
       expect(requests.length).to eq(1)
       expect(requests.first.path).to eq("/v1/events:publish")
       expect(requests.first["Content-Type"]).to eq("application/json")
+    end
+
+    it "publishes to the events host, not the regional resolver host" do
+      stub_events_response(code: 200, body: '{"errors":[]}')
+
+      subject.track(event_name: "my-event")
+
+      expect(hosts).to eq(["events.confidence.dev"])
+    end
+
+    it "accepts an ISO-8601 String event_time" do
+      stub_events_response(code: 200, body: '{"errors":[]}')
+
+      subject.track(event_name: "my-event", event_time: "1970-01-01T00:00:00.000Z")
+
+      expect(requests.length).to eq(1)
+      body = JSON.parse(requests.first.body)
+      expect(body["events"].first["eventTime"]).to eq("1970-01-01T00:00:00.000Z")
+    end
+
+    it "converts a String event_time with an offset to UTC" do
+      stub_events_response(code: 200, body: '{"errors":[]}')
+
+      subject.track(event_name: "my-event", event_time: "1970-01-01T01:00:00+01:00")
+
+      body = JSON.parse(requests.first.body)
+      expect(body["events"].first["eventTime"]).to eq("1970-01-01T00:00:00.000Z")
+    end
+
+    it "raises TypeMismatchError on an unparseable String event_time" do
+      stub_events_response(code: 200, body: '{"errors":[]}')
+
+      expect {
+        subject.track(event_name: "my-event", event_time: "last tuesday")
+      }.to raise_error(
+        Confidence::OpenFeature::TypeMismatchError, /not a valid ISO-8601 timestamp/
+      )
+      expect(requests).to be_empty
+    end
+
+    it "raises TypeMismatchError on a non-Time, non-String event_time" do
+      stub_events_response(code: 200, body: '{"errors":[]}')
+
+      expect {
+        subject.track(event_name: "my-event", event_time: 12345)
+      }.to raise_error(
+        Confidence::OpenFeature::TypeMismatchError, /must be a Time or an ISO-8601 String/
+      )
+      expect(requests).to be_empty
     end
 
     it "sends the event definition, payload and sdk info" do
@@ -284,6 +340,90 @@ RSpec.describe "event tracking" do
       subject.track!("my-event", event_time: at)
 
       expect(stub_api_client.calls.last[2]).to eq(at)
+    end
+
+    # The specs above stub the API client, so the timestamp is never actually
+    # formatted. These drive Provider#track through the real APIClient so the
+    # event_time coercion runs — a String event_time previously raised
+    # NoMethodError inside rfc3339, which track's rescue swallowed, dropping
+    # the whole event with nothing published.
+    describe "event_time through the real API client" do
+      let(:requests) { [] }
+
+      let(:real_provider) {
+        Confidence::OpenFeature::Provider.new(
+          api_client: Confidence::OpenFeature::APIClient.new(client_secret: "sekret")
+        )
+      }
+
+      before do
+        allow_any_instance_of(Net::HTTP).to receive(:request) do |_agent, request|
+          requests << request
+          FakeHTTPResponse.new(code: 200, body: '{"errors":[]}')
+        end
+      end
+
+      def published_event
+        JSON.parse(requests.first.body)["events"].first
+      end
+
+      it "publishes a String event_time from details" do
+        real_provider.track(
+          "my-event",
+          tracking_event_details: {"event_time" => "1970-01-01T00:00:00.000Z", "a" => 1}
+        )
+
+        expect(requests.length).to eq(1), "the event was never published"
+        expect(published_event["eventTime"]).to eq("1970-01-01T00:00:00.000Z")
+        expect(published_event["payload"]).not_to have_key("event_time")
+        expect(published_event["payload"]["a"]).to eq(1)
+      end
+
+      it "still publishes a Time event_time from details" do
+        real_provider.track(
+          "my-event",
+          tracking_event_details: {"event_time" => Time.at(0)}
+        )
+
+        expect(requests.length).to eq(1)
+        expect(published_event["eventTime"]).to eq("1970-01-01T00:00:00.000Z")
+      end
+
+      it "leaves unrelated string fields untouched" do
+        real_provider.track(
+          "my-event",
+          tracking_event_details: {"note" => "last tuesday"}
+        )
+
+        expect(requests.length).to eq(1)
+        expect(published_event["payload"]["note"]).to eq("last tuesday")
+      end
+
+      it "logs rather than raising on an unparseable event_time, publishing nothing" do
+        expect {
+          expect(
+            real_provider.track(
+              "my-event",
+              tracking_event_details: {"event_time" => "last tuesday"}
+            )
+          ).to be_nil
+        }.to output(/not a valid ISO-8601 timestamp/).to_stderr
+
+        expect(requests).to be_empty
+      end
+
+      it "raises on an unparseable event_time through track!" do
+        expect {
+          real_provider.track!(
+            "my-event",
+            tracking_event_details: {"event_time" => "last tuesday"}
+          )
+        }.to raise_error(
+          Confidence::OpenFeature::TypeMismatchError, /not a valid ISO-8601 timestamp/
+        )
+
+        expect(requests).to be_empty
+      end
     end
 
     describe "never raising" do
