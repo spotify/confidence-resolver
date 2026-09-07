@@ -522,8 +522,17 @@ export class ConfidenceServerProviderLocal implements Provider {
       }
       writeFlagLogRequest = this.enrichTelemetry(writeFlagLogRequest, includeInit);
       try {
-        await this.sendFlagLogs(writeFlagLogRequest, signal);
-        this.flushSucceeded++;
+        const delivered = await this.sendFlagLogs(writeFlagLogRequest, signal);
+        if (delivered) {
+          this.flushSucceeded++;
+        } else {
+          // Every destination answered non-OK: count the failure and put the
+          // drained delivery counters back so the next flush re-reports them.
+          this.flushFailed++;
+          this.restoreDrainedCounters(writeFlagLogRequest);
+        }
+        // Provider init telemetry is best-effort and never retried after a
+        // response was received, successful or not.
         if (includeInit) {
           this.initTelemetryState = 'sent';
         }
@@ -545,7 +554,13 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
   }
 
-  private async sendFlagLogs(encodedWriteFlagLogRequest: Uint8Array, signal = this.main.signal): Promise<void> {
+  /**
+   * Returns true when a destination accepted the payload, false when every
+   * destination answered with a non-OK response. Network-level failures on the
+   * last destination still throw, preserving the original contract that
+   * `flush()` rejects only on transport errors.
+   */
+  private async sendFlagLogs(encodedWriteFlagLogRequest: Uint8Array, signal = this.main.signal): Promise<boolean> {
     const destinations =
       this.logDestinations.length > 0 ? this.logDestinations : [LogDestination.LOG_DESTINATION_SPOTIFY_EDGE];
 
@@ -553,12 +568,13 @@ export class ConfidenceServerProviderLocal implements Provider {
       const isLast = i === destinations.length - 1;
       try {
         const ok = await this.sendFlagLogsToDestination(encodedWriteFlagLogRequest, destinations[i], signal);
-        if (ok) return;
+        if (ok) return true;
         // Non-OK response — try fallback if available
         if (!isLast) {
           logger.warn('Primary flag log destination returned error, trying fallback');
           continue;
         }
+        logger.warn('All flag log destinations returned error responses');
       } catch (err) {
         if (!isLast) {
           logger.warn('Primary flag log destination failed, trying fallback', err);
@@ -569,8 +585,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         throw err;
       }
     }
-    // All destinations returned non-OK responses without throwing
-    throw new Error('All flag log destinations returned error responses');
+    return false;
   }
 
   private restoreDrainedCounters(encodedWriteFlagLogRequest: Uint8Array): void {
