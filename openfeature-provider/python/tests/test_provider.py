@@ -177,6 +177,89 @@ class TestInitialize:
             "counters were restored despite a successful delivery"
         )
 
+    def test_assign_flush_is_counted_and_carries_drained_counters(
+        self,
+        wasm_bytes: bytes,
+        test_client_secret: str,
+    ) -> None:
+        """Assign flushes are real WriteFlagLogs deliveries and must be counted.
+
+        _flush_assigned previously called the logger directly and discarded the
+        Future, so assign-interval batches were neither counted nor included in
+        the host-counter drain. JS/Go/Java all count them.
+        """
+        from concurrent.futures import Future
+
+        class SucceedingDeliveryLogger(MockFlagLogger):
+            def write(self, request_bytes: bytes):  # type: ignore[override]
+                super().write(request_bytes)
+                future: "Future[bool]" = Future()
+                future.set_result(True)
+                return future
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            flag_logger=SucceedingDeliveryLogger(),
+            wasm_bytes=wasm_bytes,
+        )
+        provider._flush_succeeded = 0
+        provider._event_telemetry_published = 11
+
+        request = internal_api_pb2.WriteFlagLogsRequest()
+        request.flag_assigned.add()
+        payload = request.SerializeToString()
+
+        class StubResolver:
+            def flush_assigned(self) -> bytes:
+                return payload
+
+        provider._resolver = StubResolver()  # type: ignore[assignment]
+
+        provider._flush_assigned()
+
+        assert provider._flush_succeeded == 1, (
+            "the assign-flush delivery was never counted"
+        )
+        assert provider._event_telemetry_published == 0, (
+            "assign flush did not carry the drained host counters"
+        )
+
+    def test_shutdown_drains_events_before_final_log_flush(
+        self,
+        wasm_bytes: bytes,
+        test_client_secret: str,
+    ) -> None:
+        """Event outcomes ride on the next WriteFlagLogs.
+
+        Draining events after the final flush strands the last batch's
+        published/rejected/succeeded/failed counters in process-local state.
+        Java already drains first.
+        """
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            flag_logger=MockFlagLogger(),
+            wasm_bytes=wasm_bytes,
+        )
+
+        order: list[str] = []
+        provider._event_tracker = object()  # type: ignore[assignment]
+        provider._drain_events = lambda *a, **k: order.append("drain_events")  # type: ignore[assignment,method-assign]
+        provider._write_logs = lambda *a, **k: order.append("write_logs")  # type: ignore[assignment,method-assign]
+
+        class StubResolver:
+            def flush_logs(self) -> bytes:
+                return b"\x00"
+
+        provider._resolver = StubResolver()  # type: ignore[assignment]
+
+        provider.shutdown()
+
+        assert "drain_events" in order, f"events were never drained; order={order}"
+        assert "write_logs" in order, f"final logs were never flushed; order={order}"
+        assert order.index("drain_events") < order.index("write_logs"), (
+            f"events drained after the final log flush, so their counters are lost; order={order}"
+        )
+
     def test_initialize_fetches_state(
         self,
         wasm_bytes: bytes,

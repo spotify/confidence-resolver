@@ -862,15 +862,11 @@ func (p *LocalResolverProvider) Shutdown() {
 	// Wait for background goroutines to exit
 	p.wg.Wait()
 
-	// Close resolver API (which flushes final logs)
-	if p.resolver != nil {
-		p.resolver.Close(ctx)
-		if p.logger != nil {
-			p.logger.Debug("Closed resolver API")
-		}
-	}
-
-	// Drain and close the event tracker
+	// Drain and close the event tracker BEFORE closing the resolver. Event
+	// delivery outcomes ride on the next WriteFlagLogs, so draining after the
+	// resolver's final flush would strand the last batch's
+	// published/rejected/succeeded/failed counters in process-local atomics.
+	// Java already orders it this way.
 	if p.eventTracker != nil {
 		drainCtx, drainCancel := context.WithTimeout(ctx, 3*time.Second)
 		p.drainEvents(drainCtx)
@@ -886,6 +882,15 @@ func (p *LocalResolverProvider) Shutdown() {
 		}
 		if p.logger != nil {
 			p.logger.Debug("Closed event tracker")
+		}
+	}
+
+	// Close resolver API (which flushes final logs, carrying the event
+	// counters drained above)
+	if p.resolver != nil {
+		p.resolver.Close(ctx)
+		if p.logger != nil {
+			p.logger.Debug("Closed resolver API")
 		}
 	}
 

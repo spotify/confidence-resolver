@@ -99,6 +99,15 @@ export class ConfidenceServerProviderLocal implements Provider {
   private eventBatchesSucceeded = 0;
   private eventBatchesFailed = 0;
   private eventsRejected = 0;
+  /**
+   * Serialises flag-log deliveries. `enrichTelemetry` drains the host counters
+   * onto the outgoing request and `restoreDrainedCounters` puts them back if it
+   * fails, with an `await` in between — so two concurrent deliveries could
+   * interleave that drain/restore pair and lose or double-count counters.
+   * `flushAssigned` runs per evaluation, concurrently with the interval
+   * `flush`, so this is reachable rather than theoretical.
+   */
+  private deliveryChain: Promise<unknown> = Promise.resolve();
   private resolverInstance: LocalResolver | null = null;
   private eventTracker: EventTracker | null = null;
   private stateEtag: string | null = null;
@@ -238,6 +247,17 @@ export class ConfidenceServerProviderLocal implements Provider {
   async onClose(): Promise<void> {
     const signal = timeoutSignal(3000);
     try {
+      // Drain events BEFORE the final log flush. Event delivery outcomes are
+      // reported on the next WriteFlagLogs, so draining afterwards leaves the
+      // last batch's published/rejected/succeeded/failed counters stranded in
+      // process-local state. Java already orders it this way.
+      if (this.eventTracker) {
+        try {
+          await this.drainEvents(signal);
+        } catch {
+          // best-effort: provider is shutting down
+        }
+      }
       try {
         await this.flush(signal);
       } catch {
@@ -248,13 +268,6 @@ export class ConfidenceServerProviderLocal implements Provider {
           const request = this.enrichTelemetry(new Uint8Array(), true);
           await this.sendFlagLogs(request, signal);
           this.initTelemetryState = 'sent';
-        } catch {
-          // best-effort: provider is shutting down
-        }
-      }
-      if (this.eventTracker) {
-        try {
-          await this.drainEvents(signal);
         } catch {
           // best-effort: provider is shutting down
         }
@@ -325,8 +338,11 @@ export class ConfidenceServerProviderLocal implements Provider {
         logger.error(`Failed to send events: ${response.status} ${response.statusText}`);
         return;
       }
-      this.eventBatchesSucceeded++;
+      // Decode before recording anything: a 200 with an unreadable body is a
+      // failed batch, and counting success up front would let the catch below
+      // record the same batch as both succeeded and failed.
       const { errors } = PublishEventsResponse.decode(new Uint8Array(await response.arrayBuffer()));
+      this.eventBatchesSucceeded++;
       this.eventsPublished += (batch.events?.length ?? 0) - errors.length;
       this.eventsRejected += errors.length;
       for (const error of errors) {
@@ -514,45 +530,76 @@ export class ConfidenceServerProviderLocal implements Provider {
     );
   }
 
+  /**
+   * Runs `task` after any in-flight delivery, so the drain/restore pair in
+   * {@link deliverFlagLogs} is never interleaved. Rejections propagate to the
+   * caller but do not break the chain for the next delivery.
+   */
+  private serializeDelivery<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.deliveryChain.then(task, task);
+    this.deliveryChain = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
+   * Enriches, delivers and accounts for one WriteFlagLogs request. Shared by
+   * the interval flush and the per-evaluation assign flush so both are counted
+   * — Go's `Write` and Java's `writeLogs` count assign flushes too.
+   *
+   * Only the interval flush may carry provider-init telemetry: allowing both
+   * paths would let two concurrent requests each report an init.
+   */
+  private async deliverFlagLogs(
+    encodedWriteFlagLogRequest: Uint8Array,
+    allowInit: boolean,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const includeInit = allowInit && this.initTelemetryState === 'pending';
+    if (includeInit) {
+      this.initTelemetryState = 'sending';
+    }
+    const request = this.enrichTelemetry(encodedWriteFlagLogRequest, includeInit);
+    try {
+      const delivered = await this.sendFlagLogs(request, signal);
+      if (delivered) {
+        this.flushSucceeded++;
+      } else {
+        // Every destination answered non-OK: count the failure and put the
+        // drained delivery counters back so the next flush re-reports them.
+        this.flushFailed++;
+        this.restoreDrainedCounters(request);
+      }
+      // Provider init telemetry is best-effort and never retried after a
+      // response was received, successful or not.
+      if (includeInit) {
+        this.initTelemetryState = 'sent';
+      }
+    } catch (error) {
+      this.flushFailed++;
+      this.restoreDrainedCounters(request);
+      if (includeInit) {
+        this.initTelemetryState = 'pending';
+      }
+      throw error;
+    }
+  }
+
   // TODO should this return success/failure, or even throw?
   async flush(signal?: AbortSignal): Promise<void> {
-    let writeFlagLogRequest = this.resolver.flushLogs();
-    if (writeFlagLogRequest.length > 0) {
-      const includeInit = this.initTelemetryState === 'pending';
-      if (includeInit) {
-        this.initTelemetryState = 'sending';
-      }
-      writeFlagLogRequest = this.enrichTelemetry(writeFlagLogRequest, includeInit);
-      try {
-        const delivered = await this.sendFlagLogs(writeFlagLogRequest, signal);
-        if (delivered) {
-          this.flushSucceeded++;
-        } else {
-          // Every destination answered non-OK: count the failure and put the
-          // drained delivery counters back so the next flush re-reports them.
-          this.flushFailed++;
-          this.restoreDrainedCounters(writeFlagLogRequest);
-        }
-        // Provider init telemetry is best-effort and never retried after a
-        // response was received, successful or not.
-        if (includeInit) {
-          this.initTelemetryState = 'sent';
-        }
-      } catch (error) {
-        this.flushFailed++;
-        this.restoreDrainedCounters(writeFlagLogRequest);
-        if (includeInit) {
-          this.initTelemetryState = 'pending';
-        }
-        throw error;
-      }
-    }
+    const writeFlagLogRequest = this.resolver.flushLogs();
+    if (writeFlagLogRequest.length === 0) return;
+    await this.serializeDelivery(() => this.deliverFlagLogs(writeFlagLogRequest, true, signal));
   }
 
   private async flushAssigned(): Promise<void> {
     const writeFlagLogRequest = this.resolver.flushAssigned();
-    if (writeFlagLogRequest.length > 0) {
-      await this.sendFlagLogs(writeFlagLogRequest);
+    if (writeFlagLogRequest.length === 0) return;
+    try {
+      await this.serializeDelivery(() => this.deliverFlagLogs(writeFlagLogRequest, false, this.main.signal));
+    } catch (err) {
+      // Called unawaited from resolve's finally, so a rejection here would
+      // surface as an unhandled rejection in the host application.
+      logger.warn('Failed to flush assigned flag logs', err);
     }
   }
 

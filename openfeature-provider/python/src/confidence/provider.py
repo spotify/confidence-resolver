@@ -446,20 +446,25 @@ class ConfidenceProvider(AbstractProvider):
             self._log_thread.join(timeout=5.0)
             self._log_thread = None
 
-        # Flush final logs
-        if self._resolver is not None:
-            try:
-                self._write_logs(self._resolver.flush_logs())
-            except Exception as e:
-                logger.error("Failed to flush final logs: %s", e)
-
-        # Drain pending events. A single flush is capped inside the WASM, so
-        # anything beyond that cap needs further flushes or it is dropped.
+        # Drain pending events BEFORE the final log flush. A single flush is
+        # capped inside the WASM, so anything beyond that cap needs further
+        # flushes or it is dropped. Draining first also matters for telemetry:
+        # event delivery outcomes ride on the next WriteFlagLogs, so draining
+        # after the final flush would strand the last batch's
+        # published/rejected/succeeded/failed counters in process-local state.
+        # Java already orders it this way.
         if self._event_tracker is not None:
             try:
                 self._drain_events()
             except Exception as e:
                 logger.error("Failed to flush final events: %s", e)
+
+        # Flush final logs, carrying the event counters drained above.
+        if self._resolver is not None:
+            try:
+                self._write_logs(self._resolver.flush_logs())
+            except Exception as e:
+                logger.error("Failed to flush final logs: %s", e)
 
         # Shutdown event executor and gRPC channel
         self._event_executor.shutdown(wait=True)
@@ -1079,7 +1084,12 @@ class ConfidenceProvider(AbstractProvider):
             with self._resolver_lock:
                 log_data = self._resolver.flush_assigned()
             if log_data:
-                self._flag_logger.write(log_data)
+                # Route through _write_logs rather than calling the logger
+                # directly: assign flushes are real WriteFlagLogs deliveries, so
+                # they must be counted, carry the drained host counters, and
+                # restore them if delivery fails. Go's Write and Java's
+                # writeLogs already count assign flushes.
+                self._write_logs(log_data)
         except Exception as e:
             logger.error("Failed to flush assigned logs: %s", e)
 
