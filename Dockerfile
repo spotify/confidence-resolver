@@ -568,7 +568,8 @@ RUN make lint
 # ==============================================================================
 # OpenFeature Provider (Ruby) - Build and test
 # ==============================================================================
-FROM ruby:3.3-alpine AS openfeature-provider-ruby-base
+# Ruby 3.4 is the floor for openfeature-sdk >= 0.6.0.
+FROM ruby:3.4-alpine AS openfeature-provider-ruby-base
 
 # Install build dependencies
 RUN apk add --no-cache make git build-base openssl-dev

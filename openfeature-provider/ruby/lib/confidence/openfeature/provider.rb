@@ -11,9 +11,27 @@ module Confidence
 
       # Error_code and error_message seemingly not used by OpenFeature SDK.
       # Including here for compatibility.
+      #
+      # flag_metadata became part of the contract in openfeature-sdk 0.6.1:
+      # EvaluationDetails delegates it to whatever the provider returns, so
+      # omitting the member raises NoMethodError on the fetch_*_details path.
+      # Defaulting and immutability mirror Provider::ResolutionDetails.
+      EMPTY_FLAG_METADATA = {}.freeze
+
       ResolutionDetails = Struct.new(
-        :value, :reason, :variant, :error_code, :error_message
-      )
+        :value, :reason, :variant, :error_code, :error_message, :flag_metadata
+      ) do
+        def flag_metadata
+          raw = self[:flag_metadata]
+          if raw.nil?
+            EMPTY_FLAG_METADATA
+          elsif raw.frozen?
+            raw
+          else
+            raw.dup.freeze
+          end
+        end
+      end
 
       def initialize(api_client:, apply_on_resolve: true)
         @api_client = api_client

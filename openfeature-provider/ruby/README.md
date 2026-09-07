@@ -224,10 +224,23 @@ end
 
 ### Calling through the OpenFeature client
 
-Client-level tracking (`client.track(...)`) was added in openfeature-sdk 0.6.1.
-This gem currently pins `~> 0.4.1`, so call `track` on the provider directly
-until that pin is raised. The signature already matches what the SDK client
-invokes, so no code change will be needed then.
+Tracking routes through the OpenFeature client, which merges the evaluation
+context for you (requirement 6.1.3):
+
+```ruby
+OpenFeature::SDK.set_provider(provider)
+client = OpenFeature::SDK.build_client
+
+client.track("checkout-completed", tracking_event_details: {"value" => 12.5})
+```
+
+Client-level tracking requires openfeature-sdk >= 0.6.1, which this gem now
+depends on. That SDK requires **Ruby >= 3.4**, so this gem does too.
+
+Note that `OpenFeature::SDK.set_provider` initializes the provider on a
+background thread, and from SDK 0.6.1 the client short-circuits evaluation to
+the default value while a tracked provider is still `NOT_READY`. Use
+`set_provider_and_wait` if you need the first evaluations to hit Confidence.
 
 ## Shutdown
 

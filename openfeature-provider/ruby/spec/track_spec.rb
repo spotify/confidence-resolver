@@ -145,20 +145,76 @@ RSpec.describe "event tracking" do
         }.not_to raise_error
       end
 
-      it "is invocable through the real OpenFeature SDK client" do
+      it "routes through the real OpenFeature SDK client" do
         sdk_client = ::OpenFeature::SDK::Client.new(provider: subject)
-        unless sdk_client.respond_to?(:track)
-          skip("the pinned openfeature-sdk has no client tracking (added in SDK 0.6.1)")
-        end
 
         sdk_client.track("my-event", tracking_event_details: {"value" => 3})
 
         expect(stub_api_client.calls.length).to eq(1)
-        expect(stub_api_client.calls.first[0]).to eq("my-event")
+        event_name, payload, _at = stub_api_client.calls.first
+        expect(event_name).to eq("my-event")
+        expect(payload["value"]).to eq(3)
+      end
+
+      it "passes the merged evaluation context through the SDK client" do
+        sdk_client = ::OpenFeature::SDK::Client.new(
+          provider: subject,
+          evaluation_context: ::OpenFeature::SDK::EvaluationContext.new(client_key: "client_value")
+        )
+
+        sdk_client.track(
+          "my-event",
+          evaluation_context: ::OpenFeature::SDK::EvaluationContext.new(invocation_key: "invocation_value")
+        )
+
+        context = stub_api_client.calls.first[1]["context"]
+        expect(context["client_key"]).to eq("client_value")
+        expect(context["invocation_key"]).to eq("invocation_value")
+      end
+
+      # 6.1.4: the client no-ops when the provider does not implement tracking.
+      it "no-ops for a provider without tracking" do
+        bare = Class.new {
+          def metadata
+            ::OpenFeature::SDK::Provider::ProviderMetadata.new(name: "bare")
+          end
+        }.new
+
+        expect { ::OpenFeature::SDK::Client.new(provider: bare).track("my-event") }
+          .not_to raise_error
       end
 
       it "returns nothing" do
         expect(subject.track("my-event")).to be_nil
+      end
+    end
+
+    # openfeature-sdk 0.6.1 delegates flag_metadata to whatever the provider
+    # returns, so ResolutionDetails must carry the member.
+    describe "ResolutionDetails flag_metadata" do
+      it "defaults to a frozen empty hash" do
+        details = Confidence::OpenFeature::Provider::ResolutionDetails.new(value: true)
+
+        expect(details.flag_metadata).to eq({})
+        expect(details.flag_metadata).to be_frozen
+      end
+
+      it "freezes caller-supplied metadata" do
+        details = Confidence::OpenFeature::Provider::ResolutionDetails.new(
+          value: true, flag_metadata: {"a" => 1}
+        )
+
+        expect(details.flag_metadata).to eq({"a" => 1})
+        expect(details.flag_metadata).to be_frozen
+      end
+
+      it "is reachable through EvaluationDetails delegation" do
+        details = ::OpenFeature::SDK::EvaluationDetails.new(
+          flag_key: "flag",
+          resolution_details: Confidence::OpenFeature::Provider::ResolutionDetails.new(value: true)
+        )
+
+        expect(details.flag_metadata).to eq({})
       end
     end
 

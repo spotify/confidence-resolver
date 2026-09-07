@@ -14,7 +14,9 @@ Gem::Specification.new do |spec|
   spec.summary = "Confidence provider for the OpenFeature SDK"
   spec.homepage = GITHUB_URL
   spec.license = "Apache-2.0'"
-  spec.required_ruby_version = ">= 3.1"
+  # openfeature-sdk >= 0.6.0 requires Ruby >= 3.4, so this floor is dictated by
+  # the dependency below rather than by anything in this gem.
+  spec.required_ruby_version = ">= 3.4"
 
   spec.metadata["homepage_uri"] = GITHUB_URL
   spec.metadata["source_code_uri"] = GITHUB_URL
@@ -25,7 +27,7 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb"]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "openfeature-sdk", "~> 0.4.1"
+  spec.add_dependency "openfeature-sdk", "~> 0.6.1"
   spec.add_dependency "openssl", ">= 3.3", "< 5.0" # Required for OpenSSL 3.6+ compatibility
 
   spec.add_development_dependency "rake", "~> 13.0"
