@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -116,6 +117,26 @@ pub struct TelemetrySnapshot {
     pub apply_dedup: Option<ApplyDedupSnapshot>,
     pub flush: FlushSnapshot,
     pub events: EventsSnapshot,
+    /// Provider init counts, one entry per distinct label set, kept sorted by
+    /// labels so both the serialized snapshot and the Prometheus output are
+    /// deterministic.
+    ///
+    /// `serde(default)` is required: the aggregated snapshot is persisted as
+    /// JSON and a missing field would otherwise fail to deserialize, silently
+    /// resetting every accumulated counter.
+    #[cfg_attr(feature = "json", serde(default))]
+    pub provider_init_rate: Vec<ProviderInitSnapshot>,
+}
+
+/// Accumulated provider-init count for a single label set.
+///
+/// Modelled as a list entry rather than a map keyed by the label set, because
+/// the snapshot is serialized to JSON and JSON object keys must be strings.
+#[derive(Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+pub struct ProviderInitSnapshot {
+    pub labels: BTreeMap<String, String>,
+    pub count: u64,
 }
 
 #[derive(Clone, Default)]
@@ -246,6 +267,32 @@ impl TelemetrySnapshot {
                 .events_rejected
                 .wrapping_add(events.events_rejected as u64);
         }
+
+        // Provider init is reported by the host SDK, keyed by label set (e.g.
+        // {"encryption": "true"}). Counts for an existing label set add;
+        // a new label set is inserted keeping the list sorted so the
+        // serialized snapshot and Prometheus output stay deterministic.
+        for pir in &td.provider_init_rate {
+            match self
+                .provider_init_rate
+                .iter_mut()
+                .find(|entry| entry.labels == pir.labels)
+            {
+                Some(entry) => entry.count = entry.count.wrapping_add(pir.count as u64),
+                None => {
+                    let idx = self
+                        .provider_init_rate
+                        .partition_point(|entry| entry.labels < pir.labels);
+                    self.provider_init_rate.insert(
+                        idx,
+                        ProviderInitSnapshot {
+                            labels: pir.labels.clone(),
+                            count: pir.count as u64,
+                        },
+                    );
+                }
+            }
+        }
     }
 
     /// Format the snapshot as Prometheus exposition text.
@@ -276,6 +323,7 @@ impl TelemetrySnapshot {
         self.write_apply_dedup(w, resolver_id, config)?;
         self.write_flush(w, resolver_id, config)?;
         self.write_events(w, resolver_id, config)?;
+        self.write_provider_init(w, resolver_id, config)?;
         if config.openmetrics {
             writeln!(w, "# EOF")?;
         }
@@ -636,6 +684,69 @@ impl TelemetrySnapshot {
 
         Ok(())
     }
+
+    fn write_provider_init(
+        &self,
+        w: &mut dyn fmt::Write,
+        resolver_id: &str,
+        config: &PrometheusConfig,
+    ) -> fmt::Result {
+        let has_any = self.provider_init_rate.iter().any(|e| e.count > 0);
+        if !has_any {
+            return Ok(());
+        }
+        let suffix = if config.openmetrics { ".0" } else { "" };
+
+        let type_name = if config.openmetrics {
+            "confidence_provider_init"
+        } else {
+            "confidence_provider_init_total"
+        };
+        writeln!(w, "# HELP {type_name} Total provider initializations.")?;
+        writeln!(w, "# TYPE {type_name} counter")?;
+        for entry in &self.provider_init_rate {
+            if entry.count == 0 {
+                continue;
+            }
+            // BTreeMap iteration is ordered by key, so the rendered label list
+            // is stable across runs.
+            let mut labels = String::new();
+            for (key, value) in &entry.labels {
+                labels.push(',');
+                labels.push_str(key);
+                labels.push_str("=\"");
+                labels.push_str(&escape_label_value(value));
+                labels.push('"');
+            }
+            writeln!(
+                w,
+                "confidence_provider_init_total{{resolver_id=\"{resolver_id}\"{labels}}} {}{suffix}",
+                entry.count
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Escape a Prometheus label value per the exposition format: backslash,
+/// double quote and line feed. Label values are SDK-supplied, so an
+/// unescaped quote would otherwise emit a malformed sample line and break
+/// the whole scrape.
+fn escape_label_value(value: &str) -> String {
+    if !value.contains(['\\', '"', '\n']) {
+        return value.to_string();
+    }
+    let mut out = String::with_capacity(value.len().saturating_add(8));
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 /// Concurrent telemetry collector.
@@ -705,6 +816,8 @@ impl Telemetry {
             apply_dedup: None,
             flush: FlushSnapshot::default(),
             events: EventsSnapshot::default(),
+            // Reported by the host SDK, never by the in-WASM collector.
+            provider_init_rate: Vec::new(),
         }
     }
 
@@ -1596,5 +1709,158 @@ mod tests {
             "OpenMetrics parser rejected output with all telemetry: {:?}\n\nRaw:\n{output}",
             result.err()
         );
+    }
+
+    // --- provider_init_rate -------------------------------------------------
+
+    fn provider_init_td(pairs: &[(&str, &str)], count: u32) -> pb::TelemetryData {
+        use crate::proto::confidence::flags::resolver::v1::telemetry_data::ProviderInitRate;
+
+        pb::TelemetryData {
+            provider_init_rate: vec![ProviderInitRate {
+                count,
+                labels: pairs
+                    .iter()
+                    .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                    .collect(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn accumulate_delta_provider_init_same_labels_adds() {
+        let mut snap = TelemetrySnapshot::default();
+
+        snap.accumulate_delta(&provider_init_td(&[("encryption", "true")], 1));
+        snap.accumulate_delta(&provider_init_td(&[("encryption", "true")], 2));
+
+        assert_eq!(snap.provider_init_rate.len(), 1);
+        assert_eq!(snap.provider_init_rate[0].count, 3);
+    }
+
+    #[test]
+    fn accumulate_delta_provider_init_distinct_labels_kept_separate() {
+        let mut snap = TelemetrySnapshot::default();
+
+        // Insert out of order to prove the list ends up sorted by label set.
+        snap.accumulate_delta(&provider_init_td(&[("encryption", "true")], 5));
+        snap.accumulate_delta(&provider_init_td(&[("encryption", "false")], 7));
+
+        assert_eq!(snap.provider_init_rate.len(), 2);
+        assert_eq!(
+            snap.provider_init_rate[0].labels.get("encryption").unwrap(),
+            "false"
+        );
+        assert_eq!(snap.provider_init_rate[0].count, 7);
+        assert_eq!(
+            snap.provider_init_rate[1].labels.get("encryption").unwrap(),
+            "true"
+        );
+        assert_eq!(snap.provider_init_rate[1].count, 5);
+    }
+
+    #[test]
+    fn prometheus_provider_init_renders_labels() {
+        let mut snap = TelemetrySnapshot::default();
+        snap.accumulate_delta(&provider_init_td(&[("encryption", "true")], 4));
+
+        let prom = snap.to_prometheus("w0", &PrometheusConfig::default());
+
+        assert!(prom.contains("# HELP confidence_provider_init_total"));
+        assert!(prom.contains("# TYPE confidence_provider_init_total counter"));
+        assert!(prom
+            .contains(r#"confidence_provider_init_total{resolver_id="w0",encryption="true"} 4"#));
+    }
+
+    #[test]
+    fn provider_init_alone_is_rendered() {
+        // A snapshot carrying only provider init must still produce output,
+        // otherwise the Cloudflare aggregation path stays silent about it.
+        let mut snap = TelemetrySnapshot::default();
+        snap.accumulate_delta(&provider_init_td(&[], 2));
+
+        let prom = snap.to_prometheus("w0", &PrometheusConfig::default());
+
+        assert!(prom.contains(r#"confidence_provider_init_total{resolver_id="w0"} 2"#));
+    }
+
+    #[test]
+    fn provider_init_zero_count_is_not_rendered() {
+        let mut snap = TelemetrySnapshot::default();
+        snap.accumulate_delta(&provider_init_td(&[("encryption", "true")], 0));
+
+        let prom = snap.to_prometheus("w0", &PrometheusConfig::default());
+
+        assert!(!prom.contains("confidence_provider_init"));
+    }
+
+    #[test]
+    fn provider_init_label_value_is_escaped() {
+        let mut snap = TelemetrySnapshot::default();
+        snap.accumulate_delta(&provider_init_td(&[("k", "a\"b\\c\nd")], 1));
+
+        let prom = snap.to_prometheus("w0", &PrometheusConfig::default());
+
+        assert!(prom.contains(r#"k="a\"b\\c\nd""#), "raw:\n{prom}");
+    }
+
+    #[test]
+    fn provider_init_openmetrics_output_parses() {
+        let mut snap = TelemetrySnapshot::default();
+        snap.accumulate_delta(&provider_init_td(&[("encryption", "true")], 3));
+
+        let config = PrometheusConfig {
+            openmetrics: true,
+            ..PrometheusConfig::default()
+        };
+        let output = snap.to_prometheus("w0", &config);
+
+        let result = openmetrics_parser::openmetrics::parse_openmetrics(&output);
+        assert!(
+            result.is_ok(),
+            "OpenMetrics parser rejected provider init output: {:?}\n\nRaw:\n{output}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn provider_init_serde_round_trip() {
+        let mut snap = TelemetrySnapshot::default();
+        snap.accumulate_delta(&provider_init_td(&[("encryption", "true")], 6));
+
+        let json = serde_json::to_string(&snap).unwrap();
+        let restored: TelemetrySnapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.provider_init_rate.len(), 1);
+        assert_eq!(restored.provider_init_rate[0].count, 6);
+        assert_eq!(
+            restored.provider_init_rate[0]
+                .labels
+                .get("encryption")
+                .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn snapshot_without_provider_init_field_still_deserializes() {
+        // Snapshots already persisted in KV predate the field. Without
+        // serde(default) they would fail to parse and the caller's
+        // unwrap_or_default() would silently reset every counter.
+        let json = r#"{
+            "latency": {"sum": 1, "count": 1, "buckets": [1]},
+            "resolve_rates": [2],
+            "memory_bytes": 3,
+            "apply_dedup": null,
+            "flush": {"succeeded": 4, "failed": 5},
+            "events": {"published": 6, "batches_succeeded": 7, "batches_failed": 8, "events_rejected": 9}
+        }"#;
+
+        let restored: TelemetrySnapshot = serde_json::from_str(json).unwrap();
+
+        assert!(restored.provider_init_rate.is_empty());
+        assert_eq!(restored.flush.succeeded, 4);
+        assert_eq!(restored.events.published, 6);
     }
 }
