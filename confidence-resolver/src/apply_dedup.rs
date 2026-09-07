@@ -223,7 +223,7 @@ impl ApplyDedup {
 /// Bitmask of which flags in a slice survived dedup.
 /// Avoids cloning `FlagToApply` — the caller reads from the original slice.
 /// Inline `u64` for batches up to 64 flags (no allocation); spills to a
-/// `Vec<u64>` beyond that — the resolver allows up to 1000 flags per request.
+/// `Vec<u64>` beyond that — the resolver allows up to 1501 flags per request.
 pub struct DedupResult {
     small: u64,
     large: Vec<u64>,
