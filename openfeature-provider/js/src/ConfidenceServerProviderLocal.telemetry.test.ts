@@ -157,3 +157,110 @@ it('drains events before the final log flush on close', async () => {
     'events drained after the final log flush, so their counters are lost: ' + order.join(','),
   ).toBeLessThan(firstFlagLogs);
 });
+
+/**
+ * Deliveries are not serialised, so this pins the correctness that
+ * serialisation would otherwise have been protecting: enrichTelemetry drains
+ * synchronously and restoreDrainedCounters is purely additive, so no flush
+ * counter may be lost or double-counted when deliveries overlap.
+ */
+it('conserves flush counters when deliveries overlap', async () => {
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>(res => {
+    release = res;
+  });
+  let inFlight = 0;
+  let maxInFlight = 0;
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const req = new Request(input, init);
+    if (req.url.includes('clientFlagLogs:write')) {
+      sentBodies.push(new Uint8Array(await req.arrayBuffer()));
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await gate; // hold every delivery open so they genuinely overlap
+      inFlight--;
+      return new Response(null, { status: 200 });
+    }
+    return net.fetch(input, init);
+  };
+  const provider = new ConfidenceServerProviderLocal(mockedWasmResolver, singleEventTracker(), {
+    flagClientSecret: 'flagClientSecret',
+    fetch: fetchImpl,
+  });
+
+  // Seed a known counter total, then overlap four assign deliveries with an
+  // interval flush.
+  const internals = provider as unknown as Internals & Record<string, number>;
+  internals.flushSucceeded = 10;
+  mockedWasmResolver.flushAssigned.mockReturnValue(new Uint8Array(50));
+  mockedWasmResolver.flushLogs.mockReturnValue(new Uint8Array(100));
+
+  const pending = [
+    internals.flushAssigned(),
+    internals.flushAssigned(),
+    internals.flushAssigned(),
+    internals.flushAssigned(),
+    provider.flush(),
+  ];
+  release!();
+  await advanceTimersUntil(Promise.all(pending));
+
+  // All five overlapped rather than running one-at-a-time.
+  expect(maxInFlight, 'deliveries did not actually overlap').toBeGreaterThan(1);
+
+  // Conservation: the seeded 10 plus one increment per successful delivery,
+  // split between what was reported on the wire and what remains in memory.
+  const reported = decodedTelemetry().reduce((n, td) => n + (td!.flush?.succeeded ?? 0), 0);
+  const remaining = internals.flushSucceeded;
+  expect(reported + remaining, 'flush counters were lost or double-counted across overlapping deliveries').toBe(
+    10 + pending.length,
+  );
+});
+
+/**
+ * The starvation symptom: a hanging assign delivery must not hold up the
+ * interval flush. With a serial chain the flush queued behind it.
+ */
+it('does not let a hanging assign delivery delay the interval flush', async () => {
+  let releaseAssign: (() => void) | undefined;
+  const assignGate = new Promise<void>(res => {
+    releaseAssign = res;
+  });
+  let assignSeen = false;
+  let flushCompleted = false;
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const req = new Request(input, init);
+    if (req.url.includes('clientFlagLogs:write')) {
+      const body = new Uint8Array(await req.arrayBuffer());
+      // The assign payload is 50 bytes, the interval flush payload 100.
+      if (!assignSeen && body.length <= 60) {
+        assignSeen = true;
+        await assignGate; // hang the assign delivery indefinitely
+      }
+      return new Response(null, { status: 200 });
+    }
+    return net.fetch(input, init);
+  };
+  const provider = new ConfidenceServerProviderLocal(mockedWasmResolver, singleEventTracker(), {
+    flagClientSecret: 'flagClientSecret',
+    fetch: fetchImpl,
+  });
+  const internals = provider as unknown as Internals;
+
+  mockedWasmResolver.flushAssigned.mockReturnValue(new Uint8Array(50));
+  mockedWasmResolver.flushLogs.mockReturnValue(new Uint8Array(100));
+
+  const assign = internals.flushAssigned();
+  const flush = provider.flush().then(() => {
+    flushCompleted = true;
+  });
+
+  // The flush must finish while the assign delivery is still hanging.
+  await advanceTimersUntil(flush);
+  expect(flushCompleted, 'the interval flush was starved behind the hanging assign delivery').toBe(true);
+
+  releaseAssign!();
+  await advanceTimersUntil(assign);
+});

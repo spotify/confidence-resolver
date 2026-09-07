@@ -99,15 +99,6 @@ export class ConfidenceServerProviderLocal implements Provider {
   private eventBatchesSucceeded = 0;
   private eventBatchesFailed = 0;
   private eventsRejected = 0;
-  /**
-   * Serialises flag-log deliveries. `enrichTelemetry` drains the host counters
-   * onto the outgoing request and `restoreDrainedCounters` puts them back if it
-   * fails, with an `await` in between — so two concurrent deliveries could
-   * interleave that drain/restore pair and lose or double-count counters.
-   * `flushAssigned` runs per evaluation, concurrently with the interval
-   * `flush`, so this is reachable rather than theoretical.
-   */
-  private deliveryChain: Promise<unknown> = Promise.resolve();
   private resolverInstance: LocalResolver | null = null;
   private eventTracker: EventTracker | null = null;
   private stateEtag: string | null = null;
@@ -531,20 +522,18 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   /**
-   * Runs `task` after any in-flight delivery, so the drain/restore pair in
-   * {@link deliverFlagLogs} is never interleaved. Rejections propagate to the
-   * caller but do not break the chain for the next delivery.
-   */
-  private serializeDelivery<T>(task: () => Promise<T>): Promise<T> {
-    const run = this.deliveryChain.then(task, task);
-    this.deliveryChain = run.catch(() => undefined);
-    return run;
-  }
-
-  /**
    * Enriches, delivers and accounts for one WriteFlagLogs request. Shared by
    * the interval flush and the per-evaluation assign flush so both are counted
    * — Go's `Write` and Java's `writeLogs` count assign flushes too.
+   *
+   * Deliberately NOT serialised. `enrichTelemetry` and
+   * `restoreDrainedCounters` are both fully synchronous, so a drain cannot be
+   * interleaved and a restore is purely additive — counter totals are conserved
+   * under any interleaving. Serialising instead put every per-evaluation assign
+   * delivery on one chain, which is unbounded: a delivery can take 15s+ (3
+   * retries at 500ms plus a 5s timeout, across primary then fallback), so above
+   * ~1 evaluation per delivery the chain grows without bound and the interval
+   * flush starves behind it.
    *
    * Only the interval flush may carry provider-init telemetry: allowing both
    * paths would let two concurrent requests each report an init.
@@ -588,14 +577,14 @@ export class ConfidenceServerProviderLocal implements Provider {
   async flush(signal?: AbortSignal): Promise<void> {
     const writeFlagLogRequest = this.resolver.flushLogs();
     if (writeFlagLogRequest.length === 0) return;
-    await this.serializeDelivery(() => this.deliverFlagLogs(writeFlagLogRequest, true, signal));
+    await this.deliverFlagLogs(writeFlagLogRequest, true, signal);
   }
 
   private async flushAssigned(): Promise<void> {
     const writeFlagLogRequest = this.resolver.flushAssigned();
     if (writeFlagLogRequest.length === 0) return;
     try {
-      await this.serializeDelivery(() => this.deliverFlagLogs(writeFlagLogRequest, false, this.main.signal));
+      await this.deliverFlagLogs(writeFlagLogRequest, false, this.main.signal);
     } catch (err) {
       // Called unawaited from resolve's finally, so a rejection here would
       // surface as an unhandled rejection in the host application.
