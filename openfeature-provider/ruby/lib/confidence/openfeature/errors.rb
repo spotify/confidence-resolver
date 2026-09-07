@@ -14,6 +14,15 @@ module Confidence
     class TypeMismatchError < BaseError
     end
 
+    # Raised when tracking event details already carry a "context" key.
+    #
+    # The evaluation context is merged into the event payload under the
+    # reserved "context" key, so a details key of the same name would be
+    # ambiguous. Rejecting it matches the other Confidence SDKs, which raise
+    # rather than silently overwrite one with the other.
+    class InvalidContextInPayloadError < BaseError
+    end
+
     # Raised when the events API accepts the batch but refuses individual
     # events. The batch call still returns HTTP 200 in that case, so without
     # this the rejections would be silently dropped.

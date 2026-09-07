@@ -118,28 +118,162 @@ RSpec.describe "event tracking" do
       Confidence::OpenFeature::Provider.new(api_client: stub_api_client)
     }
 
-    it "delegates to the api client" do
+    def last_payload
+      stub_api_client.calls.last[1]
+    end
+
+    # OpenFeature 6.1.1.1: tracking event name (required), evaluation context
+    # (optional), tracking event details (optional).
+    describe "OpenFeature conformance" do
+      it "takes the tracking event name as a required positional parameter" do
+        params = Confidence::OpenFeature::Provider.instance_method(:track).parameters
+
+        expect(params).to include([:req, :tracking_event_name])
+        expect(params).to include([:key, :evaluation_context])
+        expect(params).to include([:key, :tracking_event_details])
+      end
+
+      it "accepts the exact invocation the SDK client uses" do
+        context = ::OpenFeature::SDK::EvaluationContext.new(targeting_key: "user-1")
+
+        expect {
+          subject.track(
+            "my-event",
+            evaluation_context: context,
+            tracking_event_details: {"value" => 1}
+          )
+        }.not_to raise_error
+      end
+
+      it "is invocable through the real OpenFeature SDK client" do
+        sdk_client = ::OpenFeature::SDK::Client.new(provider: subject)
+        unless sdk_client.respond_to?(:track)
+          skip("the pinned openfeature-sdk has no client tracking (added in SDK 0.6.1)")
+        end
+
+        sdk_client.track("my-event", tracking_event_details: {"value" => 3})
+
+        expect(stub_api_client.calls.length).to eq(1)
+        expect(stub_api_client.calls.first[0]).to eq("my-event")
+      end
+
+      it "returns nothing" do
+        expect(subject.track("my-event")).to be_nil
+      end
+    end
+
+    it "puts details at the payload top level and context under 'context'" do
+      context = ::OpenFeature::SDK::EvaluationContext.new(targeting_key: "user-1")
+
+      subject.track(
+        "my-event",
+        evaluation_context: context,
+        tracking_event_details: {"cart_size" => 3}
+      )
+
+      expect(last_payload["cart_size"]).to eq(3)
+      expect(last_payload["context"]).to eq({"targeting_key" => "user-1"})
+    end
+
+    it "accepts a plain hash as the evaluation context" do
+      subject.track("my-event", evaluation_context: {"country" => "SE"})
+
+      expect(last_payload["context"]).to eq({"country" => "SE"})
+    end
+
+    it "sends an empty context and no custom fields when both are omitted" do
+      subject.track("my-event")
+
+      expect(last_payload).to eq({"context" => {}})
+    end
+
+    it "stringifies symbol detail keys" do
+      subject.track("my-event", tracking_event_details: {cart_size: 3})
+
+      expect(last_payload["cart_size"]).to eq(3)
+    end
+
+    # 6.2.1: tracking event details define an optional numeric value.
+    it "accepts a numeric value" do
+      subject.track("my-event", tracking_event_details: {"value" => 12.5})
+
+      expect(last_payload["value"]).to eq(12.5)
+    end
+
+    it "rejects a non-numeric value" do
+      expect {
+        subject.track!("my-event", tracking_event_details: {"value" => "lots"})
+      }.to raise_error(Confidence::OpenFeature::TypeMismatchError, /must be numeric/)
+    end
+
+    it "rejects details carrying the reserved context key" do
+      expect {
+        subject.track!("my-event", tracking_event_details: {"context" => {"a" => 1}})
+      }.to raise_error(Confidence::OpenFeature::InvalidContextInPayloadError, /reserved/)
+    end
+
+    it "takes event_time from details without publishing it as a field" do
       at = Time.at(0)
-      subject.track(event_name: "my-event", payload: {"a" => 1}, event_time: at)
 
-      expect(stub_api_client.calls).to eq([["my-event", {"a" => 1}, at]])
+      subject.track("my-event", tracking_event_details: {"event_time" => at, "a" => 1})
+
+      expect(stub_api_client.calls.last[2]).to eq(at)
+      expect(last_payload).not_to have_key("event_time")
+      expect(last_payload["a"]).to eq(1)
     end
 
-    it "defaults the payload and event time" do
-      subject.track(event_name: "my-event")
+    it "accepts an explicit event_time on the raising variant" do
+      at = Time.at(0)
 
-      expect(stub_api_client.calls).to eq([["my-event", {}, nil]])
+      subject.track!("my-event", event_time: at)
+
+      expect(stub_api_client.calls.last[2]).to eq(at)
     end
 
-    it "propagates rejections to the caller" do
-      stub_api_client.raise_with = Confidence::OpenFeature::EventPublishError.new(
-        "refused",
-        [Confidence::OpenFeature::Rejection.new(0, "EVENT_SCHEMA_VALIDATION_FAILED", "bad")]
-      )
+    describe "never raising" do
+      it "logs instead of raising when the event is refused" do
+        stub_api_client.raise_with = Confidence::OpenFeature::EventPublishError.new(
+          "refused",
+          [Confidence::OpenFeature::Rejection.new(0, "EVENT_SCHEMA_VALIDATION_FAILED", "bad")]
+        )
 
-      expect { subject.track(event_name: "my-event") }.to raise_error(
-        Confidence::OpenFeature::EventPublishError
-      )
+        expect { expect(subject.track("my-event")).to be_nil }
+          .to output(/track\("my-event"\) failed: refused/).to_stderr
+      end
+
+      it "logs instead of raising when the request fails" do
+        stub_api_client.raise_with = Confidence::OpenFeature::APIError.new(
+          "events:publish HTTP 401 Unauthorized"
+        )
+
+        expect { expect(subject.track("my-event")).to be_nil }
+          .to output(/HTTP 401/).to_stderr
+      end
+
+      it "logs instead of raising on a reserved-key collision" do
+        expect {
+          expect(subject.track("my-event", tracking_event_details: {"context" => {}})).to be_nil
+        }.to output(/reserved/).to_stderr
+      end
+
+      it "logs instead of raising when details are not a hash" do
+        expect {
+          expect(subject.track("my-event", tracking_event_details: "nope")).to be_nil
+        }.to output(/must be a Hash/).to_stderr
+      end
+    end
+
+    describe "#track!" do
+      it "raises rejections to the caller" do
+        stub_api_client.raise_with = Confidence::OpenFeature::EventPublishError.new(
+          "refused",
+          [Confidence::OpenFeature::Rejection.new(0, "EVENT_SCHEMA_VALIDATION_FAILED", "bad")]
+        )
+
+        expect { subject.track!("my-event") }.to raise_error(
+          Confidence::OpenFeature::EventPublishError
+        )
+      end
     end
   end
 end

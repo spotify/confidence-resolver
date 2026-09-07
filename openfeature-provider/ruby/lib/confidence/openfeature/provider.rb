@@ -58,20 +58,84 @@ module Confidence
 
       # Publishes an event to Confidence.
       #
-      # The OpenFeature Ruby SDK has no tracking hook, so this is a
-      # Confidence-specific extension rather than an interface method.
+      # Signature matches OpenFeature requirement 6.1.1.1 and the shape the
+      # OpenFeature Ruby SDK client invokes providers with:
       #
-      # Raises EventPublishError if the event is refused, matching the
-      # provider's synchronous, raising style for API problems.
-      def track(event_name:, payload: {}, event_time: nil)
+      #   @provider.track(name, evaluation_context:, tracking_event_details:)
+      #
+      # Returns nothing, and never raises: the SDK client does not rescue, so
+      # an exception here would surface in application code from a
+      # fire-and-forget tracking call. Failures are written to stderr. Use
+      # +track!+ when you want them raised instead.
+      def track(tracking_event_name, evaluation_context: nil, tracking_event_details: nil)
+        track!(
+          tracking_event_name,
+          evaluation_context: evaluation_context,
+          tracking_event_details: tracking_event_details
+        )
+        nil
+      rescue => ex
+        # Bare rescue is StandardError; anything narrower would let a caller
+        # mistake (a non-Hash, say) escape a call that must not raise.
+        warn("Confidence: track(#{tracking_event_name.inspect}) failed: #{ex.message}")
+        nil
+      end
+
+      # Same as +track+ but raises on failure.
+      #
+      # Raises APIError if the request fails, EventPublishError if the batch is
+      # accepted but the event is refused, InvalidContextInPayloadError on a
+      # reserved-key collision and TypeMismatchError if +value+ is not numeric.
+      #
+      # +event_time+ backdates the event. It can also be supplied as an
+      # "event_time" entry in +tracking_event_details+, which is the only route
+      # available through the spec-conformant +track+; it is removed from the
+      # payload rather than published as a custom field.
+      def track!(tracking_event_name, evaluation_context: nil, tracking_event_details: nil, event_time: nil)
+        details = normalize_details(tracking_event_details)
+        at = details.delete("event_time") || event_time
+
         @api_client.track(
-          event_name: event_name,
-          payload: payload,
-          event_time: event_time
+          event_name: tracking_event_name,
+          payload: event_payload(details, evaluation_context),
+          event_time: at
         )
       end
 
       private
+
+      # Mirrors PayloadMerger in the other Confidence SDKs: the tracking event
+      # details sit at the top level of the payload and the evaluation context
+      # is nested under the reserved "context" key.
+      def event_payload(details, evaluation_context)
+        if details.key?("context")
+          raise InvalidContextInPayloadError.new(
+            'tracking event details may not contain a "context" key; it is ' \
+            "reserved for the evaluation context"
+          )
+        end
+        details.merge("context" => context_hash(evaluation_context))
+      end
+
+      # Requirement 6.2.1: tracking event details define an optional numeric
+      # +value+. Requirement 6.2.2: custom fields keyed by string.
+      def normalize_details(tracking_event_details)
+        return {} if tracking_event_details.nil?
+        unless tracking_event_details.is_a?(Hash)
+          raise TypeMismatchError.new(
+            "tracking event details must be a Hash, got #{tracking_event_details.class}"
+          )
+        end
+
+        details = tracking_event_details.transform_keys(&:to_s)
+        value = details["value"]
+        if !value.nil? && !value.is_a?(Numeric)
+          raise TypeMismatchError.new(
+            "tracking event details 'value' must be numeric, got #{value.class}"
+          )
+        end
+        details
+      end
 
       def evaluate(flag_key:, default_value:, evaluation_context: nil, validator: nil)
         parts = flag_key.split(".")
@@ -119,10 +183,15 @@ module Confidence
 
       def context_hash(evaluation_context)
         return {} if evaluation_context.nil?
+        # Direct callers may pass a plain Hash; the SDK client always passes an
+        # EvaluationContext.
+        return evaluation_context.dup if evaluation_context.is_a?(Hash)
 
         # In SDK 0.4+, EvaluationContext stores all fields in a hash
         # targeting_key is a special field that can be accessed via .targeting_key
-        evaluation_context.fields.dup
+        return evaluation_context.fields.dup if evaluation_context.respond_to?(:fields)
+
+        {}
       end
     end
 
