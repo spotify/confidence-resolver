@@ -1150,6 +1150,7 @@ class ConfidenceProvider(AbstractProvider):
             return
 
         failed = False
+        rejected = 0
         try:
             send_time = Timestamp()
             send_time.FromDatetime(datetime.now(timezone.utc))
@@ -1165,6 +1166,7 @@ class ConfidenceProvider(AbstractProvider):
             response = self._events_stub.PublishEvents(
                 request, timeout=EVENTS_PUBLISH_TIMEOUT
             )
+            rejected = len(response.errors)
             for error in response.errors:
                 logger.error(
                     "Failed to publish event at index %d: %s %s",
@@ -1181,7 +1183,10 @@ class ConfidenceProvider(AbstractProvider):
                 self._event_publish_failures += 1
                 self._event_telemetry_failed += 1
             else:
-                self._event_telemetry_published += len(batch.events)
+                # Events the service refused (unknown definition, schema
+                # mismatch) were delivered but not ingested, so they must not
+                # count as published.
+                self._event_telemetry_published += len(batch.events) - rejected
                 self._event_telemetry_succeeded += 1
             self._event_publish_attempts += 1
             if self._event_publish_attempts % EVENTS_STATS_WINDOW == 0:
