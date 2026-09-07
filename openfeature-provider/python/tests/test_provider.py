@@ -50,6 +50,9 @@ class TestInitialize:
         )
         request = internal_api_pb2.WriteFlagLogsRequest()
         request.telemetry_data.SetInParent()
+        existing = request.telemetry_data.provider_init_rate.add()
+        existing.count = 1
+        existing.labels["existing"] = "true"
 
         provider._write_logs(request.SerializeToString())
         decoded = internal_api_pb2.WriteFlagLogsRequest.FromString(
@@ -59,6 +62,9 @@ class TestInitialize:
         assert decoded.telemetry_data.sdk.id == types_pb2.SdkId.SDK_ID_PYTHON_PROVIDER
         assert decoded.telemetry_data.sdk.version == __version__
         assert len(decoded.telemetry_data.provider_init_rate) == 1
+        assert dict(decoded.telemetry_data.provider_init_rate[0].labels) == {
+            "encryption": "false"
+        }
 
     def test_init_telemetry_retries_after_failed_write(
         self,

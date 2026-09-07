@@ -9,6 +9,7 @@ import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
 import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessResponse;
 import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
 import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
+import com.spotify.confidence.sdk.flags.resolver.v1.TelemetryData;
 import com.spotify.confidence.sdk.flags.resolver.v1.WriteFlagLogsRequest;
 import java.util.ArrayList;
 import java.util.Map;
@@ -53,6 +54,32 @@ class ProviderTelemetryResolverTest {
   }
 
   @Test
+  void ownsSingleInitSample() {
+    final var captured = new ArrayList<WriteFlagLogsRequest>();
+    final var existingRequest =
+        WriteFlagLogsRequest.newBuilder()
+            .setTelemetryData(
+                TelemetryData.newBuilder()
+                    .addProviderInitRate(
+                        TelemetryData.ProviderInitRate.newBuilder()
+                            .setCount(1)
+                            .putLabels("existing", "true")))
+            .build();
+    final var resolver =
+        new ProviderTelemetryResolver(
+            captured::add,
+            SDK,
+            Map.of("encryption", "true"),
+            sink -> new TelemetryTestResolver(sink, 1, existingRequest));
+
+    resolver.flushAllLogs();
+
+    assertThat(captured.get(0).getTelemetryData().getProviderInitRateList())
+        .singleElement()
+        .satisfies(sample -> assertThat(sample.getLabelsMap()).containsOnlyKeys("encryption"));
+  }
+
+  @Test
   void retriesAfterSinkFailure() {
     final var attempts = new AtomicInteger();
     final var captured = new ArrayList<WriteFlagLogsRequest>();
@@ -83,10 +110,17 @@ class ProviderTelemetryResolverTest {
   private static final class TelemetryTestResolver implements LocalResolver {
     private final Consumer<WriteFlagLogsRequest> sink;
     private final int flushCount;
+    private final WriteFlagLogsRequest request;
 
     private TelemetryTestResolver(Consumer<WriteFlagLogsRequest> sink, int flushCount) {
+      this(sink, flushCount, WriteFlagLogsRequest.getDefaultInstance());
+    }
+
+    private TelemetryTestResolver(
+        Consumer<WriteFlagLogsRequest> sink, int flushCount, WriteFlagLogsRequest request) {
       this.sink = sink;
       this.flushCount = flushCount;
+      this.request = request;
     }
 
     @Override
@@ -106,7 +140,7 @@ class ProviderTelemetryResolverTest {
     @Override
     public void flushAllLogs() {
       for (int i = 0; i < flushCount; i++) {
-        sink.accept(WriteFlagLogsRequest.getDefaultInstance());
+        sink.accept(request);
       }
     }
 

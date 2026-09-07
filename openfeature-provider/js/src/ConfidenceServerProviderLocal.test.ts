@@ -170,7 +170,7 @@ describe('flush behavior', () => {
           telemetryData: {
             resolverVersion: '0.20.0',
             sdk: { id: 25, version: 'resolver-version' },
-            providerInitRate: [{ count: 2, labels: { existing: 'true' } }],
+            providerInitRate: [{ count: 1, labels: { existing: 'true' } }],
           },
         }),
       ).finish(),
@@ -182,10 +182,7 @@ describe('flush behavior', () => {
     const decoded = WriteFlagLogsRequest.decode(sentBody!);
     expect(decoded.telemetryData?.resolverVersion).toBe('0.20.0');
     expect(decoded.telemetryData?.sdk).toEqual({ id: 22, customId: undefined, version: VERSION });
-    expect(decoded.telemetryData?.providerInitRate).toEqual([
-      { count: 2, labels: { existing: 'true' } },
-      { count: 1, labels: { encryption: 'false' } },
-    ]);
+    expect(decoded.telemetryData?.providerInitRate).toEqual([{ count: 1, labels: { encryption: 'false' } }]);
   });
 
   it('does not retry provider init telemetry after an HTTP failure', async () => {
