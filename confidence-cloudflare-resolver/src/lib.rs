@@ -809,10 +809,30 @@ async fn deliver_flag_logs(
 const SNAPSHOT_KEY_FLAG_LOGS: &str = "snapshot:flaglogs";
 /// KV key accumulated exclusively by the events queue consumer.
 const SNAPSHOT_KEY_EVENTS: &str = "snapshot:events";
-/// Pre-split key, written by earlier deployments. Read-only from now on: it is
-/// folded into `/metrics` so already-accumulated totals are not lost, but is
-/// never written again, so it stays frozen at its final pre-upgrade value.
+/// Pre-split key, written by earlier deployments. Read-only from now on: its
+/// COUNTERS are folded into `/metrics` so already-accumulated totals are not
+/// lost, but it is never written again, so it stays frozen at its final
+/// pre-upgrade value. Its gauges are therefore ignored — see [`GaugeSource`].
 const SNAPSHOT_KEY_LEGACY: &str = "snapshot";
+
+/// Whether a source snapshot may supply gauge readings.
+///
+/// Counters always accumulate, from every source. Gauges are point-in-time
+/// readings, so only a live pipeline may supply one: the legacy key is frozen
+/// at its final pre-upgrade value, and letting it win a "latest reading"
+/// contest would pin `memory_bytes` and `map_size` to stale values forever —
+/// including preventing `map_size` from ever being observed reaching 0, which
+/// would defeat the sweep reporting it is meant to expose.
+///
+/// This is expressed as a parameter rather than relying on merge ORDER so the
+/// rule cannot be silently undone by reordering the keys in `render_metrics`.
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum GaugeSource {
+    /// A live pipeline's own key: its gauges are current readings.
+    Live,
+    /// A frozen key: fold in the counters, ignore the gauges.
+    Frozen,
+}
 
 /// Which pipeline is reporting, and therefore which KV key it owns.
 ///
@@ -862,7 +882,11 @@ fn request_telemetry_to_accumulate(
 /// MAINTENANCE: every field of `TelemetrySnapshot` must be handled here. A new
 /// field that is not added will silently read as zero on `/metrics` for one of
 /// the two pipelines.
-fn merge_snapshots(mut acc: TelemetrySnapshot, other: &TelemetrySnapshot) -> TelemetrySnapshot {
+fn merge_snapshots(
+    mut acc: TelemetrySnapshot,
+    other: &TelemetrySnapshot,
+    gauges: GaugeSource,
+) -> TelemetrySnapshot {
     // Latency histogram: sums add, buckets add index-wise (the wider of the two wins).
     acc.latency.sum = acc.latency.sum.wrapping_add(other.latency.sum);
     acc.latency.count = acc.latency.count.wrapping_add(other.latency.count);
@@ -881,8 +905,9 @@ fn merge_snapshots(mut acc: TelemetrySnapshot, other: &TelemetrySnapshot) -> Tel
         *slot = slot.wrapping_add(*add);
     }
 
-    // Gauge: keep whichever pipeline reported a value.
-    if other.memory_bytes > 0 {
+    // Gauge: keep whichever LIVE pipeline reported a value. A frozen source
+    // must not supply it, or its stale reading would win permanently.
+    if gauges == GaugeSource::Live && other.memory_bytes > 0 {
         acc.memory_bytes = other.memory_bytes;
     }
 
@@ -905,15 +930,27 @@ fn merge_snapshots(mut acc: TelemetrySnapshot, other: &TelemetrySnapshot) -> Tel
 
     match (&mut acc.apply_dedup, &other.apply_dedup) {
         (Some(a), Some(b)) => {
-            // Counters add; map_size/map_capacity are point-in-time gauges.
+            // Counters add; map_size/map_capacity are point-in-time gauges, so
+            // only a live source may update them.
             a.applies_total = a.applies_total.wrapping_add(b.applies_total);
             a.applies_deduped = a.applies_deduped.wrapping_add(b.applies_deduped);
             a.apply_dedup_overflow = a.apply_dedup_overflow.wrapping_add(b.apply_dedup_overflow);
             a.sweeps = a.sweeps.wrapping_add(b.sweeps);
-            a.map_size = b.map_size;
-            a.map_capacity = b.map_capacity;
+            if gauges == GaugeSource::Live {
+                a.map_size = b.map_size;
+                a.map_capacity = b.map_capacity;
+            }
         }
-        (None, Some(b)) => acc.apply_dedup = Some(b.clone()),
+        (None, Some(b)) => {
+            // Adopting wholesale would also adopt the gauges, so a frozen
+            // source contributes its counters with the gauges zeroed.
+            let mut adopted = b.clone();
+            if gauges == GaugeSource::Frozen {
+                adopted.map_size = 0;
+                adopted.map_capacity = 0;
+            }
+            acc.apply_dedup = Some(adopted);
+        }
         _ => {}
     }
 
@@ -940,14 +977,14 @@ fn merge_snapshots(mut acc: TelemetrySnapshot, other: &TelemetrySnapshot) -> Tel
 /// Reads and sums every snapshot key, rendering the Prometheus exposition.
 async fn render_metrics(kv: &kv::KvStore) -> String {
     let mut total = TelemetrySnapshot::default();
-    for key in [
-        SNAPSHOT_KEY_FLAG_LOGS,
-        SNAPSHOT_KEY_EVENTS,
-        SNAPSHOT_KEY_LEGACY,
+    for (key, gauges) in [
+        (SNAPSHOT_KEY_FLAG_LOGS, GaugeSource::Live),
+        (SNAPSHOT_KEY_EVENTS, GaugeSource::Live),
+        (SNAPSHOT_KEY_LEGACY, GaugeSource::Frozen),
     ] {
         if let Ok(Some(text)) = kv.get(key).text().await {
             if let Ok(part) = serde_json::from_str::<TelemetrySnapshot>(&text) {
-                total = merge_snapshots(total, &part);
+                total = merge_snapshots(total, &part, gauges);
             }
         }
     }
@@ -1299,7 +1336,11 @@ mod snapshot_merge_tests {
         events.events.batches_failed = 1;
         events.events.events_rejected = 4;
 
-        let merged = merge_snapshots(merge_snapshots(TelemetrySnapshot::default(), &flag_logs), &events);
+        let merged = merge_snapshots(
+            merge_snapshots(TelemetrySnapshot::default(), &flag_logs, GaugeSource::Live),
+            &events,
+            GaugeSource::Live,
+        );
 
         assert_eq!(merged.flush.succeeded, 7, "flush from the flag-log key was lost");
         assert_eq!(merged.flush.failed, 2);
@@ -1370,8 +1411,9 @@ mod snapshot_merge_tests {
         };
 
         let merged = merge_snapshots(
-            merge_snapshots(TelemetrySnapshot::default(), &flag_logs),
+            merge_snapshots(TelemetrySnapshot::default(), &flag_logs, GaugeSource::Live),
             &events,
+            GaugeSource::Live,
         );
 
         assert_eq!(
@@ -1417,7 +1459,7 @@ mod snapshot_merge_tests {
             map_capacity: 500,
         });
 
-        let merged = merge_snapshots(a, &b);
+        let merged = merge_snapshots(a, &b, GaugeSource::Live);
         let ad = merged.apply_dedup.expect("apply_dedup dropped by merge");
 
         assert_eq!(ad.applies_total, 15);
@@ -1436,7 +1478,7 @@ mod snapshot_merge_tests {
             applies_total: 9,
             ..Default::default()
         });
-        let merged = merge_snapshots(TelemetrySnapshot::default(), &b);
+        let merged = merge_snapshots(TelemetrySnapshot::default(), &b, GaugeSource::Live);
         assert_eq!(merged.apply_dedup.expect("not adopted").applies_total, 9);
     }
 
@@ -1462,7 +1504,7 @@ mod snapshot_merge_tests {
             ..Default::default()
         };
 
-        let merged = merge_snapshots(a, &b);
+        let merged = merge_snapshots(a, &b, GaugeSource::Live);
         assert_eq!(merged.latency.sum, 150);
         assert_eq!(merged.latency.count, 3);
         assert_eq!(merged.latency.buckets, vec![4, 6, 5]);
@@ -1476,8 +1518,103 @@ mod snapshot_merge_tests {
             memory_bytes: 4096,
             ..Default::default()
         };
-        let merged = merge_snapshots(a, &TelemetrySnapshot::default());
+        let merged = merge_snapshots(a, &TelemetrySnapshot::default(), GaugeSource::Live);
         assert_eq!(merged.memory_bytes, 4096, "silent pipeline zeroed the gauge");
+    }
+
+    /// The legacy key is frozen at its final pre-upgrade value, so it must
+    /// contribute counters but never gauges — otherwise its stale readings win
+    /// every subsequent scrape and `map_size` can never be seen reaching 0.
+    #[test]
+    fn frozen_legacy_contributes_counters_but_never_gauges() {
+        // Live pipeline: current readings, mid-flight counters.
+        let live = TelemetrySnapshot {
+            memory_bytes: 200_000_000,
+            flush: confidence_resolver::telemetry::FlushSnapshot {
+                succeeded: 3,
+                failed: 1,
+            },
+            apply_dedup: Some(ApplyDedupSnapshot {
+                applies_total: 7,
+                applies_deduped: 2,
+                apply_dedup_overflow: 0,
+                sweeps: 4,
+                map_size: 100,
+                map_capacity: 500,
+            }),
+            ..Default::default()
+        };
+        // Legacy key: frozen at pre-upgrade values, deliberately much larger.
+        let legacy = TelemetrySnapshot {
+            memory_bytes: 500_000_000,
+            flush: confidence_resolver::telemetry::FlushSnapshot {
+                succeeded: 10,
+                failed: 5,
+            },
+            apply_dedup: Some(ApplyDedupSnapshot {
+                applies_total: 50,
+                applies_deduped: 20,
+                apply_dedup_overflow: 3,
+                sweeps: 8,
+                map_size: 9000,
+                map_capacity: 9000,
+            }),
+            ..Default::default()
+        };
+
+        let merged = merge_snapshots(
+            merge_snapshots(TelemetrySnapshot::default(), &live, GaugeSource::Live),
+            &legacy,
+            GaugeSource::Frozen,
+        );
+
+        // Gauges: the live reading must survive the frozen source.
+        assert_eq!(
+            merged.memory_bytes, 200_000_000,
+            "frozen legacy memory_bytes clobbered the live reading"
+        );
+        let ad = merged.apply_dedup.expect("apply_dedup dropped by merge");
+        assert_eq!(
+            ad.map_size, 100,
+            "frozen legacy map_size clobbered the live reading"
+        );
+        assert_eq!(
+            ad.map_capacity, 500,
+            "frozen legacy map_capacity clobbered the live reading"
+        );
+
+        // Counters: still summed across both sources.
+        assert_eq!(merged.flush.succeeded, 13, "legacy flush counters were lost");
+        assert_eq!(merged.flush.failed, 6, "legacy flush counters were lost");
+        assert_eq!(ad.applies_total, 57, "legacy apply counters were lost");
+        assert_eq!(ad.applies_deduped, 22, "legacy apply counters were lost");
+        assert_eq!(ad.apply_dedup_overflow, 3, "legacy apply counters were lost");
+        assert_eq!(ad.sweeps, 12, "legacy apply counters were lost");
+    }
+
+    /// A frozen source must not smuggle gauges in via the adopt branch, which
+    /// fires when no live pipeline has reported apply_dedup yet.
+    #[test]
+    fn frozen_legacy_adopted_wholesale_still_drops_gauges() {
+        let legacy = TelemetrySnapshot {
+            apply_dedup: Some(ApplyDedupSnapshot {
+                applies_total: 50,
+                applies_deduped: 20,
+                apply_dedup_overflow: 3,
+                sweeps: 8,
+                map_size: 9000,
+                map_capacity: 9000,
+            }),
+            ..Default::default()
+        };
+
+        let merged = merge_snapshots(TelemetrySnapshot::default(), &legacy, GaugeSource::Frozen);
+        let ad = merged.apply_dedup.expect("apply_dedup dropped by merge");
+
+        assert_eq!(ad.applies_total, 50, "legacy counters lost on adopt");
+        assert_eq!(ad.sweeps, 8, "legacy counters lost on adopt");
+        assert_eq!(ad.map_size, 0, "frozen gauge adopted wholesale");
+        assert_eq!(ad.map_capacity, 0, "frozen gauge adopted wholesale");
     }
 }
 

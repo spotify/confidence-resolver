@@ -1,117 +1,81 @@
 package flag_logger
 
 import (
-	"sync/atomic"
 	"testing"
 
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 )
 
 // TestCounterRestoreOnFailure verifies that after N consecutive failures
-// followed by 1 success, the backend sees flush_failed=N (not 1).
+// followed by 1 success, the backend sees flush_failed=N (not 1), and that the
+// event counters drained by each failed attempt survive to the successful one.
+//
+// This drives the real TelemetryCounters — DrainAndStamp and RestoreOnFailure —
+// rather than a local reimplementation of them, so gutting either method fails
+// this test.
 func TestCounterRestoreOnFailure(t *testing.T) {
-	// Simulate the counter drain → set on request → failure → restore cycle
-	// using raw atomics (same logic as GrpcFlagLogger/MultiDestinationFlagLogger).
+	var tc TelemetryCounters
 
-	var flushSucceeded, flushFailed atomic.Int64
-	var eventsPublished, eventBatchesSucceeded, eventBatchesFailed atomic.Int64
-	var eventsRejected atomic.Int64
+	// Event activity accumulated before any flush is attempted.
+	tc.RecordEventBatch(500, 7, true) // 500 ingested, 7 refused, 1 batch OK
+	tc.RecordEventBatch(0, 0, false)  // 1 batch failed outright
 
-	drain := func() *resolverv1.TelemetryData {
-		fs := uint32(flushSucceeded.Swap(0))
-		ff := uint32(flushFailed.Swap(0))
-		ep := uint32(eventsPublished.Swap(0))
-		ebs := uint32(eventBatchesSucceeded.Swap(0))
-		ebf := uint32(eventBatchesFailed.Swap(0))
-		er := uint32(eventsRejected.Swap(0))
-		td := &resolverv1.TelemetryData{}
-		if fs > 0 || ff > 0 {
-			td.Flush = &resolverv1.TelemetryData_FlushTelemetry{Succeeded: fs, Failed: ff}
-		}
-		if ep > 0 || ebs > 0 || ebf > 0 || er > 0 {
-			td.Events = &resolverv1.TelemetryData_EventsTelemetry{
-				Published: ep, BatchesSucceeded: ebs, BatchesFailed: ebf, EventsRejected: er,
-			}
-		}
-		return td
+	// Three consecutive failed deliveries. Each drains onto its request and
+	// then restores, so nothing is lost and each failure is counted once.
+	const failures = 3
+	for i := 0; i < failures; i++ {
+		request := &resolverv1.WriteFlagLogsRequest{}
+		tc.DrainAndStamp(request)
+		tc.RestoreOnFailure(request)
 	}
 
-	restoreOnFailure := func(td *resolverv1.TelemetryData) {
-		flushFailed.Add(1) // record this failure
-		if td.Flush != nil {
-			flushSucceeded.Add(int64(td.Flush.Succeeded))
-			flushFailed.Add(int64(td.Flush.Failed))
-		}
-		if td.Events != nil {
-			eventsPublished.Add(int64(td.Events.Published))
-			eventBatchesSucceeded.Add(int64(td.Events.BatchesSucceeded))
-			eventBatchesFailed.Add(int64(td.Events.BatchesFailed))
-			eventsRejected.Add(int64(td.Events.EventsRejected))
-		}
+	// Fourth delivery succeeds: this request is what the backend actually sees.
+	delivered := &resolverv1.WriteFlagLogsRequest{}
+	tc.DrainAndStamp(delivered)
+	tc.FlushSucceeded.Add(1) // the success is recorded for the NEXT flush
+
+	if delivered.TelemetryData == nil {
+		t.Fatal("telemetry data should be stamped onto the delivered request")
 	}
-
-	recordSuccess := func() {
-		flushSucceeded.Add(1)
-	}
-
-	// Simulate some event activity before flushes start
-	eventsPublished.Add(500)
-	eventBatchesSucceeded.Add(3)
-	eventBatchesFailed.Add(1)
-	eventsRejected.Add(7)
-
-	// Flush 1: drain → FAIL
-	td1 := drain()
-	restoreOnFailure(td1)
-	// After: flushFailed=1, eventsPublished=500, eventBatchesSucceeded=3, eventBatchesFailed=1
-
-	// Flush 2: drain → FAIL
-	td2 := drain()
-	restoreOnFailure(td2)
-	// After: flushFailed=2 (1 restored + 1 new), events restored
-
-	// Flush 3: drain → FAIL
-	td3 := drain()
-	restoreOnFailure(td3)
-	// After: flushFailed=3
-
-	// Flush 4: drain → SUCCESS
-	td4 := drain()
-	recordSuccess()
-
-	// Verify: the backend (td4) should see flush_failed=3 and all event counters
-	if td4.Flush == nil {
+	if delivered.TelemetryData.Flush == nil {
 		t.Fatal("flush telemetry should be present")
 	}
-	if td4.Flush.Failed != 3 {
-		t.Errorf("flush.failed: got %d, want 3", td4.Flush.Failed)
+	if got := delivered.TelemetryData.Flush.Failed; got != failures {
+		t.Errorf("flush.failed: got %d, want %d — each failed attempt must be counted once", got, failures)
 	}
-	if td4.Flush.Succeeded != 0 {
-		t.Errorf("flush.succeeded: got %d, want 0", td4.Flush.Succeeded)
-	}
-
-	if td4.Events == nil {
-		t.Fatal("events telemetry should be present")
-	}
-	if td4.Events.Published != 500 {
-		t.Errorf("events.published: got %d, want 500", td4.Events.Published)
-	}
-	if td4.Events.BatchesSucceeded != 3 {
-		t.Errorf("events.batches_succeeded: got %d, want 3", td4.Events.BatchesSucceeded)
-	}
-	if td4.Events.BatchesFailed != 1 {
-		t.Errorf("events.batches_failed: got %d, want 1", td4.Events.BatchesFailed)
-	}
-	if td4.Events.EventsRejected != 7 {
-		t.Errorf("events.events_rejected: got %d, want 7", td4.Events.EventsRejected)
+	if got := delivered.TelemetryData.Flush.Succeeded; got != 0 {
+		t.Errorf("flush.succeeded: got %d, want 0 — the success is reported by the next flush", got)
 	}
 
-	// After success: only the new success should be in the atomics
-	if v := flushSucceeded.Load(); v != 1 {
-		t.Errorf("post-success flushSucceeded: got %d, want 1", v)
+	if delivered.TelemetryData.Events == nil {
+		t.Fatal("events telemetry should be present — it was drained by the failed attempts")
 	}
-	if v := flushFailed.Load(); v != 0 {
-		t.Errorf("post-success flushFailed: got %d, want 0", v)
+	ev := delivered.TelemetryData.Events
+	if ev.Published != 500 {
+		t.Errorf("events.published: got %d, want 500 — lost across the failed attempts", ev.Published)
+	}
+	if ev.BatchesSucceeded != 1 {
+		t.Errorf("events.batches_succeeded: got %d, want 1", ev.BatchesSucceeded)
+	}
+	if ev.BatchesFailed != 1 {
+		t.Errorf("events.batches_failed: got %d, want 1", ev.BatchesFailed)
+	}
+	if ev.EventsRejected != 7 {
+		t.Errorf("events.events_rejected: got %d, want 7 — lost across the failed attempts", ev.EventsRejected)
+	}
+
+	// The successful delivery drained everything, leaving only the new success.
+	if v := tc.FlushSucceeded.Load(); v != 1 {
+		t.Errorf("post-success FlushSucceeded: got %d, want 1", v)
+	}
+	if v := tc.FlushFailed.Load(); v != 0 {
+		t.Errorf("post-success FlushFailed: got %d, want 0", v)
+	}
+	if v := tc.EventsPublished.Load(); v != 0 {
+		t.Errorf("post-success EventsPublished: got %d, want 0", v)
+	}
+	if v := tc.EventsRejected.Load(); v != 0 {
+		t.Errorf("post-success EventsRejected: got %d, want 0", v)
 	}
 }
 
