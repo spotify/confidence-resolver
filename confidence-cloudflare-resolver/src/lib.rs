@@ -893,6 +893,23 @@ fn merge_snapshots(mut acc: TelemetrySnapshot, other: &TelemetrySnapshot) -> Tel
         _ => {}
     }
 
+    // Provider init counts are keyed by label set, so entries are matched on
+    // their labels rather than by position. Kept sorted by labels to match
+    // `accumulate_delta`/`merge_telemetry`, which the Prometheus output and the
+    // serialized snapshot both rely on for determinism.
+    for add in &other.provider_init_rate {
+        match acc
+            .provider_init_rate
+            .iter_mut()
+            .find(|existing| existing.labels == add.labels)
+        {
+            Some(existing) => existing.count = existing.count.wrapping_add(add.count),
+            None => acc.provider_init_rate.push(add.clone()),
+        }
+    }
+    acc.provider_init_rate
+        .sort_by(|a, b| a.labels.cmp(&b.labels));
+
     acc
 }
 
@@ -1266,6 +1283,68 @@ mod snapshot_merge_tests {
         assert_eq!(merged.events.batches_succeeded, 3);
         assert_eq!(merged.events.batches_failed, 1);
         assert_eq!(merged.events.events_rejected, 4);
+    }
+
+    /// provider_init_rate is keyed by label set, so a shared label set must
+    /// accumulate across pipelines while distinct ones stay separate. Without
+    /// a provider_init_rate arm in merge_snapshots this reads as zero for
+    /// whichever pipeline is merged second.
+    #[test]
+    fn provider_init_rate_accumulates_per_label_set_across_pipelines() {
+        use confidence_resolver::telemetry::ProviderInitSnapshot;
+        use std::collections::BTreeMap;
+
+        let labels = |k: &str, v: &str| {
+            let mut m = BTreeMap::new();
+            m.insert(k.to_string(), v.to_string());
+            m
+        };
+
+        let flag_logs = TelemetrySnapshot {
+            provider_init_rate: vec![
+                ProviderInitSnapshot {
+                    labels: labels("encryption", "true"),
+                    count: 2,
+                },
+                ProviderInitSnapshot {
+                    labels: labels("encryption", "false"),
+                    count: 1,
+                },
+            ],
+            ..Default::default()
+        };
+        let events = TelemetrySnapshot {
+            provider_init_rate: vec![ProviderInitSnapshot {
+                labels: labels("encryption", "true"),
+                count: 5,
+            }],
+            ..Default::default()
+        };
+
+        let merged = merge_snapshots(
+            merge_snapshots(TelemetrySnapshot::default(), &flag_logs),
+            &events,
+        );
+
+        assert_eq!(
+            merged.provider_init_rate.len(),
+            2,
+            "distinct label sets must not be collapsed"
+        );
+        // Sorted by labels, so "false" precedes "true".
+        assert_eq!(
+            merged.provider_init_rate[0].labels,
+            labels("encryption", "false")
+        );
+        assert_eq!(merged.provider_init_rate[0].count, 1);
+        assert_eq!(
+            merged.provider_init_rate[1].labels,
+            labels("encryption", "true")
+        );
+        assert_eq!(
+            merged.provider_init_rate[1].count, 7,
+            "provider_init_rate was dropped or not accumulated across pipeline keys"
+        );
     }
 
     /// Counters accumulate across keys; map_size/map_capacity are gauges.
