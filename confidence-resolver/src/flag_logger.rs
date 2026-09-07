@@ -157,6 +157,69 @@ fn merge_telemetry(acc: Option<TelemetryData>, delta: &TelemetryData) -> Telemet
         }
     }
 
+    // Merge provider init rates by label set, mirroring how
+    // TelemetrySnapshot::accumulate_delta matches on the full labels map. Kept
+    // sorted by label set so the aggregated output is deterministic.
+    for dp in &delta.provider_init_rate {
+        match acc
+            .provider_init_rate
+            .iter_mut()
+            .find(|entry| entry.labels == dp.labels)
+        {
+            Some(entry) => entry.count = entry.count.wrapping_add(dp.count),
+            None => {
+                let idx = acc
+                    .provider_init_rate
+                    .partition_point(|entry| entry.labels < dp.labels);
+                acc.provider_init_rate.insert(idx, dp.clone());
+            }
+        }
+    }
+
+    // Merge apply dedup. applies_*/sweeps are deltas since the last flush so
+    // they sum; map_size/map_capacity are point-in-time gauges so they take the
+    // latest value rather than accumulating.
+    match (&mut acc.apply_dedup, &delta.apply_dedup) {
+        (Some(a), Some(d)) => {
+            a.applies_total = a.applies_total.wrapping_add(d.applies_total);
+            a.applies_deduped = a.applies_deduped.wrapping_add(d.applies_deduped);
+            a.apply_dedup_overflow = a.apply_dedup_overflow.wrapping_add(d.apply_dedup_overflow);
+            a.sweeps = a.sweeps.wrapping_add(d.sweeps);
+            a.map_size = d.map_size;
+            a.map_capacity = d.map_capacity;
+        }
+        (None, Some(d)) => {
+            acc.apply_dedup = Some(*d);
+        }
+        _ => {}
+    }
+
+    // Merge flush delivery counters
+    match (&mut acc.flush, &delta.flush) {
+        (Some(a), Some(d)) => {
+            a.succeeded = a.succeeded.wrapping_add(d.succeeded);
+            a.failed = a.failed.wrapping_add(d.failed);
+        }
+        (None, Some(d)) => {
+            acc.flush = Some(*d);
+        }
+        _ => {}
+    }
+
+    // Merge event delivery counters
+    match (&mut acc.events, &delta.events) {
+        (Some(a), Some(d)) => {
+            a.published = a.published.wrapping_add(d.published);
+            a.batches_succeeded = a.batches_succeeded.wrapping_add(d.batches_succeeded);
+            a.batches_failed = a.batches_failed.wrapping_add(d.batches_failed);
+            a.events_rejected = a.events_rejected.wrapping_add(d.events_rejected);
+        }
+        (None, Some(d)) => {
+            acc.events = Some(*d);
+        }
+        _ => {}
+    }
+
     // Gauges: take latest non-zero
     if let Some(sa) = &delta.state_age {
         acc.state_age = Some(*sa);
@@ -246,5 +309,227 @@ fn update_rule_variant_info(
         flag_info
             .variant_resolve_info
             .insert(variant_info.variant.clone(), count);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::proto::confidence::flags::resolver::v1::telemetry_data::{
+        ApplyDedupTelemetry, EventsTelemetry, FlushTelemetry, ProviderInitRate,
+    };
+    use std::collections::BTreeMap;
+
+    fn labels(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn request(td: TelemetryData) -> WriteFlagLogsRequest {
+        WriteFlagLogsRequest {
+            telemetry_data: Some(td),
+            ..Default::default()
+        }
+    }
+
+    /// The bug reported on PR #575: aggregate_batch folds a batch together via
+    /// merge_telemetry, which only handled latency/rates/state_age/memory/version
+    /// and silently discarded everything else. The Cloudflare queue consumer calls
+    /// aggregate_batch before both backend delivery and the KV snapshot, so any
+    /// field dropped here never reaches either.
+    #[test]
+    fn aggregate_batch_preserves_all_telemetry_fields() {
+        let first = request(TelemetryData {
+            apply_dedup: Some(ApplyDedupTelemetry {
+                applies_total: 10,
+                applies_deduped: 4,
+                apply_dedup_overflow: 1,
+                sweeps: 2,
+                map_size: 100,
+                map_capacity: 500,
+            }),
+            flush: Some(FlushTelemetry {
+                succeeded: 3,
+                failed: 1,
+            }),
+            events: Some(EventsTelemetry {
+                published: 50,
+                batches_succeeded: 2,
+                batches_failed: 1,
+                events_rejected: 5,
+            }),
+            provider_init_rate: vec![ProviderInitRate {
+                count: 1,
+                labels: labels(&[("encryption", "true")]),
+            }],
+            ..Default::default()
+        });
+
+        let second = request(TelemetryData {
+            apply_dedup: Some(ApplyDedupTelemetry {
+                applies_total: 7,
+                applies_deduped: 3,
+                apply_dedup_overflow: 2,
+                sweeps: 1,
+                map_size: 130,
+                map_capacity: 500,
+            }),
+            flush: Some(FlushTelemetry {
+                succeeded: 4,
+                failed: 2,
+            }),
+            events: Some(EventsTelemetry {
+                published: 20,
+                batches_succeeded: 1,
+                batches_failed: 3,
+                events_rejected: 6,
+            }),
+            provider_init_rate: vec![
+                ProviderInitRate {
+                    count: 2,
+                    labels: labels(&[("encryption", "true")]),
+                },
+                ProviderInitRate {
+                    count: 5,
+                    labels: labels(&[("encryption", "false")]),
+                },
+            ],
+            ..Default::default()
+        });
+
+        let agg = aggregate_batch(vec![first, second]);
+        let td = agg
+            .telemetry_data
+            .expect("aggregate_batch produced no telemetry_data at all");
+
+        let dedup = td
+            .apply_dedup
+            .expect("apply_dedup was dropped by aggregate_batch");
+        assert_eq!(dedup.applies_total, 17, "applies_total should sum 10+7");
+        assert_eq!(dedup.applies_deduped, 7, "applies_deduped should sum 4+3");
+        assert_eq!(
+            dedup.apply_dedup_overflow, 3,
+            "apply_dedup_overflow should sum 1+2"
+        );
+        assert_eq!(dedup.sweeps, 3, "sweeps should sum 2+1");
+        assert_eq!(
+            dedup.map_size, 130,
+            "map_size is a gauge and must take the latest reading, not sum to 230"
+        );
+        assert_eq!(
+            dedup.map_capacity, 500,
+            "map_capacity is a gauge and must take the latest reading, not sum to 1000"
+        );
+
+        let flush = td.flush.expect("flush was dropped by aggregate_batch");
+        assert_eq!(flush.succeeded, 7, "flush.succeeded should sum 3+4");
+        assert_eq!(flush.failed, 3, "flush.failed should sum 1+2");
+
+        let events = td.events.expect("events was dropped by aggregate_batch");
+        assert_eq!(events.published, 70, "events.published should sum 50+20");
+        assert_eq!(
+            events.batches_succeeded, 3,
+            "batches_succeeded should sum 2+1"
+        );
+        assert_eq!(events.batches_failed, 4, "batches_failed should sum 1+3");
+        assert_eq!(events.events_rejected, 11, "events_rejected should sum 5+6");
+
+        assert_eq!(
+            td.provider_init_rate.len(),
+            2,
+            "provider_init_rate should hold one entry per unique label set, got {:?}",
+            td.provider_init_rate
+        );
+        let on = td
+            .provider_init_rate
+            .iter()
+            .find(|e| e.labels == labels(&[("encryption", "true")]))
+            .expect("provider_init_rate lost the encryption=true label set");
+        assert_eq!(
+            on.count, 3,
+            "counts for a repeated label set should add (1+2)"
+        );
+        let off = td
+            .provider_init_rate
+            .iter()
+            .find(|e| e.labels == labels(&[("encryption", "false")]))
+            .expect("provider_init_rate lost the encryption=false label set");
+        assert_eq!(off.count, 5, "distinct label set should keep its own count");
+    }
+
+    /// Gauges must not accumulate even across many deltas.
+    #[test]
+    fn apply_dedup_gauges_take_latest_while_counters_sum() {
+        let batch: Vec<WriteFlagLogsRequest> = (1..=3)
+            .map(|i| {
+                request(TelemetryData {
+                    apply_dedup: Some(ApplyDedupTelemetry {
+                        applies_total: 1,
+                        applies_deduped: 0,
+                        apply_dedup_overflow: 0,
+                        sweeps: 0,
+                        map_size: i * 10,
+                        map_capacity: 64,
+                    }),
+                    ..Default::default()
+                })
+            })
+            .collect();
+
+        let dedup = aggregate_batch(batch)
+            .telemetry_data
+            .expect("no telemetry_data")
+            .apply_dedup
+            .expect("apply_dedup was dropped by aggregate_batch");
+
+        assert_eq!(dedup.applies_total, 3, "counter should sum across 3 deltas");
+        assert_eq!(
+            dedup.map_size, 30,
+            "gauge should be the last reading (30), not the sum (60)"
+        );
+        assert_eq!(dedup.map_capacity, 64, "constant gauge should stay 64");
+    }
+
+    /// A None accumulator must adopt the first delta that carries a value.
+    #[test]
+    fn aggregate_batch_adopts_first_delta_when_accumulator_empty() {
+        let empty = request(TelemetryData::default());
+        let carrying = request(TelemetryData {
+            apply_dedup: Some(ApplyDedupTelemetry {
+                applies_total: 9,
+                map_size: 3,
+                ..Default::default()
+            }),
+            flush: Some(FlushTelemetry {
+                succeeded: 1,
+                failed: 0,
+            }),
+            events: Some(EventsTelemetry {
+                published: 2,
+                events_rejected: 1,
+                ..Default::default()
+            }),
+            provider_init_rate: vec![ProviderInitRate {
+                count: 1,
+                labels: labels(&[("k", "v")]),
+            }],
+            ..Default::default()
+        });
+
+        let td = aggregate_batch(vec![empty, carrying])
+            .telemetry_data
+            .expect("no telemetry_data");
+
+        assert_eq!(
+            td.apply_dedup
+                .expect("apply_dedup not adopted")
+                .applies_total,
+            9
+        );
+        assert_eq!(td.flush.expect("flush not adopted").succeeded, 1);
+        assert_eq!(td.events.expect("events not adopted").events_rejected, 1);
+        assert_eq!(td.provider_init_rate.len(), 1);
     }
 }
