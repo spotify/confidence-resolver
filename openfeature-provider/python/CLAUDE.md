@@ -10,7 +10,7 @@ Python OpenFeature provider using the Confidence resolver compiled to WASM, load
 
 - **wasmtime** — WASM runtime
 - **Crash recovery** — `LocalResolver` wraps `WasmResolver` with automatic WASM instance reload on `RuntimeError` or `wasmtime.Trap`, caching state for recovery and buffering logs through crashes
-- **WASM loading** — Binary loaded from package resources via `importlib.resources` (Python 3.9+) with `pkg_resources` fallback
+- **WASM loading** — Binary loaded from package resources via `importlib.resources`
 - **Threading** — Background threads for state polling and log flushing (not asyncio)
 - **gRPC** — Flag logs shipped via `grpcio`
 - **httpx** — HTTP client for state fetching from CDN
