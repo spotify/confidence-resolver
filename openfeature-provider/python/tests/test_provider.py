@@ -6,7 +6,11 @@ from openfeature.evaluation_context import EvaluationContext
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 
-from confidence.provider import ConfidenceProvider
+from confidence.provider import (
+    EVENTS_SHUTDOWN_PUBLISH_TIMEOUT,
+    EVENTS_SHUTDOWN_WAIT_BUDGET,
+    ConfidenceProvider,
+)
 from confidence.proto.confidence.events.v1 import api_pb2 as events_api_pb2
 from confidence.proto.confidence.events.wasm.v1 import wasm_api_pb2 as events_wasm_pb2
 from confidence.proto.confidence.flags.resolver.v1 import internal_api_pb2, types_pb2
@@ -305,6 +309,94 @@ class TestInitialize:
         )
         assert succeeded == 1, (
             f"the last event batch's batches_succeeded was not stamped (got {succeeded})"
+        )
+
+    def test_shutdown_is_bounded_when_event_publishes_hang(
+        self,
+        wasm_bytes: bytes,
+        test_client_secret: str,
+    ) -> None:
+        """shutdown() must not block on the drained event sends indefinitely.
+
+        Waiting for those sends is deliberate — their counters have to reach the
+        final WriteFlagLogs — but the wait needs a ceiling. _drain_events can
+        enqueue MAX_EVENT_DRAIN_BATCHES sends against a 2-worker pool, so an
+        unbounded wait at EVENTS_PUBLISH_TIMEOUT blocks for ~25 minutes during
+        an events-service outage.
+
+        This also pins the shorter shutdown-path RPC timeout: with the
+        steady-state 30s timeout a hung send holds a worker past the budget, so
+        nothing gets recorded and the wait is pointless.
+        """
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            flag_logger=MockFlagLogger(),
+            wasm_bytes=wasm_bytes,
+        )
+
+        batches = 2
+
+        class StubEventTracker:
+            def __init__(self) -> None:
+                self.remaining = batches
+
+            def flush_events(self) -> events_wasm_pb2.FlushEventsResponse:
+                batch = events_wasm_pb2.FlushEventsResponse()
+                if self.remaining <= 0:
+                    return batch
+                self.remaining -= 1
+                batch.events.add().event_definition = "eventDefinitions/test"
+                return batch
+
+        class HangingEventsStub:
+            """Blocks for the whole timeout, then fails like a real deadline.
+
+            It MUST block. _flush_events only submits to the executor, so a fast
+            stub lets the workers finish before the wait is even reached and the
+            bound is never exercised — such a test passes with the bound removed.
+            Sleeping for exactly the timeout the caller passed is what makes the
+            reverted state slow (30s) and the fixed state fast (2s).
+            """
+
+            def __init__(self) -> None:
+                self.timeouts: list = []
+
+            def PublishEvents(self, request, timeout=None):  # noqa: N802
+                self.timeouts.append(timeout)
+                time.sleep(timeout if timeout else 30.0)
+                raise RuntimeError("simulated deadline exceeded")
+
+        final_request = internal_api_pb2.WriteFlagLogsRequest()
+        final_request.flag_assigned.add()
+        final_payload = final_request.SerializeToString()
+
+        class StubResolver:
+            def flush_logs(self) -> bytes:
+                return final_payload
+
+            def flush_assigned(self) -> bytes:
+                return b""
+
+        stub = HangingEventsStub()
+        provider._event_tracker = StubEventTracker()  # type: ignore[assignment]
+        provider._events_stub = stub  # type: ignore[assignment]
+        provider._resolver = StubResolver()  # type: ignore[assignment]
+
+        started = time.monotonic()
+        provider.shutdown()
+        elapsed = time.monotonic() - started
+
+        # Budget plus generous slack for the surrounding shutdown work. The
+        # reverted state takes ~EVENTS_PUBLISH_TIMEOUT (30s), far beyond this.
+        ceiling = EVENTS_SHUTDOWN_WAIT_BUDGET + 4.0
+        assert elapsed < ceiling, (
+            f"shutdown blocked for {elapsed:.1f}s, over the {ceiling:.1f}s "
+            "ceiling; the wait on drained event sends is not bounded"
+        )
+        assert stub.timeouts, "no event send was attempted during shutdown"
+        assert all(t == EVENTS_SHUTDOWN_PUBLISH_TIMEOUT for t in stub.timeouts), (
+            "shutdown used the steady-state publish timeout "
+            f"instead of {EVENTS_SHUTDOWN_PUBLISH_TIMEOUT}s: {stub.timeouts}"
         )
 
     def test_initialize_fetches_state(

@@ -8,7 +8,7 @@ import json
 import logging
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait as wait_futures
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
@@ -79,6 +79,26 @@ EVENTS_STATS_WINDOW = 10
 # flushes. Bounded because _send_events swallows network failures: an unbounded
 # loop would spin forever if the events API is unreachable during shutdown.
 MAX_EVENT_DRAIN_BATCHES = 100
+
+# Shutdown waits for the drained sends so their counters reach the final
+# WriteFlagLogs, but it must not inherit the steady-state timeout. _drain_events
+# can enqueue up to MAX_EVENT_DRAIN_BATCHES sends and the executor runs 2 at a
+# time, so waiting for all of them at EVENTS_PUBLISH_TIMEOUT would block for
+# 100 / 2 * 30s = 1500s (~25 min) during an events-service outage.
+#
+# Two bounds are needed, not one. A ceiling on the wait alone would expire
+# having recorded nothing, because every hung RPC still holds a worker for
+# 30s — which would defeat the point of waiting at all. Shortening the per-RPC
+# timeout as well lets a hung send fail fast enough that _send_events records
+# the failure inside the budget, so the final WriteFlagLogs still carries
+# batches_failed for it.
+#
+# Trade-off: counters from sends that do not finish inside the budget are lost.
+# That is the same trade _drain_events already makes with its enqueue deadline,
+# and far better than blocking shutdown for 25 minutes. Both values are sized
+# to match the 5s thread joins shutdown() already performs.
+EVENTS_SHUTDOWN_PUBLISH_TIMEOUT = 2.0
+EVENTS_SHUTDOWN_WAIT_BUDGET = 5.0
 
 # Retry transient UNAVAILABLE failures when publishing events. Scoped to the
 # events service so it cannot affect any other RPC on the channel.
@@ -453,18 +473,38 @@ class ConfidenceProvider(AbstractProvider):
         # after the final flush would strand the last batch's
         # published/rejected/succeeded/failed counters in process-local state.
         # Java already orders it this way.
+        drained: List["Future[None]"] = []
         if self._event_tracker is not None:
             try:
-                self._drain_events()
+                self._drain_events(
+                    sink=drained,
+                    publish_timeout=EVENTS_SHUTDOWN_PUBLISH_TIMEOUT,
+                )
             except Exception as e:
                 logger.error("Failed to flush final events: %s", e)
 
         # Reordering the drain call is not enough: _flush_events only SUBMITS to
         # _event_executor, and _send_events increments the event telemetry
-        # counters on the worker thread. Wait for those sends to finish here, or
-        # the final _write_logs below stamps counters that have not been
-        # recorded yet and the last batch's telemetry never leaves the process.
-        self._event_executor.shutdown(wait=True)
+        # counters on the worker thread. Wait for those sends here, or the final
+        # _write_logs below stamps counters that have not been recorded yet and
+        # the last batch's telemetry never leaves the process.
+        #
+        # The wait MUST be bounded. shutdown(wait=True) would block until every
+        # queued send finished — up to MAX_EVENT_DRAIN_BATCHES / 2 workers *
+        # EVENTS_PUBLISH_TIMEOUT, i.e. ~25 minutes during an outage. Wait on the
+        # drained futures with a ceiling instead, then tear the executor down
+        # without waiting and cancel whatever never started.
+        if drained:
+            _, not_done = wait_futures(drained, timeout=EVENTS_SHUTDOWN_WAIT_BUDGET)
+            if not_done:
+                logger.warning(
+                    "%d of %d final event sends did not finish within %.1fs; "
+                    "their delivery counters are lost",
+                    len(not_done),
+                    len(drained),
+                    EVENTS_SHUTDOWN_WAIT_BUDGET,
+                )
+        self._event_executor.shutdown(wait=False, cancel_futures=True)
 
         # Flush final logs, carrying the event counters recorded above.
         if self._resolver is not None:
@@ -1157,8 +1197,18 @@ class ConfidenceProvider(AbstractProvider):
                 "Failed to track event '%s'", tracking_event_name, exc_info=True
             )
 
-    def _flush_events(self) -> int:
+    def _flush_events(
+        self,
+        sink: Optional[List["Future[None]"]] = None,
+        publish_timeout: float = EVENTS_PUBLISH_TIMEOUT,
+    ) -> int:
         """Flush pending events from the event resolver and send them.
+
+        Args:
+            sink: When provided, the submitted Future is appended to it so the
+                caller can wait on the send. Shutdown uses this to bound its
+                wait; the periodic flush passes nothing and stays fire-and-forget.
+            publish_timeout: Per-RPC timeout handed to _send_events.
 
         Returns:
             The number of events handed off for publishing. A single flush is
@@ -1175,7 +1225,11 @@ class ConfidenceProvider(AbstractProvider):
             return 0
 
         try:
-            self._event_executor.submit(self._send_events, batch)
+            future = self._event_executor.submit(
+                self._send_events, batch, publish_timeout
+            )
+            if sink is not None:
+                sink.append(future)
         except RuntimeError:
             # shutdown() closes the executor before the final log flush, and the
             # log thread is only joined with a timeout — so a slow thread can
@@ -1186,22 +1240,34 @@ class ConfidenceProvider(AbstractProvider):
             return 0
         return len(batch.events)
 
-    def _drain_events(self, deadline_seconds: float = 3.0) -> None:
+    def _drain_events(
+        self,
+        deadline_seconds: float = 3.0,
+        sink: Optional[List["Future[None]"]] = None,
+        publish_timeout: float = EVENTS_PUBLISH_TIMEOUT,
+    ) -> None:
         """Flush events repeatedly until the event buffer is empty.
 
         A single flush is capped at 2 MB inside the WASM engine, so one flush
-        can leave a backlog behind. Bounded by both MAX_EVENT_DRAIN_BATCHES and
-        an overall deadline so shutdown never blocks indefinitely during an
-        outage.
+        can leave a backlog behind, hence the loop.
+
+        NOTE: deadline_seconds and MAX_EVENT_DRAIN_BATCHES bound only the
+        ENQUEUEING done here — _flush_events submits to the executor and
+        returns. They say nothing about how long the submitted sends take. Any
+        caller that then waits on those sends must bound its own wait; see
+        EVENTS_SHUTDOWN_WAIT_BUDGET and how shutdown() uses it.
+
+        Args:
+            deadline_seconds: Ceiling on time spent enqueueing.
+            sink: Collects the submitted Futures so a caller can wait on them.
+            publish_timeout: Per-RPC timeout handed to each send.
         """
         if self._event_tracker is None:
             return
 
-        import time
-
         deadline = time.monotonic() + deadline_seconds
         for _ in range(MAX_EVENT_DRAIN_BATCHES):
-            if self._flush_events() == 0:
+            if self._flush_events(sink=sink, publish_timeout=publish_timeout) == 0:
                 return
             if time.monotonic() >= deadline:
                 logger.warning(
@@ -1215,13 +1281,20 @@ class ConfidenceProvider(AbstractProvider):
             MAX_EVENT_DRAIN_BATCHES,
         )
 
-    def _send_events(self, batch: events_wasm_pb2.FlushEventsResponse) -> None:
+    def _send_events(
+        self,
+        batch: events_wasm_pb2.FlushEventsResponse,
+        publish_timeout: float = EVENTS_PUBLISH_TIMEOUT,
+    ) -> None:
         """Publish a batch of events to the Confidence events service over gRPC.
 
         Runs in the event executor thread pool.
 
         Args:
             batch: The FlushEventsResponse from the WASM flush.
+            publish_timeout: Per-RPC timeout. Shutdown passes a shorter value so
+                a hung send still fails inside the shutdown budget, letting its
+                failure be recorded rather than lost.
         """
         if self._events_stub is None:
             return
@@ -1240,9 +1313,7 @@ class ConfidenceProvider(AbstractProvider):
                     version=__version__,
                 ),
             )
-            response = self._events_stub.PublishEvents(
-                request, timeout=EVENTS_PUBLISH_TIMEOUT
-            )
+            response = self._events_stub.PublishEvents(request, timeout=publish_timeout)
             rejected = len(response.errors)
             for error in response.errors:
                 logger.error(
