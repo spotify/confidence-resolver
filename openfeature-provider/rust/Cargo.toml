@@ -19,7 +19,7 @@ name = "spotify_confidence_openfeature_provider_local"
 confidence_resolver = { path = "../../confidence-resolver", version = "0.23.1" }
 
 # OpenFeature SDK
-open-feature = "0.2.7"
+open-feature = "0.3.0"
 
 # Async runtime
 tokio = { version = "1", features = ["rt", "time", "sync", "macros"] }

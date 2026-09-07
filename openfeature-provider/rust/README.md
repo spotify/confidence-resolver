@@ -15,9 +15,9 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 
 ## Requirements
 
-- Rust 1.70+
+- Rust 1.90+
 - Tokio runtime
-- OpenFeature Rust SDK 0.2.7+
+- OpenFeature Rust SDK 0.3.0+
 
 ## Installation
 
@@ -27,7 +27,7 @@ Add these dependencies to your `Cargo.toml`:
 ```toml
 [dependencies]
 spotify-confidence-openfeature-provider-local = "0.1.0"
-open-feature = "0.2.7"
+open-feature = "0.3.0"
 ```
 <!-- x-release-please-end -->
 
