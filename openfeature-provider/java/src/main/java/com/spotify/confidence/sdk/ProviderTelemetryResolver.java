@@ -29,7 +29,8 @@ final class ProviderTelemetryResolver implements LocalResolver {
       Sdk sdk,
       Map<String, String> labels,
       Function<Consumer<WriteFlagLogsRequest>, LocalResolver> innerFactory) {
-    this(logSink, () -> new long[] {0, 0}, () -> new long[] {0, 0, 0}, sdk, labels, innerFactory);
+    this(
+        logSink, () -> new long[] {0, 0}, () -> new long[] {0, 0, 0, 0}, sdk, labels, innerFactory);
   }
 
   ProviderTelemetryResolver(
@@ -38,7 +39,7 @@ final class ProviderTelemetryResolver implements LocalResolver {
       Sdk sdk,
       Map<String, String> labels,
       Function<Consumer<WriteFlagLogsRequest>, LocalResolver> innerFactory) {
-    this(logSink, flushCounterDrain, () -> new long[] {0, 0, 0}, sdk, labels, innerFactory);
+    this(logSink, flushCounterDrain, () -> new long[] {0, 0, 0, 0}, sdk, labels, innerFactory);
   }
 
   ProviderTelemetryResolver(
@@ -52,7 +53,7 @@ final class ProviderTelemetryResolver implements LocalResolver {
         logSink,
         flushCounterDrain,
         eventCounterDrain,
-        () -> new long[] {0, 0, 0},
+        () -> new long[] {0, 0, 0, 0},
         sdk,
         labels,
         innerFactory);
