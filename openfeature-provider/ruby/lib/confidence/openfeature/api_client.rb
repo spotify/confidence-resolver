@@ -22,10 +22,8 @@ module Confidence
 
     class APIClient
       def initialize(client_secret:, region: Region::EU)
-        uri = URI.parse(region.uri)
         @client_secret = client_secret
-        @agent = Net::HTTP.new(uri.host, uri.port)
-        @agent.use_ssl = uri.scheme == "https"
+        @uri = URI.parse(region.uri)
       end
 
       def resolve_one(flag:, context: {}, apply: true)
@@ -61,11 +59,33 @@ module Confidence
 
       private
 
+      # A fresh Net::HTTP per request, because one instance cannot be shared
+      # across threads. Net::HTTP#request auto-starts the connection when the
+      # receiver is not already started, mutating its @started and @socket:
+      #
+      #   unless started?
+      #     start { req['connection'] ||= 'close'; return request(req, ...) }
+      #   end
+      #
+      # Two threads entering that on the same object both open a connection and
+      # both assign @socket, so one clobbers the other and the loser reads or
+      # writes a socket the winner may already have closed.
+      #
+      # Per-request instantiation costs nothing here: the instance was never
+      # explicitly started, so every request already opened a connection, sent
+      # "Connection: close" and closed it again. There was no reuse to lose.
+      # Takes a URI so an additional endpoint can share it.
+      def build_agent(uri)
+        agent = Net::HTTP.new(uri.host, uri.port)
+        agent.use_ssl = uri.scheme == "https"
+        agent
+      end
+
       def post_json(path, body)
         headers = {"Content-Type" => "application/json"}
         request = Net::HTTP::Post.new(path, headers)
         request.body = JSON.dump(body)
-        response = @agent.request(request)
+        response = build_agent(@uri).request(request)
 
         code = response.code.to_i
         if code != 200
