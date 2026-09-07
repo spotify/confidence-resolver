@@ -334,11 +334,10 @@ mod tests {
         }
     }
 
-    /// The bug reported on PR #575: aggregate_batch folds a batch together via
-    /// merge_telemetry, which only handled latency/rates/state_age/memory/version
-    /// and silently discarded everything else. The Cloudflare queue consumer calls
-    /// aggregate_batch before both backend delivery and the KV snapshot, so any
-    /// field dropped here never reaches either.
+    /// Every `TelemetryData` field must survive `merge_telemetry`. The
+    /// Cloudflare queue consumer calls `aggregate_batch` before both backend
+    /// delivery and KV accumulation, so a field dropped here reaches neither —
+    /// silently, because the aggregate still looks well-formed.
     #[test]
     fn aggregate_batch_preserves_all_telemetry_fields() {
         let first = request(TelemetryData {

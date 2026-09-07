@@ -108,8 +108,20 @@ impl Histogram {
 ///
 /// Used for delta computation between flushes and as the future intermediate
 /// representation for Prometheus text format serialization.
+///
+/// `serde(default)` is applied at the container level, not per field: this is
+/// persisted as JSON in Cloudflare KV and read back with `unwrap_or_default()`,
+/// so a field that a previously-deployed version never wrote must deserialize
+/// to its default rather than failing the whole parse. A failed parse silently
+/// resets every accumulated counter for that pipeline and drops the key from
+/// `/metrics`. Container level means any field added later is covered by
+/// construction; per-field attributes drift the moment someone forgets one.
+///
+/// Note an `Option` field is NOT exempt — serde distinguishes an absent field
+/// from an explicit `null`, and only the latter parses without a default.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(default))]
 pub struct TelemetrySnapshot {
     pub latency: HistogramSnapshot,
     pub resolve_rates: Vec<u64>,
@@ -120,11 +132,6 @@ pub struct TelemetrySnapshot {
     /// Provider init counts, one entry per distinct label set, kept sorted by
     /// labels so both the serialized snapshot and the Prometheus output are
     /// deterministic.
-    ///
-    /// `serde(default)` is required: the aggregated snapshot is persisted as
-    /// JSON and a missing field would otherwise fail to deserialize, silently
-    /// resetting every accumulated counter.
-    #[cfg_attr(feature = "json", serde(default))]
     pub provider_init_rate: Vec<ProviderInitSnapshot>,
 }
 
@@ -1843,24 +1850,78 @@ mod tests {
         );
     }
 
+    /// A snapshot persisted by a deployment that predates every telemetry
+    /// field added here must still parse. Cloudflare reads KV with
+    /// `unwrap_or_default()`, so a parse failure is not loud — it silently
+    /// zeroes that pipeline's cumulative counters and drops the key from
+    /// `/metrics`.
+    ///
+    /// The payload deliberately contains ONLY the three fields that older
+    /// deployments wrote. Including the newer ones would exercise nothing.
     #[test]
-    fn snapshot_without_provider_init_field_still_deserializes() {
-        // Snapshots already persisted in KV predate the field. Without
-        // serde(default) they would fail to parse and the caller's
-        // unwrap_or_default() would silently reset every counter.
+    fn snapshot_from_older_deployment_still_deserializes() {
         let json = r#"{
             "latency": {"sum": 1, "count": 1, "buckets": [1]},
             "resolve_rates": [2],
-            "memory_bytes": 3,
-            "apply_dedup": null,
-            "flush": {"succeeded": 4, "failed": 5},
-            "events": {"published": 6, "batches_succeeded": 7, "batches_failed": 8, "events_rejected": 9}
+            "memory_bytes": 3
         }"#;
 
-        let restored: TelemetrySnapshot = serde_json::from_str(json).unwrap();
+        let restored: TelemetrySnapshot = serde_json::from_str(json)
+            .expect("a snapshot written by an older deployment must deserialize");
 
+        // Carried over from the persisted payload.
+        assert_eq!(restored.latency.sum, 1);
+        assert_eq!(restored.resolve_rates, vec![2]);
+        assert_eq!(restored.memory_bytes, 3);
+
+        // Absent fields default rather than failing the parse.
         assert!(restored.provider_init_rate.is_empty());
+        assert!(restored.apply_dedup.is_none());
+        assert_eq!(restored.flush.succeeded, 0);
+        assert_eq!(restored.flush.failed, 0);
+        assert_eq!(restored.events.published, 0);
+        assert_eq!(restored.events.events_rejected, 0);
+    }
+
+    /// serde treats an absent field differently from an explicit `null`, so an
+    /// `Option` field is not automatically safe across versions.
+    #[test]
+    fn snapshot_with_apply_dedup_absent_rather_than_null_deserializes() {
+        let json = r#"{
+            "latency": {"sum": 0, "count": 0, "buckets": []},
+            "resolve_rates": [],
+            "memory_bytes": 0,
+            "flush": {"succeeded": 4, "failed": 5}
+        }"#;
+
+        let restored: TelemetrySnapshot = serde_json::from_str(json)
+            .expect("an absent apply_dedup must deserialize, not just an explicit null");
+
+        assert!(restored.apply_dedup.is_none());
         assert_eq!(restored.flush.succeeded, 4);
-        assert_eq!(restored.events.published, 6);
+        assert_eq!(restored.events.published, 0);
+    }
+
+    /// Everything still round-trips, so adding container-level defaults has
+    /// not made the format lossy.
+    #[test]
+    fn full_snapshot_round_trips() {
+        let mut original = TelemetrySnapshot::default();
+        original.memory_bytes = 42;
+        original.flush.succeeded = 7;
+        original.events.events_rejected = 3;
+        original.provider_init_rate = vec![ProviderInitSnapshot {
+            labels: BTreeMap::from([("encryption".to_string(), "true".to_string())]),
+            count: 9,
+        }];
+
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: TelemetrySnapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.memory_bytes, 42);
+        assert_eq!(restored.flush.succeeded, 7);
+        assert_eq!(restored.events.events_rejected, 3);
+        assert_eq!(restored.provider_init_rate.len(), 1);
+        assert_eq!(restored.provider_init_rate[0].count, 9);
     }
 }

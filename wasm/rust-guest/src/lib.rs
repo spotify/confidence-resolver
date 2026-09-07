@@ -244,12 +244,15 @@ wasm_msg_guest! {
         }
         if APPLY_DEDUP_ENABLED.load(Ordering::Relaxed) {
             let current = dedup_snapshot();
-            let prev = match LAST_DEDUP_SNAPSHOT.lock() {
-                Ok(mut guard) => std::mem::replace(&mut *guard, current.clone()),
-                Err(poisoned) => std::mem::replace(&mut *poisoned.into_inner(), current.clone()),
+            // Hold the lock across compute-and-commit so the baseline only
+            // advances for a delta that is actually attached below. Replacing
+            // it first and then discarding the delta would drop those counts.
+            let mut guard = match LAST_DEDUP_SNAPSHOT.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
             };
-            let delta = current.to_proto_delta(&prev);
-            if delta.applies_total > 0 || current.map_size > 0 {
+            if let Some(delta) = current.delta_to_report(&guard) {
+                *guard = current;
                 td.apply_dedup = Some(delta);
             }
         }

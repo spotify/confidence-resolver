@@ -189,6 +189,34 @@ impl ApplyDedupSnapshot {
     pub fn has_activity(&self) -> bool {
         self.applies_total > 0
     }
+
+    /// The delta to attach to an outgoing request, or `None` when there is
+    /// genuinely nothing new to report.
+    ///
+    /// Callers MUST only commit `self` as the new "last reported" snapshot when
+    /// this returns `Some`. Advancing the baseline for a delta that was then
+    /// discarded loses those counts permanently — sweeps in particular, since
+    /// they keep running after the map has emptied and so produce deltas with
+    /// no applies and a zero `map_size`.
+    ///
+    /// Gauges are reported when they *change*, not merely when non-zero, so the
+    /// transition to an empty map is emitted once instead of the gauge sticking
+    /// at its last non-zero reading forever.
+    pub fn delta_to_report(&self, previous: &ApplyDedupSnapshot) -> Option<ApplyDedupTelemetry> {
+        let delta = self.to_proto_delta(previous);
+        let counters_moved = delta.applies_total > 0
+            || delta.applies_deduped > 0
+            || delta.apply_dedup_overflow > 0
+            || delta.sweeps > 0;
+        let gauges_changed =
+            self.map_size != previous.map_size || self.map_capacity != previous.map_capacity;
+
+        if counters_moved || gauges_changed {
+            Some(delta)
+        } else {
+            None
+        }
+    }
 }
 
 pub struct ApplyDedup {
@@ -1256,6 +1284,100 @@ mod tests {
         let snap = dedup.telemetry_snapshot();
         assert_eq!(snap.applies_total, 4);
         assert_eq!(snap.applies_deduped, 2);
+    }
+
+    /// Sweeps keep running after the map has emptied, producing deltas with no
+    /// applies and a zero map_size. Reporting must not skip those, or the sweep
+    /// counts are lost the moment the caller advances its baseline.
+    #[test]
+    fn sweep_only_delta_is_still_reported() {
+        let previous = ApplyDedupSnapshot {
+            applies_total: 10,
+            applies_deduped: 4,
+            apply_dedup_overflow: 0,
+            sweeps: 2,
+            map_size: 5,
+            map_capacity: 100,
+        };
+        // TTL has emptied the map: no new applies, but sweeps advanced.
+        let current = ApplyDedupSnapshot {
+            sweeps: 5,
+            map_size: 0,
+            ..previous
+        };
+
+        let delta = current
+            .delta_to_report(&previous)
+            .expect("a sweep-only delta must be reported, not discarded");
+
+        assert_eq!(delta.sweeps, 3, "sweep delta lost");
+        assert_eq!(delta.applies_total, 0);
+        assert_eq!(delta.map_size, 0, "gauge must be able to report zero");
+    }
+
+    /// Overflow-only movement must also be reported.
+    #[test]
+    fn overflow_only_delta_is_still_reported() {
+        let previous = ApplyDedupSnapshot {
+            applies_total: 7,
+            applies_deduped: 0,
+            apply_dedup_overflow: 1,
+            sweeps: 0,
+            map_size: 0,
+            map_capacity: 100,
+        };
+        let current = ApplyDedupSnapshot {
+            apply_dedup_overflow: 4,
+            ..previous
+        };
+
+        let delta = current
+            .delta_to_report(&previous)
+            .expect("an overflow-only delta must be reported");
+        assert_eq!(delta.apply_dedup_overflow, 3);
+    }
+
+    /// With nothing moving there is nothing to send, so the caller keeps its
+    /// baseline and no empty apply_dedup rides along on every flush.
+    #[test]
+    fn unchanged_snapshot_reports_nothing() {
+        let previous = ApplyDedupSnapshot {
+            applies_total: 3,
+            applies_deduped: 1,
+            apply_dedup_overflow: 0,
+            sweeps: 2,
+            map_size: 2,
+            map_capacity: 100,
+        };
+
+        assert!(
+            previous.delta_to_report(&previous).is_none(),
+            "an unchanged snapshot must not produce a delta"
+        );
+    }
+
+    /// A gauge moving back to a non-zero value is reported even with no counter
+    /// movement, so /metrics tracks map occupancy rather than freezing.
+    #[test]
+    fn gauge_change_alone_is_reported() {
+        let previous = ApplyDedupSnapshot {
+            applies_total: 5,
+            applies_deduped: 0,
+            apply_dedup_overflow: 0,
+            sweeps: 1,
+            map_size: 4,
+            map_capacity: 100,
+        };
+        let current = ApplyDedupSnapshot {
+            map_size: 1,
+            ..previous
+        };
+
+        let delta = current
+            .delta_to_report(&previous)
+            .expect("a changed gauge must be reported");
+        assert_eq!(delta.map_size, 1);
+        assert_eq!(delta.sweeps, 0);
     }
 
     #[test]

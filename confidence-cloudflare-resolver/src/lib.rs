@@ -60,13 +60,17 @@ fn dedup_telemetry_delta() -> Option<confidence::flags::resolver::v1::telemetry_
         return None;
     }
     let current = APPLY_DEDUP.with(|d| d.borrow().telemetry_snapshot());
-    let prev = LAST_DEDUP_SNAPSHOT.with(|s| std::mem::replace(&mut *s.borrow_mut(), current.clone()));
-    let delta = current.to_proto_delta(&prev);
-    if delta.applies_total > 0 || current.map_size > 0 {
+    // The baseline advances only for a delta we actually return. Advancing it
+    // unconditionally and then discarding the delta would permanently lose
+    // those counts — notably sweeps, which keep running after the map empties
+    // and so yield deltas with no applies and a zero map_size. This is also why
+    // an idle worker's gauges no longer stick at their last non-zero reading.
+    LAST_DEDUP_SNAPSHOT.with(|s| {
+        let mut last = s.borrow_mut();
+        let delta = current.delta_to_report(&last)?;
+        *last = current;
         Some(delta)
-    } else {
-        None
-    }
+    })
 }
 
 /// Queues one request's flag log and sweeps the apply-dedup map. Called via
@@ -764,7 +768,7 @@ async fn consume_flag_logs(
             update_kv_snapshot(
                 &kv,
                 SnapshotPipeline::FlagLogs,
-                req.telemetry_data.as_ref(),
+                request_telemetry_to_accumulate(req.telemetry_data.as_ref(), delivered),
                 Some(delivered),
                 None,
             )
@@ -827,6 +831,26 @@ impl SnapshotPipeline {
             SnapshotPipeline::FlagLogs => SNAPSHOT_KEY_FLAG_LOGS,
             SnapshotPipeline::Events => SNAPSHOT_KEY_EVENTS,
         }
+    }
+}
+
+/// A request's own telemetry deltas are accumulated only when delivery
+/// succeeded.
+///
+/// A failed batch makes the consumer return `Err`, which tells Cloudflare
+/// Queues to redeliver it. Folding the deltas in on a failed attempt would
+/// therefore count them again on every retry, multiplying apply-dedup, latency,
+/// resolve rates and provider-init by the attempt count. The flush
+/// success/failure counter is still recorded per attempt — that one is meant to
+/// count attempts.
+fn request_telemetry_to_accumulate(
+    telemetry: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
+    delivered: bool,
+) -> Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData> {
+    if delivered {
+        telemetry
+    } else {
+        None
     }
 }
 
@@ -1283,6 +1307,30 @@ mod snapshot_merge_tests {
         assert_eq!(merged.events.batches_succeeded, 3);
         assert_eq!(merged.events.batches_failed, 1);
         assert_eq!(merged.events.events_rejected, 4);
+    }
+
+    /// A failed batch is redelivered by Queues, so its telemetry must not be
+    /// accumulated on the failing attempt — otherwise a fail-then-succeed
+    /// sequence counts those deltas once per attempt.
+    #[test]
+    fn request_telemetry_is_accumulated_only_on_successful_delivery() {
+        use confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData;
+
+        let td = TelemetryData {
+            memory_bytes: 4096,
+            ..Default::default()
+        };
+
+        assert!(
+            request_telemetry_to_accumulate(Some(&td), true).is_some(),
+            "a delivered batch must have its telemetry accumulated"
+        );
+        assert!(
+            request_telemetry_to_accumulate(Some(&td), false).is_none(),
+            "a failed batch is retried, so accumulating now double-counts it"
+        );
+        // No telemetry on the request is simply nothing to accumulate.
+        assert!(request_telemetry_to_accumulate(None, true).is_none());
     }
 
     /// provider_init_rate is keyed by label set, so a shared label set must
