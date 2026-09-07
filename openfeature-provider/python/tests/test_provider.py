@@ -1,10 +1,14 @@
 """Tests for ConfidenceProvider class."""
 
+import time
+
 from openfeature.evaluation_context import EvaluationContext
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 
 from confidence.provider import ConfidenceProvider
+from confidence.proto.confidence.events.v1 import api_pb2 as events_api_pb2
+from confidence.proto.confidence.events.wasm.v1 import wasm_api_pb2 as events_wasm_pb2
 from confidence.proto.confidence.flags.resolver.v1 import internal_api_pb2, types_pb2
 from confidence.version import __version__
 from tests.conftest import MockFlagLogger, MockStateFetcher
@@ -224,16 +228,18 @@ class TestInitialize:
             "assign flush did not carry the drained host counters"
         )
 
-    def test_shutdown_drains_events_before_final_log_flush(
+    def test_shutdown_stamps_last_event_batch_counters_on_final_flush(
         self,
         wasm_bytes: bytes,
         test_client_secret: str,
     ) -> None:
-        """Event outcomes ride on the next WriteFlagLogs.
+        """The final WriteFlagLogs must actually CARRY the last batch's counters.
 
-        Draining events after the final flush strands the last batch's
-        published/rejected/succeeded/failed counters in process-local state.
-        Java already drains first.
+        Asserting call order is not enough: _flush_events only submits to
+        _event_executor and _send_events increments the counters on a worker
+        thread, so calling _drain_events first still leaves the counters
+        unrecorded when the final _write_logs stamps the request. The executor
+        has to be drained between the two. This asserts the stamped values.
         """
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
@@ -241,23 +247,64 @@ class TestInitialize:
             wasm_bytes=wasm_bytes,
         )
 
-        order: list[str] = []
-        provider._event_tracker = object()  # type: ignore[assignment]
-        provider._drain_events = lambda *a, **k: order.append("drain_events")  # type: ignore[assignment,method-assign]
-        provider._write_logs = lambda *a, **k: order.append("write_logs")  # type: ignore[assignment,method-assign]
+        event_count = 3
+
+        class StubEventTracker:
+            def __init__(self) -> None:
+                self.remaining = 1
+
+            def flush_events(self) -> events_wasm_pb2.FlushEventsResponse:
+                batch = events_wasm_pb2.FlushEventsResponse()
+                if self.remaining <= 0:
+                    return batch
+                self.remaining -= 1
+                for _ in range(event_count):
+                    batch.events.add().event_definition = "eventDefinitions/test"
+                return batch
+
+        class StubEventsStub:
+            def PublishEvents(self, request, timeout=None):  # noqa: N802
+                # Deliberately slow: _flush_events only SUBMITS to the executor,
+                # so without an explicit wait before the final flush the worker
+                # would still be in here when the counters are stamped. A fast
+                # stub races and can pass even with the bug present.
+                time.sleep(0.5)
+                # Accepted with no per-event rejections.
+                return events_api_pb2.PublishEventsResponse()
+
+        final_request = internal_api_pb2.WriteFlagLogsRequest()
+        final_request.flag_assigned.add()
+        final_payload = final_request.SerializeToString()
 
         class StubResolver:
             def flush_logs(self) -> bytes:
-                return b"\x00"
+                return final_payload
 
+            def flush_assigned(self) -> bytes:
+                return b""
+
+        provider._event_tracker = StubEventTracker()  # type: ignore[assignment]
+        provider._events_stub = StubEventsStub()  # type: ignore[assignment]
         provider._resolver = StubResolver()  # type: ignore[assignment]
 
         provider.shutdown()
 
-        assert "drain_events" in order, f"events were never drained; order={order}"
-        assert "write_logs" in order, f"final logs were never flushed; order={order}"
-        assert order.index("drain_events") < order.index("write_logs"), (
-            f"events drained after the final log flush, so their counters are lost; order={order}"
+        writes = provider._flag_logger.writes  # type: ignore[union-attr]
+        assert writes, "no WriteFlagLogs was sent during shutdown"
+        stamped = [
+            internal_api_pb2.WriteFlagLogsRequest.FromString(w).telemetry_data.events
+            for w in writes
+        ]
+        published = sum(e.published for e in stamped)
+        succeeded = sum(e.batches_succeeded for e in stamped)
+
+        assert published == event_count, (
+            "the last event batch's published count never reached a "
+            f"WriteFlagLogs (got {published}, want {event_count}); the event "
+            "sends had not completed when the final flush stamped the request"
+        )
+        assert succeeded == 1, (
+            f"the last event batch's batches_succeeded was not stamped (got {succeeded})"
         )
 
     def test_initialize_fetches_state(

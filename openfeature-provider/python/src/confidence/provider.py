@@ -459,15 +459,20 @@ class ConfidenceProvider(AbstractProvider):
             except Exception as e:
                 logger.error("Failed to flush final events: %s", e)
 
-        # Flush final logs, carrying the event counters drained above.
+        # Reordering the drain call is not enough: _flush_events only SUBMITS to
+        # _event_executor, and _send_events increments the event telemetry
+        # counters on the worker thread. Wait for those sends to finish here, or
+        # the final _write_logs below stamps counters that have not been
+        # recorded yet and the last batch's telemetry never leaves the process.
+        self._event_executor.shutdown(wait=True)
+
+        # Flush final logs, carrying the event counters recorded above.
         if self._resolver is not None:
             try:
                 self._write_logs(self._resolver.flush_logs())
             except Exception as e:
                 logger.error("Failed to flush final logs: %s", e)
 
-        # Shutdown event executor and gRPC channel
-        self._event_executor.shutdown(wait=True)
         if self._events_channel is not None:
             self._events_channel.close()
             self._events_channel = None
@@ -1169,7 +1174,16 @@ class ConfidenceProvider(AbstractProvider):
         if not batch.events:
             return 0
 
-        self._event_executor.submit(self._send_events, batch)
+        try:
+            self._event_executor.submit(self._send_events, batch)
+        except RuntimeError:
+            # shutdown() closes the executor before the final log flush, and the
+            # log thread is only joined with a timeout — so a slow thread can
+            # still reach here afterwards, where submit raises. Checking a flag
+            # first would not close the race, so swallow it: the process is
+            # going away and these events cannot be delivered either way.
+            logger.debug("Event executor already shut down; dropping batch")
+            return 0
         return len(batch.events)
 
     def _drain_events(self, deadline_seconds: float = 3.0) -> None:
