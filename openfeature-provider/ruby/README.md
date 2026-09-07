@@ -160,6 +160,42 @@ if details.error_code
 end
 ```
 
+## Event Tracking
+
+Events are published to the Confidence events API. The OpenFeature Ruby SDK has
+no tracking hook, so `track` is a Confidence-specific extension called on the
+provider (or on `APIClient`) directly rather than through the OpenFeature client.
+
+```ruby
+provider = Confidence::OpenFeature::Provider.new(
+  api_client: Confidence::OpenFeature::APIClient.new(client_secret: "your-secret")
+)
+
+provider.track(event_name: "checkout-completed", payload: {"cart_size" => 3})
+```
+
+`event_name` is the event definition id and is sent as
+`eventDefinitions/<event_name>`. Pass `event_time:` to backdate an event; it
+defaults to now.
+
+Unlike flag evaluation, `track` raises rather than falling back to a default:
+
+- `APIError` if the request itself fails, for example an invalid client secret.
+- `EventPublishError` if the batch is accepted but the event is refused. The
+  events API returns HTTP 200 in that case, so these rejections would otherwise
+  be invisible. Inspect `rejections` for the index, reason (such as
+  `EVENT_DEFINITION_NOT_FOUND` or `EVENT_SCHEMA_VALIDATION_FAILED`) and message.
+
+```ruby
+begin
+  provider.track(event_name: "checkout-completed", payload: {"cart_size" => 3})
+rescue Confidence::OpenFeature::EventPublishError => e
+  e.rejections.each do |rejection|
+    Rails.logger.error("event #{rejection.index} refused: #{rejection.reason}")
+  end
+end
+```
+
 ## Shutdown
 
 **Important**: The provider makes network calls for each flag evaluation. Always ensure proper shutdown to close connections gracefully.

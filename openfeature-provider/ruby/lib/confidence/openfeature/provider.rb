@@ -56,6 +56,21 @@ module Confidence
         )
       end
 
+      # Publishes an event to Confidence.
+      #
+      # The OpenFeature Ruby SDK has no tracking hook, so this is a
+      # Confidence-specific extension rather than an interface method.
+      #
+      # Raises EventPublishError if the event is refused, matching the
+      # provider's synchronous, raising style for API problems.
+      def track(event_name:, payload: {}, event_time: nil)
+        @api_client.track(
+          event_name: event_name,
+          payload: payload,
+          event_time: event_time
+        )
+      end
+
       private
 
       def evaluate(flag_key:, default_value:, evaluation_context: nil, validator: nil)
