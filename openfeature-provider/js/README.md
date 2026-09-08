@@ -185,7 +185,7 @@ the dedup key, so per-unit exposure counts are unaffected.
 To turn it off and log every apply:
 
 ```ts
-const provider = new ConfidenceServerProviderLocal({
+const provider = createConfidenceServerProvider({
   flagClientSecret: 'your-client-secret',
   enableApplyDedup: false,
 });

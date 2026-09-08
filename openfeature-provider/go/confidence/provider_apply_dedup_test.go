@@ -1,6 +1,9 @@
 package confidence
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // newProviderWithOptions builds a provider with no live dependencies. Only the
 // option plumbing is under test here, and the constructor touches its
@@ -122,6 +125,42 @@ func TestProviderTestConfigApplyDedupTranslation(t *testing.T) {
 				tc.config.DisableExposureCollection,
 			)
 			p := newProviderWithOptions(t, opts...)
+			if p.enableApplyDedup != tc.wantDedup {
+				t.Errorf("dedup enabled = %v, want %v", p.enableApplyDedup, tc.wantDedup)
+			}
+		})
+	}
+}
+
+// The translation tests above call buildProviderOptions directly, which leaves
+// two gaps: the README's documented call is NewProvider(ctx, ProviderConfig{...}),
+// and nothing checks that NewProvider actually forwards DisableApplyDedup. A
+// snippet using the wrong field name, or a NewProvider that dropped the field
+// on the floor, would pass everything above. This drives the real constructor.
+// It stays offline: NewProvider builds a lazy gRPC client and fetches no state
+// until the provider is initialized, which this test never does.
+func TestNewProviderHonoursDocumentedApplyDedupOptOut(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		config    ProviderConfig
+		wantDedup bool
+	}{
+		{
+			name:      "documented opt-out disables dedup",
+			config:    ProviderConfig{ClientSecret: "unit-test-secret", DisableApplyDedup: true},
+			wantDedup: false,
+		},
+		{
+			name:      "unset keeps the default on",
+			config:    ProviderConfig{ClientSecret: "unit-test-secret"},
+			wantDedup: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := NewProvider(context.Background(), tc.config)
+			if err != nil {
+				t.Fatalf("NewProvider returned an error: %v", err)
+			}
 			if p.enableApplyDedup != tc.wantDedup {
 				t.Errorf("dedup enabled = %v, want %v", p.enableApplyDedup, tc.wantDedup)
 			}

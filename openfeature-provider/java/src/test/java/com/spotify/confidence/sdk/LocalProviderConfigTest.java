@@ -41,10 +41,23 @@ class LocalProviderConfigTest {
         .isFalse();
   }
 
-  /** The constructor overload is the opt-out for callers not using the builder. */
+  /**
+   * The constructor overload is the opt-out for callers not using the builder. Written in exactly
+   * the form the README documents — including {@code DEFAULT_RESOLVER_POOL_SIZE} rather than a bare
+   * literal — so that renaming or hiding that constant breaks the build instead of only breaking
+   * the documented snippet.
+   */
   @Test
   void enableApplyDedup_canBeDisabledViaConstructor() {
-    assertThat(new LocalProviderConfig(null, null, false, 0, false).isEnableApplyDedup()).isFalse();
-    assertThat(new LocalProviderConfig(null, null, false, 0, true).isEnableApplyDedup()).isTrue();
+    assertThat(
+            new LocalProviderConfig(
+                    null, null, false, LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE, false)
+                .isEnableApplyDedup())
+        .isFalse();
+    assertThat(
+            new LocalProviderConfig(
+                    null, null, false, LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE, true)
+                .isEnableApplyDedup())
+        .isTrue();
   }
 }

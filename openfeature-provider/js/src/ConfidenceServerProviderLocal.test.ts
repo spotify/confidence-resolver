@@ -11,6 +11,8 @@ import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
 import { VERSION } from './version';
+// Type-only: pins the README's documented entry point without loading its WASM.
+import type * as NodeEntry from './index.node';
 
 vi.mock(import('./hash'), async () => {
   const { sha256Hex } = await import('./test-helpers');
@@ -811,5 +813,24 @@ describe('apply-event dedup', () => {
     );
 
     await optedIn.onClose?.();
+  });
+
+  // The tests above construct the provider directly, which is right for them
+  // but means they cannot catch a README snippet that calls the wrong entry
+  // point — exactly how an uncompilable opt-out example shipped. The README
+  // documents `createConfidenceServerProvider({ ... })`, so pin that call
+  // shape here. The import is type-only: the real entry point loads WASM at
+  // call time and has no place in this suite, but `tsc` still fails if the
+  // factory is renamed, its parameter shape changes, or `enableApplyDedup`
+  // stops being an accepted option.
+  it('typechecks the opt-out exactly as the README documents it', () => {
+    type ReadmeFactoryOptions = Parameters<typeof NodeEntry.createConfidenceServerProvider>[0];
+
+    const readmeSnippet: ReadmeFactoryOptions = {
+      flagClientSecret: 'your-client-secret',
+      enableApplyDedup: false,
+    };
+
+    expect(readmeSnippet.enableApplyDedup).toBe(false);
   });
 });
