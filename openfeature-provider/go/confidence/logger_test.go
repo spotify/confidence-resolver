@@ -8,16 +8,15 @@ import (
 	"testing"
 )
 
-// testingLogger routes log messages to [testing.TB.Log] so they appear in test
-// output only on failure (or with -v).
+// testingLogger accepts log messages without retaining test state.
 type testingLogger struct {
 	log func(msgs ...any)
 }
 
-// newLoggerForTest returns a [Logger] backed by tb.Log.
-func newLoggerForTest(tb testing.TB) *testingLogger {
+// newLoggerForTest returns a no-op [Logger] safe for background goroutines.
+func newLoggerForTest(_ testing.TB) *testingLogger {
 	return &testingLogger{
-		log: tb.Log,
+		log: func(...any) {},
 	}
 }
 
