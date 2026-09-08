@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.11.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.10.1...openfeature-provider/rust-v0.11.0) (2026-09-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **rust provider:** bump open-feature from 0.2.7 to 0.3.0 ([#562](https://github.com/spotify/confidence-resolver/issues/562))
+
+### Features
+
+* **rust provider:** bump open-feature from 0.2.7 to 0.3.0 ([#562](https://github.com/spotify/confidence-resolver/issues/562)) ([46085a7](https://github.com/spotify/confidence-resolver/commit/46085a730109d9c7ff48b346397afafed54dbb65))
+* **rust-provider:** add HTTP retry for flagLog writes ([#452](https://github.com/spotify/confidence-resolver/issues/452)) ([a8cbd36](https://github.com/spotify/confidence-resolver/commit/a8cbd36045d1324a566254cf2faeffecfd757356))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.23.1 to 0.24.0
+
 ## [0.10.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.10.0...openfeature-provider/rust-v0.10.1) (2026-08-31)
 
 

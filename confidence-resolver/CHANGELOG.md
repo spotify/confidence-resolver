@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.24.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.23.1...confidence_resolver-v0.24.0) (2026-09-08)
+
+
+### Features
+
+* add apply dedup and flush delivery telemetry ([#575](https://github.com/spotify/confidence-resolver/issues/575)) ([0196799](https://github.com/spotify/confidence-resolver/commit/019679993d2191f228b53fd4204c44550927c5ee))
+
+
+### Bug Fixes
+
+* **resolver:** raise batch flag limit ([#583](https://github.com/spotify/confidence-resolver/issues/583)) ([1264aa6](https://github.com/spotify/confidence-resolver/commit/1264aa61394dea08da1b8513c741f604224d3e32))
+
 ## [0.23.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.23.0...confidence_resolver-v0.23.1) (2026-08-31)
 
 

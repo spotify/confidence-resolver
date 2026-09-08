@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.25.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.24.0...openfeature-provider/go/v0.25.0) (2026-09-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **go:** require Go 1.25 ([#547](https://github.com/spotify/confidence-resolver/issues/547))
+
+### Features
+
+* add apply dedup and flush delivery telemetry ([#575](https://github.com/spotify/confidence-resolver/issues/575)) ([0196799](https://github.com/spotify/confidence-resolver/commit/019679993d2191f228b53fd4204c44550927c5ee))
+* **deps:** bump google.golang.org/grpc from 1.82.1 to 1.83.1 in /openfeature-provider/go/bench ([#577](https://github.com/spotify/confidence-resolver/issues/577)) ([85b6f23](https://github.com/spotify/confidence-resolver/commit/85b6f231e19a327c9a5a9edd18c269c49e902c82))
+
+
+### Bug Fixes
+
+* **resolver:** raise batch flag limit ([#583](https://github.com/spotify/confidence-resolver/issues/583)) ([1264aa6](https://github.com/spotify/confidence-resolver/commit/1264aa61394dea08da1b8513c741f604224d3e32))
+
+
+### Build System
+
+* **go:** require Go 1.25 ([#547](https://github.com/spotify/confidence-resolver/issues/547)) ([bb24830](https://github.com/spotify/confidence-resolver/commit/bb248305b54e7faa305896afb60099dcd1f25dbc))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.3 to 0.6.0
+
 ## [0.24.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.23.0...openfeature-provider/go/v0.24.0) (2026-08-31)
 
 

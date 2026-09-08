@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.22.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.21.0...openfeature-provider-js-v0.22.0) (2026-09-08)
+
+
+### Features
+
+* add apply dedup and flush delivery telemetry ([#575](https://github.com/spotify/confidence-resolver/issues/575)) ([0196799](https://github.com/spotify/confidence-resolver/commit/019679993d2191f228b53fd4204c44550927c5ee))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.5.3 to 0.6.0
+
 ## [0.21.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.20.0...openfeature-provider-js-v0.21.0) (2026-08-31)
 
 

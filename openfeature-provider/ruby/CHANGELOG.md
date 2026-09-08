@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/ruby/v0.1.4...openfeature-provider/ruby/v0.2.0) (2026-09-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ruby:** add OpenFeature-conformant event tracking (requires openfeature-sdk >= 0.6.1) ([#581](https://github.com/spotify/confidence-resolver/issues/581))
+
+### Features
+
+* **ruby:** add OpenFeature-conformant event tracking (requires openfeature-sdk &gt;= 0.6.1) ([#581](https://github.com/spotify/confidence-resolver/issues/581)) ([1faa296](https://github.com/spotify/confidence-resolver/commit/1faa296ca3d4e244550609a9bfc2fb15bc53c1fe))
+
+
+### Bug Fixes
+
+* **ruby:** build a Net::HTTP per request instead of sharing one ([#584](https://github.com/spotify/confidence-resolver/issues/584)) ([6b435b4](https://github.com/spotify/confidence-resolver/commit/6b435b4a5122a62e80622e49ebbae072c6cc926b))
+
 ## [0.1.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/ruby/v0.1.3...openfeature-provider/ruby/v0.1.4) (2026-06-17)
 
 
