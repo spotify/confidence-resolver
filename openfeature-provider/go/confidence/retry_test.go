@@ -1,7 +1,9 @@
-package confidence
+package confidence_test
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -13,9 +15,14 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 )
+
+func newLoggerForTest(_ testing.TB) *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func TestRetryOnUnavailable(t *testing.T) {
 	var callCount atomic.Int32
@@ -34,7 +41,7 @@ func TestRetryOnUnavailable(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -70,7 +77,7 @@ func TestNoRetryOnPermissionDenied(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -107,7 +114,7 @@ func TestAllRetriesExhausted(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -144,7 +151,7 @@ func TestShutdownDuringRetries(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
@@ -184,7 +191,7 @@ func TestTransportHooksPreserveRetry(t *testing.T) {
 	t.Cleanup(srv.Stop)
 
 	baseOpts := []grpc.DialOption{
-		grpc.WithDefaultServiceConfig(RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
 	}
 	opts := append([]grpc.DialOption{}, baseOpts...)
 	opts = append(opts,
@@ -230,7 +237,7 @@ func TestMultipleWritesWithRetryConfig(t *testing.T) {
 			return lis.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(RetryServiceConfig),
+		grpc.WithDefaultServiceConfig(confidence.RetryServiceConfig),
 	)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
