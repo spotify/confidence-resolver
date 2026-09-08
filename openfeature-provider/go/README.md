@@ -218,6 +218,31 @@ provider, err := confidence.NewProviderForTest(ctx,
 
 **Important**: This configuration requires you to provide both a `StateProvider` and `FlagLogger`. For production deployments, always use `NewProvider()` with `ProviderConfig`.
 
+## Apply-event deduplication
+
+Apply-event deduplication is **on by default**. The WASM resolver collapses
+byte-identical apply events for the same unit and variant within a 120-second
+TTL window (tracking up to 100,000 entries), so repeatedly resolving the same
+flag for the same targeting key produces one apply event instead of many.
+
+Upgrading without changing any code therefore reduces raw apply-event volume,
+substantially so for high-QPS traffic that resolves the same flag for the same
+unit. Distinct units are never collapsed, because the targeting key is part of
+the dedup key, so per-unit exposure counts are unaffected.
+
+To turn it off and log every apply:
+
+```go
+provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
+    ClientSecret:      "your-client-secret",
+    DisableApplyDedup: true,
+})
+```
+
+`EnableApplyDedup` is retained for compatibility but is now redundant. Because
+it is a plain `bool`, leaving it `false` is indistinguishable from not setting
+it, so `false` does **not** disable dedup — use `DisableApplyDedup`.
+
 ## WASM interpreter mode
 
 By default the Go provider runs the embedded resolver through [wazero](https://wazero.io/)'s **JIT compiler** (Wazevo), which compiles WASM to native code for low-latency flag evaluation. On **linux/arm64**, CPU profiling (`SIGPROF`) or goroutine preemption (`SIGURG`) can arrive while a thread is executing that JIT code. Go cannot attribute the signal to a goroutine in that state and may exit the process silently (exit code 139, no stack trace).

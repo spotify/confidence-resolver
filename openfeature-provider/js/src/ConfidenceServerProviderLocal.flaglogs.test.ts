@@ -30,7 +30,8 @@ describe('WriteFlagLogs tests', () => {
     resolver = new WasmResolver(module);
     provider = new ConfidenceServerProviderLocal(resolver, noopEventTracker, {
       flagClientSecret: FLAG_CLIENT_SECRET,
-      // Dedup is opt-in (experimental); these tests exercise its behavior.
+      // Set explicitly even though dedup is on by default: these tests assert
+      // dedup behaviour, so they must not silently follow a default change.
       enableApplyDedup: true,
     });
 

@@ -42,6 +42,31 @@ public class LocalProviderConfig {
     this(channelFactory, httpClientFactory, useRemoteMaterializationStore, resolverPoolSize, null);
   }
 
+  /**
+   * Overload that exposes apply-event deduplication. Dedup is on by default, so this is only needed
+   * to turn it off — every other constructor leaves it enabled. {@link
+   * Builder#enableApplyDedup(boolean)} does the same thing and is the preferred entry point for new
+   * code.
+   *
+   * @param enableApplyDedup false to log every apply instead of collapsing repeated identical
+   *     assignments for the same unit and variant within the dedup TTL window
+   */
+  public LocalProviderConfig(
+      ChannelFactory channelFactory,
+      HttpClientFactory httpClientFactory,
+      boolean useRemoteMaterializationStore,
+      int resolverPoolSize,
+      boolean enableApplyDedup) {
+    this(
+        channelFactory,
+        httpClientFactory,
+        useRemoteMaterializationStore,
+        resolverPoolSize,
+        null,
+        enableApplyDedup,
+        false);
+  }
+
   private LocalProviderConfig(
       ChannelFactory channelFactory,
       HttpClientFactory httpClientFactory,

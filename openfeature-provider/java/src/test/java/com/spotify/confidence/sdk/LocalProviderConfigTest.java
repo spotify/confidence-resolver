@@ -17,4 +17,34 @@ class LocalProviderConfigTest {
         LocalProviderConfig.builder().disableExposureCollection(true).build();
     assertThat(config.isDisableExposureCollection()).isTrue();
   }
+
+  /** Dedup is on by default, so a config that never mentions it must still have it enabled. */
+  @Test
+  void enableApplyDedup_defaultsToTrue() {
+    assertThat(new LocalProviderConfig().isEnableApplyDedup()).isTrue();
+    assertThat(LocalProviderConfig.builder().build().isEnableApplyDedup()).isTrue();
+  }
+
+  /**
+   * Callers written against the previous release pass true explicitly. That must still compile and
+   * still leave dedup enabled.
+   */
+  @Test
+  void enableApplyDedup_trueStillEnables() {
+    assertThat(LocalProviderConfig.builder().enableApplyDedup(true).build().isEnableApplyDedup())
+        .isTrue();
+  }
+
+  @Test
+  void enableApplyDedup_canBeDisabledViaBuilder() {
+    assertThat(LocalProviderConfig.builder().enableApplyDedup(false).build().isEnableApplyDedup())
+        .isFalse();
+  }
+
+  /** The constructor overload is the opt-out for callers not using the builder. */
+  @Test
+  void enableApplyDedup_canBeDisabledViaConstructor() {
+    assertThat(new LocalProviderConfig(null, null, false, 0, false).isEnableApplyDedup()).isFalse();
+    assertThat(new LocalProviderConfig(null, null, false, 0, true).isEnableApplyDedup()).isTrue();
+  }
 }

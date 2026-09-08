@@ -63,8 +63,10 @@ type SetResolverStateRequest struct {
 	State     []byte                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
 	AccountId string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	Sdk       *resolver.Sdk          `protobuf:"bytes,3,opt,name=sdk,proto3" json:"sdk,omitempty"`
-	// Experimental: opt-in apply-event deduplication. When true, identical
-	// assignments within a short TTL window are logged once. Off by default.
+	// Apply-event deduplication. When true, byte-identical applies for the same
+	// unit and variant within the dedup TTL window are logged once. The
+	// OpenFeature providers set this to true by default; set it to false to log
+	// every apply.
 	EnableApplyDedup bool `protobuf:"varint,4,opt,name=enable_apply_dedup,json=enableApplyDedup,proto3" json:"enable_apply_dedup,omitempty"`
 	// Disable exposure (apply/assignment) collection entirely. When true, WASM
 	// never enqueues FlagAssigned events — the assign queue stays empty.

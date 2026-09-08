@@ -48,7 +48,8 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
     stateProvider.reload();
 
     // Create provider with capturing logger
-    // Dedup is opt-in (experimental); these tests exercise its behavior.
+    // Dedup is passed explicitly even though it is on by default: these tests
+    // assert dedup behaviour, so they must not silently follow a default change.
     provider =
         new OpenFeatureLocalResolveProvider(
             stateProvider,

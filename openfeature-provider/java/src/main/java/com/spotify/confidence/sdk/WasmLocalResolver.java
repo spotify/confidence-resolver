@@ -62,10 +62,15 @@ class WasmLocalResolver implements LocalResolver {
   private final boolean enableApplyDedup;
   private final boolean disableExposureCollection;
 
+  /** Apply-event deduplication is on, matching the provider default. */
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink) {
     this(logSink, true, false);
   }
 
+  /**
+   * @param enableApplyDedup false to log every apply instead of collapsing byte-identical applies
+   *     for the same unit and variant within the dedup TTL window. Dedup is on by default.
+   */
   public WasmLocalResolver(Consumer<WriteFlagLogsRequest> logSink, boolean enableApplyDedup) {
     this(logSink, enableApplyDedup, false);
   }

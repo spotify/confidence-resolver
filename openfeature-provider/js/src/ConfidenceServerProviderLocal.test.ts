@@ -767,3 +767,49 @@ describe('getPrometheusMetrics', () => {
     expect(result).toBe('# HELP some_metric\nsome_metric 42\n');
   });
 });
+
+describe('apply-event dedup', () => {
+  it('is enabled when the option is not set', async () => {
+    // The shared provider from beforeEach never mentions enableApplyDedup, so
+    // this asserts the default that ships — not a value the test supplied.
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
+
+    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledWith(
+      expect.objectContaining({ enableApplyDedup: true }),
+    );
+  });
+
+  it('is disabled when the option is set to false', async () => {
+    const optedOut = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
+      flagClientSecret: 'flagClientSecret',
+      fetch: net.fetch,
+      materializationStore: 'CONFIDENCE_REMOTE_STORE',
+      enableApplyDedup: false,
+    });
+
+    await advanceTimersUntil(expect(optedOut.initialize()).resolves.toBeUndefined());
+
+    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledWith(
+      expect.objectContaining({ enableApplyDedup: false }),
+    );
+
+    await optedOut.onClose?.();
+  });
+
+  it('is enabled when the option is set to true', async () => {
+    const optedIn = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
+      flagClientSecret: 'flagClientSecret',
+      fetch: net.fetch,
+      materializationStore: 'CONFIDENCE_REMOTE_STORE',
+      enableApplyDedup: true,
+    });
+
+    await advanceTimersUntil(expect(optedIn.initialize()).resolves.toBeUndefined());
+
+    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledWith(
+      expect.objectContaining({ enableApplyDedup: true }),
+    );
+
+    await optedIn.onClose?.();
+  });
+});

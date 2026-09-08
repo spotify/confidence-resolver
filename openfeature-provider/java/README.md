@@ -205,6 +205,42 @@ This is particularly useful for:
 - **Production customization**: Custom TLS settings, proxies, or connection pooling
 - **Debugging**: Add custom logging or tracing interceptors
 
+## Apply-event deduplication
+
+Apply-event deduplication is **on by default**. The WASM resolver collapses
+byte-identical apply events for the same unit and variant within a 120-second
+TTL window (tracking up to 100,000 entries), so repeatedly resolving the same
+flag for the same targeting key produces one apply event instead of many.
+
+Upgrading without changing any code therefore reduces raw apply-event volume,
+substantially so for high-QPS traffic that resolves the same flag for the same
+unit. Distinct units are never collapsed, because the targeting key is part of
+the dedup key, so per-unit exposure counts are unaffected.
+
+To turn it off and log every apply:
+
+```java
+LocalProviderConfig config = LocalProviderConfig.builder()
+    .enableApplyDedup(false)
+    .build();
+```
+
+The builder is the recommended way to opt out. If you construct
+`LocalProviderConfig` directly, use the overload that takes `enableApplyDedup`
+as its last argument:
+
+```java
+LocalProviderConfig config =
+    new LocalProviderConfig(
+        channelFactory,
+        httpClientFactory,
+        /* useRemoteMaterializationStore= */ false,
+        LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE,
+        /* enableApplyDedup= */ false);
+```
+
+Every other constructor leaves dedup on.
+
 ## Materializations
 
 The provider supports **materializations** for two key use cases:

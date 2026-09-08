@@ -38,12 +38,15 @@ type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
 type Option func(*providerOptions)
 
 type providerOptions struct {
-	statePollInterval         time.Duration
-	logPollInterval           time.Duration
-	eventWasmBytes            []byte
-	eventsClient              events.EventsServiceClient
-	useWasmInterpreter        bool
-	enableApplyDedup          bool
+	statePollInterval  time.Duration
+	logPollInterval    time.Duration
+	eventWasmBytes     []byte
+	eventsClient       events.EventsServiceClient
+	useWasmInterpreter bool
+	// disableApplyDedup is stored inverted so the zero value means "dedup on",
+	// which is the default. WithEnableApplyDedup clears it, WithDisableApplyDedup
+	// sets it.
+	disableApplyDedup         bool
 	disableExposureCollection bool
 }
 
@@ -90,9 +93,22 @@ func WithUseWasmInterpreter(use bool) Option {
 
 // WithEnableApplyDedup enables apply-event deduplication in the WASM resolver:
 // repeated identical assignments within a short TTL window are logged once.
+//
+// Dedup is on by default, so this is only needed to undo an earlier
+// WithDisableApplyDedup in the same option list. It is retained because it is
+// part of the published API.
 func WithEnableApplyDedup() Option {
 	return func(o *providerOptions) {
-		o.enableApplyDedup = true
+		o.disableApplyDedup = false
+	}
+}
+
+// WithDisableApplyDedup turns off apply-event deduplication, so every apply is
+// logged even when an identical assignment was just logged. Dedup is on by
+// default; use this only if you need the unfiltered apply stream.
+func WithDisableApplyDedup() Option {
+	return func(o *providerOptions) {
+		o.disableApplyDedup = true
 	}
 }
 
@@ -191,7 +207,7 @@ func NewLocalResolverProvider(
 		logger:                    logger,
 		statePollInterval:         statePollInterval,
 		logPollInterval:           logPollInterval,
-		enableApplyDedup:          options.enableApplyDedup,
+		enableApplyDedup:          !options.disableApplyDedup,
 		disableExposureCollection: options.disableExposureCollection,
 	}
 
