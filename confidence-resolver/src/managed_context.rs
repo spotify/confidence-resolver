@@ -1,8 +1,13 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use crate::proto::google::{value::Kind, Struct, Value};
 
-/// Merge a Client's managed evaluation context (flat dot-paths → scalar Values)
+#[cfg(feature = "json")]
+type FieldMap = std::collections::HashMap<String, Value>;
+#[cfg(not(feature = "json"))]
+type FieldMap = BTreeMap<String, Value>;
+
+/// Merge a Client's managed evaluation context (flat dot-paths -> scalar Values)
 /// into the SDK-provided request context (nested Struct).
 /// Managed values win on exact-path collisions. When both sides have a struct
 /// for the same key, merge recursively to preserve siblings.
@@ -15,7 +20,7 @@ pub fn merge(managed: &BTreeMap<String, Value>, request_context: Struct) -> Stru
 }
 
 fn unflatten(flat: &BTreeMap<String, Value>) -> Struct {
-    let mut root: HashMap<String, Value> = HashMap::new();
+    let mut root: FieldMap = FieldMap::new();
     for (path, val) in flat {
         let parts: Vec<&str> = path.split('.').collect();
         set_nested(&mut root, &parts, 0, val.clone());
@@ -23,7 +28,7 @@ fn unflatten(flat: &BTreeMap<String, Value>) -> Struct {
     Struct { fields: root }
 }
 
-fn set_nested(current: &mut HashMap<String, Value>, parts: &[&str], idx: usize, val: Value) {
+fn set_nested(current: &mut FieldMap, parts: &[&str], idx: usize, val: Value) {
     let Some(key) = parts.get(idx) else { return };
     let key = (*key).to_string();
 
@@ -36,7 +41,7 @@ fn set_nested(current: &mut HashMap<String, Value>, parts: &[&str], idx: usize, 
         Some(Value {
             kind: Some(Kind::StructValue(s)),
         }) => s.fields.clone(),
-        _ => HashMap::new(),
+        _ => FieldMap::new(),
     };
 
     if let Some(next) = idx.checked_add(1) {
@@ -58,10 +63,7 @@ fn merge_structs(managed: &Struct, request: &Struct) -> Struct {
         let request_val = result.get(key);
 
         match (&managed_val.kind, request_val.and_then(|v| v.kind.as_ref())) {
-            (
-                Some(Kind::StructValue(ms)),
-                Some(Kind::StructValue(rs)),
-            ) => {
+            (Some(Kind::StructValue(ms)), Some(Kind::StructValue(rs))) => {
                 let merged = merge_structs(ms, rs);
                 result.insert(
                     key.clone(),
@@ -95,7 +97,7 @@ mod tests {
         }
     }
 
-    fn struct_val(fields: HashMap<String, Value>) -> Value {
+    fn struct_val(fields: FieldMap) -> Value {
         Value {
             kind: Some(Kind::StructValue(Struct { fields })),
         }
@@ -104,7 +106,7 @@ mod tests {
     #[test]
     fn empty_managed_returns_request_unchanged() {
         let request = Struct {
-            fields: HashMap::from([("user".to_string(), str_val("abc"))]),
+            fields: FieldMap::from([("user".to_string(), str_val("abc"))]),
         };
         let result = merge(&BTreeMap::new(), request.clone());
         assert_eq!(result, request);
@@ -124,7 +126,7 @@ mod tests {
     fn managed_wins_on_collision() {
         let managed = BTreeMap::from([("platform".to_string(), str_val("android"))]);
         let request = Struct {
-            fields: HashMap::from([("platform".to_string(), str_val("ios"))]),
+            fields: FieldMap::from([("platform".to_string(), str_val("ios"))]),
         };
         let result = merge(&managed, request);
         assert_eq!(
@@ -137,9 +139,9 @@ mod tests {
     fn nested_managed_preserves_request_siblings() {
         let managed = BTreeMap::from([("app.name".to_string(), str_val("checkout"))]);
         let request = Struct {
-            fields: HashMap::from([(
+            fields: FieldMap::from([(
                 "app".to_string(),
-                struct_val(HashMap::from([("version".to_string(), str_val("1.2"))])),
+                struct_val(FieldMap::from([("version".to_string(), str_val("1.2"))])),
             )]),
         };
         let result = merge(&managed, request);
@@ -161,9 +163,9 @@ mod tests {
     fn managed_scalar_replaces_request_subtree() {
         let managed = BTreeMap::from([("app".to_string(), str_val("monolith"))]);
         let request = Struct {
-            fields: HashMap::from([(
+            fields: FieldMap::from([(
                 "app".to_string(),
-                struct_val(HashMap::from([("version".to_string(), str_val("1.2"))])),
+                struct_val(FieldMap::from([("version".to_string(), str_val("1.2"))])),
             )]),
         };
         let result = merge(&managed, request);
@@ -204,7 +206,7 @@ mod tests {
     fn request_fields_not_in_managed_preserved() {
         let managed = BTreeMap::from([("platform".to_string(), str_val("ios"))]);
         let request = Struct {
-            fields: HashMap::from([
+            fields: FieldMap::from([
                 ("user_id".to_string(), str_val("abc")),
                 ("locale".to_string(), str_val("en")),
             ]),
