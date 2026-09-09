@@ -50,13 +50,12 @@ The provider supports encrypting the flag state to protect your flag rules and t
 Pass the encryption key via `ProviderOptions`:
 
 ```rust
-let options = ProviderOptions::new("your-client-secret")
-    .with_encryption_key("your-encryption-key"); // Get from Confidence Admin view
+let options = ProviderOptions::new("your-client-secret", "your-encryption-key"); // Get from Confidence Admin view
 ```
 
 The encryption key is available in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients), next to your client credentials.
 
-> **⚠️ Upcoming change:** Encryption will be made **mandatory** in a future SDK release. We will communicate a timeline and migration path before legacy provider versions are affected. We strongly recommend enabling it now.
+> **Breaking change:** Encryption is mandatory. Supply the key for the same client credential before constructing the provider.
 
 ## Quick Start
 
@@ -67,7 +66,7 @@ use spotify_confidence_openfeature_provider_local::{ConfidenceProvider, Provider
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create provider options with your client secret
-    let options = ProviderOptions::new("your-client-secret"); // Get from Confidence dashboard
+    let options = ProviderOptions::new("your-client-secret", "your-encryption-key"); // Get from Confidence dashboard
 
     // Create the Confidence provider
     let provider = ConfidenceProvider::new(options)?;
@@ -162,7 +161,7 @@ The `ProviderOptions` struct contains all configuration options for the provider
 ```rust
 use spotify_confidence_openfeature_provider_local::ProviderOptions;
 
-let options = ProviderOptions::new("your-client-secret")
+let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
     .with_initialize_timeout(10_000)      // Max ms to wait for initial state fetch
     .with_state_poll_interval(30_000)     // Interval in ms for polling state updates
     .with_confidence_materialization_store(); // Enable remote materialization
@@ -171,7 +170,7 @@ let options = ProviderOptions::new("your-client-secret")
 #### Required Fields
 
 - `client_secret` (String): The client secret used for authentication and flag evaluation
-- `encryption_key` (Option\<String\>): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients). Will be required in a future release.
+- `encryption_key` (String): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients). Required when constructing the provider.
 
 #### Optional Fields
 
@@ -280,7 +279,7 @@ If your flags rely on sticky assignments or materialized segments, the default S
 For quick setup without managing your own storage infrastructure, enable the built-in remote materialization store:
 
 ```rust
-let options = ProviderOptions::new("your-client-secret")
+let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
     .with_confidence_materialization_store();
 ```
 
@@ -330,7 +329,7 @@ impl MaterializationStore for MyRedisStore {
 
 // Use your custom store
 let my_store = Arc::new(MyRedisStore { /* ... */ });
-let options = ProviderOptions::new("your-client-secret")
+let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
     .with_materialization_store(my_store);
 ```
 
@@ -354,7 +353,7 @@ For normal feature delivery and experiments, keep applies enabled. When exposure
 To disable exposure collection for **all** OpenFeature evaluations through this provider, call `with_disable_exposure_collection()` on the provider options:
 
 ```rust
-let options = ProviderOptions::new("your-client-secret").with_disable_exposure_collection();
+let options = ProviderOptions::new("your-client-secret", "your-encryption-key").with_disable_exposure_collection();
 ```
 
 To skip exposure collection for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
@@ -381,3 +380,18 @@ This is an advanced feature intended for exceptional cases. If you're considerin
 ## License
 
 See the root `LICENSE` file.
+
+### Migrating to mandatory encryption
+
+`encryption_key` is now required when constructing the provider. Supply exactly 64
+hexadecimal characters. Missing, empty, or malformed keys fail before network
+activity. The provider only fetches encrypted state and never falls back to plaintext.
+
+Open [Confidence Admin → Clients](https://app.confidence.spotify.com/admin/clients),
+select your client, and locate the credential used by the provider. Each credential
+has its own unique encryption key, available alongside it. Use the key paired with
+your configured client secret. Configure and verify encryption on your existing
+SDK before upgrading.
+
+Pass both credentials to `ProviderOptions::new(client_secret, encryption_key)`.
+The `encryption_key` field is now a `String`, not an `Option<String>`.

@@ -61,7 +61,7 @@ chrono = { version = "0.4", features = ["clock"] }
 prost-build = "0.13"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 num_cpus = "1.16"
 wiremock = "0.6"

@@ -25,7 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Create provider options
-    let options = ProviderOptions::new(CLIENT_SECRET);
+    let options = ProviderOptions::new(
+        CLIENT_SECRET,
+        std::env::var("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
+            .expect("CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set"),
+    );
 
     // Create the Confidence provider
     println!("Creating Confidence provider...");

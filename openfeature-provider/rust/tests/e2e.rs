@@ -29,7 +29,12 @@ fn sticky_context() -> EvaluationContext {
 async fn e2e_tests() {
     // Initialize provider
     let secret = client_secret();
-    let options = ProviderOptions::new(&secret).with_confidence_materialization_store();
+    let options = ProviderOptions::new(
+        &secret,
+        std::env::var("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
+            .expect("CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set"),
+    )
+    .with_confidence_materialization_store();
     let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
 
     let mut ofe = OpenFeature::singleton_mut().await;
@@ -218,7 +223,7 @@ async fn e2e_tests() {
     {
         let enc_key = std::env::var("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
             .expect("CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set");
-        let options = ProviderOptions::new(&secret).with_encryption_key(enc_key);
+        let options = ProviderOptions::new(&secret, enc_key);
         let provider =
             ConfidenceProvider::new(options).expect("Failed to create encrypted provider");
 

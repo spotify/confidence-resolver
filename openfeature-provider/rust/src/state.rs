@@ -59,7 +59,7 @@ pub struct StateFetcher {
     cdn_url: String,
     etag: RwLock<Option<String>>,
     sdk: Option<Sdk>,
-    encryption_key: Option<Vec<u8>>,
+    encryption_key: Vec<u8>,
 }
 
 impl StateFetcher {
@@ -68,26 +68,20 @@ impl StateFetcher {
         client: ClientWithMiddleware,
         client_secret: String,
         sdk: Option<Sdk>,
-        encryption_key_hex: Option<String>,
-    ) -> Self {
+        encryption_key_hex: String,
+    ) -> Result<Self> {
         let hash = Self::hash_client_secret(&client_secret);
-        let encryption_key = encryption_key_hex
-            .filter(|s| !s.is_empty())
-            .map(|hex_str| hex::decode(&hex_str).expect("encryption_key must be valid hex"));
-        let cdn_url = if encryption_key.is_some() {
-            format!("{}/{}.enc", CDN_BASE_URL, hash)
-        } else {
-            format!("{}/{}", CDN_BASE_URL, hash)
-        };
+        let encryption_key = decode_encryption_key(&encryption_key_hex)?;
+        let cdn_url = format!("{}/{}.enc", CDN_BASE_URL, hash);
 
-        Self {
+        Ok(Self {
             client,
             client_secret,
             cdn_url,
             etag: RwLock::new(None),
             sdk,
             encryption_key,
-        }
+        })
     }
 
     /// Hash the client secret using SHA-256 to create the CDN URL path.
@@ -130,23 +124,13 @@ impl StateFetcher {
             )));
         }
 
-        // Update ETag if present
-        if let Some(etag_value) = response.headers().get("etag") {
-            if let Ok(etag_str) = etag_value.to_str() {
-                let mut etag = self.etag.write().await;
-                *etag = Some(etag_str.to_string());
-            }
-        }
-
-        // Parse response body
+        let new_etag = response
+            .headers()
+            .get("etag")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let raw_bytes = response.bytes().await?;
-
-        let proto_bytes = if self.encryption_key.is_some() {
-            let decrypted = Self::decrypt(&raw_bytes, &self.encryption_key)?;
-            Bytes::from(decrypted)
-        } else {
-            raw_bytes
-        };
+        let proto_bytes = Bytes::from(Self::decrypt(&raw_bytes, &self.encryption_key)?);
 
         let request = ClientResolverState::decode(proto_bytes).map_err(|e| {
             Error::StateParse(format!("Failed to decode ClientResolverState: {}", e))
@@ -158,21 +142,14 @@ impl StateFetcher {
         let state = ResolverState::from_proto(state_pb, &request.account, self.sdk.clone())
             .map_err(|e| Error::StateParse(format!("Failed to create ResolverState: {:?}", e)))?;
 
+        *self.etag.write().await = new_etag;
         let destinations = parse_log_destinations(&request.log_destinations);
         Ok(Some((state, request.account, destinations)))
     }
 
     /// Decrypt AES-256-GCM encrypted state (Tink NO_PREFIX format).
-    fn decrypt(data: &[u8], key: &Option<Vec<u8>>) -> Result<Vec<u8>> {
+    fn decrypt(data: &[u8], key_bytes: &[u8]) -> Result<Vec<u8>> {
         use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
-
-        let key_bytes = key.as_ref().ok_or_else(|| {
-            Error::StateParse(
-                "Resolver state is encrypted but no encryption_key was provided. \
-                 Set the encryption key for this client credential."
-                    .to_string(),
-            )
-        })?;
 
         if data.len() < 12 {
             return Err(Error::StateParse(
@@ -193,11 +170,6 @@ impl StateFetcher {
     /// Get the client secret.
     pub fn client_secret(&self) -> &str {
         &self.client_secret
-    }
-
-    /// Get the encryption key, if set.
-    pub fn encryption_key(&self) -> Option<&[u8]> {
-        self.encryption_key.as_deref()
     }
 }
 
@@ -449,7 +421,7 @@ mod tests {
     fn test_decrypt_encrypted_state() {
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
         let hex_key = std::fs::read_to_string(data_dir().join("encryption_key_test.hex")).unwrap();
-        let key = Some(hex::decode(hex_key.trim()).unwrap());
+        let key = hex::decode(hex_key.trim()).unwrap();
 
         let decrypted = StateFetcher::decrypt(&encrypted, &key).unwrap();
         let request = ClientResolverState::decode(decrypted.as_slice()).unwrap();
@@ -465,7 +437,7 @@ mod tests {
         use aes_gcm::{aead::OsRng, Aes256Gcm, KeyInit};
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
         let wrong_key = Aes256Gcm::generate_key(OsRng).to_vec();
-        let result = StateFetcher::decrypt(&encrypted, &Some(wrong_key));
+        let result = StateFetcher::decrypt(&encrypted, &wrong_key);
         assert!(result.is_err());
     }
 
@@ -473,7 +445,110 @@ mod tests {
     fn test_decrypt_rejects_missing_key() {
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
 
-        let result = StateFetcher::decrypt(&encrypted, &None);
+        let result = StateFetcher::decrypt(&encrypted, &[]);
         assert!(result.is_err());
+    }
+}
+
+pub(crate) fn decode_encryption_key(key: &str) -> Result<Vec<u8>> {
+    hex::decode(key)
+        .ok()
+        .filter(|bytes| bytes.len() == 32)
+        .ok_or_else(|| {
+            Error::Configuration(
+                "encryption_key is required and must contain exactly 64 hexadecimal characters"
+                    .to_string(),
+            )
+        })
+}
+
+#[cfg(test)]
+mod encryption_tests {
+    use super::*;
+    use crate::{ConfidenceProvider, ProviderOptions};
+    use wiremock::{
+        matchers::{header, method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    #[tokio::test]
+    async fn requires_valid_key_before_building_provider() {
+        for key in [
+            "".to_owned(),
+            " ".to_owned(),
+            "00".repeat(31),
+            "00".repeat(33),
+            "gg".repeat(32),
+            format!("{}\n", "00".repeat(32)),
+        ] {
+            assert!(matches!(
+                ConfidenceProvider::new(ProviderOptions::new("secret", key)),
+                Err(Error::Configuration(_))
+            ));
+        }
+        for key in ["ab".repeat(32), "AB".repeat(32)] {
+            assert!(ConfidenceProvider::new(ProviderOptions::new("secret", key)).is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_decryption_does_not_cache_etag_or_retry_plaintext() {
+        let data_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+        let encrypted = std::fs::read(data_dir.join("resolver_state_encrypted.pb")).unwrap();
+        let key = std::fs::read_to_string(data_dir.join("encryption_key_test.hex"))
+            .unwrap()
+            .trim()
+            .to_owned();
+        let plaintext =
+            StateFetcher::decrypt(&encrypted, &decode_encryption_key(&key).unwrap()).unwrap();
+        let mut tampered = encrypted.clone();
+        *tampered.last_mut().unwrap() ^= 1;
+        for bad in [plaintext, encrypted[..5].to_vec(), tampered] {
+            let server = MockServer::start().await;
+            let mut fetcher = StateFetcher::new(
+                reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+                "secret".to_owned(),
+                None,
+                key.clone(),
+            )
+            .unwrap();
+            fetcher.cdn_url = format!("{}/state.enc", server.uri());
+            Mock::given(method("GET"))
+                .and(path("/state.enc"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .insert_header("ETag", "good")
+                        .set_body_bytes(encrypted.clone()),
+                )
+                .mount(&server)
+                .await;
+            assert!(fetcher.fetch().await.unwrap().is_some());
+            server.reset().await;
+            Mock::given(method("GET"))
+                .and(path("/state.enc"))
+                .and(header("If-None-Match", "good"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .insert_header("ETag", "bad")
+                        .set_body_bytes(bad),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            assert!(fetcher.fetch().await.is_err());
+            assert_eq!(fetcher.etag.read().await.as_deref(), Some("good"));
+            server.verify().await;
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+            server.reset().await;
+            Mock::given(method("GET"))
+                .and(path("/state.enc"))
+                .and(header("If-None-Match", "good"))
+                .respond_with(ResponseTemplate::new(304))
+                .expect(1)
+                .mount(&server)
+                .await;
+            assert!(fetcher.fetch().await.unwrap().is_none());
+            server.verify().await;
+        }
     }
 }

@@ -11,7 +11,7 @@ Rust OpenFeature provider for Confidence. **Uses the `confidence_resolver` crate
 - **Native resolver** — Links directly to `confidence_resolver` crate
 - **Async** — Built on `tokio` with background tasks for state polling and log flushing
 - **`reqwest`** — HTTP client for state fetching from CDN and log shipping
-- **Builder pattern** — `ProviderOptions::new(secret).with_*()` chain for configuration
+- **Builder pattern** — `ProviderOptions::new(secret, "your-encryption-key").with_*()` chain for configuration
 - **`gateway_url`** option — Routes all HTTP requests through a proxy, preserving original host in `X-Forwarded-Host`
 
 ## Background Tasks

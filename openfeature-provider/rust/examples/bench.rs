@@ -253,7 +253,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Create provider options with gateway URL pointing to mock server
-    let options = ProviderOptions::new(&args.client_secret).with_gateway_url(&args.mock_addr);
+    let options = ProviderOptions::new(
+        &args.client_secret,
+        std::env::var("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
+            .expect("CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set"),
+    )
+    .with_gateway_url(&args.mock_addr);
 
     // Create the Confidence provider
     let provider = ConfidenceProvider::new(options)?;

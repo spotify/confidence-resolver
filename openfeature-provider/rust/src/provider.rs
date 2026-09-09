@@ -86,7 +86,7 @@ pub struct ProviderOptions {
     /// This is useful for routing through a proxy or mock server.
     pub gateway_url: Option<String>,
     /// Hex-encoded AES-256 encryption key for decrypting CDN state.
-    pub encryption_key: Option<String>,
+    pub encryption_key: String,
     /// Disable exposure/assignment collection for all OpenFeature evaluations
     /// through this provider. Use only for exceptional no-exposure modes;
     /// resolve logs and telemetry are still sent.
@@ -94,8 +94,8 @@ pub struct ProviderOptions {
 }
 
 impl ProviderOptions {
-    /// Create new options with the required client secret.
-    pub fn new(client_secret: impl Into<String>) -> Self {
+    /// Create new options with the required client secret and encryption key.
+    pub fn new(client_secret: impl Into<String>, encryption_key: impl Into<String>) -> Self {
         Self {
             client_secret: client_secret.into(),
             initialize_timeout: None,
@@ -104,7 +104,7 @@ impl ProviderOptions {
             assign_flush_interval: None,
             materialization_store: None,
             gateway_url: None,
-            encryption_key: None,
+            encryption_key: encryption_key.into(),
             disable_exposure_collection: false,
         }
     }
@@ -141,7 +141,7 @@ impl ProviderOptions {
 
     /// Set the hex-encoded AES-256 encryption key for decrypting CDN state.
     pub fn with_encryption_key(mut self, key: impl Into<String>) -> Self {
-        self.encryption_key = Some(key.into());
+        self.encryption_key = key.into();
         self
     }
 
@@ -174,6 +174,7 @@ pub struct ConfidenceProvider {
 impl ConfidenceProvider {
     /// Create a new Confidence provider.
     pub fn new(options: ProviderOptions) -> Result<Self> {
+        crate::state::decode_encryption_key(&options.encryption_key)?;
         let mut client_builder = ClientBuilder::new(Client::new());
 
         if let Some(url) = options.gateway_url {
@@ -182,13 +183,13 @@ impl ConfidenceProvider {
         let client = client_builder.build();
 
         let sdk = provider_sdk();
-        let encryption_enabled = options.encryption_key.is_some();
+        let encryption_enabled = true;
         let state_fetcher = Arc::new(StateFetcher::new(
             client.clone(),
             options.client_secret.clone(),
             Some(sdk.clone()),
             options.encryption_key,
-        ));
+        )?);
         let shared_state = Arc::new(SharedState::new());
         let init_labels =
             BTreeMap::from([("encryption".to_string(), encryption_enabled.to_string())]);
@@ -238,10 +239,6 @@ impl ConfidenceProvider {
 
     /// Initialize the provider by fetching initial state and starting background tasks.
     pub async fn init(&mut self) -> Result<()> {
-        if self.state_fetcher.encryption_key().is_none() {
-            tracing::warn!("No encryption_key provided. Falling back to unencrypted state. An encryption key will be required in an upcoming version.");
-        }
-
         // Fetch initial state
         let result = self.state_fetcher.fetch().await?;
         if let Some((state, account_id, destinations)) = result {
@@ -1513,7 +1510,7 @@ mod tests {
 
     #[test]
     fn test_provider_options_new() {
-        let options = ProviderOptions::new("test-secret");
+        let options = ProviderOptions::new("test-secret", "00".repeat(32));
         assert_eq!(options.client_secret, "test-secret");
         assert!(options.initialize_timeout.is_none());
         assert!(options.state_poll_interval.is_none());
@@ -1524,7 +1521,8 @@ mod tests {
 
     #[test]
     fn test_provider_options_with_disable_exposure_collection() {
-        let options = ProviderOptions::new("test-secret").with_disable_exposure_collection();
+        let options =
+            ProviderOptions::new("test-secret", "00".repeat(32)).with_disable_exposure_collection();
         assert!(options.disable_exposure_collection);
     }
 
@@ -1535,7 +1533,8 @@ mod tests {
         use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
         use open_feature::provider::FeatureProvider;
 
-        let options = ProviderOptions::new(TEST_CLIENT_SECRET).with_disable_exposure_collection();
+        let options = ProviderOptions::new(TEST_CLIENT_SECRET, "00".repeat(32))
+            .with_disable_exposure_collection();
         let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
         assert!(provider.disable_exposure_collection);
 
@@ -1570,21 +1569,22 @@ mod tests {
 
     #[test]
     fn test_provider_options_with_initialize_timeout() {
-        let options =
-            ProviderOptions::new("test-secret").with_initialize_timeout(Duration::from_secs(5));
+        let options = ProviderOptions::new("test-secret", "00".repeat(32))
+            .with_initialize_timeout(Duration::from_secs(5));
         assert_eq!(options.initialize_timeout, Some(Duration::from_secs(5)));
     }
 
     #[test]
     fn test_provider_options_with_state_poll_interval() {
-        let options =
-            ProviderOptions::new("test-secret").with_state_poll_interval(Duration::from_secs(60));
+        let options = ProviderOptions::new("test-secret", "00".repeat(32))
+            .with_state_poll_interval(Duration::from_secs(60));
         assert_eq!(options.state_poll_interval, Some(Duration::from_secs(60)));
     }
 
     #[test]
     fn test_provider_options_with_confidence_materialization_store() {
-        let options = ProviderOptions::new("test-secret").with_confidence_materialization_store();
+        let options = ProviderOptions::new("test-secret", "00".repeat(32))
+            .with_confidence_materialization_store();
         assert!(matches!(
             options.materialization_store,
             Some(MaterializationStoreConfig::ConfidenceRemote)
@@ -1593,7 +1593,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_provider_metadata() {
-        let options = ProviderOptions::new("test-secret");
+        let options = ProviderOptions::new("test-secret", "00".repeat(32));
         let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
 
         assert_eq!(provider.metadata().name, "confidence-local-resolver");
@@ -1601,7 +1601,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_provider_status_before_init() {
-        let options = ProviderOptions::new("test-secret");
+        let options = ProviderOptions::new("test-secret", "00".repeat(32));
         let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
 
         use open_feature::provider::FeatureProvider;
@@ -1635,7 +1635,7 @@ mod tests {
     async fn setup_provider_with_minimal_state() -> ConfidenceProvider {
         use crate::test_utils::{create_minimal_state, TEST_CLIENT_SECRET};
 
-        let options = ProviderOptions::new(TEST_CLIENT_SECRET);
+        let options = ProviderOptions::new(TEST_CLIENT_SECRET, "00".repeat(32));
         let provider = ConfidenceProvider::new(options).expect("Failed to create provider");
 
         // Set minimal state (no flags configured)
