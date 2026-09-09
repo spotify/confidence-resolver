@@ -31,3 +31,11 @@ export type FlagObject = {
   [key: string]: FlagValue;
 };
 export type FlagValue = FlagPrimitive | FlagObject;
+
+/**
+ * Structurally identical to `JsonValue` from `@openfeature/core`, restated here
+ * so the standalone `./remote` entry point carries no OpenFeature dependency —
+ * not even a type-only one, which TypeScript consumers would otherwise have to
+ * install to resolve our `.d.ts`.
+ */
+export type JsonValue = FlagPrimitive | { [key: string]: JsonValue } | JsonValue[];
