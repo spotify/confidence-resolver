@@ -811,6 +811,7 @@ mod tests {
             client_name: "test-client".to_string(),
             client_credential_name: "cred".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         };
         let sdk = None;
 
@@ -913,6 +914,7 @@ mod tests {
             client_name: "test-client".to_string(),
             client_credential_name: "cred".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         };
         let sdk: Option<crate::proto::confidence::flags::resolver::v1::Sdk> = None;
         let iterations: u128 = 50_000;
@@ -1111,6 +1113,7 @@ mod tests {
             client_name: "test-client".to_string(),
             client_credential_name: "cred".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         };
         let sdk: Option<crate::proto::confidence::flags::resolver::v1::Sdk> = None;
         const FLAGS_PER_USER: usize = 10;

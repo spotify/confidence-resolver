@@ -48,6 +48,7 @@ mod bounded_set;
 mod err;
 pub mod flag_logger;
 mod gzip;
+pub(crate) mod managed_context;
 pub mod proto;
 pub mod resolve_logger;
 mod schema_util;
@@ -157,6 +158,7 @@ pub struct Client {
     pub client_name: String,
     pub client_credential_name: String,
     pub environments: Vec<String>,
+    pub managed_context: std::collections::BTreeMap<String, Value>,
 }
 
 #[derive(Debug)]
@@ -224,6 +226,7 @@ impl ResolverState {
                         client_name: client.name.clone(),
                         client_credential_name: credential.name.clone(),
                         environments: credential.environments.clone(),
+                        managed_context: client.managed_context.clone(),
                     },
                 );
             }
@@ -274,11 +277,13 @@ impl ResolverState {
                 )
             })
             .map(|client| {
+                let effective_context =
+                    managed_context::merge(&client.managed_context, evaluation_context);
                 AccountResolver::new(
                     client,
                     self,
                     EvaluationContext {
-                        context: evaluation_context,
+                        context: effective_context,
                     },
                     encryption_key,
                 )
@@ -4238,6 +4243,7 @@ mod tests {
                 client_name: "clients/test".to_string(),
                 client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
                 environments: vec![],
+                managed_context: std::collections::BTreeMap::new(),
             },
         );
 
@@ -4300,6 +4306,7 @@ mod tests {
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         };
 
         let resolver: AccountResolver<'_, L> = AccountResolver::new(
@@ -4376,6 +4383,7 @@ mod tests {
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         };
 
         let resolver: AccountResolver<'_, L> = AccountResolver::new(
@@ -4447,6 +4455,7 @@ mod tests {
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         };
 
         let resolver: AccountResolver<'_, L> = AccountResolver::new(
@@ -4796,6 +4805,7 @@ mod tests {
             client_name: "clients/test".into(),
             client_credential_name: "clients/test/clientCredentials/test".into(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         };
 
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
@@ -4825,6 +4835,7 @@ mod tests {
             client_name: "clients/test".into(),
             client_credential_name: "clients/test/clientCredentials/test".into(),
             environments: vec!["environments/production".into()],
+            managed_context: std::collections::BTreeMap::new(),
         };
 
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
@@ -4858,6 +4869,7 @@ mod tests {
             client_name: "clients/test".into(),
             client_credential_name: "clients/test/clientCredentials/test".into(),
             environments: vec!["environments/staging".into()],
+            managed_context: std::collections::BTreeMap::new(),
         };
 
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
@@ -4892,6 +4904,7 @@ mod tests {
             client_name: "clients/test".into(),
             client_credential_name: "clients/test/clientCredentials/test".into(),
             environments: vec!["environments/production".into()],
+            managed_context: std::collections::BTreeMap::new(),
         };
 
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
@@ -4921,6 +4934,7 @@ mod tests {
             client_name: "clients/test".into(),
             client_credential_name: "clients/test/clientCredentials/test".into(),
             environments: vec!["environments/staging".into()],
+            managed_context: std::collections::BTreeMap::new(),
         };
 
         let context_json = r#"{"visitor_id": "tutorial_visitor"}"#;
@@ -5011,6 +5025,7 @@ mod tests {
                 client_name: "clients/test".to_string(),
                 client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
                 environments: vec![],
+                managed_context: std::collections::BTreeMap::new(),
             },
         );
 
@@ -5110,6 +5125,7 @@ mod tests {
                 client_name: "clients/test".to_string(),
                 client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
                 environments: vec![],
+                managed_context: std::collections::BTreeMap::new(),
             },
         );
         let state = ResolverState {
@@ -5332,6 +5348,7 @@ mod tests {
                 client_name: "clients/test".to_string(),
                 client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
                 environments: vec![],
+                managed_context: std::collections::BTreeMap::new(),
             },
         );
         let mut bitsets = HashMap::new();
@@ -5381,6 +5398,7 @@ mod tests {
                 client_name: "clients/test".to_string(),
                 client_credential_name: "clients/test/clientCredentials/abcdef".to_string(),
                 environments: vec![],
+                managed_context: std::collections::BTreeMap::new(),
             },
         );
         // Partial bitset — only half the buckets are set
@@ -5440,6 +5458,7 @@ mod tests {
                 client_name: "clients/test".to_string(),
                 client_credential_name: "clients/test/clientCredentials/test".to_string(),
                 environments: vec![],
+                managed_context: std::collections::BTreeMap::new(),
             },
         );
 

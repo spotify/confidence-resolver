@@ -335,6 +335,9 @@ message Client {
 
   // Human friendly name of the client.
   string display_name = 2;
+
+  // Server-managed evaluation context fields.
+  map<string, google.protobuf.Value> managed_context = 13;
 }
 
 // Credentials for a client
