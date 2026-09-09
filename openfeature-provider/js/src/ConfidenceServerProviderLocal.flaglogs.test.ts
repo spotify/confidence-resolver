@@ -30,6 +30,7 @@ describe('WriteFlagLogs tests', () => {
     resolver = new WasmResolver(module);
     provider = new ConfidenceServerProviderLocal(resolver, noopEventTracker, {
       flagClientSecret: FLAG_CLIENT_SECRET,
+      encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
       // Dedup is opt-in (experimental); these tests exercise its behavior.
       enableApplyDedup: true,
     });

@@ -1,4 +1,4 @@
-import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
+import { ConfidenceServerProviderLocal, ProviderOptions, validateEncryptionKey } from './ConfidenceServerProviderLocal';
 import { EventWasmTracker } from './EventWasmTracker';
 import { LocalResolver } from './LocalResolver';
 import { WasmResolver } from './WasmResolver';
@@ -17,6 +17,7 @@ let eventTracker: Promise<EventTracker> | null = null;
 export type ProviderOptionsExt = ProviderOptions;
 
 export function createConfidenceServerProvider(options: ProviderOptions): ConfidenceServerProviderLocal {
+  validateEncryptionKey(options.encryptionKey);
   if (!resolver) {
     resolver = createResolver();
   }

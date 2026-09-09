@@ -1,3 +1,4 @@
+import { encryptTestState } from './test-helpers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { WasmResolver } from './WasmResolver';
@@ -32,11 +33,13 @@ describe('flagbundle resolve telemetry', () => {
 
     net.cdn.state.handler = () =>
       new Response(
-        ClientResolverState.encode({
-          state: stateBytes,
-          account: 'confidence-test',
-          logDestinations: [],
-        }).finish(),
+        encryptTestState(
+          ClientResolverState.encode({
+            state: stateBytes,
+            account: 'confidence-test',
+            logDestinations: [],
+          }).finish(),
+        ),
       );
 
     net.resolver.flagLogs.handler = async (req: Request) => {
@@ -50,6 +53,7 @@ describe('flagbundle resolve telemetry', () => {
 
     provider = new ConfidenceServerProviderLocal(resolver, noopEventTracker, {
       flagClientSecret: CLIENT_SECRET,
+      encryptionKey: '00'.repeat(32),
       fetch: net.fetch,
     });
 

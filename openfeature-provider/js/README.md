@@ -64,7 +64,7 @@ const provider = createConfidenceServerProvider({
 
 The encryption key is available in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients), next to your client credentials.
 
-> **⚠️ Upcoming change:** Encryption will be made **mandatory** in a future SDK release. We will communicate a timeline and migration path before legacy provider versions are affected. We strongly recommend enabling it now.
+> **Breaking change:** Encryption is mandatory. Supply the key for the same client credential before constructing the provider.
 
 ---
 
@@ -76,6 +76,7 @@ import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-
 
 const provider = createConfidenceServerProvider({
   flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   // initializeTimeout?: number
   // stateUpdateInterval?: number
   // flushInterval?: number
@@ -157,7 +158,7 @@ if (details.errorCode) {
 ## Options
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
-- `encryptionKey` (string, optional): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients). Will be required in a future release (see [Encryption](#encryption)).
+- `encryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients). Will be required in a future release (see [Encryption](#encryption)).
 - `initializeTimeout` (number, optional): Max ms to wait for initial state fetch. Defaults to 30_000.
 - `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
@@ -197,6 +198,7 @@ You can customize the WASM path if needed:
 ```ts
 const provider = createConfidenceServerProvider({
   flagClientSecret: '...',
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   wasmPath: '/custom/path/to/confidence_resolver.wasm',
 });
 ```
@@ -214,6 +216,7 @@ You can customize the WASM URL if needed:
 ```ts
 const provider = createConfidenceServerProvider({
   flagClientSecret: '...',
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   wasmUrl: '/assets/confidence_resolver.wasm',
 });
 ```
@@ -262,6 +265,7 @@ For quick setup without managing your own storage infrastructure, enable the bui
 ```ts
 const provider = createConfidenceServerProvider({
   flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   materializationStore: 'CONFIDENCE_REMOTE_STORE',
 });
 ```
@@ -296,6 +300,7 @@ class MyRedisStore implements MaterializationStore {
 
 const provider = createConfidenceServerProvider({
   flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   materializationStore: new MyRedisStore(),
 });
 ```
@@ -402,6 +407,7 @@ To disable exposure collection for **all** OpenFeature evaluations through this 
 ```typescript
 const provider = createConfidenceServerProvider({
   flagClientSecret: 'your-client-secret',
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   disableExposureCollection: true,
 });
 ```
@@ -437,3 +443,15 @@ Code is formatted using prettier, you can format all files by running
 ```sh
 yarn format
 ```
+
+### Migrating to mandatory encryption
+
+`encryptionKey` is now required when constructing the provider. Supply exactly 64
+hexadecimal characters. Missing, empty, or malformed keys fail before network
+activity. The provider only fetches encrypted state and never falls back to plaintext.
+
+Open [Confidence Admin → Clients](https://app.confidence.spotify.com/admin/clients),
+select your client, and locate the credential used by the provider. Each credential
+has its own unique encryption key, available alongside it. Use the key paired with
+your configured client secret. Configure and verify encryption on your existing
+SDK before upgrading.

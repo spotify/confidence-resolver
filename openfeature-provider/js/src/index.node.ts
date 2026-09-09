@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { ConfidenceServerProviderLocal, ProviderOptions } from './ConfidenceServerProviderLocal';
+import { ConfidenceServerProviderLocal, ProviderOptions, validateEncryptionKey } from './ConfidenceServerProviderLocal';
 import { WasmResolver } from './WasmResolver';
 import { EventWasmTracker } from './EventWasmTracker';
 import { LocalResolver } from './LocalResolver';
@@ -18,6 +18,7 @@ export function createConfidenceServerProvider({
   wasmPath,
   ...options
 }: ProviderOptionsExt): ConfidenceServerProviderLocal {
+  validateEncryptionKey(options.encryptionKey);
   if (!resolver) {
     resolver = createResolver(wasmPath ?? require.resolve('./confidence_resolver.wasm'));
   }

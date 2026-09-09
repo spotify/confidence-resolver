@@ -1,3 +1,4 @@
+import { encryptTestState } from './test-helpers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenFeature } from '@openfeature/server-sdk';
 
@@ -51,13 +52,14 @@ describe.each([
   const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
     const url = new URL(input instanceof Request ? input.url : input);
     if (url.hostname === 'confidence-resolver-state-cdn.spotifycdn.com') {
-      return new Response(new Uint8Array());
+      return new Response(encryptTestState(new Uint8Array()));
     }
     return new Response();
   });
 
   beforeEach(() => {
     mocks.trackers.length = 0;
+    fetchMock.mockClear();
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(WebAssembly, 'compileStreaming').mockResolvedValue({} as WebAssembly.Module);
   });
@@ -68,10 +70,19 @@ describe.each([
     vi.unstubAllGlobals();
   });
 
+  it('rejects missing keys before loading WASM or fetching state', async () => {
+    const { createConfidenceServerProvider } = await load();
+    // @ts-expect-error encryptionKey is required, including on factory APIs.
+    expect(() => createConfidenceServerProvider({ flagClientSecret: 'test-secret' })).toThrow('64 hexadecimal');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(WebAssembly.compileStreaming).not.toHaveBeenCalled();
+  });
+
   it('loads the event WASM and tracks through the OpenFeature client', async () => {
     const { createConfidenceServerProvider } = await load();
     const provider = createConfidenceServerProvider({
       flagClientSecret: 'test-secret',
+      encryptionKey: '00'.repeat(32),
       fetch: fetchMock,
       ...(name === 'fetch' ? { wasmUrl: resolverWasmUrl } : {}),
     });
@@ -91,4 +102,10 @@ describe.each([
       }),
     );
   });
+});
+
+it('node entry point rejects missing keys before resolving WASM files', async () => {
+  const { createConfidenceServerProvider } = await import('./index.node');
+  // @ts-expect-error encryptionKey is required.
+  expect(() => createConfidenceServerProvider({ flagClientSecret: 'secret' })).toThrow('64 hexadecimal');
 });

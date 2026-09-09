@@ -1,3 +1,4 @@
+import { encryptTestState } from './test-helpers';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, MockedObject, test, vi } from 'vitest';
 import { LocalResolver } from './LocalResolver';
 import {
@@ -41,6 +42,7 @@ beforeEach(() => {
   net = new NetworkMock();
   provider = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
     flagClientSecret: 'flagClientSecret',
+    encryptionKey: '00'.repeat(32),
     fetch: net.fetch,
     materializationStore: 'CONFIDENCE_REMOTE_STORE',
   });
@@ -55,7 +57,15 @@ describe('idealized conditions', () => {
     const stateCallsAfterInit = net.cdn.state.calls;
     const flushCallsAfterInit = net.resolver.flagLogs.calls;
 
-    await vi.advanceTimersByTimeAsync(TimeUnit.HOUR + TimeUnit.SECOND);
+    // Let real WebCrypto finish each update before advancing the next interval.
+    for (let i = 0; i < 120; i++) {
+      const updated = new Promise<void>(resolve => {
+        mockedWasmResolver.setResolverState.mockImplementationOnce(() => resolve());
+      });
+      await vi.advanceTimersByTimeAsync(DEFAULT_STATE_INTERVAL);
+      await updated;
+    }
+    await vi.advanceTimersByTimeAsync(TimeUnit.SECOND);
 
     // since we fetch state every 30s we should fetch 120 times after init
     expect(net.cdn.state.calls).toBe(stateCallsAfterInit + 120);
@@ -108,7 +118,7 @@ describe('state update scheduling', () => {
       if (ifNoneMatch === eTag) {
         return new Response(null, { status: 304 });
       }
-      return new Response(payload, { headers: { eTag } });
+      return new Response(encryptTestState(payload), { headers: { eTag } });
     };
 
     await advanceTimersUntil(provider.updateState());
@@ -135,11 +145,12 @@ describe('state update scheduling', () => {
   it('retries state download with backoff and stall-timeout', async () => {
     let chunkDelay = 1500;
     net.cdn.state.handler = req => {
+      const encrypted = encryptTestState(new Uint8Array(1000));
       const body = new ReadableStream<Uint8Array>({
         async start(controller) {
-          for (let i = 0; i < 10; i++) {
+          for (let i = 0; i < encrypted.length; i += 100) {
             await abortableSleep(chunkDelay, req.signal);
-            controller.enqueue(new Uint8Array(100));
+            controller.enqueue(encrypted.slice(i, i + 100));
           }
           controller.close();
         },
@@ -184,7 +195,7 @@ describe('flush behavior', () => {
     expect(decoded.telemetryData?.sdk).toEqual({ id: 22, customId: undefined, version: VERSION });
     expect(decoded.telemetryData?.providerInitRate).toEqual([
       { count: 2, labels: { existing: 'true' } },
-      { count: 1, labels: { encryption: 'false' } },
+      { count: 1, labels: { encryption: 'true' } },
     ]);
   });
 
@@ -230,11 +241,12 @@ describe('flush behavior', () => {
     net.resolver.flagLogs.status = 503;
 
     const start = net.resolver.flagLogs.calls;
+    const startTime = Date.now();
     await advanceTimersUntil(provider.flush());
 
     const attempts = net.resolver.flagLogs.calls - start;
     expect(attempts).toBe(3);
-    expect(Date.now()).toBe(1500);
+    expect(Date.now() - startTime).toBe(1500);
   });
   it('does one final flush on close', async () => {
     await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
@@ -258,7 +270,7 @@ describe('flush behavior', () => {
     expect(sentBody).toBeDefined();
     const decoded = WriteFlagLogsRequest.decode(sentBody!);
     expect(decoded.telemetryData?.sdk).toEqual({ id: 22, customId: undefined, version: VERSION });
-    expect(decoded.telemetryData?.providerInitRate).toEqual([{ count: 1, labels: { encryption: 'false' } }]);
+    expect(decoded.telemetryData?.providerInitRate).toEqual([{ count: 1, labels: { encryption: 'true' } }]);
   });
   it('keeps close best-effort when provider init telemetry cannot be sent', async () => {
     mockedWasmResolver.flushLogs.mockReturnValueOnce(new Uint8Array(0));
@@ -286,6 +298,7 @@ describe('timeouts and aborts', () => {
 
     const shortTimeoutProvider = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
       flagClientSecret: 'flagClientSecret',
+      encryptionKey: '00'.repeat(32),
       initializeTimeout: 1000,
       fetch: net.fetch,
     });
@@ -422,6 +435,7 @@ describe('remote materialization for sticky assignments', () => {
   it('sets apply=false when disableExposureCollection is configured on the provider', async () => {
     provider = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
       flagClientSecret: 'flagClientSecret',
+      encryptionKey: '00'.repeat(32),
       fetch: net.fetch,
       materializationStore: 'CONFIDENCE_REMOTE_STORE',
       disableExposureCollection: true,
@@ -766,4 +780,75 @@ describe('getPrometheusMetrics', () => {
     expect(mockedWasmResolver.prometheusSnapshot).toHaveBeenCalledWith('0');
     expect(result).toBe('# HELP some_metric\nsome_metric 42\n');
   });
+});
+
+describe('mandatory encryption', () => {
+  afterEach(() => vi.useFakeTimers());
+  it.each([undefined, null, '', ' ', '00'.repeat(31), '00'.repeat(33), 'gg'.repeat(32), '00'.repeat(32) + '\n'])(
+    'rejects an invalid key before fetching: %s',
+    encryptionKey => {
+      expect(
+        () =>
+          new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
+            flagClientSecret: 'secret',
+            encryptionKey: encryptionKey as string,
+            fetch: net.fetch,
+          }),
+      ).toThrow('64 hexadecimal');
+      expect(net.cdn.state.calls).toBe(0);
+    },
+  );
+
+  it.each(['ab'.repeat(32), 'AB'.repeat(32)])('accepts a valid key: %s', encryptionKey => {
+    expect(
+      () =>
+        new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
+          flagClientSecret: 'secret',
+          encryptionKey,
+          fetch: net.fetch,
+        }),
+    ).not.toThrow();
+  });
+
+  it.each(['wrong-key', 'tampered', 'truncated', 'plaintext'])(
+    'retries encrypted state after %s without caching its ETag',
+    async failure => {
+      vi.useRealTimers();
+      const { ClientResolverState } = await import('./proto/confidence/flags/admin/v1/resolver');
+      const { createCipheriv } = await import('node:crypto');
+      const plaintext = ClientResolverState.encode({
+        state: new Uint8Array(100),
+        account: 'account',
+        logDestinations: [],
+      }).finish();
+      const encrypted = encryptTestState(plaintext);
+      const cipher = createCipheriv('aes-256-gcm', Buffer.alloc(32, 1), Buffer.alloc(12));
+      const wrongKey = new Uint8Array(
+        Buffer.concat([Buffer.alloc(12), cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]),
+      );
+      const tampered = encrypted.slice();
+      tampered[tampered.length - 1] ^= 1;
+      const bad =
+        failure === 'wrong-key'
+          ? wrongKey
+          : failure === 'tampered'
+          ? tampered
+          : failure === 'truncated'
+          ? encrypted.slice(0, 5)
+          : plaintext;
+      let calls = 0;
+      const etags: Array<string | null> = [];
+      net.cdn.state.handler = req => {
+        expect(new URL(req.url).pathname.endsWith('.enc')).toBe(true);
+        etags.push(req.headers.get('If-None-Match'));
+        calls++;
+        return new Response(calls === 2 ? bad : encrypted, { headers: { ETag: calls === 2 ? 'bad' : 'good' } });
+      };
+      await provider.updateState();
+      await expect(provider.updateState()).rejects.toThrow();
+      await provider.updateState();
+      expect(etags).toEqual([null, 'good', 'good']);
+      expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(2);
+    },
+  );
 });

@@ -49,6 +49,7 @@ export async function register() {
 
   const provider = createConfidenceServerProvider({
     flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+    encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   });
   await OpenFeature.setProviderAndWait(provider);
 }
@@ -494,6 +495,7 @@ import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-
 
 const provider = createConfidenceServerProvider({
   flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
 });
 
 await OpenFeature.setProviderAndWait(provider);

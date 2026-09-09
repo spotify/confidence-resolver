@@ -52,7 +52,7 @@ export interface SnapshotConfig {}
 export interface ProviderOptions {
   flagClientSecret: string;
   /** Hex-encoded AES-256 encryption key for decrypting CDN state. */
-  encryptionKey?: string;
+  encryptionKey: string;
   initializeTimeout?: number;
   /** Interval in milliseconds between state polling updates. Defaults to 30000ms. */
   stateUpdateInterval?: number;
@@ -118,6 +118,8 @@ export class ConfidenceServerProviderLocal implements Provider {
     private readonly eventTrackerOrPromise: EventTracker | Promise<EventTracker>,
     private options: ProviderOptions,
   ) {
+    validateEncryptionKey(options.encryptionKey);
+    this.options = { ...options };
     if (!(resolverOrPromise instanceof Promise)) {
       this.resolverInstance = resolverOrPromise;
     }
@@ -206,12 +208,6 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async initialize(context?: EvaluationContext): Promise<void> {
-    if (!this.options.encryptionKey) {
-      logger.warn(
-        'No encryptionKey provided. Falling back to unencrypted state. ' +
-          'An encryption key will be required in an upcoming version.',
-      );
-    }
     const signal = this.main.signal;
     const initialUpdateSignal = AbortSignal.any([
       signal,
@@ -481,7 +477,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   async updateState(signal?: AbortSignal): Promise<void> {
     const hashHex = await sha256Hex(this.options.flagClientSecret);
     const { encryptionKey } = this.options;
-    const cdnPath = encryptionKey ? `${hashHex}.enc` : hashHex;
+    const cdnPath = `${hashHex}.enc`;
     const cdnUrl = `https://confidence-resolver-state-cdn.spotifycdn.com/${cdnPath}`;
 
     const headers = new Headers();
@@ -495,7 +491,6 @@ export class ConfidenceServerProviderLocal implements Provider {
     if (!resp.ok) {
       throw new Error(`Failed to fetch state: ${resp.status} ${resp.statusText}`);
     }
-    this.stateEtag = resp.headers.get('etag');
 
     const bytes = new Uint8Array(await resp.arrayBuffer());
     const sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
@@ -506,7 +501,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       // best-effort: don't block state update if flush fails
     }
 
-    const plaintext = encryptionKey ? await decryptAesGcm(bytes, hexToBytes(encryptionKey)) : bytes;
+    const plaintext = await decryptAesGcm(bytes, hexToBytes(encryptionKey));
     const clientState = ClientResolverState.decode(plaintext);
     this.logDestinations = clientState.logDestinations;
     this.accountId = clientState.account;
@@ -519,6 +514,7 @@ export class ConfidenceServerProviderLocal implements Provider {
         disableExposureCollection: this.options.disableExposureCollection === true,
       }),
     );
+    this.stateEtag = resp.headers.get('etag');
   }
 
   /**
@@ -872,5 +868,12 @@ function reasonStringToEnum(reason: string): ResolveReason {
       return ResolveReason.RESOLVE_REASON_ERROR;
     default:
       return ResolveReason.RESOLVE_REASON_UNSPECIFIED;
+  }
+}
+
+/** Validate before allocating WASM resources or starting network activity. */
+export function validateEncryptionKey(key: string): void {
+  if (typeof key !== 'string' || key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
+    throw new Error('encryptionKey is required and must contain exactly 64 hexadecimal characters');
   }
 }

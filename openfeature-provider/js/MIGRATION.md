@@ -41,6 +41,7 @@ import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-
 
 const provider = createConfidenceServerProvider({
   flagClientSecret: 'your-client-secret', // this is the same client secret as before
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   // initializeTimeout?: number
   // flushInterval?: number
   // fetch?: typeof fetch (Node <18 or custom transport)
@@ -62,6 +63,7 @@ const provider = createConfidenceServerProvider({
 // New
 const provider = createConfidenceServerProvider({
   flagClientSecret: 'your-client-secret',
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
 });
 ```
 

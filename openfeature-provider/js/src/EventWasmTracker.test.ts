@@ -101,6 +101,7 @@ describe('ConfidenceServerProviderLocal event wiring', () => {
     const eventTracker = new EventWasmTracker(module);
     const provider = new ConfidenceServerProviderLocal(stubResolver, Promise.resolve(eventTracker), {
       flagClientSecret: 'test-secret',
+      encryptionKey: '00'.repeat(32),
     });
 
     // track() before initialize() is a documented no-op, but must not throw.

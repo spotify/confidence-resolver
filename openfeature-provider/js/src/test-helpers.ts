@@ -1,3 +1,4 @@
+import { createCipheriv } from 'node:crypto';
 import { vi } from 'vitest';
 import { abortableSleep, isObject, TimeUnit } from './util';
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
@@ -138,11 +139,13 @@ class CdnServerMock extends ServerMock {
   readonly state: EndpointMock;
   constructor() {
     const state = new EndpointMock(() =>
-      ClientResolverState.encode({
-        state: new Uint8Array(100), // Empty state for testing
-        account: '<account>',
-        logDestinations: [],
-      }).finish(),
+      encryptTestState(
+        ClientResolverState.encode({
+          state: new Uint8Array(100), // Empty state for testing
+          account: '<account>',
+          logDestinations: [],
+        }).finish(),
+      ),
     );
     // CDN serves state at any path (using client secret as path)
     super({
@@ -287,4 +290,11 @@ export async function sha256Hex(input: string): Promise<string> {
   }
   // Pad to 64 hex chars (SHA-256 size)
   return Math.abs(hash).toString(16).padStart(64, '0');
+}
+
+export const TEST_ENCRYPTION_KEY = '00'.repeat(32);
+export function encryptTestState(data: Uint8Array): Uint8Array<ArrayBuffer> {
+  const nonce = Buffer.alloc(12);
+  const cipher = createCipheriv('aes-256-gcm', Buffer.from(TEST_ENCRYPTION_KEY, 'hex'), nonce);
+  return new Uint8Array(Buffer.concat([nonce, cipher.update(data), cipher.final(), cipher.getAuthTag()]));
 }

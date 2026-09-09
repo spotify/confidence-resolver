@@ -29,6 +29,7 @@ Defined in `src/ConfidenceServerProviderLocal.ts`:
 ```typescript
 interface ProviderOptions {
   flagClientSecret: string;
+  encryptionKey: string;
   initializeTimeout?: number;
   stateUpdateInterval?: number; // ms between state polls (default: 30000)
   flushInterval?: number; // ms between log flushes (default: 15000)

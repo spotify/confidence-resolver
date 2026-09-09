@@ -12,10 +12,9 @@ const eventModuleBytes = readFileSync(__dirname + '/../../../wasm/confidence_eve
 const eventModule = new WebAssembly.Module(eventModuleBytes);
 const EVENT_PUBLISH_URL = 'https://events.confidence.dev/v1/events:publish';
 
-describe.each([
-  { name: 'unencrypted', encryptionKey: undefined },
-  { name: 'encrypted', encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY },
-])('ConfidenceServerProvider E2E ($name)', ({ name, encryptionKey }) => {
+describe('ConfidenceServerProvider E2E (encrypted)', () => {
+  const name = 'encrypted';
+  const encryptionKey = process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!;
   const resolver = new WasmResolver(module);
   const eventTracker = new EventWasmTracker(eventModule);
   const eventPublishResults: Array<{ status: number; errors: PublishEventsResponse['errors'] }> = [];
@@ -115,6 +114,7 @@ describe('ConfidenceServerProvider E2E (sticky)', () => {
   const eventTracker = new EventWasmTracker(eventModule);
   const provider = new ConfidenceServerProviderLocal(resolver, eventTracker, {
     flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
+    encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
     materializationStore: 'CONFIDENCE_REMOTE_STORE',
   });
 

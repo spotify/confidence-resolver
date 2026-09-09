@@ -41,6 +41,7 @@ const proxyFetch = (input, init) => {
 
 const provider = createConfidenceServerProvider({
   flagClientSecret: CLIENT_SECRET,
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY,
   flushInterval: 1000,
   fetch: proxyFetch,
 });
