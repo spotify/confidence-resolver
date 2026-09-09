@@ -44,6 +44,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
 
   public FlagsAdminStateFetcher(
       String clientSecret, HttpClientFactory httpClientFactory, String encryptionKey) {
+    LocalProviderConfig.validateEncryptionKey(encryptionKey);
     this.clientSecret = clientSecret;
     this.httpClientFactory = httpClientFactory;
     this.encryptionKey = encryptionKey;
@@ -75,7 +76,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
 
   private void fetchAndUpdateStateIfChanged() {
     final String hash = sha256Hex(clientSecret);
-    final var cdnUrl = CDN_BASE_URL + hash + (encryptionKey != null ? ".enc" : "");
+    final var cdnUrl = CDN_BASE_URL + hash + ".enc";
     try {
       final HttpURLConnection conn = httpClientFactory.create(cdnUrl);
       final String previousEtag = etagHolder.get();
@@ -89,9 +90,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
       try (final InputStream stream = conn.getInputStream()) {
         byte[] bytes = stream.readAllBytes();
 
-        if (encryptionKey != null) {
-          bytes = decryptAesGcm(bytes, encryptionKey);
-        }
+        bytes = decryptAesGcm(bytes, encryptionKey);
 
         final var clientState =
             com.spotify.confidence.sdk.flags.admin.v1.ClientResolverState.parseFrom(bytes);

@@ -45,7 +45,9 @@ class OpenFeatureLocalResolveProviderFlagLogsIT {
     logger.addAppender(listAppender);
 
     try {
-      final var realProvider = new OpenFeatureLocalResolveProvider(FLAG_CLIENT_SECRET);
+      final var realProvider =
+          new OpenFeatureLocalResolveProvider(
+              FLAG_CLIENT_SECRET, System.getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"));
 
       OpenFeatureAPI.getInstance().setProviderAndWait("real-backend-test", realProvider);
 

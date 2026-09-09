@@ -44,7 +44,10 @@ class OpenFeatureLocalResolveProviderFlagLogsTest {
 
     // Create a state provider that fetches from the real Confidence service
     final var stateProvider =
-        new FlagsAdminStateFetcher(FLAG_CLIENT_SECRET, new DefaultHttpClientFactory(), null);
+        new FlagsAdminStateFetcher(
+            FLAG_CLIENT_SECRET,
+            new DefaultHttpClientFactory(),
+            System.getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"));
     stateProvider.reload();
 
     // Create provider with capturing logger

@@ -15,31 +15,44 @@ public class LocalProviderConfig {
   private final boolean enableApplyDedup;
   private final boolean disableExposureCollection;
 
-  public LocalProviderConfig() {
-    this(null, null);
+  public LocalProviderConfig(String encryptionKey) {
+    this(encryptionKey, null, null);
   }
 
-  public LocalProviderConfig(ChannelFactory channelFactory) {
-    this(channelFactory, null);
-  }
-
-  public LocalProviderConfig(ChannelFactory channelFactory, HttpClientFactory httpClientFactory) {
-    this(channelFactory, httpClientFactory, false, DEFAULT_RESOLVER_POOL_SIZE);
+  public LocalProviderConfig(String encryptionKey, ChannelFactory channelFactory) {
+    this(encryptionKey, channelFactory, null);
   }
 
   public LocalProviderConfig(
+      String encryptionKey, ChannelFactory channelFactory, HttpClientFactory httpClientFactory) {
+    this(channelFactory, httpClientFactory, false, DEFAULT_RESOLVER_POOL_SIZE, encryptionKey);
+  }
+
+  public LocalProviderConfig(
+      String encryptionKey,
       ChannelFactory channelFactory,
       HttpClientFactory httpClientFactory,
       boolean useRemoteMaterializationStore) {
-    this(channelFactory, httpClientFactory, useRemoteMaterializationStore, 0);
+    this(
+        channelFactory,
+        httpClientFactory,
+        useRemoteMaterializationStore,
+        DEFAULT_RESOLVER_POOL_SIZE,
+        encryptionKey);
   }
 
   public LocalProviderConfig(
+      String encryptionKey,
       ChannelFactory channelFactory,
       HttpClientFactory httpClientFactory,
       boolean useRemoteMaterializationStore,
       int resolverPoolSize) {
-    this(channelFactory, httpClientFactory, useRemoteMaterializationStore, resolverPoolSize, null);
+    this(
+        channelFactory,
+        httpClientFactory,
+        useRemoteMaterializationStore,
+        resolverPoolSize,
+        encryptionKey);
   }
 
   private LocalProviderConfig(
@@ -66,6 +79,7 @@ public class LocalProviderConfig {
       String encryptionKey,
       boolean enableApplyDedup,
       boolean disableExposureCollection) {
+    validateEncryptionKey(encryptionKey);
     this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
     this.httpClientFactory =
         httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
@@ -96,7 +110,7 @@ public class LocalProviderConfig {
     return resolverPoolSize;
   }
 
-  /** Returns the hex-encoded AES-256 encryption key, or {@code null} if unset. */
+  /** Returns the hex-encoded AES-256 encryption key, required for this client credential. */
   public String getEncryptionKey() {
     return encryptionKey;
   }
@@ -113,6 +127,13 @@ public class LocalProviderConfig {
    */
   public boolean isDisableExposureCollection() {
     return disableExposureCollection;
+  }
+
+  static void validateEncryptionKey(String key) {
+    if (key == null || !key.matches("[0-9a-fA-F]{64}")) {
+      throw new IllegalArgumentException(
+          "encryptionKey is required and must contain exactly 64 hexadecimal characters");
+    }
   }
 
   public static Builder builder() {

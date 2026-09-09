@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
  * <pre>{@code
  * // Create provider
  * OpenFeatureLocalResolveProvider provider =
- *     new OpenFeatureLocalResolveProvider("client-secret");
+ *     new OpenFeatureLocalResolveProvider("client-secret", "encryption-key");
  * OpenFeatureAPI.getInstance().setProviderAndWait(provider);
  *
  * // Create service with optional context decoration

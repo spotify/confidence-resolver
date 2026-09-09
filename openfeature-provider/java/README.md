@@ -56,7 +56,7 @@ OpenFeatureLocalResolveProvider provider =
 
 The encryption key is available in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients), next to your client credentials.
 
-> **⚠️ Upcoming change:** Encryption will be made **mandatory** in a future SDK release. We will communicate a timeline and migration path before legacy provider versions are affected. We strongly recommend enabling it now.
+> **Breaking change:** Encryption is mandatory. Supply the key for the same client credential before constructing the provider.
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ import dev.openfeature.sdk.MutableContext;
 
 // Create and register the provider
 OpenFeatureLocalResolveProvider provider =
-    new OpenFeatureLocalResolveProvider("your-client-secret"); // Get from Confidence dashboard
+    new OpenFeatureLocalResolveProvider("your-client-secret", "your-encryption-key"); // Get from Confidence dashboard
 OpenFeatureAPI.getInstance().setProviderAndWait(provider); // Important: use setProviderAndWait()
 
 // Get a client
@@ -140,11 +140,11 @@ OpenFeatureAPI.getInstance().shutdown();
 
 ### Provider Configuration
 
-Use `LocalProviderConfig.builder()` to configure the provider:
+Use `LocalProviderConfig.builder().encryptionKey("your-encryption-key")` to configure the provider:
 
 ```java
 LocalProviderConfig config = LocalProviderConfig.builder()
-    .encryptionKey("your-encryption-key") // Encryption key for decrypting flag state (will be required in a future release)
+    .encryptionKey("your-encryption-key") // Encryption key for decrypting flag state (required)
     .resolverPoolSize(4) // Number of WASM resolver instances (default: 2). Increase for higher concurrency.
     .build();
 
@@ -162,7 +162,7 @@ Configure the provider behavior using environment variables:
 
 #### Deprecated Environment Variables
 
-The following environment variables are deprecated and will be removed in a future version. Use `LocalProviderConfig.builder()` instead:
+The following environment variables are deprecated and will be removed in a future version. Use `LocalProviderConfig.builder().encryptionKey("your-encryption-key")` instead:
 
 - `CONFIDENCE_NUMBER_OF_WASM_INSTANCES`: Use `.resolverPoolSize()` instead
 - `CONFIDENCE_DOMAIN`: Use a custom `ChannelFactory` instead
@@ -194,7 +194,7 @@ ChannelFactory mockFactory = (target, interceptors) ->
         .intercept(interceptors.toArray(new ClientInterceptor[0]))
         .build();
 
-LocalProviderConfig config = new LocalProviderConfig(mockFactory);
+LocalProviderConfig config = new LocalProviderConfig("your-encryption-key", mockFactory);
 OpenFeatureLocalResolveProvider provider =
     new OpenFeatureLocalResolveProvider(config, "client-secret");
 ```
@@ -225,7 +225,7 @@ By default, materializations are not supported. If a flag requires materializati
 ```java
 // Default behavior - no materialization support
 OpenFeatureLocalResolveProvider provider =
-    new OpenFeatureLocalResolveProvider("your-client-secret");
+    new OpenFeatureLocalResolveProvider("your-client-secret", "your-encryption-key");
 ```
 
 #### 2. Remote Materialization Store
@@ -234,7 +234,7 @@ Enable remote materialization storage to have Confidence manage materialization 
 
 ```java
 // Enable remote materialization storage
-LocalProviderConfig config = LocalProviderConfig.builder()
+LocalProviderConfig config = LocalProviderConfig.builder().encryptionKey("your-encryption-key")
     .useRemoteMaterializationStore(true)
     .build();
 
@@ -260,7 +260,7 @@ For advanced use cases requiring minimal latency, implement a custom `Materializ
 // Custom storage for materialization data
 MaterializationStore store = new RedisMaterializationStore(jedisPool);
 OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
-    new LocalProviderConfig(),
+    new LocalProviderConfig("your-encryption-key"),
     "your-client-secret",
     store
 );
@@ -288,7 +288,7 @@ import com.spotify.confidence.sdk.FlagResolverService;
 
 // Create and initialize the provider
 OpenFeatureLocalResolveProvider provider =
-    new OpenFeatureLocalResolveProvider("your-client-secret");
+    new OpenFeatureLocalResolveProvider("your-client-secret", "your-encryption-key");
 // If you're not using OpenFeature, don't forget to call provider.initialize()
 OpenFeatureAPI.getInstance().setProviderAndWait(provider);
 
@@ -438,7 +438,7 @@ For normal feature delivery and experiments, keep applies enabled. When exposure
 To disable exposure collection for **all** OpenFeature evaluations through this provider, set `disableExposureCollection` on the provider config:
 
 ```java
-LocalProviderConfig config = LocalProviderConfig.builder().disableExposureCollection(true).build();
+LocalProviderConfig config = LocalProviderConfig.builder().encryptionKey("your-encryption-key").disableExposureCollection(true).build();
 OpenFeatureLocalResolveProvider provider =
     new OpenFeatureLocalResolveProvider(config, clientSecret);
 ```
@@ -469,3 +469,20 @@ This is an advanced feature intended for exceptional cases. If you're considerin
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+
+### Migrating to mandatory encryption
+
+`encryptionKey` is now required when constructing the provider. Supply exactly 64
+hexadecimal characters. Missing, empty, or malformed keys fail before network
+activity. The provider only fetches encrypted state and never falls back to plaintext.
+
+Open [Confidence Admin → Clients](https://app.confidence.spotify.com/admin/clients),
+select your client, and locate the credential used by the provider. Each credential
+has its own unique encryption key, available alongside it. Use the key paired with
+your configured client secret. Configure and verify encryption on your existing
+SDK before upgrading.
+
+Java convenience constructors now require the key explicitly, for example
+`new OpenFeatureLocalResolveProvider(clientSecret, encryptionKey)` and
+`new LocalProviderConfig(encryptionKey)`. Builders require `.encryptionKey(key)`
+before `.build()`. Constructors accepting injected state are package-private.

@@ -48,7 +48,7 @@ import org.slf4j.Logger;
  *
  * <pre>{@code
  * String clientSecret = "your-application-client-secret";
- * LocalProviderConfig config = new LocalProviderConfig();
+ * LocalProviderConfig config = new LocalProviderConfig("your-encryption-key");
  * OpenFeatureLocalResolveProvider provider =
  *     new OpenFeatureLocalResolveProvider(config, clientSecret);
  *
@@ -140,15 +140,15 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    *
    * <pre>{@code
    * OpenFeatureLocalResolveProvider provider =
-   *     new OpenFeatureLocalResolveProvider("your-client-secret");
+   *     new OpenFeatureLocalResolveProvider("your-client-secret", "your-encryption-key");
    * OpenFeatureAPI.getInstance().setProviderAndWait(provider);
    * }</pre>
    *
    * @param clientSecret the client secret for your application, used for flag resolution
    *     authentication
    */
-  public OpenFeatureLocalResolveProvider(String clientSecret) {
-    this(new LocalProviderConfig(), clientSecret);
+  public OpenFeatureLocalResolveProvider(String clientSecret, String encryptionKey) {
+    this(new LocalProviderConfig(encryptionKey), clientSecret);
   }
 
   /**
@@ -176,8 +176,8 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * @param materializationStore the implementation to use for handling sticky flag resolution
    */
   public OpenFeatureLocalResolveProvider(
-      String clientSecret, MaterializationStore materializationStore) {
-    this(new LocalProviderConfig(), clientSecret, materializationStore);
+      String clientSecret, String encryptionKey, MaterializationStore materializationStore) {
+    this(new LocalProviderConfig(encryptionKey), clientSecret, materializationStore);
   }
 
   /**
@@ -194,11 +194,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     this.clientSecret = clientSecret;
     this.materializationStore = materializationStore;
     this.disableExposureCollection = config.isDisableExposureCollection();
-    if (config.getEncryptionKey() == null) {
-      log.warn(
-          "No encryptionKey provided. Falling back to unencrypted state."
-              + " An encryption key will be required in an upcoming version.");
-    }
     this.stateProvider =
         new FlagsAdminStateFetcher(
             clientSecret, config.getHttpClientFactory(), config.getEncryptionKey());
@@ -247,7 +242,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
    * @param wasmFlagLogger the flag logger to use (e.g., CapturingWasmFlagLogger for testing)
    */
   @VisibleForTesting
-  public OpenFeatureLocalResolveProvider(
+  OpenFeatureLocalResolveProvider(
       AccountStateProvider accountStateProvider,
       String clientSecret,
       MaterializationStore materializationStore,
@@ -256,7 +251,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   }
 
   @VisibleForTesting
-  public OpenFeatureLocalResolveProvider(
+  OpenFeatureLocalResolveProvider(
       AccountStateProvider accountStateProvider,
       String clientSecret,
       MaterializationStore materializationStore,
@@ -272,7 +267,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   }
 
   @VisibleForTesting
-  public OpenFeatureLocalResolveProvider(
+  OpenFeatureLocalResolveProvider(
       AccountStateProvider accountStateProvider,
       String clientSecret,
       MaterializationStore materializationStore,
