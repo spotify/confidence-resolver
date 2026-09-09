@@ -31,6 +31,15 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
       "https://confidence-resolver-state-cdn.spotifycdn.com/";
 
   private final String clientSecret;
+
+  static String validateEncryptionKey(String key) {
+    if (key == null || !key.matches("[0-9a-fA-F]{64}")) {
+      throw new IllegalArgumentException(
+          "encryptionKey is required and must contain exactly 64 hexadecimal characters");
+    }
+    return key;
+  }
+
   private final String encryptionKey;
   private final HttpClientFactory httpClientFactory;
   private final AtomicReference<String> etagHolder = new AtomicReference<>();
@@ -44,7 +53,7 @@ class FlagsAdminStateFetcher implements AccountStateProvider {
 
   public FlagsAdminStateFetcher(
       String clientSecret, HttpClientFactory httpClientFactory, String encryptionKey) {
-    LocalProviderConfig.validateEncryptionKey(encryptionKey);
+    validateEncryptionKey(encryptionKey);
     this.clientSecret = clientSecret;
     this.httpClientFactory = httpClientFactory;
     this.encryptionKey = encryptionKey;

@@ -32,11 +32,11 @@ remotely and is outside this change.
 | Python | Required `encryption_key: str` argument after `client_secret` | Omission raises `TypeError`; invalid values raise `ValueError` |
 | Rust | `ProviderOptions::new(client_secret, encryption_key)` and non-optional `String` field | `ConfidenceProvider::new` returns `Error::Configuration` for invalid keys |
 | Go | Required, documented `ProviderConfig.EncryptionKey` field | `NewProvider` returns an error for invalid or zero-value keys |
-| Java | Key-taking convenience constructors; builder validates the key on `build()` | Invalid configuration raises `IllegalArgumentException` before constructing transport resources |
+| Java | All public provider constructors take the key after the client secret | Invalid configuration raises `IllegalArgumentException` before constructing transport resources |
 
-For Java, replace keyless `LocalProviderConfig` constructors with key-taking
-equivalents, and require a key in convenience provider constructors. Keep the
-existing `.encryptionKey(...)` builder setter. For Rust, retain
+For Java, require the encryption key immediately after the client secret in every
+public provider constructor. Keep optional settings in `LocalProviderConfig` and
+remove its encryption-key field and builder setter. For Rust, retain
 `.with_encryption_key(...)` only as an explicit override if useful; it must no
 longer be the only way to supply the required constructor argument.
 

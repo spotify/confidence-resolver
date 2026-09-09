@@ -165,9 +165,9 @@ class OpenFeatureLocalResolveProviderCdnFailureTest {
         };
 
     final LocalProviderConfig config =
-        new LocalProviderConfig(
-            EncryptionTestSupport.KEY, testChannelFactory, testHttpClientFactory);
-    return new OpenFeatureLocalResolveProvider(config, FLAG_CLIENT_SECRET);
+        new LocalProviderConfig(testChannelFactory, testHttpClientFactory);
+    return new OpenFeatureLocalResolveProvider(
+        config, FLAG_CLIENT_SECRET, EncryptionTestSupport.KEY);
   }
 
   @AfterEach

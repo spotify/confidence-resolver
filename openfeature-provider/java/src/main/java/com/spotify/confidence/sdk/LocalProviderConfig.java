@@ -11,25 +11,22 @@ public class LocalProviderConfig {
   private final HttpClientFactory httpClientFactory;
   private final boolean useRemoteMaterializationStore;
   private final int resolverPoolSize;
-  private final String encryptionKey;
   private final boolean enableApplyDedup;
   private final boolean disableExposureCollection;
 
-  public LocalProviderConfig(String encryptionKey) {
-    this(encryptionKey, null, null);
+  public LocalProviderConfig() {
+    this(null, null);
   }
 
-  public LocalProviderConfig(String encryptionKey, ChannelFactory channelFactory) {
-    this(encryptionKey, channelFactory, null);
+  public LocalProviderConfig(ChannelFactory channelFactory) {
+    this(channelFactory, null);
+  }
+
+  public LocalProviderConfig(ChannelFactory channelFactory, HttpClientFactory httpClientFactory) {
+    this(channelFactory, httpClientFactory, false, DEFAULT_RESOLVER_POOL_SIZE);
   }
 
   public LocalProviderConfig(
-      String encryptionKey, ChannelFactory channelFactory, HttpClientFactory httpClientFactory) {
-    this(channelFactory, httpClientFactory, false, DEFAULT_RESOLVER_POOL_SIZE, encryptionKey);
-  }
-
-  public LocalProviderConfig(
-      String encryptionKey,
       ChannelFactory channelFactory,
       HttpClientFactory httpClientFactory,
       boolean useRemoteMaterializationStore) {
@@ -37,12 +34,10 @@ public class LocalProviderConfig {
         channelFactory,
         httpClientFactory,
         useRemoteMaterializationStore,
-        DEFAULT_RESOLVER_POOL_SIZE,
-        encryptionKey);
+        DEFAULT_RESOLVER_POOL_SIZE);
   }
 
   public LocalProviderConfig(
-      String encryptionKey,
       ChannelFactory channelFactory,
       HttpClientFactory httpClientFactory,
       boolean useRemoteMaterializationStore,
@@ -52,21 +47,6 @@ public class LocalProviderConfig {
         httpClientFactory,
         useRemoteMaterializationStore,
         resolverPoolSize,
-        encryptionKey);
-  }
-
-  private LocalProviderConfig(
-      ChannelFactory channelFactory,
-      HttpClientFactory httpClientFactory,
-      boolean useRemoteMaterializationStore,
-      int resolverPoolSize,
-      String encryptionKey) {
-    this(
-        channelFactory,
-        httpClientFactory,
-        useRemoteMaterializationStore,
-        resolverPoolSize,
-        encryptionKey,
         false,
         false);
   }
@@ -76,16 +56,13 @@ public class LocalProviderConfig {
       HttpClientFactory httpClientFactory,
       boolean useRemoteMaterializationStore,
       int resolverPoolSize,
-      String encryptionKey,
       boolean enableApplyDedup,
       boolean disableExposureCollection) {
-    validateEncryptionKey(encryptionKey);
     this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
     this.httpClientFactory =
         httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
     this.useRemoteMaterializationStore = useRemoteMaterializationStore;
     this.resolverPoolSize = resolverPoolSize > 0 ? resolverPoolSize : DEFAULT_RESOLVER_POOL_SIZE;
-    this.encryptionKey = encryptionKey;
     this.enableApplyDedup = enableApplyDedup;
     this.disableExposureCollection = disableExposureCollection;
   }
@@ -110,11 +87,6 @@ public class LocalProviderConfig {
     return resolverPoolSize;
   }
 
-  /** Returns the hex-encoded AES-256 encryption key, required for this client credential. */
-  public String getEncryptionKey() {
-    return encryptionKey;
-  }
-
   /** Experimental: returns whether apply-event deduplication in the WASM resolver is enabled. */
   public boolean isEnableApplyDedup() {
     return enableApplyDedup;
@@ -129,13 +101,6 @@ public class LocalProviderConfig {
     return disableExposureCollection;
   }
 
-  static void validateEncryptionKey(String key) {
-    if (key == null || !key.matches("[0-9a-fA-F]{64}")) {
-      throw new IllegalArgumentException(
-          "encryptionKey is required and must contain exactly 64 hexadecimal characters");
-    }
-  }
-
   public static Builder builder() {
     return new Builder();
   }
@@ -145,7 +110,6 @@ public class LocalProviderConfig {
     private HttpClientFactory httpClientFactory;
     private boolean useRemoteMaterializationStore;
     private int resolverPoolSize;
-    private String encryptionKey;
     private boolean enableApplyDedup;
     private boolean disableExposureCollection;
 
@@ -176,12 +140,6 @@ public class LocalProviderConfig {
       return this;
     }
 
-    /** Sets the hex-encoded AES-256 encryption key for decrypting CDN state. */
-    public Builder encryptionKey(String encryptionKey) {
-      this.encryptionKey = encryptionKey;
-      return this;
-    }
-
     /**
      * Experimental: enables apply-event deduplication in the WASM resolver — repeated identical
      * assignments within a short TTL window are logged once. Off by default; the API may change.
@@ -207,7 +165,6 @@ public class LocalProviderConfig {
           httpClientFactory,
           useRemoteMaterializationStore,
           resolverPoolSize,
-          encryptionKey,
           enableApplyDedup,
           disableExposureCollection);
     }

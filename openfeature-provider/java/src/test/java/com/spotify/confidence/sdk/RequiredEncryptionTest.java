@@ -19,20 +19,34 @@ class RequiredEncryptionTest {
         new String[] {
           null, "", " ", "00".repeat(31), "00".repeat(33), "gg".repeat(32), "00".repeat(32) + "\n"
         }) {
-      assertThatThrownBy(() -> new LocalProviderConfig(key, channels, http))
+      LocalProviderConfig config =
+          LocalProviderConfig.builder()
+              .channelFactory(channels)
+              .httpClientFactory(http)
+              .useRemoteMaterializationStore(true)
+              .build();
+      assertThatThrownBy(() -> new OpenFeatureLocalResolveProvider(config, "secret", key))
           .isInstanceOf(IllegalArgumentException.class)
           .hasMessageContaining("64 hexadecimal");
-      assertThatThrownBy(() -> LocalProviderConfig.builder().encryptionKey(key).build())
+      assertThatThrownBy(
+              () ->
+                  new OpenFeatureLocalResolveProvider(
+                      config, "secret", key, new UnsupportedMaterializationStore()))
           .isInstanceOf(IllegalArgumentException.class);
       assertThatThrownBy(() -> new OpenFeatureLocalResolveProvider("secret", key))
           .isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(
+              () ->
+                  new OpenFeatureLocalResolveProvider(
+                      "secret", key, new UnsupportedMaterializationStore()))
+          .isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(() -> new FlagsAdminStateFetcher("secret", http, key))
+          .isInstanceOf(IllegalArgumentException.class);
     }
     verifyNoInteractions(channels, http);
-    assertThatThrownBy(() -> LocalProviderConfig.builder().build())
-        .isInstanceOf(IllegalArgumentException.class);
-    assertThat(new LocalProviderConfig("ab".repeat(32)).getEncryptionKey())
+    assertThat(FlagsAdminStateFetcher.validateEncryptionKey("ab".repeat(32)))
         .isEqualTo("ab".repeat(32));
-    assertThat(new LocalProviderConfig("AB".repeat(32)).getEncryptionKey())
+    assertThat(FlagsAdminStateFetcher.validateEncryptionKey("AB".repeat(32)))
         .isEqualTo("AB".repeat(32));
   }
 

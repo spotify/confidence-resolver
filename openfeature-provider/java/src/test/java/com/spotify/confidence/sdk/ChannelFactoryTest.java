@@ -37,7 +37,7 @@ public class ChannelFactoryTest {
         };
 
     new OpenFeatureLocalResolveProvider(
-        new LocalProviderConfig(EncryptionTestSupport.KEY, customFactory), "clientsecret");
+        new LocalProviderConfig(customFactory), "clientsecret", EncryptionTestSupport.KEY);
 
     // The factory is called once for the flag logger and, when event tracking is
     // enabled (the default), once more for the events service channel.
@@ -59,7 +59,7 @@ public class ChannelFactoryTest {
 
   @Test
   public void verifyDefaultChannelFactoryIsUsedWhenNoneProvided() {
-    final LocalProviderConfig config = new LocalProviderConfig(EncryptionTestSupport.KEY);
+    final LocalProviderConfig config = new LocalProviderConfig();
     assertInstanceOf(
         DefaultChannelFactory.class,
         config.getChannelFactory(),

@@ -28,11 +28,9 @@ class OpenFeatureLocalResolveProviderIT {
   static void setup() {
     final var provider =
         new OpenFeatureLocalResolveProvider(
-            LocalProviderConfig.builder()
-                .encryptionKey(System.getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"))
-                .useRemoteMaterializationStore(true)
-                .build(),
-            FLAG_CLIENT_SECRET);
+            LocalProviderConfig.builder().useRemoteMaterializationStore(true).build(),
+            FLAG_CLIENT_SECRET,
+            System.getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"));
     final var start = System.currentTimeMillis();
     OpenFeatureAPI.getInstance().setProviderAndWait(provider);
     System.out.println("OpenFeatureAPI started: " + (System.currentTimeMillis() - start));

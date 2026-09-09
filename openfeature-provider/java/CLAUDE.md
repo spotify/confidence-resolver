@@ -18,10 +18,10 @@ Java OpenFeature provider using the Confidence resolver compiled to WASM, with C
 package com.spotify.confidence.sdk;
 
 public class OpenFeatureLocalResolveProvider implements FeatureProvider {
-    public OpenFeatureLocalResolveProvider(String clientSecret) { ... }
-    public OpenFeatureLocalResolveProvider(LocalProviderConfig config, String clientSecret) { ... }
-    public OpenFeatureLocalResolveProvider(String clientSecret, MaterializationStore materializationStore) { ... }
-    public OpenFeatureLocalResolveProvider(LocalProviderConfig config, String clientSecret, MaterializationStore materializationStore) { ... }
+    public OpenFeatureLocalResolveProvider(String clientSecret, String encryptionKey) { ... }
+    public OpenFeatureLocalResolveProvider(LocalProviderConfig config, String clientSecret, String encryptionKey) { ... }
+    public OpenFeatureLocalResolveProvider(String clientSecret, String encryptionKey, MaterializationStore materializationStore) { ... }
+    public OpenFeatureLocalResolveProvider(LocalProviderConfig config, String clientSecret, String encryptionKey, MaterializationStore materializationStore) { ... }
 }
 ```
 

@@ -14,8 +14,7 @@ class OpenFeatureLocalResolveProviderEncryptedIT {
   static void setup() {
     final var provider =
         new OpenFeatureLocalResolveProvider(
-            LocalProviderConfig.builder().encryptionKey(ENCRYPTION_KEY).build(),
-            FLAG_CLIENT_SECRET);
+            LocalProviderConfig.builder().build(), FLAG_CLIENT_SECRET, ENCRYPTION_KEY);
     OpenFeatureAPI.getInstance().setProviderAndWait("encrypted-e2e", provider);
     final EvaluationContext context = new MutableContext("test-a").add("sticky", false);
     OpenFeatureAPI.getInstance().setEvaluationContext(context);

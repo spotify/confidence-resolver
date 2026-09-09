@@ -138,9 +138,9 @@ class OpenFeatureLocalResolveProviderIntegrationTest {
 
     // Create provider with test configuration
     final LocalProviderConfig config =
-        new LocalProviderConfig(
-            EncryptionTestSupport.KEY, testChannelFactory, testHttpClientFactory);
-    provider = new OpenFeatureLocalResolveProvider(config, FLAG_CLIENT_SECRET);
+        new LocalProviderConfig(testChannelFactory, testHttpClientFactory);
+    provider =
+        new OpenFeatureLocalResolveProvider(config, FLAG_CLIENT_SECRET, EncryptionTestSupport.KEY);
   }
 
   @AfterEach

@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
  *
  * // Use with OpenFeatureLocalResolveProvider
  * OpenFeatureLocalResolveProvider provider =
- *     new OpenFeatureLocalResolveProvider(config, clientSecret, store);
+ *     new OpenFeatureLocalResolveProvider(config, clientSecret, encryptionKey, store);
  * }</pre>
  *
  * <p><strong>Configuration:</strong> Timeouts can be configured via environment variables:
