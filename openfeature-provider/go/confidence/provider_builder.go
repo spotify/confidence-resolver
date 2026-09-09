@@ -30,7 +30,16 @@ type ProviderConfig struct {
 	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
-	EnableApplyDedup              bool                 // Optional, experimental: enable apply-event dedup in the WASM resolver; off by default
+	// EnableApplyDedup is retained for compatibility and is now redundant:
+	// apply-event dedup is on by default. Because this is a plain bool, leaving
+	// it false is indistinguishable from not setting it, so false does NOT turn
+	// dedup off — use DisableApplyDedup for that.
+	EnableApplyDedup bool
+	// DisableApplyDedup turns off apply-event deduplication, so every apply is
+	// logged even when an identical assignment was just logged. Dedup is on by
+	// default; set this only if you need the unfiltered apply stream. Takes
+	// precedence over EnableApplyDedup.
+	DisableApplyDedup bool
 	// DisableExposureCollection disables exposure/assignment collection for all
 	// OpenFeature evaluations through this provider. Use only for exceptional
 	// no-exposure modes; resolve logs and telemetry are still sent.
@@ -47,6 +56,10 @@ type ProviderTestConfig struct {
 	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
 	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter   bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
+	// DisableApplyDedup turns off apply-event deduplication. Dedup is on by
+	// default here too, so a test provider behaves like a real one; set this
+	// when a test needs to observe every apply rather than the deduped stream.
+	DisableApplyDedup bool
 	// DisableExposureCollection disables exposure/assignment collection for all
 	// OpenFeature evaluations through this provider. Use only for exceptional
 	// no-exposure modes; resolve logs and telemetry are still sent.
@@ -113,7 +126,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.EnableApplyDedup, config.DisableExposureCollection)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.DisableApplyDedup, config.DisableExposureCollection)
 	providerOpts = append(providerOpts,
 		WithEventTracking(et.EventEngineWasm),
 		WithUseWasmInterpreter(config.UseWasmInterpreter),
@@ -144,7 +157,7 @@ func newProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, nil)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false, config.DisableExposureCollection)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.DisableApplyDedup, config.DisableExposureCollection)
 	provider := newLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
@@ -167,7 +180,7 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels 
 }
 
 // buildProviderOptions creates options slice from provider config
-func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enableApplyDedup, disableExposureCollection bool) []Option {
+func buildProviderOptions(statePollInterval, logPollInterval time.Duration, disableApplyDedup, disableExposureCollection bool) []Option {
 	var opts []Option
 	if statePollInterval > 0 {
 		opts = append(opts, WithStatePollInterval(statePollInterval))
@@ -175,8 +188,9 @@ func buildProviderOptions(statePollInterval, logPollInterval time.Duration, enab
 	if logPollInterval > 0 {
 		opts = append(opts, WithLogPollInterval(logPollInterval))
 	}
-	if enableApplyDedup {
-		opts = append(opts, WithEnableApplyDedup())
+	// Dedup is on by default, so only an explicit opt-out needs an option here.
+	if disableApplyDedup {
+		opts = append(opts, WithDisableApplyDedup())
 	}
 	if disableExposureCollection {
 		opts = append(opts, WithDisableExposureCollection())

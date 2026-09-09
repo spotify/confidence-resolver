@@ -1,11 +1,14 @@
 """Tests for ConfidenceProvider class."""
 
 import time
+from typing import Any
+from unittest.mock import patch
 
 from openfeature.evaluation_context import EvaluationContext
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
 
+from confidence.local_resolver import LocalResolver
 from confidence.provider import (
     EVENTS_SHUTDOWN_PUBLISH_TIMEOUT,
     EVENTS_SHUTDOWN_WAIT_BUDGET,
@@ -1373,3 +1376,94 @@ class TestDisableExposureCollection:
                 assert attrs["_confidence_skip_apply"] is True
         finally:
             provider.shutdown()
+
+
+class TestApplyDedupDefault:
+    """Apply-event dedup is on by default; these pin the default and the opt-out."""
+
+    @staticmethod
+    def _dedup_forwarded_to_resolver(
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+        **kwargs: Any,
+    ) -> bool:
+        """Returns the enable_apply_dedup value the provider forwards to the resolver."""
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            encryption_key="00" * 32,
+            state_fetcher=MockStateFetcher(test_resolver_state, test_account_id),
+            flag_logger=MockFlagLogger(),
+            wasm_bytes=wasm_bytes,
+            **kwargs,
+        )
+        with patch.object(
+            LocalResolver,
+            "set_resolver_state",
+            autospec=True,
+            side_effect=LocalResolver.set_resolver_state,
+        ) as spy:
+            try:
+                provider.initialize(EvaluationContext())
+            finally:
+                provider.shutdown()
+
+        assert spy.call_count == 1
+        # autospec passes the resolver as args[0], so enable_apply_dedup is args[4].
+        forwarded = spy.call_args.args[4]
+        assert isinstance(forwarded, bool)
+        return forwarded
+
+    def test_defaults_to_enabled(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """A provider that never mentions dedup must still get it: it is on by default."""
+        assert (
+            self._dedup_forwarded_to_resolver(
+                wasm_bytes, test_resolver_state, test_account_id, test_client_secret
+            )
+            is True
+        )
+
+    def test_true_still_enables(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """Callers written against the previous release pass True and must still get dedup."""
+        assert (
+            self._dedup_forwarded_to_resolver(
+                wasm_bytes,
+                test_resolver_state,
+                test_account_id,
+                test_client_secret,
+                enable_apply_dedup=True,
+            )
+            is True
+        )
+
+    def test_false_disables(
+        self,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """enable_apply_dedup=False is the opt-out and must reach the resolver."""
+        assert (
+            self._dedup_forwarded_to_resolver(
+                wasm_bytes,
+                test_resolver_state,
+                test_account_id,
+                test_client_secret,
+                enable_apply_dedup=False,
+            )
+            is False
+        )

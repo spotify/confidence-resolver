@@ -61,8 +61,13 @@ static RESOLVE_LOGGER: LazyLock<ResolveLogger<WasmHost>> = LazyLock::new(Resolve
 static ASSIGN_LOGGER: LazyLock<AssignLogger> = LazyLock::new(AssignLogger::new);
 static APPLY_DEDUP: LazyLock<Mutex<ApplyDedup>> =
     LazyLock::new(|| Mutex::new(ApplyDedup::new(120, 100_000)));
-/// Set from SetResolverStateRequest.enable_apply_dedup — experimental,
-/// dedup is off by default.
+/// Set from SetResolverStateRequest.enable_apply_dedup. The OpenFeature
+/// providers enable dedup by default, so this is true unless a caller opted
+/// out.
+///
+/// The `false` initial value is deliberate: it only applies before the first
+/// set_resolver_state, and every provider calls that explicitly, so the
+/// provider's value always wins.
 static APPLY_DEDUP_ENABLED: AtomicBool = AtomicBool::new(false);
 /// Set from SetResolverStateRequest.disable_exposure_collection. Guest-side only — not a Host
 /// import. Resolve reads this via AccountResolver::with_disable_exposure_collection.

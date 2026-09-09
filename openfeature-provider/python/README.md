@@ -155,6 +155,28 @@ provider = ConfidenceProvider(
 - `use_remote_materialization_store` (bool, optional): Enable remote materialization storage. Defaults to False.
 - `grpc_channel` (grpc.Channel, optional): Custom gRPC channel for flag log shipping. When not provided, the default channel retries flag log writes on transient failures (3 attempts with exponential backoff on `UNAVAILABLE`). If you provide your own channel, configure retry via [gRPC service config](https://grpc.io/docs/guides/retry/) to get the same behavior.
 
+## Apply-event deduplication
+
+Apply-event deduplication is **on by default**. The WASM resolver collapses
+byte-identical apply events for the same unit and variant within a 120-second
+TTL window (tracking up to 100,000 entries), so repeatedly resolving the same
+flag for the same targeting key produces one apply event instead of many.
+
+Upgrading without changing any code therefore reduces raw apply-event volume,
+substantially so for high-QPS traffic that resolves the same flag for the same
+unit. Distinct units are never collapsed, because the targeting key is part of
+the dedup key, so per-unit exposure counts are unaffected.
+
+To turn it off and log every apply:
+
+```python
+provider = ConfidenceProvider(
+    client_secret="your-client-secret",
+    encryption_key="your-encryption-key",
+    enable_apply_dedup=False,
+)
+```
+
 ## Materializations
 
 The provider supports **materializations** for two key use cases:

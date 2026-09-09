@@ -169,6 +169,28 @@ The provider periodically:
 
 ---
 
+## Apply-event deduplication
+
+Apply-event deduplication is **on by default**. The WASM resolver collapses
+byte-identical apply events for the same unit and variant within a 120-second
+TTL window (tracking up to 100,000 entries), so repeatedly resolving the same
+flag for the same targeting key produces one apply event instead of many.
+
+Upgrading without changing any code therefore reduces raw apply-event volume,
+substantially so for high-QPS traffic that resolves the same flag for the same
+unit. Distinct units are never collapsed, because the targeting key is part of
+the dedup key, so per-unit exposure counts are unaffected.
+
+To turn it off and log every apply:
+
+```ts
+const provider = createConfidenceServerProvider({
+  flagClientSecret: 'your-client-secret',
+  encryptionKey: 'your-encryption-key',
+  enableApplyDedup: false,
+});
+```
+
 ## Exports and WASM Loading
 
 The package provides multiple exports for different environments:

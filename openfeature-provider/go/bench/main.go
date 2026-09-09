@@ -84,8 +84,8 @@ func main() {
 	flag.IntVar(&pollInterval, "poll-interval", 10, "resolver state/log poll interval in seconds (env override)")
 	var uniqueKeys bool
 	flag.BoolVar(&uniqueKeys, "unique-keys", false, "use a unique targeting key per resolve (apply-dedup worst case)")
-	var enableDedup bool
-	flag.BoolVar(&enableDedup, "enable-dedup", false, "enable experimental apply-event dedup in the provider")
+	var disableDedup bool
+	flag.BoolVar(&disableDedup, "disable-dedup", false, "turn off apply-event dedup (dedup is on by default)")
 	flag.Parse()
 
 	if gomaxprocs > 0 {
@@ -104,10 +104,10 @@ func main() {
 	ctx := context.Background()
 
 	provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-		ClientSecret:     clientSecret,
-		EncryptionKey:    os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"),
-		TransportHooks:   transportHooks{mockAddr: mockAddr},
-		EnableApplyDedup: enableDedup,
+		ClientSecret:      clientSecret,
+		EncryptionKey:     os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"),
+		TransportHooks:    transportHooks{mockAddr: mockAddr},
+		DisableApplyDedup: disableDedup,
 	})
 	provider.Init(openfeature.NewTargetlessEvaluationContext(map[string]any{}))
 	if err != nil {
@@ -158,7 +158,7 @@ func main() {
 	qps := float64(completed) / elapsed.Seconds()
 
 	fmt.Printf("flag=%s threads=%d unique-keys=%v dedup=%v duration=%s ops=%d errors=%d throughput=%.0f ops/s\n",
-		flagKey, threads, uniqueKeys, enableDedup, elapsed.Truncate(time.Millisecond), completed, errs, qps)
+		flagKey, threads, uniqueKeys, !disableDedup, elapsed.Truncate(time.Millisecond), completed, errs, qps)
 
 	var ru syscall.Rusage
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err == nil {

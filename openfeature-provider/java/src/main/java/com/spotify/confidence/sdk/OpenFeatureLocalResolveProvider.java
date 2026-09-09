@@ -256,7 +256,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
       String clientSecret,
       MaterializationStore materializationStore,
       WasmFlagLogger wasmFlagLogger) {
-    this(accountStateProvider, clientSecret, materializationStore, wasmFlagLogger, false);
+    this(accountStateProvider, clientSecret, materializationStore, wasmFlagLogger, true);
   }
 
   @VisibleForTesting

@@ -19,8 +19,10 @@ message SetResolverStateRequest {
     bytes state = 1;
     string account_id = 2;
     Sdk sdk = 3;
-    // Experimental: opt-in apply-event deduplication. When true, identical
-    // assignments within a short TTL window are logged once. Off by default.
+    // Apply-event deduplication. When true, byte-identical applies for the same
+    // unit and variant within the dedup TTL window are logged once. The
+    // OpenFeature providers set this to true by default; set it to false to log
+    // every apply.
     bool enable_apply_dedup = 4;
     // Disable exposure (apply/assignment) collection entirely. When true, WASM
     // never enqueues FlagAssigned events — the assign queue stays empty.
