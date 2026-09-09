@@ -182,6 +182,7 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
                 client_name: entry.client.name.clone(),
                 client_credential_name: entry.client_credential.name.clone(),
                 environments: entry.client_credential.environments.clone(),
+                managed_context: std::collections::BTreeMap::new(),
             },
         );
     }

@@ -73,6 +73,7 @@ fn make_state_from_json_flags(
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         },
     );
 
@@ -271,6 +272,7 @@ fn make_materialized_segment_state() -> (Segment, ResolverState) {
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         },
     );
 
@@ -673,6 +675,7 @@ fn make_segment_with_targeting(name: &str, targeting_json: &str) -> (Segment, Re
             client_name: "clients/test".to_string(),
             client_credential_name: "clients/test/credentials/test".to_string(),
             environments: vec![],
+            managed_context: std::collections::BTreeMap::new(),
         },
     );
 
