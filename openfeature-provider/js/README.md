@@ -49,22 +49,20 @@ You'll need a **client secret** from Confidence to use this provider.
 
 ## Encryption
 
-The provider supports encrypting the flag state to protect your flag rules and targeting segments at rest and in transit. The state is decrypted only when loaded into the resolver.
+The provider fetches encrypted flag state and decrypts it when loading the resolver. Pass the encryption key for your client credential when creating the provider.
 
-**📖 See the [Integration Guide: Encryption](../INTEGRATION_GUIDE.md#encryption)** for background and migration details.
+See the [Integration Guide](../INTEGRATION_GUIDE.md#encryption) for background and migration details.
 
 Pass the encryption key when creating the provider:
 
 ```ts
 const provider = createConfidenceServerProvider({
   flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
-  encryptionKey: process.env.CONFIDENCE_ENCRYPTION_KEY!,
+  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
 });
 ```
 
-The encryption key is available in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients), next to your client credentials.
-
-> **Breaking change:** Encryption is mandatory. Supply the key for the same client credential before constructing the provider.
+Each client credential has a unique encryption key, available alongside it in [Confidence Admin](https://app.confidence.spotify.com/admin/clients).
 
 ---
 
@@ -158,7 +156,7 @@ if (details.errorCode) {
 ## Options
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
-- `encryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients). Will be required in a future release (see [Encryption](#encryption)).
+- `encryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
 - `initializeTimeout` (number, optional): Max ms to wait for initial state fetch. Defaults to 30_000.
 - `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
