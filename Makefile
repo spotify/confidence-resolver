@@ -105,7 +105,7 @@ clean:
 js-build:
 	$(MAKE) -C openfeature-provider/js build
 
-.PHONY: go-bench js-bench
+.PHONY: go-bench js-bench wasm-state-scaling wasm-state-growth
 go-bench:
 	@status=0; \
 	docker compose up --build \
@@ -125,5 +125,35 @@ js-bench: js-build
 		js-bench mock-support || status=$$?; \
 	docker compose down --remove-orphans --volumes; \
 	exit $$status
+
+# Opt-in WASM linear-memory scaling harness. Override these on the make command
+# line for boundary runs, for example: make wasm-state-scaling WASM_STATE_SCALING_MIB=64,128,256
+WASM_STATE_SCALING_MIB ?= 1,4,16,64
+WASM_STATE_SCALING_MODES ?= random,sparse,zero
+WASM_STATE_SCALING_RESOLVES ?= 1000
+wasm-state-scaling:
+	cd openfeature-provider/go && \
+	CONFIDENCE_WASM_STATE_SCALING=1 \
+	CONFIDENCE_WASM_STATE_SCALING_MIB=$(WASM_STATE_SCALING_MIB) \
+	CONFIDENCE_WASM_STATE_SCALING_MODES=$(WASM_STATE_SCALING_MODES) \
+	CONFIDENCE_WASM_STATE_SCALING_RESOLVES=$(WASM_STATE_SCALING_RESOLVES) \
+	go test ./confidence/internal/local_resolver -run TestWasmStateScaling -v -count=1
+
+# Continuously append bitsets and replace the state in one WASM instance.
+# The default 512 MiB guest cap makes the failure observable without attempting
+# to consume the full memory32 address space. Set the limit to 0 for no test cap.
+WASM_STATE_GROWTH_STEP_MIB ?= 8
+WASM_STATE_GROWTH_MAX_MIB ?= 256
+WASM_STATE_GROWTH_MODE ?= random
+WASM_STATE_GROWTH_MEMORY_LIMIT_MIB ?= 512
+wasm-state-growth:
+	cd openfeature-provider/go && \
+	CONFIDENCE_WASM_STATE_GROWTH=1 \
+	CONFIDENCE_WASM_STATE_GROWTH_STEP_MIB=$(WASM_STATE_GROWTH_STEP_MIB) \
+	CONFIDENCE_WASM_STATE_GROWTH_MAX_MIB=$(WASM_STATE_GROWTH_MAX_MIB) \
+	CONFIDENCE_WASM_STATE_GROWTH_MODE=$(WASM_STATE_GROWTH_MODE) \
+	CONFIDENCE_WASM_STATE_GROWTH_MEMORY_LIMIT_MIB=$(WASM_STATE_GROWTH_MEMORY_LIMIT_MIB) \
+	CONFIDENCE_WASM_STATE_SCALING_RESOLVES=$(WASM_STATE_SCALING_RESOLVES) \
+	go test ./confidence/internal/local_resolver -run TestWasmStateContinuousGrowth -v -count=1
 
 .DEFAULT_GOAL := all
