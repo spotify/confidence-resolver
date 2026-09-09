@@ -1,3 +1,4 @@
+import { useFakeTimerCompatibleCrypto } from './test-helpers';
 import { encryptTestState } from './test-helpers';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, MockedObject, test, vi } from 'vitest';
 import { LocalResolver } from './LocalResolver';
@@ -33,6 +34,7 @@ const mockedWasmResolver: MockedObject<LocalResolver> = {
 let provider: ConfidenceServerProviderLocal;
 let net: NetworkMock;
 
+useFakeTimerCompatibleCrypto();
 vi.useFakeTimers();
 
 beforeEach(() => {

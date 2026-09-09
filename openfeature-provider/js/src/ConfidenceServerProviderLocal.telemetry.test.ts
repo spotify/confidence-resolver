@@ -1,3 +1,4 @@
+import { useFakeTimerCompatibleCrypto } from './test-helpers';
 import { beforeEach, expect, it, MockedObject, vi } from 'vitest';
 import { LocalResolver } from './LocalResolver';
 import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
@@ -40,6 +41,7 @@ type Internals = {
   flushAssigned(): Promise<void>;
 };
 
+useFakeTimerCompatibleCrypto();
 vi.useFakeTimers();
 
 let net: NetworkMock;

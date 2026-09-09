@@ -1,3 +1,4 @@
+import { useFakeTimerCompatibleCrypto } from './test-helpers';
 import { encryptTestState } from './test-helpers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -16,6 +17,7 @@ const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver
 const stateBytes = readFileSync(__dirname + '/../../../wasm/resolver_state.pb');
 const CLIENT_SECRET = 'mkjJruAATQWjeY7foFIWfVAcBWnci2YF';
 
+useFakeTimerCompatibleCrypto();
 vi.useFakeTimers();
 
 describe('flagbundle resolve telemetry', () => {
