@@ -11,8 +11,9 @@ const MAX_DEPTH: usize = 10;
 
 /// Merge a Client's managed evaluation context (flat dot-paths -> scalar Values)
 /// into the SDK-provided request context (nested Struct).
-/// Managed values win on exact-path collisions. When both sides have a struct
-/// for the same key, merge recursively to preserve siblings.
+/// Managed context provides defaults; request context wins on exact-path
+/// collisions. When both sides have a Struct for the same key, merge
+/// recursively to preserve siblings from both.
 pub fn merge(managed: &BTreeMap<String, Value>, request_context: Struct) -> Struct {
     if managed.is_empty() {
         return request_context;
@@ -62,13 +63,13 @@ fn set_nested(current: &mut FieldMap, parts: &[&str], idx: usize, val: Value) {
 }
 
 fn merge_structs(managed: &Struct, request: &Struct) -> Struct {
-    let mut result = request.fields.clone();
+    let mut result = managed.fields.clone();
 
-    for (key, managed_val) in &managed.fields {
-        let request_val = result.get(key);
+    for (key, request_val) in &request.fields {
+        let managed_val = result.get(key);
 
-        match (&managed_val.kind, request_val.and_then(|v| v.kind.as_ref())) {
-            (Some(Kind::StructValue(ms)), Some(Kind::StructValue(rs))) => {
+        match (&request_val.kind, managed_val.and_then(|v| v.kind.as_ref())) {
+            (Some(Kind::StructValue(rs)), Some(Kind::StructValue(ms))) => {
                 let merged = merge_structs(ms, rs);
                 result.insert(
                     key.clone(),
@@ -78,7 +79,7 @@ fn merge_structs(managed: &Struct, request: &Struct) -> Struct {
                 );
             }
             _ => {
-                result.insert(key.clone(), managed_val.clone());
+                result.insert(key.clone(), request_val.clone());
             }
         }
     }
@@ -128,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn managed_wins_on_collision() {
+    fn request_wins_on_collision() {
         let managed = BTreeMap::from([("platform".to_string(), str_val("android"))]);
         let request = Struct {
             fields: FieldMap::from([("platform".to_string(), str_val("ios"))]),
@@ -136,7 +137,7 @@ mod tests {
         let result = merge(&managed, request);
         assert_eq!(
             result.fields.get("platform").and_then(|v| v.kind.as_ref()),
-            Some(&Kind::StringValue("android".to_string()))
+            Some(&Kind::StringValue("ios".to_string()))
         );
     }
 
@@ -165,18 +166,44 @@ mod tests {
     }
 
     #[test]
-    fn managed_scalar_replaces_request_subtree() {
-        let managed = BTreeMap::from([("app".to_string(), str_val("monolith"))]);
+    fn request_scalar_replaces_managed_subtree() {
+        let managed = BTreeMap::from([
+            ("app.name".to_string(), str_val("checkout")),
+            ("app.version".to_string(), str_val("1.2")),
+        ]);
         let request = Struct {
-            fields: FieldMap::from([(
-                "app".to_string(),
-                struct_val(FieldMap::from([("version".to_string(), str_val("1.2"))])),
-            )]),
+            fields: FieldMap::from([("app".to_string(), str_val("monolith"))]),
         };
         let result = merge(&managed, request);
         assert_eq!(
             result.fields.get("app").and_then(|v| v.kind.as_ref()),
             Some(&Kind::StringValue("monolith".to_string()))
+        );
+    }
+
+    #[test]
+    fn request_overrides_managed_default() {
+        let managed = BTreeMap::from([
+            ("platform".to_string(), str_val("ios")),
+            ("app.name".to_string(), str_val("default-app")),
+        ]);
+        let request = Struct {
+            fields: FieldMap::from([("platform".to_string(), str_val("android"))]),
+        };
+        let result = merge(&managed, request);
+        assert_eq!(
+            result.fields.get("platform").and_then(|v| v.kind.as_ref()),
+            Some(&Kind::StringValue("android".to_string())),
+            "request should override managed default"
+        );
+        let app = match result.fields.get("app").and_then(|v| v.kind.as_ref()) {
+            Some(Kind::StructValue(s)) => s,
+            _ => panic!("expected managed app struct to still be present"),
+        };
+        assert_eq!(
+            app.fields.get("name").and_then(|v| v.kind.as_ref()),
+            Some(&Kind::StringValue("default-app".to_string())),
+            "managed default should fill in when request doesn't provide it"
         );
     }
 
