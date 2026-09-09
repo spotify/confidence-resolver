@@ -21,7 +21,7 @@ const confidenceDomain = "edge-grpc.spotify.com"
 
 type ProviderConfig struct {
 	ClientSecret                  string
-	EncryptionKey                 string // Optional: hex-encoded AES-256 key for decrypting CDN state
+	EncryptionKey                 string // Required: hex-encoded AES-256 key for decrypting CDN state
 	Logger                        *slog.Logger
 	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
 	MaterializationStore          MaterializationStore // Optional
@@ -54,6 +54,9 @@ type ProviderTestConfig struct {
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
+	if err := validateEncryptionKey(config.EncryptionKey); err != nil {
+		return nil, err
+	}
 	if config.ClientSecret == "" {
 		return nil, fmt.Errorf("ClientSecret is required")
 	}
@@ -63,10 +66,6 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
 		}))
-	}
-
-	if config.EncryptionKey == "" {
-		logger.Warn("No EncryptionKey provided. Falling back to unencrypted state. An encryption key will be required in an upcoming version.")
 	}
 
 	// Create gRPC connection for flag logger
@@ -90,7 +89,10 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	flagLoggerService := resolverv1.NewInternalFlagLoggerServiceClient(conn)
 	// Build HTTP transport using hooks and pass into state fetcher
 	transport := hooks.WrapHTTP(http.DefaultTransport)
-	stateProvider := NewFlagsAdminStateFetcherWithEncryption(config.ClientSecret, config.EncryptionKey, logger, transport)
+	stateProvider, err := NewFlagsAdminStateFetcherWithEncryption(config.ClientSecret, config.EncryptionKey, logger, transport)
+	if err != nil {
+		return nil, err
+	}
 	flagLogger := fl.NewMultiDestinationFlagLogger(
 		flagLoggerService,
 		config.ClientSecret,
@@ -116,12 +118,12 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 		WithEventTracking(et.EventEngineWasm),
 		WithUseWasmInterpreter(config.UseWasmInterpreter),
 	)
-	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
+	provider := newLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
 	return provider, nil
 }
 
-// NewProviderForTest creates a provider with mocked StateProvider and FlagLogger for testing
-func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalResolverProvider, error) {
+// newProviderForTest creates a provider with mocked StateProvider and FlagLogger for testing
+func newProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalResolverProvider, error) {
 	if config.StateProvider == nil {
 		return nil, fmt.Errorf("StateProvider is required")
 	}
@@ -143,7 +145,7 @@ func NewProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, nil)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, false, config.DisableExposureCollection)
-	provider := NewLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
+	provider := newLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
 }

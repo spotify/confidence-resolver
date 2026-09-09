@@ -9,13 +9,16 @@ Demo application showing how to use the Confidence OpenFeature Local Provider in
 
 ## Setup
 
-Set the required environment variable:
+Set the required environment variables:
 
 ```bash
 export CONFIDENCE_CLIENT_SECRET="your-client-secret"
+export CONFIDENCE_CLIENT_ENCRYPTION_KEY="your-encryption-key"
 ```
 
-Get your credentials from the [Confidence dashboard](https://confidence.spotify.com/).
+Open [Confidence Admin → Clients](https://app.confidence.spotify.com/admin/clients)
+and locate the credential used by the demo. Its encryption key is unique to that
+credential; use the key paired with your client secret.
 
 ## Run
 
@@ -32,6 +35,7 @@ The provider supports custom poll intervals for state updates and log flushing:
 ```go
 provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
     ClientSecret:                  clientSecret,
+    EncryptionKey: os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"),
     UseRemoteMaterializationStore: true,
     StatePollInterval:             30 * time.Second,  // How often to fetch flag state (default: 10s)
     LogPollInterval:               2 * time.Minute,   // How often to flush logs (default: 60s)

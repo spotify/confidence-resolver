@@ -41,27 +41,32 @@ var _ StateProvider = (*FlagsAdminStateFetcher)(nil)
 // NewFlagsAdminStateFetcher creates a new FlagsAdminStateFetcher
 func NewFlagsAdminStateFetcher(
 	clientSecret string,
+	encryptionKey string,
 	logger *slog.Logger,
-) *FlagsAdminStateFetcher {
-	return NewFlagsAdminStateFetcherWithTransport(clientSecret, logger, http.DefaultTransport)
+) (*FlagsAdminStateFetcher, error) {
+	return NewFlagsAdminStateFetcherWithTransport(clientSecret, encryptionKey, logger, http.DefaultTransport)
 }
 
 // NewFlagsAdminStateFetcherWithTransport creates a new FlagsAdminStateFetcher with a custom HTTP transport.
 func NewFlagsAdminStateFetcherWithTransport(
 	clientSecret string,
+	encryptionKey string,
 	logger *slog.Logger,
 	transport http.RoundTripper,
-) *FlagsAdminStateFetcher {
-	return NewFlagsAdminStateFetcherWithEncryption(clientSecret, "", logger, transport)
+) (*FlagsAdminStateFetcher, error) {
+	return NewFlagsAdminStateFetcherWithEncryption(clientSecret, encryptionKey, logger, transport)
 }
 
-// NewFlagsAdminStateFetcherWithEncryption creates a new FlagsAdminStateFetcher with optional encryption key.
+// NewFlagsAdminStateFetcherWithEncryption creates a new FlagsAdminStateFetcher with a required AES-256 encryption key.
 func NewFlagsAdminStateFetcherWithEncryption(
 	clientSecret string,
 	encryptionKey string,
 	logger *slog.Logger,
 	transport http.RoundTripper,
-) *FlagsAdminStateFetcher {
+) (*FlagsAdminStateFetcher, error) {
+	if err := validateEncryptionKey(encryptionKey); err != nil {
+		return nil, err
+	}
 	f := &FlagsAdminStateFetcher{
 		clientSecret:  clientSecret,
 		encryptionKey: encryptionKey,
@@ -77,7 +82,7 @@ func NewFlagsAdminStateFetcherWithEncryption(
 		f.rawResolverState.Store(b)
 	}
 
-	return f
+	return f, nil
 }
 
 // GetRawState returns the current raw resolver state
@@ -126,10 +131,7 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 	// Build CDN URL using SHA256 hash of client secret
 	hash := sha256.Sum256([]byte(f.clientSecret))
 	hashHex := hex.EncodeToString(hash[:])
-	cdnPath := hashHex
-	if f.encryptionKey != "" {
-		cdnPath = hashHex + ".enc"
-	}
+	cdnPath := hashHex + ".enc"
 	cdnURL := "https://confidence-resolver-state-cdn.spotifycdn.com/" + cdnPath
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cdnURL, nil)
@@ -172,13 +174,11 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 
 	etag := resp.Header.Get("ETag")
 
-	if f.encryptionKey != "" {
-		plaintext, err := decryptAesGcm(bytes, f.encryptionKey)
-		if err != nil {
-			return fmt.Errorf("failed to decrypt resolver state: %w", err)
-		}
-		bytes = plaintext
+	plaintext, err := decryptAesGcm(bytes, f.encryptionKey)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt resolver state: %w", err)
 	}
+	bytes = plaintext
 
 	clientState := &admin.ClientResolverState{}
 	if err := proto.Unmarshal(bytes, clientState); err != nil {
@@ -211,4 +211,12 @@ func decryptAesGcm(data []byte, hexKey string) ([]byte, error) {
 		return nil, fmt.Errorf("encrypted state too short (missing nonce)")
 	}
 	return gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
+}
+
+func validateEncryptionKey(key string) error {
+	decoded, err := hex.DecodeString(key)
+	if err != nil || len(decoded) != 32 {
+		return fmt.Errorf("EncryptionKey is required and must contain exactly 64 hexadecimal characters")
+	}
+	return nil
 }

@@ -32,8 +32,9 @@ func TestFlagLogs_ShouldSuccessfullySendToRealBackend(t *testing.T) {
 
 	// Create a real provider with real gRPC connection
 	provider, err := NewProvider(ctx, ProviderConfig{
-		ClientSecret: flagLogsClientSecret,
-		Logger:       logger,
+		ClientSecret:  flagLogsClientSecret,
+		EncryptionKey: e2eEncryptionKey,
+		Logger:        logger,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create provider: %v", err)

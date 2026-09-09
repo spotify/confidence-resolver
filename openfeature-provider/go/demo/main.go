@@ -30,6 +30,7 @@ func main() {
 	log.Println("Creating Confidence provider...")
 	provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
 		ClientSecret:                  clientSecret,
+		EncryptionKey:                 os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"),
 		UseRemoteMaterializationStore: true,
 		StatePollInterval:             30 * time.Second,
 		LogPollInterval:               2 * time.Minute,

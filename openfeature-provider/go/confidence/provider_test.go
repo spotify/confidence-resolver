@@ -15,7 +15,7 @@ import (
 )
 
 func TestNewLocalResolverProvider(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "test-secret", nil)
+	provider := newLocalResolverProvider(nil, nil, nil, "test-secret", nil)
 
 	if provider == nil {
 		t.Fatal("Expected provider to be created, got nil")
@@ -26,7 +26,7 @@ func TestNewLocalResolverProvider(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Metadata(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
+	provider := newLocalResolverProvider(nil, nil, nil, "secret", nil)
 	metadata := provider.Metadata()
 
 	if metadata.Name != "confidence-sdk-go-local" {
@@ -35,7 +35,7 @@ func TestLocalResolverProvider_Metadata(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Hooks(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
+	provider := newLocalResolverProvider(nil, nil, nil, "secret", nil)
 	hooks := provider.Hooks()
 
 	if hooks == nil {
@@ -429,7 +429,7 @@ func TestFlattenedContextToProto_InvalidValue(t *testing.T) {
 }
 
 func TestLocalResolverProvider_Shutdown(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
+	provider := newLocalResolverProvider(nil, nil, nil, "secret", nil)
 	provider.Shutdown()
 
 	// Verify the method can be called without panicking even with nil components
@@ -437,7 +437,7 @@ func TestLocalResolverProvider_Shutdown(t *testing.T) {
 }
 
 func TestLocalResolverProvider_ShutdownWithCancelFunc(t *testing.T) {
-	provider := NewLocalResolverProvider(nil, nil, nil, "secret", nil)
+	provider := newLocalResolverProvider(nil, nil, nil, "secret", nil)
 
 	// Simulate Init having been called by setting cancelFunc
 	cancelCalled := false
@@ -512,7 +512,7 @@ func (m *mockResolverAPIForInit) ApplyFlags(request *resolver.ApplyFlagsRequest)
 
 // TestLocalResolverProvider_Init_NilStateProvider verifies Init fails when stateProvider is nil
 func TestLocalResolverProvider_Init_NilStateProvider(t *testing.T) {
-	provider := NewLocalResolverProvider(
+	provider := newLocalResolverProvider(
 		mockResolverSupplier,
 		nil, // nil state provider
 		&tu.MockFlagLogger{},
@@ -531,7 +531,7 @@ func TestLocalResolverProvider_Init_NilStateProvider(t *testing.T) {
 
 // TestLocalResolverProvider_Init_NilResolverAPI verifies Init fails when resolverAPI is nil
 func TestLocalResolverProvider_Init_NilResolverAPI(t *testing.T) {
-	provider := NewLocalResolverProvider(
+	provider := newLocalResolverProvider(
 		nil, // nil resolver API
 		&tu.StateProviderMock{},
 		&tu.MockFlagLogger{},
@@ -550,7 +550,7 @@ func TestLocalResolverProvider_Init_NilResolverAPI(t *testing.T) {
 
 // TestLocalResolverProvider_Init_NilFlagLogger verifies Init fails when FlagLogger is nil
 func TestLocalResolverProvider_Init_NilFlagLogger(t *testing.T) {
-	provider := NewLocalResolverProvider(
+	provider := newLocalResolverProvider(
 		mockResolverSupplier,
 		&tu.StateProviderMock{},
 		nil, // nil flag logger
@@ -577,7 +577,7 @@ func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 
 	mockFlagLogger := &tu.MockFlagLogger{}
 
-	provider := NewLocalResolverProvider(
+	provider := newLocalResolverProvider(
 		mockResolverSupplier,
 		mockStateProvider,
 		mockFlagLogger,
@@ -607,7 +607,7 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 
 	mockResolverAPI := &mockResolverAPIForInit{}
 
-	provider := NewLocalResolverProvider(
+	provider := newLocalResolverProvider(
 		func(ctx context.Context, ls lr.LogSink) lr.LocalResolver { return mockResolverAPI },
 		mockStateProvider,
 		mockFlagLogger,
@@ -644,7 +644,7 @@ func TestLocalResolverProvider_Init_UpdateStateError(t *testing.T) {
 		return mockResolver
 	}
 
-	provider := NewLocalResolverProvider(
+	provider := newLocalResolverProvider(
 		mockResolverSupplier,
 		mockStateProvider,
 		mockFlagLogger,
@@ -688,7 +688,7 @@ func TestLocalResolverProvider_Init_Success(t *testing.T) {
 		return mockResolver
 	}
 
-	provider := NewLocalResolverProvider(
+	provider := newLocalResolverProvider(
 		mockResolverSupplier,
 		mockStateProvider,
 		mockFlagLogger,

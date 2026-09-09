@@ -17,7 +17,7 @@ Go OpenFeature provider using the Confidence resolver compiled to WASM, loaded v
 ## Key API
 
 - **`NewProvider(ctx, ProviderConfig)`** (`provider_builder.go`) — Main factory function. Creates gRPC connection, state fetcher, flag logger, and wires everything together.
-- **`NewProviderForTest(ctx, ProviderTestConfig)`** — Factory with injectable `StateProvider` and `FlagLogger` for testing.
+- **`newProviderForTest(ctx, ProviderTestConfig)`** — Factory with injectable `StateProvider` and `FlagLogger` for testing.
 - **`ProviderConfig`** — `ClientSecret`, `Logger`, `TransportHooks`, `MaterializationStore`, `UseRemoteMaterializationStore`, `StatePollInterval`, `LogPollInterval`, `ResolverPoolSize`, `UseWasmInterpreter`
 - **`TransportHooks`** interface — Allows customizing both gRPC and HTTP transports (for proxying or testing): `ModifyGRPCDial(target, opts)` and `WrapHTTP(transport)`.
 

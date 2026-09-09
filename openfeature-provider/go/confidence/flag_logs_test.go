@@ -39,7 +39,11 @@ func setupFlagLogsUnitTest(t *testing.T) (*fl.CapturingFlagLogger, openfeature.I
 
 	// Create state provider that fetches from real Confidence service
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	stateProvider := NewFlagsAdminStateFetcher(unitTestClientSecret, logger)
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
+	stateProvider, err := NewFlagsAdminStateFetcher(unitTestClientSecret, e2eEncryptionKey, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Fetch initial state
 	if err := stateProvider.Reload(ctx); err != nil {
@@ -53,10 +57,10 @@ func setupFlagLogsUnitTest(t *testing.T) (*fl.CapturingFlagLogger, openfeature.I
 		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
 	}, unsupportedMatStore)
 	// Dedup is opt-in (experimental); these tests exercise its behavior.
-	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, capturingLogger, unitTestClientSecret, logger, WithEnableApplyDedup())
+	provider := newLocalResolverProvider(resolverSupplier, stateProvider, capturingLogger, unitTestClientSecret, logger, WithEnableApplyDedup())
 
 	// Set provider and wait for ready
-	err := openfeature.SetProviderAndWait(provider)
+	err = openfeature.SetProviderAndWait(provider)
 	if err != nil {
 		t.Fatalf("Failed to set provider: %v", err)
 	}

@@ -105,6 +105,7 @@ func main() {
 
 	provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
 		ClientSecret:     clientSecret,
+		EncryptionKey:    os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"),
 		TransportHooks:   transportHooks{mockAddr: mockAddr},
 		EnableApplyDedup: enableDedup,
 	})

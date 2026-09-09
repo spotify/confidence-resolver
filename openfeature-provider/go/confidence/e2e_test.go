@@ -27,11 +27,13 @@ func requireE2EEnvironmentVariable(t *testing.T, name, value string) {
 
 func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStore(t *testing.T) {
 	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
 	ctx := context.Background()
 
 	// Create a real provider with a RemoteMaterializationStore
 	provider, err := NewProvider(ctx, ProviderConfig{
 		ClientSecret:                  e2eClientSecret,
+		EncryptionKey:                 e2eEncryptionKey,
 		UseRemoteMaterializationStore: true,
 	})
 	if err != nil {
@@ -62,11 +64,13 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationSto
 
 func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStoreNotInSegment(t *testing.T) {
 	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
 	ctx := context.Background()
 
 	// Create a real provider with a RemoteMaterializationStore
 	provider, err := NewProvider(ctx, ProviderConfig{
 		ClientSecret:                  e2eClientSecret,
+		EncryptionKey:                 e2eEncryptionKey,
 		UseRemoteMaterializationStore: true,
 	})
 	if err != nil {
@@ -97,12 +101,14 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationSto
 
 func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUsesBloomFilter(t *testing.T) {
 	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
 	ctx := context.Background()
 
 	// Without a materialization store, the resolver uses bloom filters
 	// delivered in the state to check materialized segment membership locally.
 	provider, err := NewProvider(ctx, ProviderConfig{
 		ClientSecret:                  e2eClientSecret,
+		EncryptionKey:                 e2eEncryptionKey,
 		UseRemoteMaterializationStore: false,
 	})
 	if err != nil {
@@ -131,6 +137,7 @@ func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUs
 
 func TestFlagResolve_WithEncryptedState(t *testing.T) {
 	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
+	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
 	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
 	ctx := context.Background()
 	provider, err := NewProvider(ctx, ProviderConfig{

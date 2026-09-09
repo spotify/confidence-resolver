@@ -2,11 +2,16 @@ package confidence
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/hex"
+	"github.com/stretchr/testify/require"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,7 +36,8 @@ func (t *testTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestNewFlagsAdminStateFetcher(t *testing.T) {
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 
 	if fetcher == nil {
 		t.Fatal("Expected fetcher to be created, got nil")
@@ -51,7 +57,8 @@ func TestNewFlagsAdminStateFetcher(t *testing.T) {
 }
 
 func TestFlagsAdminStateFetcher_GetRawState(t *testing.T) {
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 
 	// Initial state should be empty but not nil
 	state := fetcher.GetRawState()
@@ -61,7 +68,8 @@ func TestFlagsAdminStateFetcher_GetRawState(t *testing.T) {
 }
 
 func TestFlagsAdminStateFetcher_GetAccountID(t *testing.T) {
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 
 	// Initially empty
 	if fetcher.GetAccountID() != "" {
@@ -89,6 +97,7 @@ func TestFlagsAdminStateFetcher_Reload_Success(t *testing.T) {
 		Account: "test-account-123",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
+	stateBytes = encryptTestState(t, stateBytes)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", "test-etag")
@@ -97,7 +106,8 @@ func TestFlagsAdminStateFetcher_Reload_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 	// Use custom transport to redirect to test server
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
@@ -105,7 +115,7 @@ func TestFlagsAdminStateFetcher_Reload_Success(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	err := fetcher.Reload(ctx)
+	err = fetcher.Reload(ctx)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -139,6 +149,7 @@ func TestFlagsAdminStateFetcher_Reload_NotModified(t *testing.T) {
 		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
+	stateBytes = encryptTestState(t, stateBytes)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
@@ -162,7 +173,8 @@ func TestFlagsAdminStateFetcher_Reload_NotModified(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
@@ -170,7 +182,7 @@ func TestFlagsAdminStateFetcher_Reload_NotModified(t *testing.T) {
 	ctx := context.Background()
 
 	// First reload - gets state
-	err := fetcher.Reload(ctx)
+	err = fetcher.Reload(ctx)
 	if err != nil {
 		t.Errorf("Expected no error on first reload, got %v", err)
 	}
@@ -209,6 +221,7 @@ func TestFlagsAdminStateFetcher_Reload_IfModifiedSinceFallback(t *testing.T) {
 		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
+	stateBytes = encryptTestState(t, stateBytes)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
@@ -226,17 +239,18 @@ func TestFlagsAdminStateFetcher_Reload_IfModifiedSinceFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
 	}
 	ctx := context.Background()
 
-	if err := fetcher.Reload(ctx); err != nil {
+	if err = fetcher.Reload(ctx); err != nil {
 		t.Errorf("Expected no error on first reload, got %v", err)
 	}
-	if err := fetcher.Reload(ctx); err != nil {
+	if err = fetcher.Reload(ctx); err != nil {
 		t.Errorf("Expected no error on second reload, got %v", err)
 	}
 
@@ -260,6 +274,7 @@ func TestFlagsAdminStateFetcher_Reload_NoValidators(t *testing.T) {
 		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
+	stateBytes = encryptTestState(t, stateBytes)
 
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -277,17 +292,18 @@ func TestFlagsAdminStateFetcher_Reload_NoValidators(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
 	}
 	ctx := context.Background()
 
-	if err := fetcher.Reload(ctx); err != nil {
+	if err = fetcher.Reload(ctx); err != nil {
 		t.Errorf("Expected no error on first reload, got %v", err)
 	}
-	if err := fetcher.Reload(ctx); err != nil {
+	if err = fetcher.Reload(ctx); err != nil {
 		t.Errorf("Expected no error on second reload, got %v", err)
 	}
 	if requestCount != 2 {
@@ -302,14 +318,15 @@ func TestFlagsAdminStateFetcher_Reload_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
 	}
 	ctx := context.Background()
 
-	err := fetcher.Reload(ctx)
+	err = fetcher.Reload(ctx)
 	if err == nil {
 		t.Error("Expected error from reload")
 	}
@@ -326,6 +343,7 @@ func TestFlagsAdminStateFetcher_Provide(t *testing.T) {
 		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
+	stateBytes = encryptTestState(t, stateBytes)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -333,7 +351,8 @@ func TestFlagsAdminStateFetcher_Provide(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
@@ -364,6 +383,7 @@ func TestFlagsAdminStateFetcher_Provide_ReturnsStateOnError(t *testing.T) {
 		Account: "test-account",
 	}
 	stateBytes, _ := proto.Marshal(stateRequest)
+	stateBytes = encryptTestState(t, stateBytes)
 
 	httpCallCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -380,7 +400,8 @@ func TestFlagsAdminStateFetcher_Provide_ReturnsStateOnError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &testTransport{testServerURL: server.URL},
@@ -421,7 +442,8 @@ func TestFlagsAdminStateFetcher_HTTPTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	fetcher := NewFlagsAdminStateFetcher("test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	fetcher, err := NewFlagsAdminStateFetcher("test-client-secret", testEncryptionKey, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
 	// Set short timeout for test
 	fetcher.HTTPClient = &http.Client{
 		Timeout:   100 * time.Millisecond,
@@ -430,8 +452,88 @@ func TestFlagsAdminStateFetcher_HTTPTimeout(t *testing.T) {
 
 	ctx := context.Background()
 
-	err := fetcher.Reload(ctx)
+	err = fetcher.Reload(ctx)
 	if err == nil {
 		t.Error("Expected timeout error")
+	}
+}
+
+const testEncryptionKey = "0000000000000000000000000000000000000000000000000000000000000000"
+
+func encryptTestState(t *testing.T, state []byte) []byte {
+	t.Helper()
+	key, _ := hex.DecodeString(testEncryptionKey)
+	block, err := aes.NewCipher(key)
+	require.NoError(t, err)
+	gcm, err := cipher.NewGCM(block)
+	require.NoError(t, err)
+	nonce := make([]byte, gcm.NonceSize())
+	return gcm.Seal(nonce, nonce, state, nil)
+}
+func TestRequiredEncryptionKey(t *testing.T) {
+	for _, key := range []string{"", " ", strings.Repeat("00", 31), strings.Repeat("00", 33), strings.Repeat("gg", 32), testEncryptionKey + "\n"} {
+		_, err := NewProvider(context.Background(), ProviderConfig{ClientSecret: "secret", EncryptionKey: key})
+		require.ErrorContains(t, err, "64 hexadecimal")
+		_, err = NewFlagsAdminStateFetcher("secret", key, slog.Default())
+		require.ErrorContains(t, err, "64 hexadecimal")
+	}
+	for _, key := range []string{strings.Repeat("ab", 32), strings.Repeat("AB", 32)} {
+		_, err := NewFlagsAdminStateFetcher("secret", key, slog.Default())
+		require.NoError(t, err)
+	}
+}
+
+func TestFailedDecryptionPreservesCachedState(t *testing.T) {
+	for _, failure := range []string{"wrong-key", "tampered", "truncated", "plaintext"} {
+		t.Run(failure, func(t *testing.T) {
+			state, err := proto.Marshal(&adminv1.ClientResolverState{State: []byte("state"), Account: "account"})
+			require.NoError(t, err)
+			encrypted := encryptTestState(t, state)
+			bad := append([]byte(nil), encrypted...)
+			switch failure {
+			case "wrong-key":
+				block, err := aes.NewCipher(make([]byte, 32))
+				require.NoError(t, err)
+				gcm, err := cipher.NewGCM(block)
+				require.NoError(t, err)
+				// Use a different key from the fetcher's configured key below.
+				nonce := make([]byte, 12)
+				bad = gcm.Seal(nonce, nonce, state, nil)
+			case "tampered":
+				bad[len(bad)-1] ^= 1
+			case "truncated":
+				bad = bad[:5]
+			case "plaintext":
+				bad = state
+			}
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				require.True(t, strings.HasSuffix(r.URL.Path, ".enc"))
+				if calls > 1 {
+					require.Equal(t, "good", r.Header.Get("If-None-Match"))
+				}
+				if calls == 2 {
+					w.Header().Set("ETag", "bad")
+					_, _ = w.Write(bad)
+				} else {
+					w.Header().Set("ETag", "good")
+					_, _ = w.Write(encrypted)
+				}
+			}))
+			defer server.Close()
+			fetcher, err := NewFlagsAdminStateFetcherWithTransport("secret", testEncryptionKey, slog.Default(), &testTransport{testServerURL: server.URL})
+			require.NoError(t, err)
+			require.NoError(t, fetcher.Reload(context.Background()))
+			if failure == "wrong-key" {
+				fetcher.encryptionKey = strings.Repeat("01", 32)
+			}
+			require.Error(t, fetcher.Reload(context.Background()))
+			require.Equal(t, "good", fetcher.etag.Load())
+			require.Equal(t, []byte("state"), fetcher.GetRawState())
+			fetcher.encryptionKey = testEncryptionKey
+			require.NoError(t, fetcher.Reload(context.Background()))
+			require.Equal(t, 3, calls)
+		})
 	}
 }
