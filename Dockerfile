@@ -393,7 +393,9 @@ COPY openfeature-provider/js/prettier.config.cjs ./
 COPY openfeature-provider/js/.prettierignore ./
 
 RUN --mount=type=secret,id=confidence_client_secret \
+    --mount=type=secret,id=confidence_client_encryption_key \
     CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    CONFIDENCE_CLIENT_ENCRYPTION_KEY=$(cat /run/secrets/confidence_client_encryption_key) \
     make test
 
 # ==============================================================================
@@ -817,7 +819,9 @@ RUN make build
 FROM openfeature-provider-java.build AS openfeature-provider-java.test
 
 RUN --mount=type=secret,id=confidence_client_secret \
+    --mount=type=secret,id=confidence_client_encryption_key \
     CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    CONFIDENCE_CLIENT_ENCRYPTION_KEY=$(cat /run/secrets/confidence_client_encryption_key) \
     make test
 
 # ==============================================================================
