@@ -7,6 +7,8 @@ type FieldMap = std::collections::HashMap<String, Value>;
 #[cfg(not(feature = "json"))]
 type FieldMap = BTreeMap<String, Value>;
 
+const MAX_DEPTH: usize = 10;
+
 /// Merge a Client's managed evaluation context (flat dot-paths -> scalar Values)
 /// into the SDK-provided request context (nested Struct).
 /// Managed values win on exact-path collisions. When both sides have a struct
@@ -23,6 +25,9 @@ fn unflatten(flat: &BTreeMap<String, Value>) -> Struct {
     let mut root: FieldMap = FieldMap::new();
     for (path, val) in flat {
         let parts: Vec<&str> = path.split('.').collect();
+        if parts.len() > MAX_DEPTH {
+            continue;
+        }
         set_nested(&mut root, &parts, 0, val.clone());
     }
     Struct { fields: root }
