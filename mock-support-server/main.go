@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,8 +34,9 @@ type config struct {
 	AccountID         string
 	ResolverStatePath string
 	// used to mock the correct state url
-	ClientSecret    string
-	RequestLogging    bool
+	EncryptionKey  string
+	ClientSecret   string
+	RequestLogging bool
 	// Artificial per-request latency in milliseconds for both HTTP and gRPC
 	LatencyMs int
 	// Bandwidth cap for HTTP responses in kilobytes per second (0 disables throttling)
@@ -40,6 +45,7 @@ type config struct {
 
 func readEnv() config {
 	cfg := config{
+		EncryptionKey:     getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY", ""),
 		Port:              getenvInt("PORT", 8081),
 		AccountID:         getenv("ACCOUNT_ID", "confidence-test"),
 		ResolverStatePath: getenv("RESOLVER_STATE_PB", ""),
@@ -76,7 +82,7 @@ func (s *internalFlagLoggerService) ClientWriteFlagLogs(ctx context.Context, req
 	}
 	s.bytesIn.Add(int64(proto.Size(req)))
 	s.appliedCount.Add(int64(len(req.FlagAssigned)))
-	s.resolveCount.Add(int64(max(len(req.FlagResolveInfo),len(req.ClientResolveInfo))))
+	s.resolveCount.Add(int64(max(len(req.FlagResolveInfo), len(req.ClientResolveInfo))))
 	s.requestCount.Add(1)
 	return &pb.WriteFlagLogsResponse{}, nil
 }
@@ -107,7 +113,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		for range ticker.C {
-			b := internalFlagLoggerServiceImpl.bytesIn.Load()/1024
+			b := internalFlagLoggerServiceImpl.bytesIn.Load() / 1024
 			a := internalFlagLoggerServiceImpl.appliedCount.Load()
 			l := internalFlagLoggerServiceImpl.resolveCount.Load()
 			r := internalFlagLoggerServiceImpl.requestCount.Load()
@@ -129,6 +135,7 @@ func main() {
 	cdn := http.NewServeMux()
 
 	// State cache for on-the-fly fetching (keyed by hash path)
+	var cacheMu sync.Mutex
 	stateCache := make(map[string][]byte)
 	etagCache := make(map[string]string)
 
@@ -136,11 +143,22 @@ func main() {
 	if cfg.ResolverStatePath != "" {
 		// Load from disk for a specific client secret
 		stateHash := fmt.Sprintf("%x", sha256.Sum256([]byte(cfg.ClientSecret)))
-		stateCache[stateHash] = readStateFromDisk(cfg.ResolverStatePath, cfg.AccountID)
+		state := readStateFromDisk(cfg.ResolverStatePath, cfg.AccountID)
+		stateCache[stateHash] = state
+		if cfg.EncryptionKey != "" {
+			encrypted, err := encryptState(state, cfg.EncryptionKey)
+			if err != nil {
+				log.Fatal(err)
+			}
+			stateCache[stateHash+".enc"] = encrypted
+		}
 		log.Printf("Loaded state from disk for hash %s", stateHash)
 	} else if cfg.ClientSecret != "" {
 		// Pre-fetch from network for a specific client secret
 		stateHash := fmt.Sprintf("%x", sha256.Sum256([]byte(cfg.ClientSecret)))
+		if cfg.EncryptionKey != "" {
+			stateHash += ".enc"
+		}
 		stateCache[stateHash] = readStateFromUrl(stateHash)
 		log.Printf("Pre-fetched state from network for hash %s", stateHash)
 	} else {
@@ -150,11 +168,13 @@ func main() {
 	// Handle any /<hash> path - fetch on-the-fly if not cached
 	cdn.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		hash := strings.TrimPrefix(r.URL.Path, "/")
-		if hash == "" || len(hash) != 64 {
+		if rawHash := strings.TrimSuffix(hash, ".enc"); len(rawHash) != 64 {
 			http.Error(w, "invalid state hash path", http.StatusBadRequest)
 			return
 		}
 
+		cacheMu.Lock()
+		defer cacheMu.Unlock()
 		// Check cache, fetch on-the-fly if missing
 		stateBytes, ok := stateCache[hash]
 		if !ok {
@@ -381,7 +401,7 @@ func (t *throttledReadCloser) Close() error { return t.rc.Close() }
 
 // gRPC server interceptors for rudimentary request logging.
 func createUnaryLoggingInterceptor(logAll bool) grpc.UnaryServerInterceptor {
-	return func (ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		start := time.Now()
 		resp, err := handler(ctx, req)
 		st, _ := status.FromError(err)
@@ -391,7 +411,6 @@ func createUnaryLoggingInterceptor(logAll bool) grpc.UnaryServerInterceptor {
 		return resp, err
 	}
 }
-
 
 func getenv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -475,4 +494,25 @@ func readStateFromDisk(path string, accountId string) []byte {
 		panic(err)
 	}
 	return out
+}
+
+// encryptState produces the same nonce || ciphertext || tag format as the CDN.
+func encryptState(state []byte, hexKey string) ([]byte, error) {
+	key, err := hex.DecodeString(hexKey)
+	if err != nil || len(key) != 32 {
+		return nil, fmt.Errorf("encryption key must contain exactly 64 hexadecimal characters")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return gcm.Seal(nonce, nonce, state, nil), nil
 }

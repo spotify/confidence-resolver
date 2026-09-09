@@ -5,6 +5,8 @@ services:
       dockerfile: mock-support-server/Dockerfile
     environment:
       - PORT=8081
+      # Public test key, shared with benchmark clients.
+      - CONFIDENCE_CLIENT_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
       - RESOLVER_STATE_PB=/data/resolver_state_current.pb
       - CLIENT_SECRET=mkjJruAATQWjeY7foFIWfVAcBWnci2YF
 
@@ -12,6 +14,8 @@ services:
     build:
       context: .
       dockerfile: openfeature-provider/go/bench/Dockerfile
+    environment:
+      - CONFIDENCE_CLIENT_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
     depends_on:
       - mock-support
     command: ["-mock-addr", "mock-support:8081", "-threads", "1", "-flag", "tutorial-feature", "-client-secret", "mkjJruAATQWjeY7foFIWfVAcBWnci2YF"]
@@ -20,6 +24,8 @@ services:
     build:
       context: .
       dockerfile: openfeature-provider/js/bench/Dockerfile
+    environment:
+      - CONFIDENCE_CLIENT_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
     depends_on:
       - mock-support
     command: ["-mock-http", "http://mock-support:8081", "-flag", "tutorial-feature", "-client-secret", "mkjJruAATQWjeY7foFIWfVAcBWnci2YF"]
