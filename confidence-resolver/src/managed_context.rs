@@ -32,7 +32,7 @@ fn set_nested(current: &mut FieldMap, parts: &[&str], idx: usize, val: Value) {
     let Some(key) = parts.get(idx) else { return };
     let key = (*key).to_string();
 
-    if idx.checked_add(1).map_or(false, |next| next == parts.len()) {
+    if idx.checked_add(1) == Some(parts.len()) {
         current.insert(key, val);
         return;
     }
