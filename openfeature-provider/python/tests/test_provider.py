@@ -34,6 +34,7 @@ class TestGetMetadata:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -53,6 +54,7 @@ class TestInitialize:
     ) -> None:
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             flag_logger=MockFlagLogger(),
             wasm_bytes=wasm_bytes,
         )
@@ -87,6 +89,7 @@ class TestInitialize:
         mock_logger = FailOnceLogger()
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
         )
@@ -128,6 +131,7 @@ class TestInitialize:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             flag_logger=FailingDeliveryLogger(),
             wasm_bytes=wasm_bytes,
         )
@@ -170,6 +174,7 @@ class TestInitialize:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             flag_logger=SucceedingDeliveryLogger(),
             wasm_bytes=wasm_bytes,
         )
@@ -207,6 +212,7 @@ class TestInitialize:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             flag_logger=SucceedingDeliveryLogger(),
             wasm_bytes=wasm_bytes,
         )
@@ -247,6 +253,7 @@ class TestInitialize:
         """
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             flag_logger=MockFlagLogger(),
             wasm_bytes=wasm_bytes,
         )
@@ -330,6 +337,7 @@ class TestInitialize:
         """
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             flag_logger=MockFlagLogger(),
             wasm_bytes=wasm_bytes,
         )
@@ -412,6 +420,7 @@ class TestInitialize:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -443,6 +452,7 @@ class TestResolveBoolean:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -485,6 +495,7 @@ class TestResolveString:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -530,6 +541,7 @@ class TestResolveInteger:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -567,6 +579,7 @@ class TestResolveInteger:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -605,6 +618,7 @@ class TestResolveInteger:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -648,6 +662,7 @@ class TestResolveFloat:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -689,6 +704,7 @@ class TestResolveObject:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -736,6 +752,7 @@ class TestResolvePath:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -773,6 +790,7 @@ class TestResolvePath:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -815,6 +833,7 @@ class TestResolveFlagNotFound:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -856,6 +875,7 @@ class TestResolveTypeMismatch:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -895,6 +915,7 @@ class TestResolveTypeMismatch:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -934,6 +955,7 @@ class TestResolveTypeMismatch:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -973,6 +995,7 @@ class TestResolveTypeMismatch:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -1013,6 +1036,7 @@ class TestResolveTypeMismatch:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -1056,6 +1080,7 @@ class TestShutdown:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -1108,6 +1133,7 @@ class TestShutdown:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -1136,6 +1162,7 @@ class TestDefaultOnError:
         # Use wrong client secret to trigger error
         provider = ConfidenceProvider(
             client_secret="wrong-secret",
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -1176,6 +1203,7 @@ class TestPrometheusMetrics:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -1220,6 +1248,7 @@ class TestDisableExposureCollection:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -1259,6 +1288,7 @@ class TestDisableExposureCollection:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,
@@ -1314,6 +1344,7 @@ class TestDisableExposureCollection:
 
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=mock_fetcher,
             flag_logger=mock_logger,
             wasm_bytes=wasm_bytes,

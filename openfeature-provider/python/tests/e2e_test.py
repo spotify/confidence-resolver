@@ -22,6 +22,7 @@ class TestFlagResolveWithRemoteMaterializationStore:
         """User in materialized segment gets treatment variant."""
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
+            encryption_key=os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"],
             use_remote_materialization_store=True,
         )
 
@@ -52,6 +53,7 @@ class TestFlagResolveWithRemoteMaterializationStore:
         """User not in materialized segment gets default variant."""
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
+            encryption_key=os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"],
             use_remote_materialization_store=True,
         )
 
@@ -86,6 +88,7 @@ class TestFlagResolveWithoutMaterializationStore:
         """Without materialization store, bloom filters resolve membership locally."""
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
+            encryption_key=os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"],
             use_remote_materialization_store=False,
         )
 
@@ -118,7 +121,7 @@ class TestFlagResolveWithEncryptedState:
 
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
-            encryption_key=E2E_ENCRYPTION_KEY,
+            encryption_key=os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"],
         )
         try:
             set_provider_and_wait(provider)
@@ -140,7 +143,7 @@ class TestFlagResolveWithEncryptedState:
 
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
-            encryption_key=E2E_ENCRYPTION_KEY,
+            encryption_key=os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"],
         )
         try:
             set_provider_and_wait(provider)

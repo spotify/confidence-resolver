@@ -5,6 +5,7 @@ This module provides functionality to fetch resolver state from the Confidence C
 
 import hashlib
 import logging
+import re
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from typing import List, Optional, Tuple
 
@@ -32,15 +33,15 @@ class StateFetcher:
     It builds the CDN URL from a SHA256 hash of the client secret.
 
     Example:
-        fetcher = StateFetcher("your-client-secret")
+        fetcher = StateFetcher("your-client-secret", "your-encryption-key")
         state, account_id = fetcher.fetch()
     """
 
     def __init__(
         self,
         client_secret: str,
+        encryption_key: str,
         http_client: Optional[httpx.Client] = None,
-        encryption_key: Optional[str] = None,
     ) -> None:
         """Initialize the StateFetcher.
 
@@ -48,6 +49,7 @@ class StateFetcher:
             client_secret: The Confidence client secret used to build the CDN URL.
             http_client: Optional httpx.Client for custom HTTP configuration or testing.
         """
+        validate_encryption_key(encryption_key)
         self._client_secret = client_secret
         self._encryption_key = encryption_key
         self._http_client = http_client
@@ -61,8 +63,7 @@ class StateFetcher:
 
         # Build CDN URL from SHA256 hash of client secret
         hash_hex = hashlib.sha256(client_secret.encode()).hexdigest()
-        suffix = f"{hash_hex}.enc" if encryption_key else hash_hex
-        self._cdn_url = f"{CDN_BASE_URL}/{suffix}"
+        self._cdn_url = f"{CDN_BASE_URL}/{hash_hex}.enc"
 
     @property
     def state(self) -> Optional[bytes]:
@@ -130,17 +131,14 @@ class StateFetcher:
                     f"Failed to fetch state: HTTP {response.status_code}"
                 )
 
-            self._etag = response.headers.get("ETag")
-
-            content = response.content
-            if self._encryption_key:
-                content = _decrypt_aes_gcm(content, self._encryption_key)
+            content = _decrypt_aes_gcm(response.content, self._encryption_key)
 
             client_state = ClientResolverState()
             client_state.ParseFromString(content)
             self._state = client_state.state
             self._account_id = client_state.account
             self._log_destinations = list(client_state.log_destinations)
+            self._etag = response.headers.get("ETag")
             logger.info(
                 "Loaded resolver state for account=%s, etag=%s, log_destinations=%s",
                 self._account_id,
@@ -162,3 +160,11 @@ def _decrypt_aes_gcm(data: bytes, hex_key: str) -> bytes:
     nonce = data[:nonce_len]
     ciphertext = data[nonce_len:]
     return AESGCM(key).decrypt(nonce, ciphertext, None)
+
+
+def validate_encryption_key(key: str) -> None:
+    """Reject invalid AES-256 configuration without exposing the supplied key."""
+    if not isinstance(key, str) or re.fullmatch(r"[0-9a-fA-F]{64}", key) is None:
+        raise ValueError(
+            "encryption_key is required and must contain exactly 64 hexadecimal characters"
+        )

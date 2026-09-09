@@ -51,7 +51,7 @@ from confidence.proto.confidence.flags.resolver.v1 import (
     types_pb2,
 )
 from confidence.proto.confidence.wasm import wasm_api_pb2
-from confidence.state_fetcher import StateFetcher
+from confidence.state_fetcher import StateFetcher, validate_encryption_key
 from confidence.version import __version__
 
 # Type variable for generic resolution
@@ -235,7 +235,7 @@ class ConfidenceProvider(AbstractProvider):
     def __init__(
         self,
         client_secret: str,
-        encryption_key: Optional[str] = None,
+        encryption_key: str,
         state_poll_interval: float = DEFAULT_STATE_POLL_INTERVAL,
         log_poll_interval: float = DEFAULT_LOG_POLL_INTERVAL,
         assign_poll_interval: float = DEFAULT_ASSIGN_POLL_INTERVAL,
@@ -253,6 +253,7 @@ class ConfidenceProvider(AbstractProvider):
 
         Args:
             client_secret: The Confidence client secret (required).
+            encryption_key: Required 64-character hex key for the same credential.
             state_poll_interval: Interval for state polling (default: 30.0).
             log_poll_interval: Interval for log flushing (default: 10.0).
             assign_poll_interval: Interval for assignment flushing (default: 0.1).
@@ -272,6 +273,7 @@ class ConfidenceProvider(AbstractProvider):
                 exceptional no-exposure modes; resolve logs and telemetry are
                 still sent.
         """
+        validate_encryption_key(encryption_key)
         self._client_secret = client_secret
         self._encryption_key = encryption_key
         self._init_labels: Dict[str, str] = {
@@ -363,12 +365,6 @@ class ConfidenceProvider(AbstractProvider):
         Raises:
             Exception: If initialization fails.
         """
-        if not self._encryption_key:
-            logger.warning(
-                "No encryption_key provided. Falling back to unencrypted state. "
-                "An encryption key will be required in an upcoming version."
-            )
-
         # Load WASM bytes if not provided
         if self._wasm_bytes is None:
             self._wasm_bytes = _load_wasm_from_resources()

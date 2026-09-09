@@ -21,6 +21,7 @@ class TestFlagLogging:
         """Flag logs are successfully sent to the backend on shutdown."""
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
+            encryption_key=os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"],
             log_poll_interval=1.0,  # Short interval for testing
         )
 
@@ -52,6 +53,7 @@ class TestFlagLogging:
         """Flag logs are sent periodically during normal operation."""
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
+            encryption_key=os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"],
             log_poll_interval=1.0,  # Short interval for testing
         )
 
@@ -97,6 +99,7 @@ class TestAssignmentLogging:
         """Flag assignments are logged when flags are resolved."""
         provider = ConfidenceProvider(
             client_secret=E2E_CLIENT_SECRET,
+            encryption_key=os.environ["CONFIDENCE_CLIENT_ENCRYPTION_KEY"],
             assign_poll_interval=0.1,  # Fast assignment polling
         )
 

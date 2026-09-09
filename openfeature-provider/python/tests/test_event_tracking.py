@@ -37,6 +37,7 @@ class TestTrackInterfaceConformance:
         """Calling track() the way the OpenFeature client does must not raise."""
         provider = ConfidenceProvider(
             client_secret=test_client_secret,
+            encryption_key="00" * 32,
             state_fetcher=MockStateFetcher(b"", "acct"),
             flag_logger=MockFlagLogger(),
             wasm_bytes=wasm_bytes,

@@ -10,6 +10,15 @@ from confidence.proto.confidence.flags.admin.v1.resolver_pb2 import (
     ClientResolverState,
 )
 from confidence.state_fetcher import StateFetcher
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+TEST_KEY = "00" * 32
+
+
+def encrypt_state(data: bytes) -> bytes:
+    nonce = b"\x00" * 12
+    return nonce + AESGCM(bytes.fromhex(TEST_KEY)).encrypt(nonce, data, None)
+
 
 CDN_BASE_URL = "https://confidence-resolver-state-cdn.spotifycdn.com"
 
@@ -17,7 +26,7 @@ CDN_BASE_URL = "https://confidence-resolver-state-cdn.spotifycdn.com"
 def get_cdn_url(client_secret: str) -> str:
     """Build the CDN URL from the client secret."""
     hash_hex = hashlib.sha256(client_secret.encode()).hexdigest()
-    return f"{CDN_BASE_URL}/{hash_hex}"
+    return f"{CDN_BASE_URL}/{hash_hex}.enc"
 
 
 class TestNewFetcher:
@@ -25,7 +34,7 @@ class TestNewFetcher:
 
     def test_new_fetcher(self) -> None:
         """Test that fetcher is created correctly."""
-        fetcher = StateFetcher("test-client-secret")
+        fetcher = StateFetcher("test-client-secret", TEST_KEY)
 
         assert fetcher is not None
         assert fetcher._client_secret == "test-client-secret"
@@ -33,7 +42,9 @@ class TestNewFetcher:
     def test_new_fetcher_with_custom_client(self) -> None:
         """Test fetcher with custom HTTP client."""
         custom_client = httpx.Client(timeout=60.0)
-        fetcher = StateFetcher("test-client-secret", http_client=custom_client)
+        fetcher = StateFetcher(
+            "test-client-secret", TEST_KEY, http_client=custom_client
+        )
 
         assert fetcher._http_client is custom_client
         custom_client.close()
@@ -44,12 +55,12 @@ class TestGetRawStateInitiallyEmpty:
 
     def test_state_initially_none(self) -> None:
         """State should be None before first fetch."""
-        fetcher = StateFetcher("test-client-secret")
+        fetcher = StateFetcher("test-client-secret", TEST_KEY)
         assert fetcher.state is None
 
     def test_account_id_initially_none(self) -> None:
         """Account ID should be None before first fetch."""
-        fetcher = StateFetcher("test-client-secret")
+        fetcher = StateFetcher("test-client-secret", TEST_KEY)
         assert fetcher.account_id is None
 
 
@@ -71,11 +82,11 @@ class TestReloadSuccess:
         # Mock the HTTP response
         httpx_mock.add_response(
             url=get_cdn_url(client_secret),
-            content=response_bytes,
+            content=encrypt_state(response_bytes),
             headers={"ETag": "test-etag"},
         )
 
-        fetcher = StateFetcher(client_secret)
+        fetcher = StateFetcher(client_secret, TEST_KEY)
         state, account_id, changed, log_destinations = fetcher.fetch()
 
         assert state == test_state
@@ -106,11 +117,11 @@ class TestReloadNotModified:
         # First request returns state with ETag
         httpx_mock.add_response(
             url=cdn_url,
-            content=response_bytes,
+            content=encrypt_state(response_bytes),
             headers={"ETag": "test-etag"},
         )
 
-        fetcher = StateFetcher(client_secret)
+        fetcher = StateFetcher(client_secret, TEST_KEY)
         state1, account_id1, changed1, dests1 = fetcher.fetch()
 
         assert changed1 is True
@@ -142,7 +153,7 @@ class TestReloadServerError:
             status_code=500,
         )
 
-        fetcher = StateFetcher(client_secret)
+        fetcher = StateFetcher(client_secret, TEST_KEY)
 
         with pytest.raises(Exception) as exc_info:
             fetcher.fetch()
@@ -162,7 +173,7 @@ class TestReloadClientError:
             status_code=404,
         )
 
-        fetcher = StateFetcher(client_secret)
+        fetcher = StateFetcher(client_secret, TEST_KEY)
 
         with pytest.raises(Exception) as exc_info:
             fetcher.fetch()
@@ -190,11 +201,11 @@ class TestEtagSentOnSecondRequest:
         # First request returns state with ETag
         httpx_mock.add_response(
             url=cdn_url,
-            content=response_bytes,
+            content=encrypt_state(response_bytes),
             headers={"ETag": '"test-etag-value"'},
         )
 
-        fetcher = StateFetcher(client_secret)
+        fetcher = StateFetcher(client_secret, TEST_KEY)
         fetcher.fetch()
 
         # Second request should include If-None-Match
@@ -214,3 +225,60 @@ class TestEtagSentOnSecondRequest:
 
         # Second request should have If-None-Match with the ETag value
         assert requests[1].headers.get("If-None-Match") == '"test-etag-value"'
+
+
+@pytest.mark.parametrize(
+    "key", [None, "", " ", "00" * 31, "00" * 33, "gg" * 32, "00" * 32 + "\n"]
+)
+def test_invalid_key_rejected(key: str) -> None:
+    from confidence.provider import ConfidenceProvider
+
+    for constructor in (StateFetcher, ConfidenceProvider):
+        with pytest.raises(ValueError, match="64 hexadecimal"):
+            constructor("secret", key)
+
+
+def test_missing_key_rejected() -> None:
+    from confidence.provider import ConfidenceProvider
+
+    for constructor in (StateFetcher, ConfidenceProvider):
+        with pytest.raises(TypeError):
+            constructor("secret")  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("key", ["ab" * 32, "AB" * 32])
+def test_valid_key_accepted(key: str) -> None:
+    assert StateFetcher("secret", key)._cdn_url.endswith(".enc")
+
+
+@pytest.mark.parametrize("failure", ["wrong-key", "tampered", "truncated", "plaintext"])
+def test_decryption_failure_preserves_etag(httpx_mock: HTTPXMock, failure: str) -> None:
+    from cryptography.exceptions import InvalidTag
+    from confidence.state_fetcher import StateFetcherError
+
+    plaintext = ClientResolverState(
+        state=b"state", account="account"
+    ).SerializeToString()
+    encrypted = encrypt_state(plaintext)
+    bad = {
+        "wrong-key": b"\x00" * 12
+        + AESGCM(b"\x01" * 32).encrypt(b"\x00" * 12, plaintext, None),
+        "tampered": encrypted[:-1] + bytes([encrypted[-1] ^ 1]),
+        "truncated": encrypted[:5],
+        "plaintext": plaintext,
+    }[failure]
+    url = get_cdn_url("secret")
+    httpx_mock.add_response(url=url, content=encrypted, headers={"ETag": "good"})
+    httpx_mock.add_response(url=url, content=bad, headers={"ETag": "bad"})
+    httpx_mock.add_response(url=url, content=encrypted, headers={"ETag": "recovered"})
+    fetcher = StateFetcher("secret", TEST_KEY)
+    fetcher.fetch()
+    with pytest.raises((InvalidTag, StateFetcherError)):
+        fetcher.fetch()
+    assert fetcher._etag == "good"
+    assert fetcher.state == b"state"
+    fetcher.fetch()
+    assert fetcher._etag == "recovered"
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 3
+    assert requests[-1].headers["If-None-Match"] == "good"

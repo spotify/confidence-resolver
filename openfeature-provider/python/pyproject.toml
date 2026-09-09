@@ -63,6 +63,10 @@ include = [
     "README.md",
 ]
 
+# Keep the generated WASM assets when building a wheel from the source distribution.
+[tool.hatch.build.targets.sdist.force-include]
+"resources/wasm" = "resources/wasm"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
