@@ -34,11 +34,11 @@ Before integrating any Confidence provider, you'll need a **client secret** from
 
 ## Encryption
 
-The flag state downloaded by local-resolve providers contains your flag rules and targeting segments. To protect this data at rest and in transit, Confidence supports **encrypting the flag state**. The state is decrypted only when it is loaded into the resolver component inside the provider — it is never stored or transmitted in plaintext.
+The flag state downloaded by local-resolve providers contains your flag rules and targeting segments. To protect this data at rest and in transit, Local-resolve providers require **encrypted flag state** and an encryption key when constructed. The state is decrypted only when it is loaded into the resolver component inside the provider — it is never stored or transmitted in plaintext.
 
 ### Getting Your Encryption Key
 
-The encryption key is available in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients), next to the client credentials for your integration.
+Open [Confidence Admin → Clients](https://app.confidence.spotify.com/admin/clients), select your client, and locate the credential used by the provider. The encryption key is available alongside that credential and is unique to it. Use the key paired with the configured client secret.
 
 ### Migration
 
@@ -52,7 +52,7 @@ Encryption support was introduced in the following provider versions:
 | Python | `0.9.0` | `confidence-openfeature-provider` |
 | Rust | `0.7.0` | `spotify-confidence-openfeature-provider-local` |
 
-We strongly recommend enabling encryption now by passing the encryption key when creating your provider. See your provider's README for the exact configuration:
+Pass the encryption key when creating your provider. Existing deployments can configure encryption on the versions listed above before upgrading to a release that requires it. See your provider's README for the exact configuration:
 
 - [JavaScript](js/README.md#encryption)
 - [Java](java/README.md#encryption)
@@ -60,7 +60,7 @@ We strongly recommend enabling encryption now by passing the encryption key when
 - [Python](python/README.md#encryption)
 - [Rust](rust/README.md#encryption)
 
-> **⚠️ Upcoming change:** Encryption will be made **mandatory** in a future SDK release. We will communicate a timeline and migration path before legacy (unencrypted) provider versions are affected. Adopting encryption now ensures a smooth transition when that happens.
+> **Breaking API change:** New local providers require a 64-character hexadecimal AES-256 key. Missing, empty, or malformed keys fail before network activity; encrypted-state failures never fall back to plaintext. Keyless convenience constructors are removed. This SDK change does not itself retire plaintext CDN access for older SDK versions; that requires a separately announced timeline.
 
 ---
 
