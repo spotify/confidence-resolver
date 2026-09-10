@@ -42,6 +42,7 @@ FROM rust-base AS rust-deps
 # Copy only dependency manifests first for better caching
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/Cargo.toml ./confidence-resolver/
+COPY confidence-resolver-server/Cargo.toml ./confidence-resolver-server/
 COPY confidence-cloudflare-resolver/Cargo.toml ./confidence-cloudflare-resolver/
 COPY wasm-msg/Cargo.toml ./wasm-msg/
 COPY wasm/rust-guest/Cargo.toml ./wasm/rust-guest/
@@ -69,6 +70,8 @@ COPY openfeature-provider/proto/ ./openfeature-provider/proto/
 # Create dummy source files to build dependencies
 RUN mkdir -p confidence-resolver/src && \
     echo "pub fn dummy() {}" > confidence-resolver/src/lib.rs && \
+    mkdir -p confidence-resolver-server/src && \
+    echo "fn main() {}" > confidence-resolver-server/src/main.rs && \
     mkdir -p confidence-cloudflare-resolver/src && \
     echo "pub fn dummy() {}" > confidence-cloudflare-resolver/src/lib.rs && \
     mkdir -p confidence-event-engine/src && \
@@ -106,6 +109,7 @@ COPY --from=rust-deps /workspace/target /workspace/target
 # Copy all Rust source files (workspace requires all members present)
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
+COPY confidence-resolver-server/ ./confidence-resolver-server/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
 COPY confidence-event-engine/ ./confidence-event-engine/
 COPY wasm-msg/ ./wasm-msg/
@@ -201,6 +205,7 @@ COPY --from=rust-deps /workspace/target /workspace/target
 # Copy only Rust-related source files (not Node.js/Python/Java)
 COPY Cargo.toml Cargo.lock ./
 COPY confidence-resolver/ ./confidence-resolver/
+COPY confidence-resolver-server/ ./confidence-resolver-server/
 COPY confidence-cloudflare-resolver/ ./confidence-cloudflare-resolver/
 COPY confidence-event-engine/ ./confidence-event-engine/
 COPY wasm-msg/ ./wasm-msg/
@@ -844,9 +849,43 @@ RUN --mount=type=secret,id=maven_settings \
     mvn -q -s /run/secrets/maven_settings --batch-mode -DskipTests deploy
 
 # ==============================================================================
+# Native self-hosted resolver. This build does not require WASM or SDK builds.
+# ==============================================================================
+FROM rust-base AS confidence-resolver-server.build
+RUN apk add --no-cache cmake g++ perl
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/workspace/target \
+    cargo build --locked --release -p confidence-resolver-server && \
+    mkdir -p /out && cp target/release/confidence-resolver-server /out/
+
+FROM confidence-resolver-server.build AS confidence-resolver-server.test
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/workspace/target \
+    cargo test --locked -p confidence-resolver-server
+
+FROM confidence-resolver-server.build AS confidence-resolver-server.lint
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/workspace/target \
+    make -C confidence-resolver-server lint
+
+FROM alpine:3.22 AS confidence-resolver-server.runtime
+RUN apk add --no-cache ca-certificates libgcc
+COPY --from=confidence-resolver-server.build /out/confidence-resolver-server /usr/local/bin/
+USER 65532:65532
+EXPOSE 8090 5990
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+    CMD ["confidence-resolver-server", "--health-check"]
+ENTRYPOINT ["confidence-resolver-server"]
+
+# ==============================================================================
 # All - Build and validate everything (default target)
 # ==============================================================================
 FROM scratch AS all
+
+COPY --from=confidence-resolver-server.test /out/confidence-resolver-server /artifacts/resolver-server/
+COPY --from=confidence-resolver-server.lint /workspace/Cargo.toml /markers/lint-resolver-server
 
 # Copy build artifacts (forces build stages to execute)
 COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm /artifacts/wasm/

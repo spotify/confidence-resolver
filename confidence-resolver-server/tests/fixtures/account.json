@@ -1,0 +1,158 @@
+{
+  "clients": [
+    {
+      "name": "clients/ab"
+    },
+    {
+      "name": "clients/a"
+    }
+  ],
+  "clientCredentials": [
+    {
+      "name": "clients/ab/credentials/key",
+      "clientSecret": {
+        "secret": "test-ab"
+      }
+    },
+    {
+      "name": "clients/a/credentials/key",
+      "clientSecret": {
+        "secret": "test-a"
+      }
+    }
+  ],
+  "flags": [
+    {
+      "name": "flags/a",
+      "state": "ACTIVE",
+      "clients": [
+        "clients/a"
+      ],
+      "variants": [
+        {
+          "name": "on",
+          "value": {
+            "enabled": true
+          }
+        }
+      ],
+      "rules": [
+        {
+          "name": "flags/a/rules/all",
+          "segment": "segments/all",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "on",
+                "variant": {
+                  "variant": "on"
+                },
+                "bucketRanges": [
+                  {
+                    "lower": 0,
+                    "upper": 1000
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "flags/ab",
+      "state": "ACTIVE",
+      "clients": [
+        "clients/ab"
+      ],
+      "variants": [
+        {
+          "name": "on",
+          "value": {
+            "enabled": true
+          }
+        }
+      ],
+      "rules": [
+        {
+          "name": "flags/ab/rules/all",
+          "segment": "segments/all",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "on",
+                "variant": {
+                  "variant": "on"
+                },
+                "bucketRanges": [
+                  {
+                    "lower": 0,
+                    "upper": 1000
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "flags/shared",
+      "state": "ACTIVE",
+      "clients": [
+        "clients/a",
+        "clients/ab"
+      ],
+      "variants": [
+        {
+          "name": "on",
+          "value": {
+            "enabled": true
+          }
+        }
+      ],
+      "rules": [
+        {
+          "name": "flags/shared/rules/all",
+          "segment": "segments/all",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "on",
+                "variant": {
+                  "variant": "on"
+                },
+                "bucketRanges": [
+                  {
+                    "lower": 0,
+                    "upper": 1000
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "segmentsNoBitsets": [
+    {
+      "name": "segments/all",
+      "state": "OK",
+      "allocation": {
+        "proportion": {
+          "value": "1.0"
+        }
+      }
+    }
+  ]
+}

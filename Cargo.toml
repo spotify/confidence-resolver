@@ -6,6 +6,7 @@ members = [
     "wasm/rust-guest",
     "wasm/event-guest",
     "confidence-resolver",
+    "confidence-resolver-server",
     "confidence-event-engine",
     "confidence-cloudflare-resolver",
     "openfeature-provider/java",
@@ -22,6 +23,7 @@ default-members = [
     "wasm/rust-guest",
     "wasm/event-guest",
     "confidence-resolver",
+    "confidence-resolver-server",
     "confidence-event-engine",
     "confidence-cloudflare-resolver"
 ]

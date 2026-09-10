@@ -58,6 +58,7 @@ build-deployer:
 	@echo "✅ Deployer image built: confidence-cloudflare-deployer:latest"
 
 test:
+	$(MAKE) -C confidence-resolver-server test
 	$(MAKE) -C confidence-resolver test
 	$(MAKE) -C confidence-event-engine test
 	$(MAKE) -C wasm/event-guest test
@@ -70,6 +71,7 @@ test:
 	$(MAKE) -C openfeature-provider/python test
 
 lint:
+	$(MAKE) -C confidence-resolver-server lint
 	$(MAKE) -C confidence-resolver lint
 	$(MAKE) -C confidence-event-engine lint
 	$(MAKE) -C wasm-msg lint
@@ -82,6 +84,7 @@ lint:
 	cargo fmt --check -p wasm-msg -p rust-guest -p event-guest -p confidence_resolver -p confidence-event-engine -p confidence-cloudflare-resolver -p spotify-confidence-openfeature-provider
 
 build: wasm/confidence_resolver.wasm wasm/confidence_event_engine.wasm
+	$(MAKE) -C confidence-resolver-server build
 	$(MAKE) -C openfeature-provider/js build
 	$(MAKE) -C openfeature-provider/java build
 	$(MAKE) -C openfeature-provider/go build
