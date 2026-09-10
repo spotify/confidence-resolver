@@ -1531,7 +1531,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Flaky due to global logger state shared across tests
     async fn test_disable_exposure_collection_does_not_enqueue_assigns() {
-        use crate::host::{ASSIGN_LOGGER, RESOLVE_LOGGER};
+        use crate::host::{ASSIGN_LOGGER, LOG_TEST_LOCK, RESOLVE_LOGGER};
         use crate::test_utils::{create_state_with_flag, TEST_CLIENT_SECRET};
         use open_feature::provider::FeatureProvider;
 
@@ -1545,6 +1545,7 @@ mod tests {
             .update(state, account_id, vec![crate::state::LogDestination::Edge])
             .await;
 
+        let _guard = LOG_TEST_LOCK.lock().await;
         let _ = ASSIGN_LOGGER.checkpoint();
         let _ = RESOLVE_LOGGER.checkpoint();
 
@@ -1559,8 +1560,12 @@ mod tests {
         let assigns = ASSIGN_LOGGER.checkpoint();
         let resolves = RESOLVE_LOGGER.checkpoint();
         assert!(
-            assigns.flag_assigned.is_empty(),
-            "disable_exposure_collection must not enqueue assigns"
+            assigns
+                .flag_assigned
+                .iter()
+                .flat_map(|assigned| &assigned.flags)
+                .all(|flag| flag.flag != "flags/test-flag"),
+            "disable_exposure_collection must not enqueue assigns for test-flag"
         );
         assert!(
             !resolves.client_resolve_info.is_empty() || !resolves.flag_resolve_info.is_empty(),
