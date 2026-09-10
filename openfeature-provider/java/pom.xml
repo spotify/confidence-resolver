@@ -60,12 +60,12 @@
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <protobuf.version>3.25.5</protobuf.version>
-    <grpc.version>1.75.0</grpc.version>
-    <slf4j.version>2.0.13</slf4j.version>
-    <guava.version>33.2.1-jre</guava.version>
+    <grpc.version>1.83.1</grpc.version>
+    <slf4j.version>2.0.18</slf4j.version>
+    <guava.version>33.7.1-jre</guava.version>
     <assertj.version>3.27.7</assertj.version>
     <junit.version>5.10.2</junit.version>
-    <mockito.version>5.12.0</mockito.version>
+    <mockito.version>5.23.0</mockito.version>
   </properties>
 
 
@@ -85,7 +85,7 @@
     <dependency>
       <groupId>com.dylibso.chicory</groupId>
       <artifactId>wasm</artifactId>
-      <version>1.4.0</version>
+      <version>1.7.5</version>
     </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
@@ -135,7 +135,7 @@
     <dependency>
       <groupId>ch.qos.logback</groupId>
       <artifactId>logback-classic</artifactId>
-      <version>1.5.6</version>
+      <version>1.6.3</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -153,7 +153,7 @@
     <dependency>
       <groupId>com.dylibso.chicory</groupId>
       <artifactId>runtime</artifactId>
-      <version>1.4.0</version>
+      <version>1.7.5</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -176,7 +176,7 @@
     <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy</artifactId>
-      <version>1.17.6</version>
+      <version>1.18.12</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -194,19 +194,19 @@
     <dependency>
       <groupId>org.awaitility</groupId>
       <artifactId>awaitility</artifactId>
-      <version>4.2.0</version>
+      <version>4.3.0</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
-      <version>3.18.0</version>
+      <version>3.20.0</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>dev.openfeature</groupId>
       <artifactId>sdk</artifactId>
-      <version>1.20.2</version>
+      <version>1.22.1</version>
     </dependency>
   </dependencies>
 
@@ -259,7 +259,7 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>build-helper-maven-plugin</artifactId>
-        <version>3.5.0</version>
+        <version>3.6.1</version>
         <executions>
           <execution>
             <id>add-proto-sources</id>
@@ -298,7 +298,7 @@
       <plugin>
         <groupId>com.dylibso.chicory</groupId>
         <artifactId>chicory-compiler-maven-plugin</artifactId>
-        <version>1.4.0</version>
+        <version>1.7.5</version>
         <executions>
           <execution>
             <id>compile-wasm</id>
@@ -319,7 +319,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.2.5</version>
+        <version>3.5.6</version>
         <configuration>
           <useModulePath>false</useModulePath>
           <!-- Run tests sequentially to avoid WASM/native library conflicts -->
@@ -332,7 +332,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
-        <version>3.2.5</version>
+        <version>3.5.6</version>
         <configuration>
           <useModulePath>false</useModulePath>
           <!-- Load main classes from the shaded JAR instead of target/classes -->
@@ -355,7 +355,7 @@
       <!-- Generate sources JAR -->
       <plugin>
         <artifactId>maven-source-plugin</artifactId>
-        <version>3.3.0</version>
+        <version>3.4.0</version>
         <executions>
           <execution>
             <id>attach-sources</id>
@@ -370,7 +370,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
-        <version>3.6.0</version>
+        <version>3.12.0</version>
         <executions>
           <execution>
             <id>attach-javadocs</id>
@@ -407,7 +407,7 @@
       <plugin>
         <groupId>org.sonatype.central</groupId>
         <artifactId>central-publishing-maven-plugin</artifactId>
-        <version>0.8.0</version>
+        <version>0.11.0</version>
         <extensions>true</extensions>
         <configuration>
           <publishingServerId>central</publishingServerId>
@@ -421,7 +421,7 @@
       <plugin>
         <groupId>com.spotify.fmt</groupId>
         <artifactId>fmt-maven-plugin</artifactId>
-        <version>2.25</version>
+        <version>2.29</version>
         <executions>
           <execution>
             <goals>
@@ -435,7 +435,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
-        <version>3.8.1</version>
+        <version>3.11.0</version>
         <executions>
           <execution>
             <id>analyze-deps</id>
@@ -469,7 +469,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>3.6.0</version>
+        <version>3.6.2</version>
         <executions>
           <execution>
             <phase>package</phase>
