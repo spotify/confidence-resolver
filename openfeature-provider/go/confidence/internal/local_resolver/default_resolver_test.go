@@ -5,18 +5,18 @@ import (
 	"os"
 	"testing"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var resolverFactory LocalResolverFactory
 
 func TestMain(m *testing.M) {
-	resolverFactory = DefaultResolverFactory(NoOpLogSink, LocalResolverConfig{})
+	resolverFactory = DefaultResolverFactory(NoOpLogSink, LocalResolverConfig{Logger: &noopLogger{}})
 	defer resolverFactory.Close(context.Background())
 	os.Exit(m.Run())
 }
@@ -47,7 +47,7 @@ func TestSwapWasmResolverApi_NewSwapWasmResolverApi(t *testing.T) {
 func TestSwapWasmResolverApi_WithRealState_InterpreterMode(t *testing.T) {
 	ctx := context.Background()
 
-	factory := NewWasmResolverFactory(NoOpLogSink, true)
+	factory := NewWasmResolverFactory(NoOpLogSink, newLoggerForTest(t), true)
 	defer factory.Close(ctx)
 
 	testState := tu.LoadTestResolverState(t)
@@ -442,7 +442,7 @@ func TestDisableExposureCollection_FlushAllLogsSendsResolvesNotAssigns(t *testin
 	var captured []*resolverv1.WriteFlagLogsRequest
 	factory := NewWasmResolverFactory(func(logs *resolverv1.WriteFlagLogsRequest) {
 		captured = append(captured, logs)
-	}, false)
+	}, newLoggerForTest(t), false)
 	defer factory.Close(ctx)
 
 	resolver := factory.New()

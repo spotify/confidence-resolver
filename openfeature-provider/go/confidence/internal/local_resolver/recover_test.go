@@ -50,7 +50,7 @@ func (f *mockFactory) Close(context.Context) error { return nil }
 // subsequent calls succeed.
 func TestRecoveringResolver_RecreatesAfterPanic(t *testing.T) {
 	inner := &mockFactory{}
-	factory := NewRecoveringResolverFactory(inner)
+	factory := NewRecoveringResolverFactory(inner, newLoggerForTest(t))
 	rr := factory.New()
 
 	// First call: the mockResolver (shouldPanic=true) panics, withRecover

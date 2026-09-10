@@ -184,7 +184,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 
 #### Optional Fields
 
-- `Logger` (\*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
+- `Logger` (`confidence.Logger`): Custom logger for provider operations. `*slog.Logger` satisfies this interface. If not provided, logging is disabled. See [Logging](#logging) for details.
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration). The default gRPC dial options include a retry policy for flag log writes (3 attempts with exponential backoff on `UNAVAILABLE`). Custom `TransportHooks` receive these options in `ModifyGRPCDial` and can keep, modify, or replace them. See [gRPC retry via service config](https://grpc.io/docs/guides/retry/) for details.
 - `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
 - `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
@@ -551,12 +551,15 @@ if err != nil {
 
 ## Logging
 
-The provider uses `log/slog` for structured logging. By default, logs at `Info` level and above are written to `stderr`.
+The provider accepts any logger that implements `confidence.Logger`. The interface follows the `log/slog` method signatures, so `*slog.Logger` can be passed directly. If no logger is provided, a no-op logger is used.
 
-You can provide a custom logger to control log level, format, and destination:
+For example, use `slog` to control log level, format, and destination:
 
 ```go
-import "log/slog"
+import (
+    "log/slog"
+    "os"
+)
 
 // JSON logger with debug level
 logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{

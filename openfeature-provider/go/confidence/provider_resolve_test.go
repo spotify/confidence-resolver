@@ -2,17 +2,16 @@ package confidence
 
 import (
 	"context"
-	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/open-feature/go-sdk/openfeature"
+	"google.golang.org/protobuf/proto"
+
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	adminv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 	iamv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestLocalResolverProvider_ReturnsDefaultOnError(t *testing.T) {
@@ -41,10 +40,10 @@ func TestLocalResolverProvider_ReturnsDefaultOnError(t *testing.T) {
 	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 	}, unsupportedMatStore)
 	// Use different client secret that won't match
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", newLoggerForTest(t)))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -89,10 +88,10 @@ func TestLocalResolverProvider_ReturnsCorrectValue(t *testing.T) {
 	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 	}, unsupportedMatStore)
 	// Use the correct client secret from test data
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, newLoggerForTest(t)))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -168,9 +167,9 @@ func TestLocalResolverProvider_DisableExposureCollectionContextKey(t *testing.T)
 	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 	}, unsupportedMatStore)
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, newLoggerForTest(t)))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -218,7 +217,7 @@ func TestLocalResolverProvider_DisableExposureCollectionConfig(t *testing.T) {
 		stateProvider,
 		mockFlagLogger,
 		tu.TestClientSecret,
-		slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		newLoggerForTest(t),
 		WithDisableExposureCollection(),
 	)
 	if err := openfeature.SetProviderAndWait(provider); err != nil {
@@ -254,7 +253,7 @@ func TestLocalResolverProvider_DisableExposureCollectionConfig(t *testing.T) {
 
 func TestLocalResolverProvider_PathNotFound(t *testing.T) {
 	ctx := context.Background()
-	runtime := lr.DefaultResolverFactory(lr.NoOpLogSink, lr.LocalResolverConfig{})
+	runtime := lr.DefaultResolverFactory(lr.NoOpLogSink, lr.LocalResolverConfig{Logger: newLoggerForTest(t)})
 	defer runtime.Close(ctx)
 
 	// Load real test state
@@ -270,10 +269,10 @@ func TestLocalResolverProvider_PathNotFound(t *testing.T) {
 	unsupportedMatStore := newUnsupportedMaterializationStore()
 
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 	}, unsupportedMatStore)
 	// Use the correct client secret from test data
-	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, newLoggerForTest(t)))
 	client := openfeature.NewClient("test-client")
 
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -338,9 +337,9 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		unsupportedMatStore := newUnsupportedMaterializationStore()
 
 		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-			return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+			return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 		}, unsupportedMatStore)
-		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, slog.New(slog.NewTextHandler(os.Stderr, nil))))
+		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, tu.TestClientSecret, newLoggerForTest(t)))
 		client := openfeature.NewClient("test-client")
 
 		evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
@@ -379,9 +378,9 @@ func TestLocalResolverProvider_MissingMaterializations(t *testing.T) {
 		unsupportedMatStore := newUnsupportedMaterializationStore()
 
 		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-			return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+			return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 		}, unsupportedMatStore)
-		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil))))
+		openfeature.SetProviderAndWait(NewLocalResolverProvider(resolverSupplier, stateProvider, mockFlagLogger, "test-secret", newLoggerForTest(t)))
 		client := openfeature.NewClient("test-client")
 
 		evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{

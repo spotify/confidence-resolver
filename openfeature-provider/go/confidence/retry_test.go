@@ -2,22 +2,27 @@ package confidence_test
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net"
-	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
-	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
-	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence"
+	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
+	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 )
+
+func newLoggerForTest(_ testing.TB) *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func TestRetryOnUnavailable(t *testing.T) {
 	var callCount atomic.Int32
@@ -44,7 +49,7 @@ func TestRetryOnUnavailable(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -80,7 +85,7 @@ func TestNoRetryOnPermissionDenied(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -117,7 +122,7 @@ func TestAllRetriesExhausted(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -154,7 +159,7 @@ func TestShutdownDuringRetries(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -203,7 +208,7 @@ func TestTransportHooksPreserveRetry(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	logger.Write(&resolverv1.WriteFlagLogsRequest{
 		FlagAssigned: []*resolverv1.FlagAssigned{{ResolveId: "r1"}},
@@ -240,7 +245,7 @@ func TestMultipleWritesWithRetryConfig(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 
 	stub := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	logger := fl.NewGrpcWasmFlagLogger(stub, "test-secret", newLoggerForTest(t))
 
 	for i := 0; i < 5; i++ {
 		logger.Write(&resolverv1.WriteFlagLogsRequest{

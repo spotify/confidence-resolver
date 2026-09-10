@@ -2,8 +2,6 @@ package confidence
 
 import (
 	"context"
-	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,11 +11,12 @@ import (
 	"github.com/open-feature/go-sdk/openfeature"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
+	"google.golang.org/grpc"
+
 	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	"google.golang.org/grpc"
 )
 
 // mockStateProvider provides test state for integration testing
@@ -103,7 +102,6 @@ func (m *mockGrpcStubForIntegration) GetCallsReceived() int32 {
 func TestIntegration_OpenFeatureShutdownFlushesLogs(t *testing.T) {
 	// Load test state
 	testState := tu.LoadTestResolverState(t)
-	accountID := tu.LoadTestAccountID(t)
 
 	ctx := context.Background()
 
@@ -116,7 +114,7 @@ func TestIntegration_OpenFeatureShutdownFlushesLogs(t *testing.T) {
 	mockStub := &mockGrpcStubForIntegration{
 		onCallReceived: make(chan struct{}, 100), // Buffer to prevent blocking
 	}
-	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "test-client-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "test-client-secret", newLoggerForTest(t))
 
 	trackingLogger := &trackingFlagLogger{
 		actualLogger:       actualGrpcLogger,
@@ -124,7 +122,7 @@ func TestIntegration_OpenFeatureShutdownFlushesLogs(t *testing.T) {
 	}
 
 	// Create provider with test state
-	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger, newUnsupportedMaterializationStore())
+	provider, err := createProviderWithTestState(t, stateProvider, trackingLogger, newUnsupportedMaterializationStore())
 	if err != nil {
 		t.Fatalf("Failed to create provider: %v", err)
 	}
@@ -200,7 +198,7 @@ func TestIntegration_OpenFeatureResolveStickyFlagMatStoreReadAndWrite(t *testing
 	mockStub := &mockGrpcStubForIntegration{
 		onCallReceived: make(chan struct{}, 100), // Buffer to prevent blocking
 	}
-	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "test-secret", newLoggerForTest(t))
 
 	trackingLogger := &trackingFlagLogger{
 		actualLogger:       actualGrpcLogger,
@@ -208,11 +206,11 @@ func TestIntegration_OpenFeatureResolveStickyFlagMatStoreReadAndWrite(t *testing
 	}
 	matStore := newInMemoryMaterializationStore(nil)
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 	}, matStore)
 
 	// Create provider with test state
-	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, "test-secret", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, "test-secret", newLoggerForTest(t))
 
 	client := openfeature.NewClient("integration-test")
 
@@ -323,7 +321,7 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 	mockStub := &mockGrpcStubForIntegration{
 		onCallReceived: make(chan struct{}, 100),
 	}
-	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, SECRET, newLoggerForTest(t))
 
 	trackingLogger := &trackingFlagLogger{
 		actualLogger:       actualGrpcLogger,
@@ -339,11 +337,11 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 		}
 		matStore := newInMemoryMaterializationStoreWithInclusions(nil, initialInclusions)
 		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-			return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+			return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 		}, matStore)
 
 		// Create provider with test state
-		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, newLoggerForTest(t))
 
 		client := openfeature.NewClient("integration-test-mat-seg")
 
@@ -401,11 +399,11 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 		}
 		matStore := newInMemoryMaterializationStoreWithInclusions(nil, initialInclusions)
 		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-			return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+			return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 		}, matStore)
 
 		// Create provider with test state
-		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, newLoggerForTest(t))
 
 		client := openfeature.NewClient("integration-test-mat-seg-not-in")
 
@@ -442,11 +440,11 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 		// Create empty materialization store (no context for tutorial_visitor)
 		matStore := newInMemoryMaterializationStore(nil)
 		resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-			return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+			return lr.NewLocalResolverWithPoolSize(ctx, logSink, newLoggerForTest(t), 2)
 		}, matStore)
 
 		// Create provider with test state
-		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		provider := NewLocalResolverProvider(resolverSupplier, stateProvider, trackingLogger, SECRET, newLoggerForTest(t))
 
 		client := openfeature.NewClient("integration-test-mat-seg-no-ctx")
 
@@ -486,7 +484,6 @@ func TestIntegration_OpenFeatureMaterializedSegmentCriterion(t *testing.T) {
 func TestIntegration_OpenFeatureObjectWithStructDefault(t *testing.T) {
 	// Load test state
 	testState := tu.LoadTestResolverState(t)
-	accountID := tu.LoadTestAccountID(t)
 
 	ctx := context.Background()
 
@@ -499,7 +496,7 @@ func TestIntegration_OpenFeatureObjectWithStructDefault(t *testing.T) {
 	mockStub := &mockGrpcStubForIntegration{
 		onCallReceived: make(chan struct{}, 100),
 	}
-	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", newLoggerForTest(t))
 
 	trackingLogger := &trackingFlagLogger{
 		actualLogger:       actualGrpcLogger,
@@ -507,7 +504,7 @@ func TestIntegration_OpenFeatureObjectWithStructDefault(t *testing.T) {
 	}
 
 	// Create provider with test state
-	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger, newUnsupportedMaterializationStore())
+	provider, err := createProviderWithTestState(t, stateProvider, trackingLogger, newUnsupportedMaterializationStore())
 	if err != nil {
 		t.Fatalf("Failed to create provider: %v", err)
 	}
@@ -694,7 +691,6 @@ func TestIntegration_OpenFeatureObjectWithStructDefault(t *testing.T) {
 func TestIntegration_GetPrometheusMetrics(t *testing.T) {
 	// Load test state
 	testState := tu.LoadTestResolverState(t)
-	accountID := tu.LoadTestAccountID(t)
 
 	ctx := context.Background()
 
@@ -707,7 +703,7 @@ func TestIntegration_GetPrometheusMetrics(t *testing.T) {
 	mockStub := &mockGrpcStubForIntegration{
 		onCallReceived: make(chan struct{}, 100),
 	}
-	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	actualGrpcLogger := fl.NewGrpcWasmFlagLogger(mockStub, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", newLoggerForTest(t))
 
 	trackingLogger := &trackingFlagLogger{
 		actualLogger:       actualGrpcLogger,
@@ -715,7 +711,7 @@ func TestIntegration_GetPrometheusMetrics(t *testing.T) {
 	}
 
 	// Create provider with test state
-	provider, err := createProviderWithTestState(ctx, stateProvider, accountID, trackingLogger, newUnsupportedMaterializationStore())
+	provider, err := createProviderWithTestState(t, stateProvider, trackingLogger, newUnsupportedMaterializationStore())
 	if err != nil {
 		t.Fatalf("Failed to create provider: %v", err)
 	}
@@ -811,17 +807,20 @@ func TestIntegration_GetPrometheusMetrics(t *testing.T) {
 
 // createProviderWithTestState creates a provider with mock state provider and tracking logger
 func createProviderWithTestState(
-	ctx context.Context,
+	tb testing.TB,
 	stateProvider StateProvider,
-	accountID string,
-	logger FlagLogger,
+	fl FlagLogger,
 	matStore MaterializationStore,
 ) (*LocalResolverProvider, error) {
+	logger := newLoggerForTest(tb)
+
 	resolverSupplier := wrapResolverSupplierWithMaterializations(func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return lr.NewLocalResolverWithPoolSize(ctx, logSink, 2)
+		return lr.NewLocalResolverWithPoolSize(ctx, logSink, logger, 2)
 	}, matStore)
+
 	// Create provider with the client secret from test state
 	// The test state includes client secret: mkjJruAATQWjeY7foFIWfVAcBWnci2YF
-	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, logger, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	provider := NewLocalResolverProvider(resolverSupplier, stateProvider, fl, "mkjJruAATQWjeY7foFIWfVAcBWnci2YF", logger)
+
 	return provider, nil
 }

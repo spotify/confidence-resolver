@@ -3,7 +3,6 @@ package flag_logger
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,7 +21,7 @@ type logSender func(ctx context.Context, request *resolverv1.WriteFlagLogsReques
 type MultiDestinationFlagLogger struct {
 	senders      map[admin.LogDestination]logSender
 	destinations func() []admin.LogDestination
-	logger       *slog.Logger
+	logger       Logger
 	wg           sync.WaitGroup
 	attempts     atomic.Int64
 	failures     atomic.Int64
@@ -42,7 +41,7 @@ func NewMultiDestinationFlagLogger(
 	clientSecret string,
 	destinations func() []admin.LogDestination,
 	accountID func() string,
-	logger *slog.Logger,
+	logger Logger,
 ) *MultiDestinationFlagLogger {
 	httpS := newHttpSender(clientSecret, accountID, nil)
 
