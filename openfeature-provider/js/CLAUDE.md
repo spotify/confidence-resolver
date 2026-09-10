@@ -4,11 +4,11 @@
 
 npm package: `@spotify-confidence/openfeature-server-provider-local`
 
-TypeScript OpenFeature provider using the Confidence resolver compiled to WASM. Supports multiple WASM loading strategies and React Server Components.
+TypeScript OpenFeature provider using resolver and event-engine WASM modules. Supports multiple WASM loading strategies, React Server Components, and Next.js Pages Router helpers.
 
 ## Entry Points & Exports
 
-The package has 5 build targets configured in `tsdown.config.ts`:
+The package has 8 build targets configured in `tsdown.config.ts`:
 
 | Export Path        | Entry File             | Platform | WASM Loading                    |
 | ------------------ | ---------------------- | -------- | ------------------------------- |
@@ -17,10 +17,13 @@ The package has 5 build targets configured in `tsdown.config.ts`:
 | `"./fetch"`        | `src/index.fetch.ts`   | neutral  | `fetch()` (Deno, Bun, browsers) |
 | `"./react-server"` | `src/react/server.tsx` | neutral  | React Server Component          |
 | `"./react-client"` | `src/react/client.tsx` | neutral  | React Client Component          |
+| `"./pages-router/server"` | `src/pages-router/server.ts` | neutral | Pages Router server helpers |
+| `"./pages-router/client"` | `src/pages-router/client.tsx` | neutral | Pages Router client provider |
+| `"./pages-router/api"` | `src/pages-router/api.ts` | neutral | Deferred-apply API handler |
 
-Each entry point exports a `createConfidenceServerProvider` factory function.
+The default, `./node`, and `./fetch` entry points export `createConfidenceServerProvider`; the React and Pages Router entry points expose framework-specific APIs.
 
-The `./node` entry point extends options with `wasmPath?: string` and `./fetch` with `wasmUrl?: URL | string`.
+The default entry point inlines both WASM modules. The `./node` and `./fetch` builds copy both modules alongside the bundle; their `wasmPath`/`wasmUrl` overrides apply to the resolver module.
 
 ## ProviderOptions
 
@@ -29,13 +32,18 @@ Defined in `src/ConfidenceServerProviderLocal.ts`:
 ```typescript
 interface ProviderOptions {
   flagClientSecret: string;
+  encryptionKey?: string; // hex-encoded AES-256 key for CDN state
   initializeTimeout?: number;
   stateUpdateInterval?: number; // ms between state polls (default: 30000)
   flushInterval?: number; // ms between log flushes (default: 15000)
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
+  enableApplyDedup?: boolean; // experimental, default false
+  disableExposureCollection?: boolean;
 }
 ```
+
+OpenFeature `track()` calls are buffered in `confidence_event_engine.wasm` and published over HTTP on the regular flush interval.
 
 ## Build & Test
 

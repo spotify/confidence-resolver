@@ -11,8 +11,11 @@ Rust OpenFeature provider for Confidence. **Uses the `confidence_resolver` crate
 - **Native resolver** — Links directly to `confidence_resolver` crate
 - **Async** — Built on `tokio` with background tasks for state polling and log flushing
 - **`reqwest`** — HTTP client for state fetching from CDN and log shipping
+- **Destination-aware logging** — Resolver state selects Spotify Edge or Cloudflare HTTP delivery with ordered fallback
 - **Builder pattern** — `ProviderOptions::new(secret).with_*()` chain for configuration
 - **`gateway_url`** option — Routes all HTTP requests through a proxy, preserving original host in `X-Forwarded-Host`
+- **Encrypted state** — Optional hex-encoded AES-256 key decrypts CDN state
+- **Exposure control** — `with_disable_exposure_collection()` disables assignment collection while retaining resolve logs and telemetry
 
 ## Background Tasks
 
@@ -34,4 +37,4 @@ make lint       # cargo fmt --check + cargo clippy -- -D warnings
 
 ## Proto Generation
 
-`build.rs` compiles protos from `../../confidence-resolver/protos/` — specifically `internal_api.proto` for the remote materialization API. Generated code is included as `remote_proto` module.
+`build.rs` compiles `types.proto` and `internal_api.proto` for the remote materialization API. It uses the crate-local `proto/` directory in a published crate and falls back to the shared `openfeature-provider/proto/` directory during workspace development. Generated code is included as the `remote_proto` module.

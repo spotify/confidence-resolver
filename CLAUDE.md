@@ -2,14 +2,16 @@
 
 ## Repository Overview
 
-Multi-language workspace implementing feature flag resolution in Rust, compiled to WebAssembly with bindings for JS, Java, Go, Ruby, Rust, and Python.
+Multi-language workspace implementing feature flag resolution and event tracking in Rust. The resolver and event engine compile to WebAssembly for JS, Java, Go, and Python; the Rust provider uses the resolver natively, while Ruby resolves remotely over HTTP.
 
 **Repository**: `spotify/confidence-resolver`
 
 ### Key Components
 
 - **confidence-resolver/** — Core Rust resolver library (flag evaluation, targeting, bucketing)
+- **confidence-event-engine/** — Shared event batching engine
 - **wasm/rust-guest/** — WASM guest (compiles the resolver to `wasm32-unknown-unknown`)
+- **wasm/event-guest/** — WASM guest for OpenFeature event tracking
 - **wasm-msg/** — WASM messaging layer (alloc/free, protobuf-based host↔guest calls)
 - **confidence-cloudflare-resolver/** — Cloudflare Worker WASM build
 - **openfeature-provider/js/** — TypeScript OpenFeature provider (npm: `@spotify-confidence/openfeature-server-provider-local`)
@@ -18,7 +20,7 @@ Multi-language workspace implementing feature flag resolution in Rust, compiled 
 - **openfeature-provider/ruby/** — Ruby OpenFeature provider (**online/remote resolver, NOT WASM**)
 - **openfeature-provider/rust/** — Rust OpenFeature provider (**native resolver, no WASM**)
 - **openfeature-provider/python/** — Python OpenFeature provider
-- **openfeature-provider/proto/** — Shared protobuf definitions used by all providers
+- **openfeature-provider/proto/** — Shared protobuf definitions used by the local providers
 - **mock-support-server/** — Go mock server for integration/benchmark testing
 
 ## Cargo Workspace Gotcha
@@ -28,12 +30,14 @@ Several workspace members are **dummy Cargo crates** that exist solely for Relea
 ## WASM Architecture
 
 ```
-Host (JS/Java/Go/Python/Ruby)
+Host (JS/Java/Go/Python)
     ↓ protobuf message via wasm-msg (alloc → write → call → read → free)
 WASM Guest (rust-guest, compiled from confidence-resolver)
     ↓ returns protobuf response
 Host
 ```
+
+Event tracking in those providers follows the same host/guest pattern through `wasm/event-guest`, backed by `confidence-event-engine`. Ruby does not use either WASM guest, and the Rust provider links the resolver crate directly.
 
 - `wasm-msg` provides memory management (`wasm_msg_alloc`/`wasm_msg_free`) and the `wasm_msg_guest!`/`wasm_msg_host!` macros
 - Guest exports are prefixed: `wasm_msg_guest_resolve_flags`, `wasm_msg_guest_set_resolver_state`, etc.
@@ -70,13 +74,19 @@ make sync-wasm-go
 
 This builds the WASM in Docker and copies it to `openfeature-provider/go/confidence/internal/local_resolver/assets/`. The updated `.wasm` file must be committed.
 
+The Go provider also embeds the event engine WASM. After changes to `confidence-event-engine/` or `wasm/event-guest/`, run:
+
+```bash
+make sync-wasm-event-go
+```
+
 ## Protobuf Schema Locations
 
 There are 4 separate proto directories — this is the most common source of confusion:
 
 - **`confidence-resolver/protos/`** — Core resolver protos (flags, admin, resolver API, types, events)
-- **`openfeature-provider/proto/`** — Shared provider protos (WASM messages, flag types) — used by JS, Java, Go, Ruby, Python providers
-- **`wasm/proto/`** — WASM guest message definitions (`messages.proto`, `types.proto`)
+- **`openfeature-provider/proto/`** — Shared provider protos (flags, WASM messages, and events) — used by JS, Java, Go, Python, and the published Rust provider
+- **`wasm/proto/`** — Resolver WASM guest message definitions (`messages.proto`, `types.proto`, and resolver API imports)
 - **`wasm-msg/proto/`** — Low-level messaging layer protos
 
 ## Publishing & Security
@@ -94,7 +104,7 @@ RUN --mount=type=secret,id=my_secret \
 ```
 
 - **JS** — Build in Docker (`npm pack`), publish via GitHub Actions OIDC (no npm tokens). Requires npm Trusted Publishers config.
-- **Java** — Credentials mounted as Docker secrets. Requires GitHub secrets: `MAVEN_SETTINGS`, `GPG_PRIVATE_KEY`, `SIGN_KEY_PASS`. Uses `central-publishing-maven-plugin` (not nexus-staging).
+- **Java** — Credentials mounted as Docker secrets. Requires GitHub secrets: `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `GPG_PRIVATE_KEY`, `SIGN_KEY_PASS`. Uses `central-publishing-maven-plugin` (not nexus-staging).
 - **Rust** — Published via Docker stages to crates.io.
 
 ## Post-Release Checklist
@@ -109,14 +119,15 @@ After releasing a new version of any SDK from this repo, update internal version
 make                # lint + test + build everything
 make test           # run all component tests
 make lint           # run all linters
-make build          # build WASM + all provider packages
+make build          # build both WASM artifacts and provider build targets
 make wasm/confidence_resolver.wasm  # build WASM artifact only
 make sync-wasm-go   # build WASM in Docker and sync to Go assets (for committing)
+make sync-wasm-event-go # build event WASM in Docker and sync to Go assets
 make go-bench       # Go benchmark via docker-compose
 make js-bench       # JS benchmark via docker-compose
 ```
 
-Each component has its own Makefile with `build`, `test`, `lint`, `clean` targets.
+Component Makefiles expose the targets relevant to that component; not every component implements every target.
 
 ### Docker
 
@@ -130,7 +141,7 @@ docker build --target openfeature-provider-js.test .        # run JS tests
 docker build --target openfeature-provider-java.build .     # build Java provider
 ```
 
-Stage naming pattern: `<component>.{build,test,test_e2e,lint,artifact,publish}`
+Common stage naming pattern: `<component>.{build,test,test_e2e,lint,artifact,publish}`. Available actions vary by component.
 
 ## Environment Variables
 
