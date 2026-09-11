@@ -59,7 +59,10 @@ from openfeature.evaluation_context import EvaluationContext
 from confidence import ConfidenceProvider
 
 # Create and register the provider
-provider = ConfidenceProvider(client_secret="your-client-secret")
+provider = ConfidenceProvider(
+    client_secret="your-client-secret",
+    encryption_key="your-encryption-key",
+)
 api.set_provider_and_wait(provider)
 
 # Get a client
@@ -80,6 +83,27 @@ print(f"Flag value: {enabled}")
 
 # Don't forget to shutdown when your application exits (see Shutdown section)
 ```
+
+## Async Evaluation
+
+In an asyncio application, use the OpenFeature client's async evaluation methods:
+
+```python
+# After registering the provider, as shown above:
+async def feature_enabled() -> bool:
+    return await client.get_boolean_value_async(
+        "test-flag.enabled", default_value=False, evaluation_context=context
+    )
+```
+
+Async evaluation is supported for boolean, string, integer, float, and object flags.
+The provider runs evaluation in a worker thread, so waiting for the WASM resolver
+or materialization storage leaves the event loop free to handle other requests.
+Evaluations still share one WASM instance protected by a lock.
+
+Provider initialization and shutdown remain synchronous; perform them outside
+the event loop or offload them with `asyncio.to_thread`. Cancelling an async
+evaluation does not stop work already running in its worker thread.
 
 ## Evaluation Context
 

@@ -4,6 +4,7 @@ This module provides the ConfidenceProvider class that implements the OpenFeatur
 AbstractProvider interface for local flag resolution using the Confidence WASM resolver.
 """
 
+import asyncio
 import json
 import logging
 import threading
@@ -582,6 +583,17 @@ class ConfidenceProvider(AbstractProvider):
             type_convert=lambda v: v,
         )
 
+    async def resolve_boolean_details_async(
+        self,
+        flag_key: str,
+        default_value: bool,
+        evaluation_context: Optional[EvaluationContext] = None,
+    ) -> FlagResolutionDetails[bool]:
+        """Resolve a boolean flag without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.resolve_boolean_details, flag_key, default_value, evaluation_context
+        )
+
     def resolve_string_details(
         self,
         flag_key: str,
@@ -595,6 +607,17 @@ class ConfidenceProvider(AbstractProvider):
             evaluation_context,
             type_check=lambda v: isinstance(v, str),
             type_convert=lambda v: v,
+        )
+
+    async def resolve_string_details_async(
+        self,
+        flag_key: str,
+        default_value: str,
+        evaluation_context: Optional[EvaluationContext] = None,
+    ) -> FlagResolutionDetails[str]:
+        """Resolve a string flag without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.resolve_string_details, flag_key, default_value, evaluation_context
         )
 
     def resolve_integer_details(
@@ -616,6 +639,17 @@ class ConfidenceProvider(AbstractProvider):
             type_convert=lambda v: int(v),
         )
 
+    async def resolve_integer_details_async(
+        self,
+        flag_key: str,
+        default_value: int,
+        evaluation_context: Optional[EvaluationContext] = None,
+    ) -> FlagResolutionDetails[int]:
+        """Resolve an integer flag without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.resolve_integer_details, flag_key, default_value, evaluation_context
+        )
+
     def resolve_float_details(
         self,
         flag_key: str,
@@ -634,6 +668,17 @@ class ConfidenceProvider(AbstractProvider):
             type_convert=lambda v: float(v),
         )
 
+    async def resolve_float_details_async(
+        self,
+        flag_key: str,
+        default_value: float,
+        evaluation_context: Optional[EvaluationContext] = None,
+    ) -> FlagResolutionDetails[float]:
+        """Resolve a float flag without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.resolve_float_details, flag_key, default_value, evaluation_context
+        )
+
     def resolve_object_details(
         self,
         flag_key: str,
@@ -647,6 +692,17 @@ class ConfidenceProvider(AbstractProvider):
             evaluation_context,
             type_check=lambda v: isinstance(v, dict),
             type_convert=lambda v: v,
+        )
+
+    async def resolve_object_details_async(
+        self,
+        flag_key: str,
+        default_value: Dict[str, Any],
+        evaluation_context: Optional[EvaluationContext] = None,
+    ) -> FlagResolutionDetails[Dict[str, Any]]:
+        """Resolve an object flag without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.resolve_object_details, flag_key, default_value, evaluation_context
         )
 
     def _resolve_object(
