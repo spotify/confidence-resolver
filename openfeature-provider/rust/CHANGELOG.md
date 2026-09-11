@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.11.0...openfeature-provider/rust-v0.12.0) (2026-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* require encryption key ([#589](https://github.com/spotify/confidence-resolver/issues/589))
+
+### Features
+
+* require encryption key ([#589](https://github.com/spotify/confidence-resolver/issues/589)) ([ef5cbcc](https://github.com/spotify/confidence-resolver/commit/ef5cbcc11f5dbda330765b7de0ebd420a89d05c2))
+
 ## [0.11.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.10.1...openfeature-provider/rust-v0.11.0) (2026-09-08)
 
 

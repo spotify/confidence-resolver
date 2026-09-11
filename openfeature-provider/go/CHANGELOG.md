@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.26.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.25.0...openfeature-provider/go/v0.26.0) (2026-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* require encryption key ([#589](https://github.com/spotify/confidence-resolver/issues/589))
+
+### Features
+
+* enable apply-event deduplication by default ([#539](https://github.com/spotify/confidence-resolver/issues/539)) ([a3c9ad6](https://github.com/spotify/confidence-resolver/commit/a3c9ad6312da72b4596b06a5d5fd6590f6063233))
+* require encryption key ([#589](https://github.com/spotify/confidence-resolver/issues/589)) ([ef5cbcc](https://github.com/spotify/confidence-resolver/commit/ef5cbcc11f5dbda330765b7de0ebd420a89d05c2))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.6.0 to 0.7.0
+
 ## [0.25.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.24.0...openfeature-provider/go/v0.25.0) (2026-09-08)
 
 

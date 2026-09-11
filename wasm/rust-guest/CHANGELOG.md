@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.6.0...rust-guest-v0.7.0) (2026-09-11)
+
+
+### Features
+
+* enable apply-event deduplication by default ([#539](https://github.com/spotify/confidence-resolver/issues/539)) ([a3c9ad6](https://github.com/spotify/confidence-resolver/commit/a3c9ad6312da72b4596b06a5d5fd6590f6063233))
+
 ## [0.6.0](https://github.com/spotify/confidence-resolver/compare/rust-guest-v0.5.3...rust-guest-v0.6.0) (2026-09-08)
 
 
