@@ -526,8 +526,28 @@ macro_rules! spec_test {
 
 // Basic flag filtering
 spec_test!(no_flags_for_client);
-spec_test!(inactive_flag_filtered);
+spec_test!(explicit_archived_flag);
 spec_test!(flag_name_filter);
+
+#[test]
+fn resolve_all_omits_archived_flags() {
+    let mut state =
+        build_state_from_json(include_str!("../test-payloads/resolver-spec/state.json"));
+    state
+        .flags
+        .retain(|name, _| matches!(name.as_str(), "flags/simple-flag" | "flags/inactive-flag"));
+    let resolver = state
+        .get_resolver_with_json_context::<L>("test-secret", "{}", &ENCRYPTION_KEY)
+        .unwrap();
+    let response = resolver
+        .resolve_flags_no_materialization(&flags_resolver::ResolveFlagsRequest {
+            client_secret: "test-secret".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(response.resolved_flags.len(), 1);
+    assert_eq!(response.resolved_flags[0].flag, "flags/simple-flag");
+}
 
 // Rule enablement
 spec_test!(rule_not_enabled);

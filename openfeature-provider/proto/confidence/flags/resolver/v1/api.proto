@@ -53,8 +53,8 @@ message ResolveFlagsRequest {
 }
 
 message ResolveFlagsResponse {
-  // The list of all flags that could be resolved. Note: if any flag was
-  // archived it will not be included in this list.
+  // Archived flags are included only when explicitly requested, with reason FLAG_ARCHIVED.
+  // Flags unavailable to the client are omitted.
   repeated ResolvedFlag resolved_flags = 1;
 
   // An opaque token that is used when `apply` is set to false in `ResolveFlags`.

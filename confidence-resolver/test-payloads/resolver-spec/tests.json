@@ -19,7 +19,7 @@
     }
   },
   {
-    "name": "inactive_flag_filtered",
+    "name": "explicit_archived_flag",
     "resolveRequest": {
       "flags": [
         "flags/inactive-flag"
@@ -31,7 +31,14 @@
     },
     "expectedResult": {
       "general": {
-        "resolvedFlags": [],
+        "resolvedFlags": [
+          {
+            "flag": "flags/inactive-flag",
+            "reason": "RESOLVE_REASON_FLAG_ARCHIVED",
+            "variant": "",
+            "shouldApply": false
+          }
+        ],
         "expectError": null
       }
     }

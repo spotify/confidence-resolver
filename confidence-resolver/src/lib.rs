@@ -867,7 +867,11 @@ impl<'a, H: Host> AccountResolver<'a, H> {
             .state
             .flags
             .values()
-            .filter(|flag| flag.state() == flags_admin::flag::State::Active)
+            .filter(|flag| match flag.state() {
+                flags_admin::flag::State::Active => true,
+                flags_admin::flag::State::Archived => !flag_names.is_empty(),
+                _ => false,
+            })
             .filter(|flag| flag.clients.contains(&self.client.client_name))
             .filter(|flag| flag_names.is_empty() || flag_names.contains(&flag.name))
             // Skip flags that were already resolved in a prior attempt
