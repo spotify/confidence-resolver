@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.25.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.24.0...confidence_resolver-v0.25.0) (2026-09-15)
+
+
+### Features
+
+* add support for managed evaluation context ([#590](https://github.com/spotify/confidence-resolver/issues/590)) ([147a5b1](https://github.com/spotify/confidence-resolver/commit/147a5b11eb3794111d43d7ab72b634060e687ef7))
+
+
+### Bug Fixes
+
+* **resolver:** raise batch flag limit to 5000 ([#598](https://github.com/spotify/confidence-resolver/issues/598)) ([76259e8](https://github.com/spotify/confidence-resolver/commit/76259e885b67aa75f99ee8543f00bae261c59730))
+
 ## [0.24.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.23.1...confidence_resolver-v0.24.0) (2026-09-08)
 
 
