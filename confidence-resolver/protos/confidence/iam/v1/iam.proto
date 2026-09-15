@@ -2,6 +2,7 @@ syntax = "proto3";
 package confidence.iam.v1;
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 import "google/api/resource.proto";
@@ -479,6 +480,11 @@ message Client {
     (google.api.resource_reference).type = "iam.confidence.dev/Identity",
     (google.api.field_behavior) = OUTPUT_ONLY,
     (google.api.field_behavior) = REQUIRED
+  ];
+
+  // Server-managed evaluation context fields.
+  map<string, google.protobuf.Value> managed_context = 13 [
+    (google.api.field_behavior) = OPTIONAL
   ];
 }
 

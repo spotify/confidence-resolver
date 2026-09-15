@@ -4451,6 +4451,18 @@
           }
         ],
         "expectError": null
+      },
+      "java": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/bloom-filter-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
       }
     }
   },
@@ -4530,6 +4542,219 @@
             "value": { "enabled": true },
             "shouldApply": true,
             "assignmentOrigin": "flags/simple-flag/rules/rule1"
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_starts_with_workspace_plan",
+    "resolveRequest": {
+      "flags": [
+        "flags/workspace-plan-starts-with-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "workspace_plan": "biz_11"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/workspace-plan-starts-with-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "targeting_ends_with_spotify_email",
+    "resolveRequest": {
+      "flags": [
+        "flags/spotify-email-ends-with-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "email": "user@spotify.com"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/spotify-email-ends-with-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "ends_with_fractional_numeric_context_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/ends-with-fractional-numeric-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "code": 42.5
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/ends-with-fractional-numeric-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "managed_context_affects_targeting",
+    "resolveRequest": {
+      "flags": [
+        "flags/simple-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "managed-se-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "without_managed_context_no_match",
+    "resolveRequest": {
+      "flags": [
+        "flags/simple-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "managed_context_overrides_request",
+    "resolveRequest": {
+      "flags": [
+        "flags/simple-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "country": "US"
+      },
+      "clientSecret": "managed-se-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "managed_context_preserves_request_siblings",
+    "resolveRequest": {
+      "flags": [
+        "flags/and-both-match"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "age": 25
+      },
+      "clientSecret": "managed-se-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/and-both-match",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": { "enabled": true },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "managed_context_client_isolation",
+    "resolveRequest": {
+      "flags": [
+        "flags/simple-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "managed-us-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
           }
         ],
         "expectError": null
