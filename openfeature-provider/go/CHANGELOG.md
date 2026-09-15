@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.26.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.25.0...openfeature-provider/go/v0.26.0) (2026-09-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* require encryption key ([#589](https://github.com/spotify/confidence-resolver/issues/589))
+
+### Features
+
+* add support for managed evaluation context ([#590](https://github.com/spotify/confidence-resolver/issues/590)) ([147a5b1](https://github.com/spotify/confidence-resolver/commit/147a5b11eb3794111d43d7ab72b634060e687ef7))
+* enable apply-event deduplication by default ([#539](https://github.com/spotify/confidence-resolver/issues/539)) ([a3c9ad6](https://github.com/spotify/confidence-resolver/commit/a3c9ad6312da72b4596b06a5d5fd6590f6063233))
+* require encryption key ([#589](https://github.com/spotify/confidence-resolver/issues/589)) ([ef5cbcc](https://github.com/spotify/confidence-resolver/commit/ef5cbcc11f5dbda330765b7de0ebd420a89d05c2))
+
+
+### Bug Fixes
+
+* **resolver:** raise batch flag limit to 5000 ([#598](https://github.com/spotify/confidence-resolver/issues/598)) ([76259e8](https://github.com/spotify/confidence-resolver/commit/76259e885b67aa75f99ee8543f00bae261c59730))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.6.0 to 0.7.0
+
 ## [0.25.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.24.0...openfeature-provider/go/v0.25.0) (2026-09-08)
 
 
