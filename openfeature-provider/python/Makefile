@@ -90,36 +90,18 @@ format: $(INSTALL_STAMP)
 	$(PYTHON) -m ruff format src/ tests/
 
 # Generate protobuf files
-# The sed fixup rewrites protoc's absolute imports (from confidence.flags...)
-# to relative imports so the generated code works under the
-# confidence.proto package prefix.
+# protoc derives imports from the proto package (confidence.flags...), but the
+# generated code lives under src/confidence/proto, so the sed fixup prefixes
+# every generated import with the real package path (confidence.proto.confidence...).
+# One rule covers all current and future proto packages.
 proto: $(INSTALL_STAMP)
 	$(PYTHON) -m grpc_tools.protoc \
 		-I../proto \
 		--python_out=src/confidence/proto \
 		--grpc_python_out=src/confidence/proto \
-		../proto/confidence/flags/resolver/v1/*.proto \
-		../proto/confidence/wasm/*.proto \
-		../proto/confidence/flags/admin/v1/*.proto \
-		../proto/confidence/events/v1/*.proto \
-		../proto/confidence/events/wasm/v1/*.proto
-	find src/confidence/proto/confidence/flags/admin -name '*.py' -exec sed -i.bak \
-		-e 's/^from confidence\.flags\.types\.v1 import/from ...types.v1 import/' \
-		-e 's/^from confidence\.flags\.admin\.v1 import/from . import/' {} +
-	find src/confidence/proto/confidence/flags/resolver -name '*.py' -exec sed -i.bak \
-		-e 's/^from confidence\.flags\.resolver\.v1 import/from . import/' \
-		-e 's/^from confidence\.flags\.types\.v1 import/from ...types.v1 import/' {} +
-	find src/confidence/proto/confidence/flags/types -name '*.py' -exec sed -i.bak \
-		-e 's/^from confidence\.flags\.types\.v1 import/from . import/' {} +
-	find src/confidence/proto/confidence/wasm -name '*.py' -exec sed -i.bak \
-		-e 's/^from confidence\.flags\.resolver\.v1 import/from ..flags.resolver.v1 import/' \
-		-e 's/^from confidence\.flags\.types\.v1 import/from ..flags.types.v1 import/' \
-		-e 's/^from confidence\.wasm import/from . import/' {} +
-	find src/confidence/proto/confidence/events/v1 -name '*.py' -exec sed -i.bak \
-		-e 's/^from confidence\.events\.v1 import/from . import/' {} +
-	find src/confidence/proto/confidence/events/wasm -name '*.py' -exec sed -i.bak \
-		-e 's/^from confidence\.events\.v1 import/from ...v1 import/' \
-		-e 's/^from confidence\.events\.wasm\.v1 import/from . import/' {} +
+		$(shell find ../proto -name '*.proto')
+	find src/confidence/proto -name '*_pb2*.py' -exec sed -i.bak \
+		-e 's/^from confidence\./from confidence.proto.confidence./' {} +
 	find src/confidence/proto -name '*.py.bak' -delete
 
 # Copy WASM file (alias for compatibility)
