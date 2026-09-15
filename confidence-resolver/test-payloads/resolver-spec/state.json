@@ -2454,6 +2454,84 @@
           }
         }
       ]
+    },
+    "flags/workspace-plan-starts-with-flag": {
+      "name": "flags/workspace-plan-starts-with-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/workspace-plan-starts-with-flag/rules/rule1",
+          "segment": "segments/workspace-plan-starts-with",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/spotify-email-ends-with-flag": {
+      "name": "flags/spotify-email-ends-with-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/spotify-email-ends-with-flag/rules/rule1",
+          "segment": "segments/spotify-email-ends-with",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/ends-with-fractional-numeric-flag": {
+      "name": "flags/ends-with-fractional-numeric-flag",
+      "state": "ACTIVE",
+      "clients": ["clients/test-client"],
+      "variants": [
+        { "name": "on", "value": { "enabled": true } }
+      ],
+      "rules": [
+        {
+          "name": "flags/ends-with-fractional-numeric-flag/rules/rule1",
+          "segment": "segments/ends-with-fractional-numeric",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": { "variant": "on" },
+                "bucketRanges": [{ "lower": 0, "upper": 1000 }]
+              }
+            ]
+          }
+        }
+      ]
     }
   },
   "segments": {
@@ -3360,6 +3438,57 @@
         },
         "expression": { "ref": "c1" }
       }
+    },
+    "segments/workspace-plan-starts-with": {
+      "name": "segments/workspace-plan-starts-with",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "workspace_plan",
+              "startsWithRule": {
+                "value": "biz_1"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/spotify-email-ends-with": {
+      "name": "segments/spotify-email-ends-with",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "email",
+              "endsWithRule": {
+                "value": "@spotify.com"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
+    },
+    "segments/ends-with-fractional-numeric": {
+      "name": "segments/ends-with-fractional-numeric",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "code",
+              "endsWithRule": {
+                "value": ".5"
+              }
+            }
+          }
+        },
+        "expression": { "ref": "c1" }
+      }
     }
   },
   "bitsets": {
@@ -3416,7 +3545,10 @@
     "segments/combined-criteria": "ALL",
     "segments/diamond-parent": "ALL",
     "segments/diamond-child": "ALL",
-    "segments/diamond-leaf": "ALL"
+    "segments/diamond-leaf": "ALL",
+    "segments/workspace-plan-starts-with": "ALL",
+    "segments/spotify-email-ends-with": "ALL",
+    "segments/ends-with-fractional-numeric": "ALL"
   },
   "bloomFilters": {
     "materializations/bf-seg": {
@@ -3448,6 +3580,36 @@
         "name": "clients/minimal-client/credentials/cred1",
         "displayName": "Minimal Credential",
         "clientSecret": { "secret": "minimal-secret" },
+        "environments": ["production"]
+      }
+    },
+    "managed-se-secret": {
+      "client": {
+        "name": "clients/test-client",
+        "displayName": "Managed SE Client",
+        "managedContext": {
+          "country": "SE"
+        }
+      },
+      "clientCredential": {
+        "name": "clients/test-client/credentials/managed-se-cred",
+        "displayName": "Managed SE Credential",
+        "clientSecret": { "secret": "managed-se-secret" },
+        "environments": ["production"]
+      }
+    },
+    "managed-us-secret": {
+      "client": {
+        "name": "clients/test-client",
+        "displayName": "Managed US Client",
+        "managedContext": {
+          "country": "US"
+        }
+      },
+      "clientCredential": {
+        "name": "clients/test-client/credentials/managed-us-cred",
+        "displayName": "Managed US Credential",
+        "clientSecret": { "secret": "managed-us-secret" },
         "environments": ["production"]
       }
     }

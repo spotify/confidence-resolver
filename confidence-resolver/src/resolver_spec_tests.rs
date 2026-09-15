@@ -73,8 +73,11 @@ struct SpecClientEntry {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SpecClient {
     name: String,
+    #[serde(default)]
+    managed_context: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +147,18 @@ pub(crate) fn build_state_from_json(json: &str) -> ResolverState {
     build_state_from_spec(&spec)
 }
 
+fn json_to_proto_value(v: &serde_json::Value) -> crate::proto::google::Value {
+    use crate::proto::google::value::Kind;
+    let kind = match v {
+        serde_json::Value::String(s) => Some(Kind::StringValue(s.clone())),
+        serde_json::Value::Number(n) => Some(Kind::NumberValue(n.as_f64().unwrap_or(0.0))),
+        serde_json::Value::Bool(b) => Some(Kind::BoolValue(*b)),
+        serde_json::Value::Null => Some(Kind::NullValue(0)),
+        _ => None,
+    };
+    crate::proto::google::Value { kind }
+}
+
 fn build_state_from_spec(spec: &SpecState) -> ResolverState {
     let mut flags = HashMap::new();
     for (name, val) in &spec.flags {
@@ -175,6 +190,12 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
 
     let mut secrets = HashMap::new();
     for (secret, entry) in &spec.clients {
+        let managed_context = entry
+            .client
+            .managed_context
+            .iter()
+            .map(|(k, v)| (k.clone(), json_to_proto_value(v)))
+            .collect();
         secrets.insert(
             secret.clone(),
             Client {
@@ -182,7 +203,7 @@ fn build_state_from_spec(spec: &SpecState) -> ResolverState {
                 client_name: entry.client.name.clone(),
                 client_credential_name: entry.client_credential.name.clone(),
                 environments: entry.client_credential.environments.clone(),
-                managed_context: std::collections::BTreeMap::new(),
+                managed_context,
             },
         );
     }
@@ -761,3 +782,15 @@ spec_test!(combined_neither);
 
 // Materialization: duplicate variant assignments
 spec_test!(mat_same_variant_two_assignments_returns_correct_assignment_id);
+
+// Additional targeting rules (starts-with / ends-with variants)
+spec_test!(targeting_starts_with_workspace_plan);
+spec_test!(targeting_ends_with_spotify_email);
+spec_test!(ends_with_fractional_numeric_context_no_match);
+
+// Managed evaluation context
+spec_test!(managed_context_affects_targeting);
+spec_test!(without_managed_context_no_match);
+spec_test!(managed_context_overrides_request);
+spec_test!(managed_context_preserves_request_siblings);
+spec_test!(managed_context_client_isolation);
