@@ -48,7 +48,7 @@ mod bounded_set;
 mod err;
 pub mod flag_logger;
 mod gzip;
-pub(crate) mod managed_context;
+mod managed_context;
 pub mod proto;
 pub mod resolve_logger;
 mod schema_util;
