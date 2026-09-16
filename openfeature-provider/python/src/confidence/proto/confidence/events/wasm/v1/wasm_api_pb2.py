@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
-from ...v1 import types_pb2 as confidence_dot_events_dot_v1_dot_types__pb2
+from confidence.proto.confidence.events.v1 import types_pb2 as confidence_dot_events_dot_v1_dot_types__pb2
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(confidence/events/wasm/v1/wasm_api.proto\x12\x19\x63onfidence.events.wasm.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a confidence/events/v1/types.proto\"\x06\n\x04Void\"\xc6\x01\n\x11TrackEventRequest\x12\x12\n\nevent_name\x18\x01 \x01(\t\x12.\n\nevent_time\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x12\n\x05value\x18\x03 \x01(\x01H\x00\x88\x01\x01\x12(\n\x07\x63ontext\x18\x04 \x01(\x0b\x32\x17.google.protobuf.Struct\x12%\n\x04\x64\x61ta\x18\x05 \x01(\x0b\x32\x17.google.protobuf.StructB\x08\n\x06_value\"B\n\x13\x46lushEventsResponse\x12+\n\x06\x65vents\x18\x01 \x03(\x0b\x32\x1b.confidence.events.v1.EventB\xa0\x01\n)com.spotify.confidence.sdk.events.wasm.v1B\x0cWasmApiProtoP\x01Zcgithub.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/eventswasmb\x06proto3')
