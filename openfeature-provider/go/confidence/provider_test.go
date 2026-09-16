@@ -567,7 +567,7 @@ func TestLocalResolverProvider_Init_NilFlagLogger(t *testing.T) {
 	}
 }
 
-// TestLocalResolverProvider_Init_StateProviderError verifies Init fails when stateProvider.Provide returns error
+// TestLocalResolverProvider_Init_StateProviderError verifies Init starts retrying when stateProvider.Provide returns an error.
 func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 	mockStateProvider := &tu.StateProviderMock{
 		State:     []byte("cached-state"),
@@ -586,16 +586,17 @@ func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when stateProvider.Provide fails")
+	if err != nil {
+		t.Fatalf("Expected recoverable state fetch error, got: %v", err)
 	}
-	// Should wrap the original error
-	if err.Error() != "failed to fetch initial state: context deadline exceeded" {
-		t.Errorf("Expected wrapped error message, got: %v", err)
+	defer provider.Shutdown()
+
+	if provider.ready.Load() {
+		t.Fatal("Expected provider to remain not ready")
 	}
 }
 
-// TestLocalResolverProvider_Init_EmptyAccountID verifies Init fails when accountID is empty
+// TestLocalResolverProvider_Init_EmptyAccountID verifies Init starts retrying when accountID is empty.
 func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 	mockStateProvider := &tu.StateProviderMock{
 		State:     []byte("test-state"),
@@ -616,11 +617,13 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when accountID is empty")
+	if err != nil {
+		t.Fatalf("Expected empty account ID to be recoverable, got: %v", err)
 	}
-	if err.Error() != "AccountID is empty in the initial state" {
-		t.Errorf("Expected specific error message, got: %v", err)
+	defer provider.Shutdown()
+
+	if provider.ready.Load() {
+		t.Fatal("Expected provider to remain not ready")
 	}
 }
 
