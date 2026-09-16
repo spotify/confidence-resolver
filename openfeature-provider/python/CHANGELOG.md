@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.15.0...openfeature-provider-python-v0.15.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* **python:** publish protobuf 5 compatible stubs ([#600](https://github.com/spotify/confidence-resolver/issues/600)) ([26ea2dc](https://github.com/spotify/confidence-resolver/commit/26ea2dc86f4b3a61d5ae0c58062cc1de4b10280e))
+
 ## [0.15.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.14.0...openfeature-provider-python-v0.15.0) (2026-09-15)
 
 
