@@ -38,6 +38,12 @@ use crate::VERSION;
 /// Default interval for polling state updates (30 seconds).
 const DEFAULT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Default timeout for state fetches (30 seconds).
+const DEFAULT_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Interval for retrying state fetches while the provider is not ready.
+const STATE_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
 fn provider_sdk() -> Sdk {
     Sdk {
         sdk: Some(
@@ -70,7 +76,7 @@ pub enum MaterializationStoreConfig {
 pub struct ProviderOptions {
     /// The client secret for authentication.
     pub client_secret: String,
-    /// Timeout for initialization.
+    /// Timeout for each state fetch during initialization and background polling.
     pub initialize_timeout: Option<Duration>,
     /// Interval for polling state updates.
     pub state_poll_interval: Option<Duration>,
@@ -109,9 +115,9 @@ impl ProviderOptions {
         }
     }
 
-    /// Set the initialization timeout.
-    pub fn with_initialize_timeout(mut self, timeout_ms: Duration) -> Self {
-        self.initialize_timeout = Some(timeout_ms);
+    /// Set the timeout for each state fetch.
+    pub fn with_initialize_timeout(mut self, timeout: Duration) -> Self {
+        self.initialize_timeout = Some(timeout);
         self
     }
 
@@ -164,7 +170,7 @@ pub struct ConfidenceProvider {
     materialization_store: Option<Arc<dyn MaterializationStore>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     background_tasks: Vec<JoinHandle<()>>,
-    status: ProviderStatus,
+    initialize_timeout: Duration,
     state_poll_interval: Duration,
     flush_interval: Duration,
     assign_flush_interval: Duration,
@@ -225,7 +231,9 @@ impl ConfidenceProvider {
             materialization_store,
             shutdown_tx: None,
             background_tasks: Vec::new(),
-            status: ProviderStatus::NotReady,
+            initialize_timeout: options
+                .initialize_timeout
+                .unwrap_or(DEFAULT_INITIALIZE_TIMEOUT),
             state_poll_interval: options
                 .state_poll_interval
                 .unwrap_or(DEFAULT_STATE_POLL_INTERVAL),
@@ -239,12 +247,13 @@ impl ConfidenceProvider {
 
     /// Initialize the provider by fetching initial state and starting background tasks.
     pub async fn init(&mut self) -> Result<()> {
-        // Fetch initial state
-        let result = self.state_fetcher.fetch().await?;
-        if let Some((state, account_id, destinations)) = result {
-            self.state.update(state, account_id, destinations).await;
-        } else {
-            return Err(Error::StateFetch("No state returned from CDN".to_string()));
+        if let Err(error) =
+            refresh_state(&self.state_fetcher, &self.state, self.initialize_timeout).await
+        {
+            tracing::warn!(
+                "Initial state load failed, provider starting in NotReady state: {}",
+                error
+            );
         }
 
         // Start background tasks
@@ -252,7 +261,6 @@ impl ConfidenceProvider {
         self.shutdown_tx = Some(shutdown_tx);
 
         self.start_background_tasks(shutdown_rx);
-        self.status = ProviderStatus::Ready;
 
         Ok(())
     }
@@ -285,32 +293,43 @@ impl ConfidenceProvider {
         let flush_interval = self.flush_interval;
         let assign_flush_interval = self.assign_flush_interval;
         let disable_exposure_collection = self.disable_exposure_collection;
+        let initialize_timeout = self.initialize_timeout;
 
         // Spawn combined background task
         let task = tokio::spawn(async move {
             let mut shutdown_rx = shutdown_rx;
-            let mut state_interval = tokio::time::interval(state_poll_interval);
             let mut flush_interval = tokio::time::interval(flush_interval);
             let mut assign_interval = tokio::time::interval(assign_flush_interval);
+            let initial_delay = if state.is_initialized() {
+                state_poll_interval
+            } else {
+                STATE_RETRY_INTERVAL
+            };
+            let state_sleep = tokio::time::sleep(initial_delay);
+            tokio::pin!(state_sleep);
 
             loop {
                 tokio::select! {
                     _ = &mut shutdown_rx => {
                         break;
                     }
-                    _ = state_interval.tick() => {
-                        // Fetch latest state
-                        match state_fetcher.fetch().await {
-                            Ok(Some((new_state, account_id, destinations))) => {
-                                state.update(new_state, account_id, destinations).await;
-                            }
-                            Ok(None) => {
-                                // State unchanged (304)
-                            }
+                    _ = &mut state_sleep => {
+                        let result = tokio::select! {
+                            _ = &mut shutdown_rx => break,
+                            result = refresh_state(&state_fetcher, &state, initialize_timeout) => result,
+                        };
+                        match result {
+                            Ok(()) => {}
                             Err(e) => {
                                 tracing::error!("Failed to fetch state: {}", e);
                             }
                         }
+                        let next_fetch = if state.is_initialized() {
+                            state_poll_interval
+                        } else {
+                            STATE_RETRY_INTERVAL
+                        };
+                        state_sleep.as_mut().reset(tokio::time::Instant::now() + next_fetch);
                     }
                     _ = flush_interval.tick() => {
                         if let Err(e) = log_manager.flush_all(&RESOLVE_LOGGER, &ASSIGN_LOGGER).await {
@@ -545,6 +564,24 @@ impl ConfidenceProvider {
     }
 }
 
+async fn refresh_state(
+    state_fetcher: &StateFetcher,
+    state: &SharedState,
+    timeout: Duration,
+) -> Result<()> {
+    let result = tokio::time::timeout(timeout, state_fetcher.fetch())
+        .await
+        .map_err(|_| Error::StateFetch(format!("timed out after {timeout:?}")))??;
+
+    if let Some((new_state, account_id, destinations)) = result {
+        state.update(new_state, account_id, destinations).await;
+    } else if !state.is_initialized() {
+        return Err(Error::StateFetch("No state returned from CDN".to_string()));
+    }
+
+    Ok(())
+}
+
 struct ResolveResult {
     value: Option<Struct>,
     variant: Option<String>,
@@ -557,16 +594,14 @@ impl FeatureProvider for ConfidenceProvider {
     async fn initialize(&mut self, _context: &EvaluationContext) {
         if let Err(e) = self.init().await {
             tracing::error!("Failed to initialize provider: {}", e);
-            self.status = ProviderStatus::Error;
         }
     }
 
     fn status(&self) -> ProviderStatus {
-        match self.status {
-            ProviderStatus::NotReady => ProviderStatus::NotReady,
-            ProviderStatus::Ready => ProviderStatus::Ready,
-            ProviderStatus::Error => ProviderStatus::Error,
-            ProviderStatus::STALE => ProviderStatus::STALE,
+        if self.state.is_initialized() {
+            ProviderStatus::Ready
+        } else {
+            ProviderStatus::NotReady
         }
     }
 
@@ -976,6 +1011,32 @@ mod tests {
     use super::*;
     use confidence_resolver::proto::google::{value, Struct, Value as ProtoValue};
     use open_feature::{EvaluationContext, EvaluationContextFieldValue, EvaluationReason, Value};
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+
+    async fn provider_with_gateway(
+        server: &MockServer,
+        initialize_timeout: Duration,
+    ) -> ConfidenceProvider {
+        let key = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../data/encryption_key_test.hex"),
+        )
+        .unwrap();
+        ConfidenceProvider::new(
+            ProviderOptions::new("test-secret", key.trim())
+                .with_gateway_url(server.uri())
+                .with_initialize_timeout(initialize_timeout),
+        )
+        .unwrap()
+    }
+
+    fn encrypted_state() -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../data/resolver_state_encrypted.pb"),
+        )
+        .unwrap()
+    }
 
     // ==================== parse_flag_path tests ====================
     // Similar to Go's TestParseFlagPath
@@ -1606,6 +1667,101 @@ mod tests {
 
         use open_feature::provider::FeatureProvider;
         assert!(matches!(provider.status(), ProviderStatus::NotReady));
+    }
+
+    #[tokio::test]
+    async fn initialization_timeout_leaves_provider_not_ready() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(5)))
+            .mount(&server)
+            .await;
+        let mut provider = provider_with_gateway(&server, Duration::from_millis(50)).await;
+
+        let started = Instant::now();
+        provider.init().await.unwrap();
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(provider.status(), ProviderStatus::NotReady);
+        provider.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn retries_until_state_is_available() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        let mut provider = provider_with_gateway(&server, Duration::from_secs(1)).await;
+        provider.state_poll_interval = Duration::from_millis(50);
+        provider.init().await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(2_100)).await;
+        assert!(server.received_requests().await.unwrap().len() >= 3);
+        assert_eq!(provider.status(), ProviderStatus::NotReady);
+
+        server.reset().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(encrypted_state()))
+            .mount(&server)
+            .await;
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while provider.status() != ProviderStatus::Ready {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("provider did not recover");
+
+        server.reset().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!server.received_requests().await.unwrap().is_empty());
+        assert_eq!(provider.status(), ProviderStatus::Ready);
+        provider.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn evaluation_uses_caller_default_while_not_ready() {
+        let options = ProviderOptions::new("test-secret", "00".repeat(32));
+        let provider = ConfidenceProvider::new(options).unwrap();
+        let result = provider
+            .resolve_bool_value("flag", &EvaluationContext::default())
+            .await;
+
+        assert_eq!(
+            result.as_ref().unwrap_err().code,
+            EvaluationErrorCode::ProviderNotReady
+        );
+        assert!(result.map(|details| details.value).unwrap_or(true));
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_in_flight_retry() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        let mut provider = provider_with_gateway(&server, Duration::from_secs(30)).await;
+        provider.init().await.unwrap();
+
+        server.reset().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(30)))
+            .mount(&server)
+            .await;
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        assert!(server.received_requests().await.unwrap().len() >= 2);
+
+        let started = Instant::now();
+        provider.shutdown().await;
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     // ==================== no_variant_matched_error tests ====================
