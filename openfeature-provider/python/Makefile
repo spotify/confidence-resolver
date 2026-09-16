@@ -101,6 +101,7 @@ proto: $(INSTALL_STAMP)
 		../proto/confidence/flags/resolver/v1/*.proto \
 		../proto/confidence/wasm/*.proto \
 		../proto/confidence/flags/admin/v1/*.proto \
+		../proto/confidence/flags/types/v1/*.proto \
 		../proto/confidence/events/v1/*.proto \
 		../proto/confidence/events/wasm/v1/*.proto
 	find src/confidence/proto/confidence/flags/admin -name '*.py' -exec sed -i.bak \
