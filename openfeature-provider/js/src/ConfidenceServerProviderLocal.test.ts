@@ -5,14 +5,17 @@ import { LocalResolver } from './LocalResolver';
 import {
   ConfidenceServerProviderLocal,
   DEFAULT_FLUSH_INTERVAL,
+  DEFAULT_INITIALIZE_TIMEOUT,
   DEFAULT_STATE_INTERVAL,
+  NOT_READY_STATE_INTERVAL,
 } from './ConfidenceServerProviderLocal';
-import { abortableSleep, TimeUnit, timeoutSignal } from './util';
+import { abortableSleep, castStringToEnum, TimeUnit, timeoutSignal } from './util';
 import { advanceTimersUntil, NetworkMock, noopEventTracker } from './test-helpers';
 import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
 import { VERSION } from './version';
+import { OpenFeature } from '@openfeature/server-sdk';
 // Type-only: pins the README's documented entry point without loading its WASM.
 import type * as NodeEntry from './index.node';
 
@@ -89,11 +92,16 @@ describe('no network', () => {
     net.error = 'No network';
   });
 
-  it('initialize throws after timeout', async () => {
-    await advanceTimersUntil(expect(provider.initialize()).rejects.toThrow());
+  it('starts in NOT_READY and keeps retrying after the initialization timeout', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).resolves.toBeUndefined());
 
-    expect(provider.status).toBe('ERROR');
+    expect(provider.status).toBe('NOT_READY');
     expect(Date.now()).toBe(DEFAULT_STATE_INTERVAL);
+
+    const callsAfterInit = net.calls;
+    await vi.advanceTimersByTimeAsync(NOT_READY_STATE_INTERVAL * 3);
+
+    expect(net.calls).toBeGreaterThan(callsAfterInit);
   });
 });
 
@@ -147,6 +155,7 @@ describe('state update scheduling', () => {
     expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
   });
   it('retries state download with backoff and stall-timeout', async () => {
+    provider.status = castStringToEnum<typeof provider.status>('READY');
     let chunkDelay = 1500;
     net.cdn.state.handler = req => {
       const encrypted = encryptTestState(new Uint8Array(1000));
@@ -296,7 +305,7 @@ describe('flush behavior', () => {
 });
 
 describe('timeouts and aborts', () => {
-  it('initialize times out if state not fetched before initializeTimeout', async () => {
+  it('recovers in the background if state is not fetched before initializeTimeout', async () => {
     // Make resolverStateUri unreachable so initialize must rely on initializeTimeout
     net.cdn.state.status = 'No network';
 
@@ -307,10 +316,34 @@ describe('timeouts and aborts', () => {
       fetch: net.fetch,
     });
 
-    await advanceTimersUntil(expect(shortTimeoutProvider.initialize()).rejects.toThrow());
+    await advanceTimersUntil(expect(shortTimeoutProvider.initialize()).resolves.toBeUndefined());
 
     expect(Date.now()).toBe(1000);
-    expect(shortTimeoutProvider.status).toBe('ERROR');
+    expect(shortTimeoutProvider.status).toBe('NOT_READY');
+
+    net.cdn.state.status = 200;
+    await vi.advanceTimersByTimeAsync(NOT_READY_STATE_INTERVAL);
+    await vi.waitFor(() => expect(shortTimeoutProvider.status).toBe('READY'));
+
+    await advanceTimersUntil(shortTimeoutProvider.onClose());
+  });
+  it('returns the default with a provider-not-ready error before recovery', async () => {
+    net.cdn.state.status = 'No network';
+
+    const initialization = OpenFeature.setProviderAndWait(provider);
+    await vi.advanceTimersByTimeAsync(DEFAULT_INITIALIZE_TIMEOUT);
+    await initialization;
+
+    await expect(OpenFeature.getClient().getBooleanDetails('flag.enabled', true)).resolves.toEqual(
+      expect.objectContaining({
+        value: true,
+        reason: 'ERROR',
+        errorCode: 'PROVIDER_NOT_READY',
+      }),
+    );
+    expect(mockedWasmResolver.resolveProcess).not.toHaveBeenCalled();
+
+    await advanceTimersUntil(OpenFeature.clearProviders());
   });
   it('aborts in-flight state update when provider is closed', async () => {
     // Make state fetch slow so initialize is in-flight
@@ -320,10 +353,12 @@ describe('timeouts and aborts', () => {
     // Abort provider immediately
     const close = provider.onClose();
 
-    await advanceTimersUntil(expect(init).rejects.toThrow());
+    await advanceTimersUntil(expect(init).resolves.toBeUndefined());
     await advanceTimersUntil(close);
-    expect(provider.status).toBe('ERROR');
+    expect(provider.status).toBe('NOT_READY');
+    const callsAfterClose = net.cdn.state.calls;
     await vi.runAllTimersAsync();
+    expect(net.cdn.state.calls).toBe(callsAfterClose);
   });
 
   it('handles post-dispatch latency aborts (endpoint invoked)', async () => {

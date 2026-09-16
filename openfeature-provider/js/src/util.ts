@@ -17,6 +17,14 @@ export const enum TimeUnit {
   DAY = 1000 * 60 * 60 * 24,
 }
 export function scheduleWithFixedDelay(operation: (signal?: AbortSignal) => unknown, delayMs: number): () => void {
+  return scheduleWithDynamicDelay(operation, () => delayMs);
+}
+
+export function scheduleWithDynamicDelay(
+  operation: (signal?: AbortSignal) => unknown,
+  getDelayMs: () => number,
+  opt: { signal?: AbortSignal } = {},
+): () => void {
   const ac = new AbortController();
   let nextRunTimeoutId = 0;
 
@@ -24,16 +32,23 @@ export function scheduleWithFixedDelay(operation: (signal?: AbortSignal) => unkn
     try {
       await operation(ac.signal);
     } catch (e: unknown) {
-      logger.warn('scheduleWithFixedDelay failure:', e);
+      logger.warn('scheduleWithDynamicDelay failure:', e);
     }
-    nextRunTimeoutId = portableSetTimeout(run, delayMs);
+    if (!ac.signal.aborted) {
+      nextRunTimeoutId = portableSetTimeout(run, getDelayMs());
+    }
   };
 
-  nextRunTimeoutId = portableSetTimeout(run, delayMs);
-  return () => {
+  const stop = () => {
     clearTimeout(nextRunTimeoutId);
+    nextRunTimeoutId = 0;
     ac.abort();
   };
+  opt.signal?.addEventListener('abort', stop);
+  if (!opt.signal?.aborted) {
+    nextRunTimeoutId = portableSetTimeout(run, getDelayMs());
+  }
+  return stop;
 }
 
 export function scheduleWithFixedInterval(

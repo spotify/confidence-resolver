@@ -11,7 +11,14 @@ import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidenc
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, hexToBytes, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import {
+  castStringToEnum,
+  hexToBytes,
+  scheduleWithDynamicDelay,
+  scheduleWithFixedInterval,
+  timeoutSignal,
+  TimeUnit,
+} from './util';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -39,6 +46,7 @@ const logger = getLogger('provider');
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
 export const DEFAULT_FLUSH_INTERVAL = 15_000;
+export const NOT_READY_STATE_INTERVAL = 1_000;
 /** Upper bound on flush calls during shutdown drain, so a failing publish cannot spin forever. */
 const MAX_DRAIN_BATCHES = 100;
 
@@ -138,7 +146,10 @@ export class ConfidenceServerProviderLocal implements Provider {
             withRetry({
               maxAttempts: Infinity,
               baseInterval: 500,
-              maxInterval: this.stateUpdateInterval,
+              maxInterval: () =>
+                this.status === castStringToEnum<ProviderStatus>('READY')
+                  ? this.stateUpdateInterval
+                  : NOT_READY_STATE_INTERVAL,
             }),
             withStallTimeout(1 * TimeUnit.SECOND),
           ],
@@ -215,15 +226,32 @@ export class ConfidenceServerProviderLocal implements Provider {
     ]);
     try {
       this.resolverInstance = await this.resolverOrPromise;
-      // TODO set schedulers irrespective of failure
-      // TODO if 403 here,
-      await this.updateState(initialUpdateSignal);
-      scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
       this.eventTracker = await this.eventTrackerOrPromise;
+      try {
+        await this.updateState(initialUpdateSignal);
+        this.status = castStringToEnum<ProviderStatus>('READY');
+      } catch (error) {
+        logger.warn('Initial state load failed, provider starting in NOT_READY state:', error);
+      }
+      if (signal.aborted) {
+        return;
+      }
+      scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
       scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      // TODO Better with fixed delay so we don't do a double fetch when we're behind. Alt, skip if in progress
-      scheduleWithFixedInterval(signal => this.updateState(signal), this.stateUpdateInterval, { signal });
-      this.status = castStringToEnum<ProviderStatus>('READY');
+      scheduleWithDynamicDelay(
+        async signal => {
+          await this.updateState(signal);
+          if (this.status !== castStringToEnum<ProviderStatus>('READY')) {
+            this.status = castStringToEnum<ProviderStatus>('READY');
+            logger.info('Provider recovered and is now READY');
+          }
+        },
+        () =>
+          this.status === castStringToEnum<ProviderStatus>('READY')
+            ? this.stateUpdateInterval
+            : NOT_READY_STATE_INTERVAL,
+        { signal },
+      );
     } catch (e: unknown) {
       this.status = castStringToEnum<ProviderStatus>('ERROR');
       // TODO should we swallow this?
@@ -385,6 +413,15 @@ export class ConfidenceServerProviderLocal implements Provider {
     defaultValue: T,
     context: EvaluationContext,
   ): Promise<ResolutionDetails<T>> {
+    if (this.status === castStringToEnum<ProviderStatus>('NOT_READY')) {
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: ErrorCode.PROVIDER_NOT_READY,
+        errorMessage: 'Provider is not ready',
+        shouldApply: false,
+      };
+    }
     const startMs = performance.now();
     try {
       const [flagName] = flagKey.split('.', 1);
