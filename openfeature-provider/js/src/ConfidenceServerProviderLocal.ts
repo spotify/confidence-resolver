@@ -3,22 +3,15 @@ import type {
   JsonValue,
   Provider,
   ProviderMetadata,
-  ProviderStatus,
   TrackingEventDetails,
 } from '@openfeature/server-sdk';
+import { ProviderStatus } from '@openfeature/server-sdk';
 import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import {
-  castStringToEnum,
-  hexToBytes,
-  scheduleWithDynamicDelay,
-  scheduleWithFixedInterval,
-  timeoutSignal,
-  TimeUnit,
-} from './util';
+import { hexToBytes, scheduleWithDynamicDelay, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -92,7 +85,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     name: 'ConfidenceServerProviderLocal',
   };
   /** Current status of the provider. Can be READY, NOT_READY, ERROR, STALE and FATAL. */
-  status: ProviderStatus = castStringToEnum<ProviderStatus>('NOT_READY');
+  status: ProviderStatus = ProviderStatus.NOT_READY;
 
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
@@ -147,9 +140,7 @@ export class ConfidenceServerProviderLocal implements Provider {
               maxAttempts: Infinity,
               baseInterval: 500,
               maxInterval: () =>
-                this.status === castStringToEnum<ProviderStatus>('READY')
-                  ? this.stateUpdateInterval
-                  : NOT_READY_STATE_INTERVAL,
+                this.status === ProviderStatus.READY ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL,
             }),
             withStallTimeout(1 * TimeUnit.SECOND),
           ],
@@ -229,7 +220,7 @@ export class ConfidenceServerProviderLocal implements Provider {
       this.eventTracker = await this.eventTrackerOrPromise;
       try {
         await this.updateState(initialUpdateSignal);
-        this.status = castStringToEnum<ProviderStatus>('READY');
+        this.status = ProviderStatus.READY;
       } catch (error) {
         logger.warn('Initial state load failed, provider starting in NOT_READY state:', error);
       }
@@ -241,19 +232,16 @@ export class ConfidenceServerProviderLocal implements Provider {
       scheduleWithDynamicDelay(
         async signal => {
           await this.updateState(signal);
-          if (this.status !== castStringToEnum<ProviderStatus>('READY')) {
-            this.status = castStringToEnum<ProviderStatus>('READY');
+          if (this.status !== ProviderStatus.READY) {
+            this.status = ProviderStatus.READY;
             logger.info('Provider recovered and is now READY');
           }
         },
-        () =>
-          this.status === castStringToEnum<ProviderStatus>('READY')
-            ? this.stateUpdateInterval
-            : NOT_READY_STATE_INTERVAL,
+        () => (this.status === ProviderStatus.READY ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL),
         { signal },
       );
     } catch (e: unknown) {
-      this.status = castStringToEnum<ProviderStatus>('ERROR');
+      this.status = ProviderStatus.ERROR;
       // TODO should we swallow this?
       throw e;
     }
@@ -413,7 +401,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     defaultValue: T,
     context: EvaluationContext,
   ): Promise<ResolutionDetails<T>> {
-    if (this.status === castStringToEnum<ProviderStatus>('NOT_READY')) {
+    if (this.status === ProviderStatus.NOT_READY) {
       return {
         value: defaultValue,
         reason: 'ERROR',

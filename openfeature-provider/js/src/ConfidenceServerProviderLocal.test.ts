@@ -9,13 +9,13 @@ import {
   DEFAULT_STATE_INTERVAL,
   NOT_READY_STATE_INTERVAL,
 } from './ConfidenceServerProviderLocal';
-import { abortableSleep, castStringToEnum, TimeUnit, timeoutSignal } from './util';
+import { abortableSleep, TimeUnit, timeoutSignal } from './util';
 import { advanceTimersUntil, NetworkMock, noopEventTracker } from './test-helpers';
 import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
 import { VERSION } from './version';
-import { OpenFeature } from '@openfeature/server-sdk';
+import { OpenFeature, ProviderStatus } from '@openfeature/server-sdk';
 // Type-only: pins the README's documented entry point without loading its WASM.
 import type * as NodeEntry from './index.node';
 
@@ -155,7 +155,7 @@ describe('state update scheduling', () => {
     expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
   });
   it('retries state download with backoff and stall-timeout', async () => {
-    provider.status = castStringToEnum<typeof provider.status>('READY');
+    provider.status = ProviderStatus.READY;
     let chunkDelay = 1500;
     net.cdn.state.handler = req => {
       const encrypted = encryptTestState(new Uint8Array(1000));
