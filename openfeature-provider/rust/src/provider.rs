@@ -42,7 +42,7 @@ const DEFAULT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 const DEFAULT_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Interval for retrying state fetches while the provider is not ready.
-const STATE_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+const STATE_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 fn provider_sdk() -> Sdk {
     Sdk {
@@ -1700,9 +1700,9 @@ mod tests {
         provider.state_poll_interval = Duration::from_millis(50);
         provider.init().await.unwrap();
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(state_requests(&server).await, 1);
-        tokio::time::sleep(Duration::from_millis(9_200)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         assert_eq!(state_requests(&server).await, 3);
         assert_eq!(provider.status(), ProviderStatus::NotReady);
 
@@ -1714,7 +1714,7 @@ mod tests {
         )
         .await;
 
-        tokio::time::timeout(Duration::from_secs(6), async {
+        tokio::time::timeout(Duration::from_secs(2), async {
             while provider.status() != ProviderStatus::Ready {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -1743,7 +1743,7 @@ mod tests {
             ResponseTemplate::new(200).set_delay(Duration::from_secs(30)),
         )
         .await;
-        tokio::time::sleep(Duration::from_millis(5_200)).await;
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
         assert_eq!(state_requests(&server).await, 1);
 
         let started = Instant::now();
