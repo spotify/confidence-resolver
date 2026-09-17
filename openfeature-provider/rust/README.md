@@ -157,11 +157,12 @@ match details {
 The `ProviderOptions` struct contains all configuration options for the provider:
 
 ```rust
+use std::time::Duration;
 use spotify_confidence_openfeature_provider_local::ProviderOptions;
 
 let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
-    .with_initialize_timeout(10_000)      // Max ms to wait for initial state fetch
-    .with_state_poll_interval(30_000)     // Interval in ms for polling state updates
+    .with_initialize_timeout(Duration::from_secs(10)) // Timeout for each state fetch
+    .with_state_poll_interval(Duration::from_secs(30)) // Interval between state updates
     .with_confidence_materialization_store(); // Enable remote materialization
 ```
 
@@ -172,10 +173,10 @@ let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
 
 #### Optional Fields
 
-- `initialize_timeout_ms`: Max milliseconds to wait for initial state fetch (default: 30,000)
-- `state_poll_interval_ms`: Interval in milliseconds for polling state updates (default: 30,000)
-- `flush_interval_ms`: Interval in milliseconds for flushing logs (default: 10,000)
-- `assign_flush_interval_ms`: Interval in milliseconds for flushing assign logs (default: 100)
+- `initialize_timeout`: Timeout for each initial and background state fetch (default: 30 seconds)
+- `state_poll_interval`: Interval between state updates after initialization (default: 30 seconds). Failed startup fetches are retried 1 second after each attempt until the provider is ready.
+- `flush_interval`: Interval for flushing logs (default: 15 seconds)
+- `assign_flush_interval`: Interval for flushing assign logs (default: 100 milliseconds)
 - `materialization_store`: Storage for sticky variant assignments and materialized segments
 
 ## Flag Evaluation
