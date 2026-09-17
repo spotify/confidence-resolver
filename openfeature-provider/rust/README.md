@@ -174,7 +174,7 @@ let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
 #### Optional Fields
 
 - `initialize_timeout`: Timeout for each initial and background state fetch (default: 30 seconds)
-- `state_poll_interval`: Interval between state updates after initialization (default: 30 seconds). Failed startup fetches are retried every second until the provider is ready.
+- `state_poll_interval`: Interval between state updates after initialization (default: 30 seconds). Failed startup fetches are retried 5 seconds after each attempt until the provider is ready.
 - `flush_interval`: Interval for flushing logs (default: 15 seconds)
 - `assign_flush_interval`: Interval for flushing assign logs (default: 100 milliseconds)
 - `materialization_store`: Storage for sticky variant assignments and materialized segments

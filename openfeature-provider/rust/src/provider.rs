@@ -42,7 +42,7 @@ const DEFAULT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 const DEFAULT_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Interval for retrying state fetches while the provider is not ready.
-const STATE_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+const STATE_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 fn provider_sdk() -> Sdk {
     Sdk {
@@ -300,37 +300,28 @@ impl ConfidenceProvider {
             let mut shutdown_rx = shutdown_rx;
             let mut flush_interval = tokio::time::interval(flush_interval);
             let mut assign_interval = tokio::time::interval(assign_flush_interval);
-            let initial_delay = if state.is_initialized() {
-                state_poll_interval
-            } else {
-                STATE_RETRY_INTERVAL
+            let state_refresh = async {
+                loop {
+                    tokio::time::sleep(if state.is_initialized() {
+                        state_poll_interval
+                    } else {
+                        STATE_RETRY_INTERVAL
+                    })
+                    .await;
+                    if let Err(e) = refresh_state(&state_fetcher, &state, initialize_timeout).await
+                    {
+                        tracing::error!("Failed to fetch state: {}", e);
+                    }
+                }
             };
-            let state_sleep = tokio::time::sleep(initial_delay);
-            tokio::pin!(state_sleep);
+            tokio::pin!(state_refresh);
 
             loop {
                 tokio::select! {
                     _ = &mut shutdown_rx => {
                         break;
                     }
-                    _ = &mut state_sleep => {
-                        let result = tokio::select! {
-                            _ = &mut shutdown_rx => break,
-                            result = refresh_state(&state_fetcher, &state, initialize_timeout) => result,
-                        };
-                        match result {
-                            Ok(()) => {}
-                            Err(e) => {
-                                tracing::error!("Failed to fetch state: {}", e);
-                            }
-                        }
-                        let next_fetch = if state.is_initialized() {
-                            state_poll_interval
-                        } else {
-                            STATE_RETRY_INTERVAL
-                        };
-                        state_sleep.as_mut().reset(tokio::time::Instant::now() + next_fetch);
-                    }
+                    _ = &mut state_refresh => break,
                     _ = flush_interval.tick() => {
                         if let Err(e) = log_manager.flush_all(&RESOLVE_LOGGER, &ASSIGN_LOGGER).await {
                             tracing::error!("Failed to flush logs: {}", e);
@@ -1013,15 +1004,11 @@ mod tests {
     use open_feature::{EvaluationContext, EvaluationContextFieldValue, EvaluationReason, Value};
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
-    async fn provider_with_gateway(
+    fn provider_with_gateway(
         server: &MockServer,
         initialize_timeout: Duration,
     ) -> ConfidenceProvider {
-        let key = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../data/encryption_key_test.hex"),
-        )
-        .unwrap();
+        let key = include_str!("../../../data/encryption_key_test.hex");
         ConfidenceProvider::new(
             ProviderOptions::new("test-secret", key.trim())
                 .with_gateway_url(server.uri())
@@ -1030,12 +1017,22 @@ mod tests {
         .unwrap()
     }
 
-    fn encrypted_state() -> Vec<u8> {
-        std::fs::read(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../data/resolver_state_encrypted.pb"),
-        )
-        .unwrap()
+    async fn serve_state(server: &MockServer, response: ResponseTemplate) {
+        server.reset().await;
+        Mock::given(method("GET"))
+            .respond_with(response)
+            .mount(server)
+            .await;
+    }
+
+    async fn state_requests(server: &MockServer) -> usize {
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|r| r.method == "GET")
+            .count()
     }
 
     // ==================== parse_flag_path tests ====================
@@ -1672,42 +1669,52 @@ mod tests {
     #[tokio::test]
     async fn initialization_timeout_leaves_provider_not_ready() {
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(5)))
-            .mount(&server)
-            .await;
-        let mut provider = provider_with_gateway(&server, Duration::from_millis(50)).await;
+        serve_state(
+            &server,
+            ResponseTemplate::new(200).set_delay(Duration::from_secs(5)),
+        )
+        .await;
+        let mut provider = provider_with_gateway(&server, Duration::from_millis(50));
 
         let started = Instant::now();
-        provider.init().await.unwrap();
+        provider.initialize(&EvaluationContext::default()).await;
 
         assert!(started.elapsed() < Duration::from_secs(1));
         assert_eq!(provider.status(), ProviderStatus::NotReady);
+        let result = provider
+            .resolve_bool_value("flag", &EvaluationContext::default())
+            .await;
+        assert_eq!(
+            result.as_ref().unwrap_err().code,
+            EvaluationErrorCode::ProviderNotReady
+        );
+        assert!(result.map(|details| details.value).unwrap_or(true));
         provider.shutdown().await;
     }
 
     #[tokio::test]
     async fn retries_until_state_is_available() {
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(503))
-            .mount(&server)
-            .await;
-        let mut provider = provider_with_gateway(&server, Duration::from_secs(1)).await;
+        serve_state(&server, ResponseTemplate::new(503)).await;
+        let mut provider = provider_with_gateway(&server, Duration::from_secs(1));
         provider.state_poll_interval = Duration::from_millis(50);
         provider.init().await.unwrap();
 
-        tokio::time::sleep(Duration::from_millis(2_100)).await;
-        assert!(server.received_requests().await.unwrap().len() >= 3);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(state_requests(&server).await, 1);
+        tokio::time::sleep(Duration::from_millis(9_200)).await;
+        assert_eq!(state_requests(&server).await, 3);
         assert_eq!(provider.status(), ProviderStatus::NotReady);
 
-        server.reset().await;
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(encrypted_state()))
-            .mount(&server)
-            .await;
+        serve_state(
+            &server,
+            ResponseTemplate::new(200).set_body_bytes(
+                include_bytes!("../../../data/resolver_state_encrypted.pb").as_slice(),
+            ),
+        )
+        .await;
 
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(Duration::from_secs(6), async {
             while provider.status() != ProviderStatus::Ready {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -1715,53 +1722,35 @@ mod tests {
         .await
         .expect("provider did not recover");
 
-        server.reset().await;
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(503))
-            .mount(&server)
-            .await;
+        let last_good = provider.state.get().unwrap();
+        serve_state(&server, ResponseTemplate::new(503)).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!server.received_requests().await.unwrap().is_empty());
+        assert!(state_requests(&server).await > 0);
         assert_eq!(provider.status(), ProviderStatus::Ready);
+        assert!(Arc::ptr_eq(&last_good, &provider.state.get().unwrap()));
         provider.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn evaluation_uses_caller_default_while_not_ready() {
-        let options = ProviderOptions::new("test-secret", "00".repeat(32));
-        let provider = ConfidenceProvider::new(options).unwrap();
-        let result = provider
-            .resolve_bool_value("flag", &EvaluationContext::default())
-            .await;
-
-        assert_eq!(
-            result.as_ref().unwrap_err().code,
-            EvaluationErrorCode::ProviderNotReady
-        );
-        assert!(result.map(|details| details.value).unwrap_or(true));
     }
 
     #[tokio::test]
     async fn shutdown_cancels_in_flight_retry() {
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(503))
-            .mount(&server)
-            .await;
-        let mut provider = provider_with_gateway(&server, Duration::from_secs(30)).await;
+        serve_state(&server, ResponseTemplate::new(503)).await;
+        let mut provider = provider_with_gateway(&server, Duration::from_secs(30));
         provider.init().await.unwrap();
 
-        server.reset().await;
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(30)))
-            .mount(&server)
-            .await;
-        tokio::time::sleep(Duration::from_millis(1_100)).await;
-        assert!(server.received_requests().await.unwrap().len() >= 2);
+        serve_state(
+            &server,
+            ResponseTemplate::new(200).set_delay(Duration::from_secs(30)),
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(5_200)).await;
+        assert_eq!(state_requests(&server).await, 1);
 
         let started = Instant::now();
+        let task = provider.background_tasks[0].abort_handle();
         provider.shutdown().await;
         assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(task.is_finished());
     }
 
     // ==================== no_variant_matched_error tests ====================
