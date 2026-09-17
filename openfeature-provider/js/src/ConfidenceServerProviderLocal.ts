@@ -11,7 +11,7 @@ import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidenc
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { hexToBytes, scheduleWithDynamicDelay, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import { hexToBytes, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -136,12 +136,12 @@ export class ConfidenceServerProviderLocal implements Provider {
       [
         withRouter({
           'https://confidence-resolver-state-cdn.spotifycdn.com/*': [
-            withRetry({
-              maxAttempts: Infinity,
-              baseInterval: 500,
-              maxInterval: () =>
-                this.status === ProviderStatus.READY ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL,
-            }),
+            next => (url, init) =>
+              withRetry({
+                maxAttempts: Infinity,
+                baseInterval: 500,
+                maxInterval: this.status === ProviderStatus.READY ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL,
+              })(next)(url, init),
             withStallTimeout(1 * TimeUnit.SECOND),
           ],
           'https://resolver.confidence.dev/*': [
@@ -229,13 +229,10 @@ export class ConfidenceServerProviderLocal implements Provider {
       }
       scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
       scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      scheduleWithDynamicDelay(
+      scheduleWithFixedInterval(
         async signal => {
           await this.updateState(signal);
-          if (this.status !== ProviderStatus.READY) {
-            this.status = ProviderStatus.READY;
-            logger.info('Provider recovered and is now READY');
-          }
+          this.status = ProviderStatus.READY;
         },
         () => (this.status === ProviderStatus.READY ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL),
         { signal },

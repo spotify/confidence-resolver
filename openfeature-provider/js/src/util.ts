@@ -17,14 +17,6 @@ export const enum TimeUnit {
   DAY = 1000 * 60 * 60 * 24,
 }
 export function scheduleWithFixedDelay(operation: (signal?: AbortSignal) => unknown, delayMs: number): () => void {
-  return scheduleWithDynamicDelay(operation, () => delayMs);
-}
-
-export function scheduleWithDynamicDelay(
-  operation: (signal?: AbortSignal) => unknown,
-  getDelayMs: () => number,
-  opt: { signal?: AbortSignal } = {},
-): () => void {
   const ac = new AbortController();
   let nextRunTimeoutId = 0;
 
@@ -32,31 +24,25 @@ export function scheduleWithDynamicDelay(
     try {
       await operation(ac.signal);
     } catch (e: unknown) {
-      logger.warn('scheduleWithDynamicDelay failure:', e);
+      logger.warn('scheduleWithFixedDelay failure:', e);
     }
-    if (!ac.signal.aborted) {
-      nextRunTimeoutId = portableSetTimeout(run, getDelayMs());
-    }
+    nextRunTimeoutId = portableSetTimeout(run, delayMs);
   };
 
-  const stop = () => {
+  nextRunTimeoutId = portableSetTimeout(run, delayMs);
+  return () => {
     clearTimeout(nextRunTimeoutId);
-    nextRunTimeoutId = 0;
     ac.abort();
   };
-  opt.signal?.addEventListener('abort', stop);
-  if (!opt.signal?.aborted) {
-    nextRunTimeoutId = portableSetTimeout(run, getDelayMs());
-  }
-  return stop;
 }
 
 export function scheduleWithFixedInterval(
   operation: (signal?: AbortSignal) => unknown,
-  intervalMs: number,
+  intervalMs: number | (() => number),
   opt: { maxConcurrent?: number; signal?: AbortSignal } = {},
 ): () => void {
   const maxConcurrent = opt.maxConcurrent ?? 1;
+  const getInterval = () => (typeof intervalMs === 'function' ? intervalMs() : intervalMs);
   const ac = new AbortController();
   let nextRunTimeoutId = 0;
   let lastRunTime = 0;
@@ -70,7 +56,8 @@ export function scheduleWithFixedInterval(
 
   const run = async () => {
     lastRunTime = Date.now();
-    nextRunTimeoutId = portableSetTimeout(run, intervalMs);
+    const interval = getInterval();
+    nextRunTimeoutId = portableSetTimeout(run, interval);
     if (concurrent >= maxConcurrent) {
       return;
     }
@@ -81,14 +68,19 @@ export function scheduleWithFixedInterval(
       logger.warn('scheduleWithFixedInterval failure:', e);
     }
     concurrent--;
+    if (!ac.signal.aborted && getInterval() !== interval) {
+      clearTimeout(nextRunTimeoutId);
+      nextRunTimeoutId = portableSetTimeout(run, getInterval());
+      return;
+    }
     const timeSinceLast = Date.now() - lastRunTime;
-    if (timeSinceLast > intervalMs && nextRunTimeoutId != 0) {
+    if (timeSinceLast > getInterval() && nextRunTimeoutId != 0) {
       clearTimeout(nextRunTimeoutId);
       run();
     }
   };
 
-  nextRunTimeoutId = portableSetTimeout(run, intervalMs);
+  nextRunTimeoutId = portableSetTimeout(run, getInterval());
 
   const stop = () => {
     clearTimeout(nextRunTimeoutId);

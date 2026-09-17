@@ -325,6 +325,12 @@ describe('timeouts and aborts', () => {
     await vi.advanceTimersByTimeAsync(NOT_READY_STATE_INTERVAL);
     await vi.waitFor(() => expect(shortTimeoutProvider.status).toBe('READY'));
 
+    const callsAfterRecovery = net.cdn.state.calls;
+    await vi.advanceTimersByTimeAsync(DEFAULT_STATE_INTERVAL - 1000);
+    expect(net.cdn.state.calls).toBe(callsAfterRecovery);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(net.cdn.state.calls).toBe(callsAfterRecovery + 1);
+
     await advanceTimersUntil(shortTimeoutProvider.onClose());
   });
   it('returns the default with a provider-not-ready error before recovery', async () => {

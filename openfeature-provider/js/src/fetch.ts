@@ -62,7 +62,7 @@ export function withStallTimeout(stallTimeoutMs: number): FetchMiddleware {
 export function withRetry(opts?: {
   maxAttempts?: number;
   baseInterval?: number;
-  maxInterval?: number | (() => number);
+  maxInterval?: number;
   abortAtInterval?: boolean;
   backoff?: number;
   jitter?: number;
@@ -70,7 +70,6 @@ export function withRetry(opts?: {
   const maxAttempts = opts?.maxAttempts ?? 6;
   const baseInterval = opts?.baseInterval ?? 250;
   const maxInterval = opts?.maxInterval ?? 30_000;
-  const getMaxInterval = () => (typeof maxInterval === 'function' ? maxInterval() : maxInterval);
   const backoff = opts?.backoff ?? 2;
   const jitter = opts?.jitter ?? (__TEST__ ? 0 : 0.1);
 
@@ -82,7 +81,7 @@ export function withRetry(opts?: {
 
       const calculateDeadline = (): number => {
         const jitterFactor = 1 + 2 * Math.random() * jitter - jitter;
-        const delay = jitterFactor * Math.min(getMaxInterval(), baseInterval * Math.pow(backoff, attempts));
+        const delay = jitterFactor * Math.min(maxInterval, baseInterval * Math.pow(backoff, attempts));
         return Date.now() + delay;
       };
       const onSuccess = async (resp: Response) => {
@@ -91,7 +90,7 @@ export function withRetry(opts?: {
           return resp;
         }
         logger.debug('withRetry %s failed attempt %d with %d %s', url, attempts - 1, status, statusText);
-        const serverDelay = parseRetryAfter(resp.headers.get('Retry-After'), baseInterval, getMaxInterval());
+        const serverDelay = parseRetryAfter(resp.headers.get('Retry-After'), baseInterval, maxInterval);
 
         await abortableSleep(serverDelay ?? deadline - Date.now(), signal);
         return doTry();
