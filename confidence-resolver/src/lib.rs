@@ -194,7 +194,7 @@ impl ResolverState {
                 flags_admin::resolver_state::packed_bitset::Bitset::GzippedBitset(zipped_bytes) => {
                     // unzip bytes
                     let buffer = decompress_gz(&zipped_bytes[..])?;
-                    let bitvec = bv::BitVec::from_slice(&buffer);
+                    let bitvec = bv::BitVec::from_vec(buffer);
                     bitsets.insert(bitset.segment.clone(), bitvec);
                 }
                 // missing bitset treated as full
@@ -1930,6 +1930,42 @@ mod tests {
             true, true, true,
         ];
         assert_eq!(first_bits, expected_first_bits);
+    }
+
+    #[test]
+    fn test_parse_state_bitset_preserves_length_and_lsb_order() {
+        let bytes = [0b1001_0010, 0b0110_0001];
+        let mut gzipped_bitset = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0];
+        gzipped_bitset.extend(miniz_oxide::deflate::compress_to_vec(&bytes, 6));
+        gzipped_bitset.extend(crc32fast::hash(&bytes).to_le_bytes());
+        gzipped_bitset.extend((bytes.len() as u32).to_le_bytes());
+
+        let state = ResolverState::from_proto(
+            ResolverStatePb {
+                bitsets: vec![flags_admin::resolver_state::PackedBitset {
+                    segment: "segments/test".to_string(),
+                    bitset: Some(
+                        flags_admin::resolver_state::packed_bitset::Bitset::GzippedBitset(
+                            gzipped_bitset,
+                        ),
+                    ),
+                }],
+                ..Default::default()
+            },
+            "test",
+            None,
+        )
+        .unwrap();
+
+        let bitvec = state.bitsets.get("segments/test").unwrap();
+        assert_eq!(bitvec.len(), bytes.len() * 8);
+        assert_eq!(
+            bitvec.iter().by_vals().collect::<Vec<_>>(),
+            vec![
+                false, true, false, false, true, false, false, true, true, false, false, false,
+                false, true, true, false,
+            ]
+        );
     }
 
     #[test]
