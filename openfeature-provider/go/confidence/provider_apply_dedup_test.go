@@ -95,6 +95,7 @@ func TestProviderConfigApplyDedupTranslation(t *testing.T) {
 			opts := buildProviderOptions(
 				tc.config.StatePollInterval,
 				tc.config.LogPollInterval,
+				tc.config.InitializationTimeout,
 				tc.config.DisableApplyDedup,
 				tc.config.DisableExposureCollection,
 			)
@@ -121,6 +122,7 @@ func TestProviderTestConfigApplyDedupTranslation(t *testing.T) {
 			opts := buildProviderOptions(
 				tc.config.StatePollInterval,
 				tc.config.LogPollInterval,
+				tc.config.InitializationTimeout,
 				tc.config.DisableApplyDedup,
 				tc.config.DisableExposureCollection,
 			)

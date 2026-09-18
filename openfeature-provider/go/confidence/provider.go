@@ -30,6 +30,7 @@ import (
 const (
 	defaultStatePollIntervalSeconds = 10
 	defaultLogPollIntervalSeconds   = 15
+	defaultInitializationTimeout    = 30 * time.Second
 	initialStateRetryInterval       = time.Second
 )
 
@@ -39,11 +40,13 @@ type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
 type Option func(*providerOptions)
 
 type providerOptions struct {
-	statePollInterval  time.Duration
-	logPollInterval    time.Duration
-	eventWasmBytes     []byte
-	eventsClient       events.EventsServiceClient
-	useWasmInterpreter bool
+	statePollInterval     time.Duration
+	logPollInterval       time.Duration
+	eventWasmBytes        []byte
+	eventsClient          events.EventsServiceClient
+	useWasmInterpreter    bool
+	initializationTimeout time.Duration
+	initialRetryInterval  time.Duration
 	// disableApplyDedup is stored inverted so the zero value means "dedup on",
 	// which is the default. WithEnableApplyDedup clears it, WithDisableApplyDedup
 	// sets it.
@@ -62,6 +65,20 @@ func WithStatePollInterval(d time.Duration) Option {
 func WithLogPollInterval(d time.Duration) Option {
 	return func(o *providerOptions) {
 		o.logPollInterval = d
+	}
+}
+
+// WithInitializationTimeout sets the total time allowed for initial state loading.
+// The provider continues retrying in the background if this timeout expires.
+func WithInitializationTimeout(d time.Duration) Option {
+	return func(o *providerOptions) {
+		o.initializationTimeout = d
+	}
+}
+
+func withInitialStateRetryInterval(d time.Duration) Option {
+	return func(o *providerOptions) {
+		o.initialRetryInterval = d
 	}
 }
 
@@ -134,17 +151,19 @@ type eventTracking interface {
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
-	resolverSupplier  LocalResolverSupplier
-	resolver          lr.LocalResolver
-	stateProvider     StateProvider
-	flagLogger        FlagLogger
-	clientSecret      string
-	logger            *slog.Logger
-	cancelFunc        context.CancelFunc
-	wg                sync.WaitGroup
-	mu                sync.Mutex
-	statePollInterval time.Duration
-	logPollInterval   time.Duration
+	resolverSupplier      LocalResolverSupplier
+	resolver              lr.LocalResolver
+	stateProvider         StateProvider
+	flagLogger            FlagLogger
+	clientSecret          string
+	logger                *slog.Logger
+	cancelFunc            context.CancelFunc
+	wg                    sync.WaitGroup
+	mu                    sync.Mutex
+	statePollInterval     time.Duration
+	logPollInterval       time.Duration
+	initializationTimeout time.Duration
+	initialRetryInterval  time.Duration
 
 	// Event tracking (optional — nil when no event WASM is provided)
 	eventTracker eventTracking
@@ -202,6 +221,14 @@ func newLocalResolverProvider(
 	if logPollInterval <= 0 {
 		logPollInterval = getLogPollInterval(logger)
 	}
+	initializationTimeout := options.initializationTimeout
+	if initializationTimeout <= 0 {
+		initializationTimeout = defaultInitializationTimeout
+	}
+	initialRetryInterval := options.initialRetryInterval
+	if initialRetryInterval <= 0 {
+		initialRetryInterval = initialStateRetryInterval
+	}
 
 	provider := &LocalResolverProvider{
 		resolverSupplier:          resolverSupplier,
@@ -211,6 +238,8 @@ func newLocalResolverProvider(
 		logger:                    logger,
 		statePollInterval:         statePollInterval,
 		logPollInterval:           logPollInterval,
+		initializationTimeout:     initializationTimeout,
+		initialRetryInterval:      initialRetryInterval,
 		lifecycleEvents:           make(chan openfeature.Event, 2),
 		enableApplyDedup:          !options.disableApplyDedup,
 		disableExposureCollection: options.disableExposureCollection,
@@ -860,33 +889,57 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 
 	p.resolver = p.resolverSupplier(ctx, logSink)
 
-	// Fetch initial state and accountID from StateProvider
-	initialState, accountId, err := p.stateProvider.Provide(ctx)
-	if ctx.Err() != nil {
-		return nil
-	}
-	if err != nil {
-		p.logger.Error("Failed to fetch initial state", "error", err)
-		p.emitLifecycleEvent(openfeature.ProviderError, fmt.Sprintf("Failed to fetch initial state: %v", err), openfeature.GeneralCode)
-	} else if accountId == "" {
-		p.logger.Error("AccountID is empty in the fetched state, this should not happen")
-		p.emitLifecycleEvent(openfeature.ProviderError, "AccountID is empty in the initial state", openfeature.GeneralCode)
-	} else if err := p.setResolverState(initialState, accountId); err != nil {
-		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
-		cancel()
-		return fmt.Errorf("failed to initialize resolver: %w", err)
-	} else if !p.transitionToReady(ctx, false) {
-		return nil
-	}
-	// Start background tasks for state updates and log flushing
-	p.startScheduledTasks(ctx, initialState, accountId)
+	startupCtx, startupCancel := context.WithTimeout(ctx, p.initializationTimeout)
+	defer startupCancel()
 
-	if p.ready.Load() {
-		p.logger.Info("Provider initialized successfully")
-	} else {
-		p.logger.Warn("Initial state load failed, provider starting not ready and serving default values")
+	var lastErr error
+	finishStartup := func() error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		p.startScheduledTasks(ctx, nil, "")
+		p.logger.Warn("Initial state load timed out; serving default values while recovery continues", "error", lastErr)
+		return fmt.Errorf("provider initialization timed out after %s: %w", p.initializationTimeout, startupCtx.Err())
 	}
-	return nil
+	for {
+		initialState, accountId, loadErr := p.loadState(startupCtx)
+		if startupCtx.Err() != nil {
+			return finishStartup()
+		}
+		if loadErr == nil {
+			if !p.transitionToReady(ctx, false) {
+				return ctx.Err()
+			}
+			p.startScheduledTasks(ctx, initialState, accountId)
+			p.logger.Info("Provider initialized successfully")
+			return nil
+		}
+		lastErr = loadErr
+		p.logger.Error("Initial state load failed", "error", loadErr)
+
+		retryTimer := time.NewTimer(p.initialRetryInterval)
+		select {
+		case <-retryTimer.C:
+			continue
+		case <-startupCtx.Done():
+			retryTimer.Stop()
+			return finishStartup()
+		}
+	}
+}
+
+func (p *LocalResolverProvider) loadState(ctx context.Context) ([]byte, string, error) {
+	state, accountId, err := p.stateProvider.Provide(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fetch state: %w", err)
+	}
+	if accountId == "" {
+		return nil, "", errors.New("account ID is empty in fetched state")
+	}
+	if err := p.setResolverState(state, accountId); err != nil {
+		return nil, "", fmt.Errorf("failed to install resolver state: %w", err)
+	}
+	return state, accountId, nil
 }
 
 func (p *LocalResolverProvider) setResolverState(state []byte, accountId string) error {
@@ -993,7 +1046,7 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 			if p.ready.Load() {
 				return p.statePollInterval
 			}
-			return initialStateRetryInterval
+			return p.initialRetryInterval
 		}
 		stateTimer := time.NewTimer(nextInterval())
 		defer stateTimer.Stop()
