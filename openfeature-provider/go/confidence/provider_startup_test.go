@@ -124,16 +124,15 @@ func TestLocalResolverProvider_ReportsRecoveryToOpenFeature(t *testing.T) {
 	stateProvider := &recoveringStateProvider{succeedAt: 2}
 	provider := newStartupTestProvider(stateProvider, &mockResolverAPIForInit{})
 	const domain = "startup-recovery-test"
-	api := openfeature.GetApiInstance()
 
-	if err := api.SetNamedProvider(domain, provider, false); err != nil {
+	if err := openfeature.SetNamedProvider(domain, provider); err != nil {
 		t.Fatalf("SetNamedProviderAndWait returned a recoverable state fetch error: %v", err)
 	}
 	t.Cleanup(func() {
 		provider.Shutdown()
 	})
 
-	client := api.GetNamedClient(domain)
+	client := openfeature.NewClient(domain)
 	waitFor(t, time.Second, func() bool {
 		return client.State() == openfeature.ErrorState
 	})
