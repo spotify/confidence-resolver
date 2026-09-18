@@ -28,6 +28,7 @@ type ProviderConfig struct {
 	UseRemoteMaterializationStore bool                 // set to true to use a Remote lookup for materializations. Requires that MaterializationStore is nil.
 	StatePollInterval             time.Duration        // Optional: interval for state polling, defaults to 10 seconds
 	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
+	InitializationTimeout         time.Duration        // Optional: total startup retry budget, defaults to 30 seconds
 	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
 	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
 	// EnableApplyDedup is retained for compatibility and is now redundant:
@@ -47,15 +48,16 @@ type ProviderConfig struct {
 }
 
 type ProviderTestConfig struct {
-	StateProvider        StateProvider
-	FlagLogger           FlagLogger
-	ClientSecret         string
-	Logger               *slog.Logger
-	MaterializationStore MaterializationStore // Optional
-	StatePollInterval    time.Duration        // Optional: interval for state polling, defaults to 10 seconds
-	LogPollInterval      time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
-	ResolverPoolSize     int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
-	UseWasmInterpreter   bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
+	StateProvider         StateProvider
+	FlagLogger            FlagLogger
+	ClientSecret          string
+	Logger                *slog.Logger
+	MaterializationStore  MaterializationStore // Optional
+	StatePollInterval     time.Duration        // Optional: interval for state polling, defaults to 10 seconds
+	LogPollInterval       time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
+	InitializationTimeout time.Duration        // Optional: total startup retry budget, defaults to 30 seconds
+	ResolverPoolSize      int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
+	UseWasmInterpreter    bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
 	// DisableApplyDedup turns off apply-event deduplication. Dedup is on by
 	// default here too, so a test provider behaves like a real one; set this
 	// when a test needs to observe every apply rather than the deduped stream.
@@ -126,7 +128,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.DisableApplyDedup, config.DisableExposureCollection)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection)
 	providerOpts = append(providerOpts,
 		WithEventTracking(et.EventEngineWasm),
 		WithUseWasmInterpreter(config.UseWasmInterpreter),
@@ -157,7 +159,7 @@ func newProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, nil)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.DisableApplyDedup, config.DisableExposureCollection)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection)
 	provider := newLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
@@ -180,13 +182,16 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels 
 }
 
 // buildProviderOptions creates options slice from provider config
-func buildProviderOptions(statePollInterval, logPollInterval time.Duration, disableApplyDedup, disableExposureCollection bool) []Option {
+func buildProviderOptions(statePollInterval, logPollInterval, initializationTimeout time.Duration, disableApplyDedup, disableExposureCollection bool) []Option {
 	var opts []Option
 	if statePollInterval > 0 {
 		opts = append(opts, WithStatePollInterval(statePollInterval))
 	}
 	if logPollInterval > 0 {
 		opts = append(opts, WithLogPollInterval(logPollInterval))
+	}
+	if initializationTimeout > 0 {
+		opts = append(opts, WithInitializationTimeout(initializationTimeout))
 	}
 	// Dedup is on by default, so only an explicit opt-out needs an option here.
 	if disableApplyDedup {

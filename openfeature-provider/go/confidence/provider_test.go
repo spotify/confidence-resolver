@@ -3,8 +3,10 @@ package confidence
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
@@ -583,11 +585,12 @@ func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
+		WithInitializationTimeout(time.Millisecond),
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if err != nil {
-		t.Fatalf("Expected recoverable state fetch error, got: %v", err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Expected recoverable initialization timeout, got: %v", err)
 	}
 	defer provider.Shutdown()
 
@@ -614,11 +617,12 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
+		WithInitializationTimeout(time.Millisecond),
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if err != nil {
-		t.Fatalf("Expected empty account ID to be recoverable, got: %v", err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Expected recoverable initialization timeout, got: %v", err)
 	}
 	defer provider.Shutdown()
 
@@ -653,15 +657,14 @@ func TestLocalResolverProvider_Init_UpdateStateError(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
+		WithInitializationTimeout(time.Millisecond),
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when UpdateStateAndFlushLogs fails")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Expected recoverable initialization timeout, got: %v", err)
 	}
-	if err.Error() != "failed to initialize resolver: context deadline exceeded" {
-		t.Errorf("Expected wrapped error message, got: %v", err)
-	}
+	provider.Shutdown()
 }
 
 // TestLocalResolverProvider_Init_Success verifies successful Init

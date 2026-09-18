@@ -121,7 +121,7 @@ evalCtx := openfeature.NewEvaluationContext("user-123", map[string]interface{}{
 
 The provider uses a **default value fallback** pattern - when evaluation fails, it returns your specified default value instead of throwing an error.
 
-With OpenFeature Go SDK v1.16.0, `SetProviderAndWait` waits for the first state request, not for eventual recovery from a transient CDN failure. The call returns `nil` after a recoverable failure so the SDK can subscribe to provider lifecycle events. The provider reports `PROVIDER_ERROR`, serves caller-supplied defaults while retrying, and reports `PROVIDER_READY` after it loads state successfully. A non-nil return from `SetProviderAndWait` still indicates a fatal initialization failure.
+Initialization uses one total 30-second budget by default, including state requests and one-second retry delays. `SetProviderAndWait` returns `nil` as soon as valid state is installed. If the budget expires, it returns a recoverable timeout error; evaluations use caller-supplied defaults while the provider keeps retrying in the background. Successful background recovery emits `PROVIDER_READY` and resumes the configured state polling interval.
 
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
 
@@ -146,16 +146,16 @@ if err != nil && strings.Contains(err.Error(), "FLAG_NOT_FOUND") {
     log.Warn("Flag 'my-flag' not found in Confidence - check flag name")
 }
 
-// During initialization with timeout
-ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-defer cancel()
-
 provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-    ClientSecret: "your-client-secret",
-    EncryptionKey: "your-encryption-key",
+    ClientSecret:          "your-client-secret",
+    EncryptionKey:         "your-encryption-key",
+    InitializationTimeout: 10 * time.Second,
 })
 if err != nil {
-    log.Fatalf("Provider initialization failed: %v", err)
+	log.Fatalf("Provider creation failed: %v", err)
+}
+if err := openfeature.SetProviderAndWait(provider); err != nil {
+	log.Printf("Provider is recovering in the background: %v", err)
 }
 ```
 
@@ -190,6 +190,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration). The default gRPC dial options include a retry policy for flag log writes (3 attempts with exponential backoff on `UNAVAILABLE`). Custom `TransportHooks` receive these options in `ModifyGRPCDial` and can keep, modify, or replace them. See [gRPC retry via service config](https://grpc.io/docs/guides/retry/) for details.
 - `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
 - `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
+- `InitializationTimeout` (time.Duration): Total startup retry budget before initialization returns a recoverable timeout error (default: 30 seconds)
 - `ResolverPoolSize` (int): Number of WASM resolver instances in the pool (default: `2`). Increase for higher concurrency (with the penalty of higher memory footprint).
 - `UseWasmInterpreter` (bool): Run the embedded WASM resolver in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode) for when to enable this and the performance trade-offs.
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
