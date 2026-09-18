@@ -8,6 +8,7 @@ import (
 
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 )
 
@@ -23,6 +24,18 @@ type stateProviderFunc func(context.Context) ([]byte, string, error)
 
 func (f stateProviderFunc) Provide(ctx context.Context) ([]byte, string, error) {
 	return f(ctx)
+}
+
+type blockingSetResolver struct {
+	mockResolverAPIForInit
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockingSetResolver) SetResolverState(*wasm.SetResolverStateRequest) error {
+	close(r.started)
+	<-r.release
+	return nil
 }
 
 func (p *recoveringStateProvider) Provide(ctx context.Context) ([]byte, string, error) {
@@ -235,5 +248,95 @@ func TestLocalResolverProvider_ShutdownCancelsInitialStateRequest(t *testing.T) 
 	case <-shutdownDone:
 	case <-time.After(time.Second):
 		t.Fatal("shutdown did not complete after initialization stopped")
+	}
+}
+
+func TestLocalResolverProvider_ShutdownWinsDuringSetResolverState(t *testing.T) {
+	tests := map[string]StateProvider{
+		"init": stateProviderFunc(func(context.Context) ([]byte, string, error) {
+			return []byte("state"), "account", nil
+		}),
+		"background retry": stateProviderFunc(func() func(context.Context) ([]byte, string, error) {
+			var calls atomic.Int32
+			return func(context.Context) ([]byte, string, error) {
+				if calls.Add(1) == 1 {
+					return nil, "", context.DeadlineExceeded
+				}
+				return []byte("state"), "account", nil
+			}
+		}()),
+	}
+
+	for name, stateProvider := range tests {
+		t.Run(name, func(t *testing.T) {
+			resolver := &blockingSetResolver{
+				started: make(chan struct{}),
+				release: make(chan struct{}),
+			}
+			resolverContext := make(chan context.Context, 1)
+			provider := newLocalResolverProvider(
+				func(ctx context.Context, _ lr.LogSink) lr.LocalResolver {
+					resolverContext <- ctx
+					return resolver
+				},
+				stateProvider,
+				&tu.MockFlagLogger{},
+				"secret",
+				nil,
+			)
+
+			initDone := make(chan error, 1)
+			go func() {
+				initDone <- provider.Init(openfeature.EvaluationContext{})
+			}()
+			ctx := <-resolverContext
+
+			select {
+			case <-resolver.started:
+			case <-time.After(1500 * time.Millisecond):
+				t.Fatal("SetResolverState did not start")
+			}
+
+			shutdownDone := make(chan struct{})
+			go func() {
+				provider.Shutdown()
+				close(shutdownDone)
+			}()
+
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("Shutdown did not cancel the resolver context")
+			}
+			close(resolver.release)
+
+			select {
+			case err := <-initDone:
+				if err != nil {
+					t.Fatalf("Init returned an error: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("Init did not complete")
+			}
+			select {
+			case <-shutdownDone:
+			case <-time.After(time.Second):
+				t.Fatal("Shutdown did not complete")
+			}
+
+			if provider.ready.Load() {
+				t.Fatal("provider became ready after Shutdown")
+			}
+			for {
+				select {
+				case event := <-provider.EventChannel():
+					if event.EventType == openfeature.ProviderReady {
+						t.Fatal("provider reported ready after Shutdown")
+					}
+				default:
+					return
+				}
+			}
+		})
 	}
 }

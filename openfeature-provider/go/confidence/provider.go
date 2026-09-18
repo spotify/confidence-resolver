@@ -825,8 +825,8 @@ func (p *LocalResolverProvider) emitLifecycleEvent(
 // Fetches initial state and starts background tasks for state updates and log flushing
 func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationContext) (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	p.ready.Store(false)
 	p.mu.Lock()
+	p.ready.Store(false)
 	p.cancelFunc = cancel
 	p.wg.Add(1)
 	p.mu.Unlock()
@@ -875,8 +875,8 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
 		cancel()
 		return fmt.Errorf("failed to initialize resolver: %w", err)
-	} else {
-		p.ready.Store(true)
+	} else if !p.transitionToReady(ctx, false) {
+		return nil
 	}
 	// Start background tasks for state updates and log flushing
 	p.startScheduledTasks(ctx, initialState, accountId)
@@ -902,23 +902,35 @@ func (p *LocalResolverProvider) setResolverState(state []byte, accountId string)
 	})
 }
 
+func (p *LocalResolverProvider) transitionToReady(ctx context.Context, reportRecovery bool) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if ctx.Err() != nil {
+		return false
+	}
+	if becameReady := !p.ready.Swap(true); becameReady && reportRecovery {
+		p.logger.Info("Provider recovered and is now ready")
+		p.emitLifecycleEvent(openfeature.ProviderReady, "Provider recovered and is now ready", "")
+	}
+	return true
+}
+
 // Shutdown closes the provider and cleans up resources (part of StateHandler interface)
 func (p *LocalResolverProvider) Shutdown() {
 	ctx := context.Background()
-	p.ready.Store(false)
 	p.mu.Lock()
 	cancel := p.cancelFunc
 	p.cancelFunc = nil
+	if cancel != nil {
+		cancel()
+	}
+	p.ready.Store(false)
 	p.mu.Unlock()
 
 	if p.logger != nil {
 		p.logger.Info("Shutting down provider")
-	}
-
-	// Cancel background tasks and in-flight state requests.
-	if cancel != nil {
-		cancel()
-		if p.logger != nil {
+		if cancel != nil {
 			p.logger.Debug("Cancelled scheduled tasks")
 		}
 	}
@@ -1013,13 +1025,11 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 					if err := p.setResolverState(state, accountId); err != nil {
 						p.logger.Error("Failed to update state", "error", err)
 					} else {
-						wasReady := p.ready.Swap(true)
+						if !p.transitionToReady(parentCtx, true) {
+							return
+						}
 						appliedState = state
 						appliedAccountId = accountId
-						if !wasReady {
-							p.logger.Info("Provider recovered and is now ready")
-							p.emitLifecycleEvent(openfeature.ProviderReady, "Provider recovered and is now ready", "")
-						}
 					}
 				}
 				stateTimer.Reset(nextInterval())
