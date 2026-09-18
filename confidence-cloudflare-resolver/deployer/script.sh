@@ -362,82 +362,100 @@ else
     echo "⚠️ CLOUDFLARE_ACCOUNT_ID environment variable is not set. This is required if the CloudFlare API token is of type Account, while User tokens with the correct permissions don't need this env variable set"
 fi
 
-# Determine queue name based on prefix
-if [ -n "$WORKER_NAME_PREFIX" ]; then
-    QUEUE_NAME="${WORKER_NAME_PREFIX}-flag-logs-queue"
-else
-    QUEUE_NAME="flag-logs-queue"
+# Number of flag-log queue shards (default 1 for backward compat).
+# Each shard adds ~5K msg/sec write capacity.
+FLAG_LOGS_QUEUE_COUNT=${FLAG_LOGS_QUEUE_COUNT:-1}
+if [[ ! "$FLAG_LOGS_QUEUE_COUNT" =~ ^[1-9][0-9]*$ ]] || [ "$FLAG_LOGS_QUEUE_COUNT" -gt 9999 ]; then
+    echo "FLAG_LOGS_QUEUE_COUNT must be a positive integer between 1 and 9999" >&2
+    exit 1
 fi
 
-# Create queue if it doesn't exist
-echo "🔍 Checking if queue '$QUEUE_NAME' exists..."
-QUEUE_CHECK=$(curl -sS -w "%{http_code}" \
-    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-    "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues?name=${QUEUE_NAME}")
-QUEUE_STATUS="${QUEUE_CHECK: -3}"
-QUEUE_BODY="${QUEUE_CHECK%???}"
+ensure_queue() {
+    local Q_NAME="$1"
+    echo "🔍 Checking if queue '$Q_NAME' exists..."
+    local Q_CHECK
+    Q_CHECK=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues?name=${Q_NAME}")
+    local Q_STATUS="${Q_CHECK: -3}"
+    local Q_BODY="${Q_CHECK%???}"
 
-if [ "$QUEUE_STATUS" = "200" ]; then
-    QUEUE_COUNT=$(printf "%s" "$QUEUE_BODY" | jq -r '.result | length')
-    if [ "$QUEUE_COUNT" = "0" ]; then
-        echo "📦 Queue '$QUEUE_NAME' not found, creating..."
-        CREATE_RESP=$(curl -sS -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"queue_name\": \"${QUEUE_NAME}\"}" \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues")
-        CREATE_STATUS="${CREATE_RESP: -3}"
-        if [ "$CREATE_STATUS" = "200" ] || [ "$CREATE_STATUS" = "201" ]; then
-            echo "✅ Queue '$QUEUE_NAME' created successfully"
+    if [ "$Q_STATUS" = "200" ]; then
+        local Q_COUNT
+        Q_COUNT=$(printf "%s" "$Q_BODY" | jq -r '.result | length')
+        if [ "$Q_COUNT" = "0" ]; then
+            echo "📦 Queue '$Q_NAME' not found, creating..."
+            local Q_CREATE
+            Q_CREATE=$(curl -sS -w "%{http_code}" -X POST \
+                -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "{\"queue_name\": \"${Q_NAME}\"}" \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues")
+            local Q_CREATE_STATUS="${Q_CREATE: -3}"
+            if [ "$Q_CREATE_STATUS" = "200" ] || [ "$Q_CREATE_STATUS" = "201" ]; then
+                echo "✅ Queue '$Q_NAME' created successfully"
+            else
+                echo "❌ Failed to create queue '$Q_NAME' (HTTP $Q_CREATE_STATUS)"
+                echo "$Q_CREATE"
+                return 1
+            fi
         else
-            echo "❌ Failed to create queue (HTTP $CREATE_STATUS)"
-            echo "$CREATE_RESP"
-            exit 1
+            echo "✅ Queue '$Q_NAME' already exists"
         fi
     else
-        echo "✅ Queue '$QUEUE_NAME' already exists"
+        echo "⚠️ Could not check queue '$Q_NAME' status (HTTP $Q_STATUS)"
     fi
-else
-    echo "⚠️ Could not check queue status (HTTP $QUEUE_STATUS)"
+}
+
+# Create flag-log queue shards.
+# Shard 0: "flag-logs-queue" (backward compatible name)
+# Shard 1+: "flag-logs-queue-1", "flag-logs-queue-2", ...
+BASE_QUEUE_NAME="flag-logs-queue"
+if [ -n "$WORKER_NAME_PREFIX" ]; then
+    BASE_QUEUE_NAME="${WORKER_NAME_PREFIX}-flag-logs-queue"
 fi
 
-# Create events queue if it doesn't exist
+for ((queue_index = 1; queue_index <= FLAG_LOGS_QUEUE_COUNT; queue_index++)); do
+    if [ "$queue_index" -eq 1 ]; then
+        SHARD_NAME="$BASE_QUEUE_NAME"
+    else
+        SHARD_NAME="${BASE_QUEUE_NAME}-${queue_index}"
+    fi
+    ensure_queue "$SHARD_NAME" || exit 1
+done
+
+# Append extra shard bindings (shard 2+) to wrangler.toml.
+# Shard 1 is already in the checked-in wrangler.toml as "flag-logs-queue".
+for ((queue_index = 2; queue_index <= FLAG_LOGS_QUEUE_COUNT; queue_index++)); do
+    if [ -n "$WORKER_NAME_PREFIX" ]; then
+        SHARD_NAME="${WORKER_NAME_PREFIX}-flag-logs-queue-${queue_index}"
+    else
+        SHARD_NAME="flag-logs-queue-${queue_index}"
+    fi
+    cat >> wrangler.toml <<EOF
+
+[[queues.consumers]]
+queue = "${SHARD_NAME}"
+max_batch_size = 100
+max_batch_timeout = 10
+
+[[queues.producers]]
+queue = "${SHARD_NAME}"
+binding = "flag_logs_queue_${queue_index}"
+EOF
+done
+
+if [ "$FLAG_LOGS_QUEUE_COUNT" -gt 1 ]; then
+    echo "✅ Created ${FLAG_LOGS_QUEUE_COUNT} flag-log queue shards"
+fi
+
+# Create events queue
 if [ -n "$WORKER_NAME_PREFIX" ]; then
     EVENTS_QUEUE_NAME="${WORKER_NAME_PREFIX}-events-queue"
 else
     EVENTS_QUEUE_NAME="events-queue"
 fi
-
-echo "🔍 Checking if queue '$EVENTS_QUEUE_NAME' exists..."
-EVENTS_QUEUE_CHECK=$(curl -sS -w "%{http_code}" \
-    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-    "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues?name=${EVENTS_QUEUE_NAME}")
-EVENTS_QUEUE_STATUS="${EVENTS_QUEUE_CHECK: -3}"
-EVENTS_QUEUE_BODY="${EVENTS_QUEUE_CHECK%???}"
-
-if [ "$EVENTS_QUEUE_STATUS" = "200" ]; then
-    EVENTS_QUEUE_COUNT=$(printf "%s" "$EVENTS_QUEUE_BODY" | jq -r '.result | length')
-    if [ "$EVENTS_QUEUE_COUNT" = "0" ]; then
-        echo "📦 Queue '$EVENTS_QUEUE_NAME' not found, creating..."
-        EVENTS_CREATE_RESP=$(curl -sS -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"queue_name\": \"${EVENTS_QUEUE_NAME}\"}" \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues")
-        EVENTS_CREATE_STATUS="${EVENTS_CREATE_RESP: -3}"
-        if [ "$EVENTS_CREATE_STATUS" = "200" ] || [ "$EVENTS_CREATE_STATUS" = "201" ]; then
-            echo "✅ Queue '$EVENTS_QUEUE_NAME' created successfully"
-        else
-            echo "❌ Failed to create events queue (HTTP $EVENTS_CREATE_STATUS)"
-            echo "$EVENTS_CREATE_RESP"
-            exit 1
-        fi
-    else
-        echo "✅ Queue '$EVENTS_QUEUE_NAME' already exists"
-    fi
-else
-    echo "⚠️ Could not check events queue status (HTTP $EVENTS_QUEUE_STATUS)"
-fi
+ensure_queue "$EVENTS_QUEUE_NAME" || exit 1
 
 # Create KV namespace for /metrics endpoint if it doesn't exist
 if [ -n "$WORKER_NAME_PREFIX" ]; then
@@ -564,11 +582,10 @@ fi
 # Update worker name and queue names in wrangler.toml if using prefix
 if [ -n "$WORKER_NAME_PREFIX" ]; then
     sed -i.tmp "s/^name = .*/name = \"$WORKER_NAME\"/" wrangler.toml
-    # Update queue names in both producer and consumer sections
-    sed -i.tmp "s/queue = \"flag-logs-queue\"/queue = \"$QUEUE_NAME\"/g" wrangler.toml
+    sed -i.tmp "s/queue = \"flag-logs-queue\"/queue = \"$BASE_QUEUE_NAME\"/g" wrangler.toml
     sed -i.tmp "s/queue = \"events-queue\"/queue = \"$EVENTS_QUEUE_NAME\"/g" wrangler.toml
     echo "✅ Updated worker name to \"$WORKER_NAME\" in wrangler.toml"
-    echo "✅ Updated queue names to \"$QUEUE_NAME\" and \"$EVENTS_QUEUE_NAME\" in wrangler.toml"
+    echo "✅ Updated queue names in wrangler.toml"
 fi
 
 # Prepare ALLOWED_ORIGIN for TOML (escape quotes and backslashes)
