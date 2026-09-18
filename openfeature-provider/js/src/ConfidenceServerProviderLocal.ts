@@ -4,6 +4,7 @@ import type {
   Provider,
   ProviderMetadata,
   ProviderStatus,
+  ServerProviderEvents,
   TrackingEventDetails,
 } from '@openfeature/server-sdk';
 import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
@@ -11,7 +12,16 @@ import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidenc
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, hexToBytes, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import {
+  abortablePromise,
+  abortableSleep,
+  castStringToEnum,
+  hexToBytes,
+  scheduleWithFixedInterval,
+  timeoutSignal,
+  TimeUnit,
+} from './util';
+import { ProviderEvents } from './ProviderEvents';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -86,6 +96,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   };
   /** Current status of the provider. Can be READY, NOT_READY, ERROR, STALE and FATAL. */
   status: ProviderStatus = castStringToEnum<ProviderStatus>('NOT_READY');
+  readonly events: ProviderEvents = new ProviderEvents(this.metadata.name);
 
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
@@ -218,30 +229,53 @@ export class ConfidenceServerProviderLocal implements Provider {
     try {
       this.resolverInstance = await this.resolverOrPromise;
       this.eventTracker = await this.eventTrackerOrPromise;
-      try {
-        await this.updateState(initialUpdateSignal);
-        this.status = castStringToEnum<ProviderStatus>('READY');
-      } catch (error) {
-        logger.warn('Initial state load failed, provider starting in NOT_READY state:', error);
+    } catch (error) {
+      this.status = castStringToEnum<ProviderStatus>('ERROR');
+      throw error;
+    }
+
+    let initializationError: Error | undefined;
+    try {
+      // Network retries happen inside fetch; also retry rejected/invalid state
+      // within the same overall initialization budget.
+      while (true) {
+        initialUpdateSignal.throwIfAborted();
+        try {
+          await abortablePromise(this.updateState(initialUpdateSignal), initialUpdateSignal);
+          initialUpdateSignal.throwIfAborted();
+          this.status = castStringToEnum<ProviderStatus>('READY');
+          break;
+        } catch (error) {
+          initialUpdateSignal.throwIfAborted();
+          logger.warn('Initial state load failed, retrying:', error);
+          await abortableSleep(NOT_READY_STATE_INTERVAL, initialUpdateSignal);
+        }
       }
-      if (signal.aborted) {
-        return;
-      }
+    } catch (cause) {
+      initializationError = Object.assign(
+        new Error(signal.aborted ? 'Provider closed during initialization' : 'Timed out waiting for initial state'),
+        { code: ErrorCode.PROVIDER_NOT_READY, cause },
+      );
+      logger.warn('Initial state unavailable:', initializationError);
+    }
+
+    if (!signal.aborted) {
       scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
       scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
       scheduleWithFixedInterval(
         async signal => {
           await this.updateState(signal);
-          this.status = castStringToEnum<ProviderStatus>('READY');
+          signal?.throwIfAborted();
+          if (this.status !== 'READY') {
+            this.status = castStringToEnum<ProviderStatus>('READY');
+            this.events.emit(castStringToEnum<ServerProviderEvents>('PROVIDER_READY'));
+          }
         },
         () => (this.status === 'READY' ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL),
         { signal },
       );
-    } catch (e: unknown) {
-      this.status = castStringToEnum<ProviderStatus>('ERROR');
-      // TODO should we swallow this?
-      throw e;
     }
+    if (initializationError) throw initializationError;
   }
 
   async onClose(): Promise<void> {
@@ -524,6 +558,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
 
     const plaintext = await decryptAesGcm(bytes, hexToBytes(encryptionKey));
+    signal?.throwIfAborted();
     const clientState = ClientResolverState.decode(plaintext);
     this.logDestinations = clientState.logDestinations;
     this.accountId = clientState.account;
