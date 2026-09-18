@@ -56,7 +56,8 @@ The deployer automatically:
 | `CONFIDENCE_RESOLVER_STATE_URL`      | Custom resolver state URL (overrides default URL to Confidence CDN)                                                                               |
 | `CONFIDENCE_RESOLVER_ALLOWED_ORIGIN` | Configure allowed origins for CORS                                                                                                                |
 | `RESOLVE_TOKEN_ENCRYPTION_KEY`       | AES-128 key (base64-encoded, 16 bytes). Used to encrypt resolve tokens for `apply=false`. Auto-generated on first deploy if not provided, and stored as a Cloudflare Worker secret |
-| `FORCE_DEPLOY`                       | Force re-deploy regardless of state changes                                                                                                       |
+| `FORCE_DEPLOY`                       | Any nonempty value forces re-deploy and overrides memory-preflight aborts, including measurement failures, with a prominent warning. Automatic version-triggered redeployment does not override the memory gate. |
+| `SKIP_PREFLIGHT_TEST`               | Set to `true` to skip the local memory preflight; default `false`. |
 | `NO_DEPLOY`                          | Build only, skip deployment                                                                                                                       |
 | `WORKER_NAME_PREFIX`                 | Prefix for worker and queue names. Deploys as `<prefix>-confidence-cloudflare-resolver` with queue `<prefix>-flag-logs-queue` (auto-created)     |
 | `WRANGLER_CONFIG_APPEND_FILE`        | Path to a file containing TOML to append to the generated `wrangler.toml`                                                                          |
@@ -87,6 +88,26 @@ Two queues spread 7,000 messages/sec to approximately 3,500 each, below
 Cloudflare's 5,000 messages/sec per-queue limit. Allow headroom for bursts and
 verify downstream processing capacity. This distributes traffic; it does not
 add retries or durable fallback for rejected publishes.
+
+### Local memory preflight
+
+After fetching/decrypting the state and building the Worker, the deployer starts the built WASM and JavaScript in a pinned local workerd runtime through Miniflare. A WASM export forces the same lazy resolver-state initialization used by requests; it is not exposed by an HTTP route in the deployed Worker. The local probe has no production bindings and blocks outbound Worker requests. Only aggregate counters are printed; runtime error details and customer state contents are suppressed.
+
+The measured baseline is retained WASM linear memory plus allocated JS heap capacity. Rust allocations and embedded state bytes are already inside WASM and are not added again. This is not exact Cloudflare quota accounting or a production load test: request processing, caches, background logging and runtime overhead need additional headroom. The fixed 80/96 MiB thresholds are conservative deployment budgets, not platform limits. The measurement timeout is 60 seconds. At the warning threshold the deployer warns; at the abort threshold, or on initialization failure or timeout, it emits `status: "abort_deployment"` and exits nonzero.
+
+An explicitly supplied, nonempty `FORCE_DEPLOY` keeps that status in the report but sets `forced: true` and permits deployment with a loud warning. This follows the existing nonempty-value convention (even `FORCE_DEPLOY=0` is enabled). `SKIP_PREFLIGHT_TEST=true` skips the preflight entirely and prints a warning; it defaults to `false`. `NO_DEPLOY` still runs the preflight unless explicitly skipped. Failed checks leave the deployed Worker unchanged, but earlier queue/KV provisioning may already have occurred.
+
+Wrangler is invoked with `--no-build` to avoid rebuilding after measurement. The probe uses `main`, `compatibility_date` and `compatibility_flags` from the generated `wrangler.toml`; the supported entrypoint is `build/worker/shim.mjs`. Extra deploy arguments are restricted to `--tag`, `--message`, `--name`, `--var`, `--route`, `--keep-vars`, `--dry-run`, `--logpush`, `--upload-source-maps`, `--no-bundle` and `--no-build`. Other arguments emit `abort_deployment` with reason `unsupported_deploy_arguments`: selecting another entrypoint/configuration or environment, or transforming code, could invalidate the measurement. Explicit `FORCE_DEPLOY` also overrides this signal.
+
+For local validation (Node.js 22 or later), run `npm ci` in `deployer/`, build the Worker with `worker-build --release`, then from the component directory run:
+
+```bash
+node deployer/memory-preflight.mjs .
+```
+
+Policy tests: `npm test --prefix deployer`. The probe does not upload or deploy the built artifact. Its temporary runtime directory is removed on completion. To also exercise initialization against a built Worker with a valid CDN envelope, set `MEMORY_PREFLIGHT_TEST_WORKER_DIR` to the component's absolute path when running the tests. The checked-in raw resolver-state fixture needs wrapping in a `ClientResolverState` envelope before it can be used for that integration test.
+
+The Alpine deployer image includes a separate glibc loader and libraries solely for workerd; Node and Rust continue using musl. Dependencies are pinned in the npm lockfile. Builds using an authenticated npm mirror can pass their configuration with `docker build --secret id=npmrc,src="$HOME/.npmrc" ...`; the configuration is mounted only during dependency installation and is not stored in an image layer.
 
 ### Extending Wrangler Configuration
 
