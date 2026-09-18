@@ -1,7 +1,9 @@
 mod materialization;
 
 use confidence_resolver::{
-    apply_dedup::{ApplyDedup, ApplyDedupSnapshot},
+    apply_dedup::{
+        compute_applied_flag_dedup_hash, AppliedFlagRef, ApplyDedup, ApplyDedupSnapshot,
+    },
     assign_logger, flag_logger,
     proto::{confidence, google::Struct},
     resolve_logger,
@@ -21,8 +23,8 @@ use wasm_bindgen::JsCast;
 
 use confidence::flags::resolver::v1::{ApplyFlagsRequest, ApplyFlagsResponse, ResolveFlagsRequest};
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
-    resolve_process_response, MaterializationRecord, ResolveProcessRequest, ResolveReason,
-    ResolveFlagsResponse,
+    resolve_process_response, MaterializationRecord, ResolveFlagsResponse, ResolveProcessRequest,
+    ResolveReason,
 };
 
 use confidence_resolver::Client;
@@ -55,7 +57,8 @@ thread_local! {
         RefCell::new(ApplyDedupSnapshot::default());
 }
 
-fn dedup_telemetry_delta() -> Option<confidence::flags::resolver::v1::telemetry_data::ApplyDedupTelemetry> {
+fn dedup_telemetry_delta(
+) -> Option<confidence::flags::resolver::v1::telemetry_data::ApplyDedupTelemetry> {
     if !APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         return None;
     }
@@ -195,7 +198,9 @@ impl Host for H {
         if !assigned_flags.is_empty() && APPLY_DEDUP_ENABLED.with(|c| c.get()) {
             let now_seconds = (js_sys::Date::now() / 1000.0) as i64;
             let result = APPLY_DEDUP.with(|dedup| {
-                dedup.borrow_mut().filter_duplicates(assigned_flags, now_seconds)
+                dedup
+                    .borrow_mut()
+                    .filter_duplicates(assigned_flags, now_seconds)
             });
             if result.is_empty() {
                 return;
@@ -204,10 +209,9 @@ impl Host for H {
                 let filtered = result.collect(assigned_flags);
                 FLAG_LOG.with(|f| {
                     if let Some(req) = f.borrow_mut().as_mut() {
-                        req.flag_assigned
-                            .push(assign_logger::build_flag_assigned(
-                                resolve_id, &filtered, client, sdk,
-                            ));
+                        req.flag_assigned.push(assign_logger::build_flag_assigned(
+                            resolve_id, &filtered, client, sdk,
+                        ));
                     }
                 });
                 return;
@@ -215,10 +219,12 @@ impl Host for H {
         }
         FLAG_LOG.with(|f| {
             if let Some(req) = f.borrow_mut().as_mut() {
-                req.flag_assigned
-                    .push(assign_logger::build_flag_assigned(
-                        resolve_id, assigned_flags, client, sdk,
-                    ));
+                req.flag_assigned.push(assign_logger::build_flag_assigned(
+                    resolve_id,
+                    assigned_flags,
+                    client,
+                    sdk,
+                ));
             }
         });
     }
@@ -237,7 +243,10 @@ fn init_resolve_token_key(env: &Env) {
         let s = env
             .secret("RESOLVE_TOKEN_ENCRYPTION_KEY")
             .map(|s| s.to_string())
-            .or_else(|_| env.var("RESOLVE_TOKEN_ENCRYPTION_KEY").map(|v| v.to_string()))
+            .or_else(|_| {
+                env.var("RESOLVE_TOKEN_ENCRYPTION_KEY")
+                    .map(|v| v.to_string())
+            })
             .expect("RESOLVE_TOKEN_ENCRYPTION_KEY is not configured");
         Bytes::from(
             STANDARD
@@ -370,7 +379,11 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
             async move {
                 // Require client secret — metrics are not public.
                 if let Some(expected) = CONFIDENCE_CLIENT_SECRET.get() {
-                    let authorized = req.headers().get("Authorization").ok().flatten()
+                    let authorized = req
+                        .headers()
+                        .get("Authorization")
+                        .ok()
+                        .flatten()
                         .map(|v| v.strip_prefix("ClientSecret ").unwrap_or("") == expected.as_str())
                         .unwrap_or(false);
                     if !authorized {
@@ -388,7 +401,9 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                 let headers = Headers::new();
                 headers.set("Content-Type", PROMETHEUS_CONTENT_TYPE)?;
                 headers.set("Cache-Control", "no-store")?;
-                Response::ok(body)?.with_headers(headers).with_cors_headers(&allowed_origin)
+                Response::ok(body)?
+                    .with_headers(headers)
+                    .with_cors_headers(&allowed_origin)
             }
         })
         // GET endpoint to expose the current deployment state etag and resolver version
@@ -460,8 +475,13 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                     )
                                 };
                                 match resolve_with_sticky(
-                                    &resolver, process_request, mat_kv.as_ref(), &mut log,
-                                ).await {
+                                    &resolver,
+                                    process_request,
+                                    mat_kv.as_ref(),
+                                    &mut log,
+                                )
+                                .await
+                                {
                                     Ok((response, writes)) => {
                                         // Write sticky assignments to KV
                                         // without blocking the response.
@@ -480,34 +500,44 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                                             .iter()
                                             .map(|f| f.reason())
                                             .collect();
-                                        (reasons, Response::from_json(&response)?
-                                            .with_cors_headers(&allowed_origin))
+                                        (
+                                            reasons,
+                                            Response::from_json(&response)?
+                                                .with_cors_headers(&allowed_origin),
+                                        )
                                     }
-                                    Err(msg) => {
-                                        (vec![ResolveReason::Error],
+                                    Err(msg) => (
+                                        vec![ResolveReason::Error],
                                         Response::error(msg, 500)?
-                                            .with_cors_headers(&allowed_origin))
-                                    }
+                                            .with_cors_headers(&allowed_origin),
+                                    ),
                                 }
                             }
-                            Err(msg) => {
-                                (vec![ResolveReason::Error],
-                                Response::error(msg, 500)?.with_cors_headers(&allowed_origin))
-                            }
+                            Err(msg) => (
+                                vec![ResolveReason::Error],
+                                Response::error(msg, 500)?.with_cors_headers(&allowed_origin),
+                            ),
                         };
 
                         let elapsed_us = {
                             let scheduler = js_sys::Reflect::get(
-                                &js_sys::global(), &wasm_bindgen::JsValue::from_str("scheduler")
-                            ).unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                                &js_sys::global(),
+                                &wasm_bindgen::JsValue::from_str("scheduler"),
+                            )
+                            .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
                             if !scheduler.is_undefined() {
                                 let wait = js_sys::Reflect::get(
-                                    &scheduler, &wasm_bindgen::JsValue::from_str("wait")
-                                ).unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                                    &scheduler,
+                                    &wasm_bindgen::JsValue::from_str("wait"),
+                                )
+                                .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
                                 if let Ok(func) = wait.dyn_into::<js_sys::Function>() {
-                                    if let Ok(ret) = func.call1(&scheduler, &wasm_bindgen::JsValue::from(0)) {
+                                    if let Ok(ret) =
+                                        func.call1(&scheduler, &wasm_bindgen::JsValue::from(0))
+                                    {
                                         if let Ok(promise) = ret.dyn_into::<js_sys::Promise>() {
-                                            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                                            let _ =
+                                                wasm_bindgen_futures::JsFuture::from(promise).await;
                                         }
                                     }
                                 }
@@ -572,9 +602,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         }
                         resp
                     }
-                    "telemetry:upload" => {
-                        Response::ok("")?.with_cors_headers(&allowed_origin)
-                    }
+                    "telemetry:upload" => Response::ok("")?.with_cors_headers(&allowed_origin),
                     "events:publish" => {
                         // Read every header we need up front so the immutable
                         // borrow of `req` ends before `req.bytes()` takes it
@@ -619,17 +647,16 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         // never pays for event materialization.
                         if !authorized_by_header {
                             if let Some(exp) = expected {
-                                let probed =
-                                    match probe_client_secret(&body_bytes, is_protobuf) {
-                                        Ok(s) => s,
-                                        Err(msg) => {
-                                            return Response::error(
-                                                format!("Invalid request payload: {}", msg),
-                                                400,
-                                            )?
-                                            .with_cors_headers(&allowed_origin);
-                                        }
-                                    };
+                                let probed = match probe_client_secret(&body_bytes, is_protobuf) {
+                                    Ok(s) => s,
+                                    Err(msg) => {
+                                        return Response::error(
+                                            format!("Invalid request payload: {}", msg),
+                                            400,
+                                        )?
+                                        .with_cors_headers(&allowed_origin);
+                                    }
+                                };
                                 if probed != *exp {
                                     return Response::error("Unauthorized", 401)?
                                         .with_cors_headers(&allowed_origin);
@@ -640,11 +667,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         let queue = match EVENTS_QUEUE.get() {
                             Some(q) => q,
                             None => {
-                                return Response::error(
-                                    "Event tracking not available",
-                                    503,
-                                )?
-                                .with_cors_headers(&allowed_origin);
+                                return Response::error("Event tracking not available", 503)?
+                                    .with_cors_headers(&allowed_origin);
                             }
                         };
 
@@ -664,13 +688,9 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         };
 
                         if !events.is_empty() {
-                            let json = serde_json::to_string(&events)
-                                .map_err(|e| {
-                                    worker::Error::RustError(format!(
-                                        "event serialize failed: {}",
-                                        e
-                                    ))
-                                })?;
+                            let json = serde_json::to_string(&events).map_err(|e| {
+                                worker::Error::RustError(format!("event serialize failed: {}", e))
+                            })?;
                             queue.send(json).await.map_err(|e| {
                                 console_log!("event queue send failed: {:?}", e);
                                 e
@@ -705,14 +725,27 @@ pub async fn consume_queue(
     consume_flag_logs(message_batch, env).await
 }
 
-async fn consume_flag_logs(
-    message_batch: MessageBatch<String>,
-    env: Env,
-) -> Result<()> {
+/// Deduplicates applied flags across a batch of log messages. Different
+/// isolates may each log the same user+flag assignment within the batch
+/// window; this removes the duplicates before the network request.
+fn dedup_batch_flag_applies(logs: &mut [WriteFlagLogsRequest], now_seconds: i64) {
+    let mut dedup = ApplyDedup::new(120, 100_000);
+    for log in logs.iter_mut() {
+        for fa in &mut log.flag_assigned {
+            fa.flags.retain(|applied| {
+                let hash = compute_applied_flag_dedup_hash(&AppliedFlagRef::from(applied));
+                dedup.check_hash(hash, now_seconds)
+            });
+        }
+        log.flag_assigned.retain(|fa| !fa.flags.is_empty());
+    }
+}
+
+async fn consume_flag_logs(message_batch: MessageBatch<String>, env: Env) -> Result<()> {
     if let Ok(messages) = message_batch.messages() {
         // A message that fails to parse is skipped instead of panicking the
         // whole batch (a panic would retry and eventually drop all of it).
-        let logs: Vec<WriteFlagLogsRequest> = messages
+        let mut logs: Vec<WriteFlagLogsRequest> = messages
             .iter()
             .map(|m| m.body().clone())
             .filter_map(
@@ -725,6 +758,8 @@ async fn consume_flag_logs(
                 },
             )
             .collect();
+
+        dedup_batch_flag_applies(&mut logs, (js_sys::Date::now() / 1000.0) as i64);
 
         let req = flag_logger::aggregate_batch(logs);
 
@@ -1009,7 +1044,9 @@ async fn render_metrics(kv: &kv::KvStore) -> String {
 async fn update_kv_snapshot(
     kv: &kv::KvStore,
     pipeline: SnapshotPipeline,
-    telemetry_delta: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
+    telemetry_delta: Option<
+        &confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData,
+    >,
     flush_result: Option<bool>,
     event_result: Option<(u64, u64, bool)>,
 ) {
@@ -1053,7 +1090,9 @@ async fn update_kv_snapshot(
 fn log_destination_url(dest: &LogDestination) -> &'static str {
     match dest {
         LogDestination::Edge => "https://resolver.confidence.dev/v1/clientFlagLogs:write",
-        LogDestination::Cloudflare => "https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest",
+        LogDestination::Cloudflare => {
+            "https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest"
+        }
     }
 }
 
@@ -1151,10 +1190,7 @@ struct ProtoEvent {
 
 /// Extracts just the `client_secret` so the request can be authorized before
 /// the events are decoded. See `ProtoClientSecretProbe`.
-fn probe_client_secret(
-    body: &[u8],
-    is_protobuf: bool,
-) -> std::result::Result<String, String> {
+fn probe_client_secret(body: &[u8], is_protobuf: bool) -> std::result::Result<String, String> {
     if is_protobuf {
         ProtoClientSecretProbe::decode(body)
             .map(|p| p.client_secret)
@@ -1215,10 +1251,7 @@ fn build_publish_events_request(
     })
 }
 
-async fn consume_events_queue(
-    message_batch: MessageBatch<String>,
-    env: Env,
-) -> Result<()> {
+async fn consume_events_queue(message_batch: MessageBatch<String>, env: Env) -> Result<()> {
     let messages = message_batch.messages()?;
     let raw: Vec<String> = messages.iter().map(|m| m.body().clone()).collect();
     let all_events = aggregate_events(&raw);
@@ -1287,7 +1320,6 @@ async fn consume_events_queue(
     Ok(())
 }
 
-
 async fn send_events(body: &serde_json::Value) -> Result<Response> {
     let mut init = RequestInit::new();
     let headers = Headers::new();
@@ -1342,9 +1374,15 @@ mod snapshot_merge_tests {
             GaugeSource::Live,
         );
 
-        assert_eq!(merged.flush.succeeded, 7, "flush from the flag-log key was lost");
+        assert_eq!(
+            merged.flush.succeeded, 7,
+            "flush from the flag-log key was lost"
+        );
         assert_eq!(merged.flush.failed, 2);
-        assert_eq!(merged.events.published, 50, "events from the events key were lost");
+        assert_eq!(
+            merged.events.published, 50,
+            "events from the events key were lost"
+        );
         assert_eq!(merged.events.batches_succeeded, 3);
         assert_eq!(merged.events.batches_failed, 1);
         assert_eq!(merged.events.events_rejected, 4);
@@ -1519,7 +1557,10 @@ mod snapshot_merge_tests {
             ..Default::default()
         };
         let merged = merge_snapshots(a, &TelemetrySnapshot::default(), GaugeSource::Live);
-        assert_eq!(merged.memory_bytes, 4096, "silent pipeline zeroed the gauge");
+        assert_eq!(
+            merged.memory_bytes, 4096,
+            "silent pipeline zeroed the gauge"
+        );
     }
 
     /// The legacy key is frozen at its final pre-upgrade value, so it must
@@ -1584,11 +1625,17 @@ mod snapshot_merge_tests {
         );
 
         // Counters: still summed across both sources.
-        assert_eq!(merged.flush.succeeded, 13, "legacy flush counters were lost");
+        assert_eq!(
+            merged.flush.succeeded, 13,
+            "legacy flush counters were lost"
+        );
         assert_eq!(merged.flush.failed, 6, "legacy flush counters were lost");
         assert_eq!(ad.applies_total, 57, "legacy apply counters were lost");
         assert_eq!(ad.applies_deduped, 22, "legacy apply counters were lost");
-        assert_eq!(ad.apply_dedup_overflow, 3, "legacy apply counters were lost");
+        assert_eq!(
+            ad.apply_dedup_overflow, 3,
+            "legacy apply counters were lost"
+        );
         assert_eq!(ad.sweeps, 12, "legacy apply counters were lost");
     }
 
@@ -1749,7 +1796,8 @@ mod tests {
         assert_eq!(probe_client_secret(&bytes, true).unwrap(), "secret-123");
         assert_eq!(parse_events(&bytes, true).unwrap().len(), 1);
 
-        let json = br#"{"clientSecret":"secret-123","events":[{"eventDefinition":"eventDefinitions/a"}]}"#;
+        let json =
+            br#"{"clientSecret":"secret-123","events":[{"eventDefinition":"eventDefinitions/a"}]}"#;
         assert_eq!(probe_client_secret(json, false).unwrap(), "secret-123");
         assert_eq!(parse_events(json, false).unwrap().len(), 1);
     }
@@ -1807,7 +1855,8 @@ mod tests {
             "payload": {"amount": 42.5, "currency": "USD"},
             "eventTime": "2024-06-15T10:30:00Z"
         });
-        let req = build_publish_events_request("secret", vec![event.clone()], "2024-06-15T10:30:05Z");
+        let req =
+            build_publish_events_request("secret", vec![event.clone()], "2024-06-15T10:30:05Z");
         assert_eq!(req["events"][0], event);
     }
 
@@ -1819,27 +1868,33 @@ mod tests {
                 event_definition: "eventDefinitions/e".to_string(),
                 payload: Some(pbjson_types::Struct {
                     fields: [
-                        ("count".to_string(), pbjson_types::Value {
-                            kind: Some(pbjson_types::value::Kind::NumberValue(42.0)),
-                        }),
-                        ("tags".to_string(), pbjson_types::Value {
-                            kind: Some(pbjson_types::value::Kind::ListValue(
-                                pbjson_types::ListValue {
-                                    values: vec![
-                                        pbjson_types::Value {
-                                            kind: Some(pbjson_types::value::Kind::StringValue(
-                                                "a".to_string(),
-                                            )),
-                                        },
-                                        pbjson_types::Value {
-                                            kind: Some(pbjson_types::value::Kind::StringValue(
-                                                "b".to_string(),
-                                            )),
-                                        },
-                                    ],
-                                },
-                            )),
-                        }),
+                        (
+                            "count".to_string(),
+                            pbjson_types::Value {
+                                kind: Some(pbjson_types::value::Kind::NumberValue(42.0)),
+                            },
+                        ),
+                        (
+                            "tags".to_string(),
+                            pbjson_types::Value {
+                                kind: Some(pbjson_types::value::Kind::ListValue(
+                                    pbjson_types::ListValue {
+                                        values: vec![
+                                            pbjson_types::Value {
+                                                kind: Some(pbjson_types::value::Kind::StringValue(
+                                                    "a".to_string(),
+                                                )),
+                                            },
+                                            pbjson_types::Value {
+                                                kind: Some(pbjson_types::value::Kind::StringValue(
+                                                    "b".to_string(),
+                                                )),
+                                            },
+                                        ],
+                                    },
+                                )),
+                            },
+                        ),
                     ]
                     .into_iter()
                     .collect(),
@@ -1852,5 +1907,282 @@ mod tests {
         assert_eq!(events[0]["payload"]["count"], 42.0);
         assert_eq!(events[0]["payload"]["tags"][0], "a");
         assert_eq!(events[0]["payload"]["tags"][1], "b");
+    }
+}
+
+#[cfg(test)]
+mod dedup_batch_tests {
+    use super::*;
+    use confidence_resolver::proto::confidence::flags::resolver::v1::events::flag_assigned::{
+        applied_flag::Assignment, AppliedFlag, AssignmentInfo, DefaultAssignment,
+    };
+    use confidence_resolver::proto::confidence::flags::resolver::v1::events::FlagAssigned;
+
+    fn applied(flag: &str, user: &str, variant: &str) -> AppliedFlag {
+        AppliedFlag {
+            flag: flag.to_string(),
+            targeting_key: user.to_string(),
+            assignment: Some(Assignment::AssignmentInfo(AssignmentInfo {
+                variant: variant.to_string(),
+                segment: String::new(),
+            })),
+            ..Default::default()
+        }
+    }
+
+    fn assigned_event(resolve_id: &str, flags: Vec<AppliedFlag>) -> FlagAssigned {
+        FlagAssigned {
+            resolve_id: resolve_id.to_string(),
+            client_info: None,
+            flags,
+        }
+    }
+
+    fn log_with_assigns(assigns: Vec<FlagAssigned>) -> WriteFlagLogsRequest {
+        WriteFlagLogsRequest {
+            flag_assigned: assigns,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn no_duplicates_all_preserved() {
+        let mut logs = vec![
+            log_with_assigns(vec![assigned_event(
+                "r1",
+                vec![
+                    applied("flags/a", "user-1", "on"),
+                    applied("flags/b", "user-1", "off"),
+                ],
+            )]),
+            log_with_assigns(vec![assigned_event(
+                "r2",
+                vec![applied("flags/c", "user-2", "on")],
+            )]),
+        ];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
+        assert_eq!(logs[1].flag_assigned[0].flags.len(), 1);
+    }
+
+    #[test]
+    fn exact_duplicate_across_messages_removed() {
+        let mut logs = vec![
+            log_with_assigns(vec![assigned_event(
+                "r1",
+                vec![applied("flags/a", "user-1", "on")],
+            )]),
+            log_with_assigns(vec![assigned_event(
+                "r2",
+                vec![applied("flags/a", "user-1", "on")],
+            )]),
+        ];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_assigned.len(), 1);
+        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
+        assert!(logs[1].flag_assigned.is_empty());
+    }
+
+    #[test]
+    fn duplicate_within_same_flag_assigned_removed() {
+        let mut logs = vec![log_with_assigns(vec![assigned_event(
+            "r1",
+            vec![
+                applied("flags/a", "user-1", "on"),
+                applied("flags/a", "user-1", "on"),
+            ],
+        )])];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
+    }
+
+    #[test]
+    fn partial_dedup_keeps_unique_flags() {
+        let mut logs = vec![
+            log_with_assigns(vec![assigned_event(
+                "r1",
+                vec![applied("flags/a", "user-1", "on")],
+            )]),
+            log_with_assigns(vec![assigned_event(
+                "r2",
+                vec![
+                    applied("flags/a", "user-1", "on"),
+                    applied("flags/b", "user-1", "off"),
+                ],
+            )]),
+        ];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
+        assert_eq!(logs[1].flag_assigned[0].flags.len(), 1);
+        assert_eq!(logs[1].flag_assigned[0].flags[0].flag, "flags/b");
+    }
+
+    #[test]
+    fn same_flag_different_users_not_deduped() {
+        let mut logs = vec![log_with_assigns(vec![assigned_event(
+            "r1",
+            vec![
+                applied("flags/a", "user-1", "on"),
+                applied("flags/a", "user-2", "on"),
+            ],
+        )])];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
+    }
+
+    #[test]
+    fn same_flag_same_user_different_variant_not_deduped() {
+        let mut logs = vec![log_with_assigns(vec![assigned_event(
+            "r1",
+            vec![
+                applied("flags/a", "user-1", "on"),
+                applied("flags/a", "user-1", "off"),
+            ],
+        )])];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
+    }
+
+    #[test]
+    fn empty_batch_is_noop() {
+        let mut logs: Vec<WriteFlagLogsRequest> = vec![];
+        dedup_batch_flag_applies(&mut logs, 1000);
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn logs_without_flag_assigned_unchanged() {
+        use confidence_resolver::proto::confidence::flags::admin::v1::FlagResolveInfo;
+
+        let mut logs = vec![WriteFlagLogsRequest {
+            flag_resolve_info: vec![FlagResolveInfo {
+                flag: "flags/a".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_resolve_info.len(), 1);
+        assert!(logs[0].flag_assigned.is_empty());
+    }
+
+    #[test]
+    fn default_assignment_deduped_correctly() {
+        let da = AppliedFlag {
+            flag: "flags/archived".to_string(),
+            targeting_key: "user-1".to_string(),
+            assignment: Some(Assignment::DefaultAssignment(DefaultAssignment {
+                reason: 3, // FLAG_ARCHIVED
+            })),
+            ..Default::default()
+        };
+
+        let mut logs = vec![
+            log_with_assigns(vec![assigned_event("r1", vec![da.clone()])]),
+            log_with_assigns(vec![assigned_event("r2", vec![da])]),
+        ];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
+        assert!(logs[1].flag_assigned.is_empty());
+    }
+
+    #[test]
+    fn flag_resolve_info_untouched_by_dedup() {
+        use confidence_resolver::proto::confidence::flags::admin::v1::{
+            flag_resolve_info::VariantResolveInfo, FlagResolveInfo,
+        };
+
+        let mut logs = vec![WriteFlagLogsRequest {
+            flag_assigned: vec![
+                assigned_event("r1", vec![applied("flags/a", "user-1", "on")]),
+                assigned_event("r2", vec![applied("flags/a", "user-1", "on")]),
+            ],
+            flag_resolve_info: vec![FlagResolveInfo {
+                flag: "flags/a".to_string(),
+                variant_resolve_info: vec![VariantResolveInfo {
+                    variant: "on".to_string(),
+                    count: 42,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert_eq!(logs[0].flag_resolve_info.len(), 1);
+        assert_eq!(
+            logs[0].flag_resolve_info[0].variant_resolve_info[0].count,
+            42
+        );
+        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
+    }
+
+    #[test]
+    fn telemetry_data_preserved_even_when_all_assigns_deduped() {
+        use confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData;
+
+        let mut logs = vec![
+            log_with_assigns(vec![assigned_event(
+                "r1",
+                vec![applied("flags/a", "user-1", "on")],
+            )]),
+            WriteFlagLogsRequest {
+                flag_assigned: vec![assigned_event(
+                    "r2",
+                    vec![applied("flags/a", "user-1", "on")],
+                )],
+                telemetry_data: Some(TelemetryData {
+                    memory_bytes: 4096,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        ];
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        assert!(logs[1].flag_assigned.is_empty());
+        assert_eq!(logs[1].telemetry_data.as_ref().unwrap().memory_bytes, 4096);
+    }
+
+    #[test]
+    fn many_duplicates_across_many_messages() {
+        let mut logs: Vec<WriteFlagLogsRequest> = (0..50)
+            .map(|i| {
+                log_with_assigns(vec![assigned_event(
+                    &format!("r{}", i),
+                    vec![applied("flags/a", "user-1", "on")],
+                )])
+            })
+            .collect();
+
+        dedup_batch_flag_applies(&mut logs, 1000);
+
+        let total_flags: usize = logs
+            .iter()
+            .flat_map(|l| &l.flag_assigned)
+            .map(|fa| fa.flags.len())
+            .sum();
+        assert_eq!(
+            total_flags, 1,
+            "50 identical applies should yield 1 survivor"
+        );
     }
 }
