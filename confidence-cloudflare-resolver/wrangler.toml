@@ -5,6 +5,8 @@ compatibility_date = "2025-01-28"
 [observability]
 enabled = true
 
+# Flag-log queue shard 0. The deployer appends extra shards based on
+# FLAG_LOGS_QUEUE_COUNT. Each shard adds ~5K msg/sec write capacity.
 [[queues.consumers]]
 queue = "flag-logs-queue"
 max_batch_size = 100 # max number of messages in a batch
