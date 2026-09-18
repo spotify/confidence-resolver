@@ -14,6 +14,9 @@ CONFIDENCE_RESOLVER_STATE_URL=${CONFIDENCE_RESOLVER_STATE_URL:=}
 CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
 NO_DEPLOY=${NO_DEPLOY:=}
 FORCE_DEPLOY=${FORCE_DEPLOY:=}
+# Only an operator-supplied FORCE_DEPLOY may override the memory gate. A version
+# change below also forces a state refresh, but must not bypass memory checks.
+MEMORY_PREFLIGHT_FORCE_DEPLOY=$FORCE_DEPLOY
 WORKER_NAME_PREFIX=${WORKER_NAME_PREFIX:=}
 WRANGLER_CONFIG_APPEND_FILE=${WRANGLER_CONFIG_APPEND_FILE:=}
 WRANGLER_DEPLOY_ARGS=${WRANGLER_DEPLOY_ARGS:=}
@@ -851,9 +854,19 @@ fi
 
 add_wrangler_deploy_args_from_lines "WRANGLER_DEPLOY_ARGS" "$WRANGLER_DEPLOY_ARGS"
 
+echo "Checking state-loaded memory locally before deployment..."
+if FORCE_DEPLOY="$MEMORY_PREFLIGHT_FORCE_DEPLOY" node deployer/memory-preflight.mjs "$PWD" "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"; then
+    :
+elif [ -n "$MEMORY_PREFLIGHT_FORCE_DEPLOY" ]; then
+    echo "!!! FORCE_DEPLOY OVERRIDE: memory preflight could not complete. Continuing at operator request. !!!" >&2
+else
+    echo "!!! MEMORY PREFLIGHT: abort_deployment. Worker deployment was not attempted. !!!" >&2
+    exit 1
+fi
+
 # only deploy if NO_DEPLOY is not set
 if test -z "$NO_DEPLOY"; then
-     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"
+     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --no-build
 
      # Store encryption key as a Cloudflare Worker secret (persists across deploys)
      if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then
