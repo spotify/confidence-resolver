@@ -1,6 +1,6 @@
 {
   "confidence-resolver": "0.25.0",
-  "confidence-cloudflare-resolver": "0.16.1",
+  "confidence-cloudflare-resolver": "0.17.0",
   "wasm-msg": "0.3.0",
   "wasm/rust-guest": "0.7.0",
   "openfeature-provider/java": "0.23.0",
