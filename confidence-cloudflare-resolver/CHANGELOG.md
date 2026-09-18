@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.16.1...confidence-cloudflare-resolver-v0.17.0) (2026-09-18)
+
+
+### Features
+
+* **cloudflare:** sharded flag-log queues and parallel consumers ([#616](https://github.com/spotify/confidence-resolver/issues/616)) ([2b1426a](https://github.com/spotify/confidence-resolver/commit/2b1426a0d5e79cc20a571ad58002708cfbfdee6a))
+
 ## [0.16.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.16.0...confidence-cloudflare-resolver-v0.16.1) (2026-09-15)
 
 
