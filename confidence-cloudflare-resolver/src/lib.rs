@@ -158,6 +158,15 @@ static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
     .unwrap()
 });
 
+/// Local deployer preflight. This export is not exposed by an HTTP route.
+/// Returns retained WASM capacity, including embedded data and initialization growth.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn resolver_memory_preflight() -> f64 {
+    Lazy::force(&RESOLVER_STATE);
+    (core::arch::wasm32::memory_size::<0>() * 65536) as f64
+}
+
 trait ResponseExt {
     fn with_cors_headers(self, allowed_origin: &str) -> Result<Self>
     where
