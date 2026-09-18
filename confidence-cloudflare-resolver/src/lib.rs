@@ -1,3 +1,4 @@
+mod flag_log_queues;
 mod materialization;
 
 use confidence_resolver::{
@@ -81,7 +82,10 @@ async fn queue_flag_log(log: WriteFlagLogsRequest) {
     }
     match serde_json::to_string(&log) {
         Ok(json) => {
-            if let Some(queue) = FLAGS_LOGS_QUEUE.get() {
+            if let Some(queue) = FLAGS_LOGS_QUEUES
+                .get()
+                .and_then(|queues| flag_log_queues::select(queues, js_sys::Math::random()))
+            {
                 if let Err(e) = queue.send(json).await {
                     console_log!("flag log queue send failed: {:?}", e);
                 }
@@ -124,7 +128,7 @@ fn seed_resolver_rng() {
 /// Prometheus exposition format content type (version 0.0.4).
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
-static FLAGS_LOGS_QUEUE: OnceLock<Queue> = OnceLock::new();
+static FLAGS_LOGS_QUEUES: OnceLock<Vec<Queue>> = OnceLock::new();
 
 static EVENTS_QUEUE: OnceLock<Queue> = OnceLock::new();
 
@@ -297,14 +301,13 @@ async fn resolve_with_sticky(
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
-    match env.queue("flag_logs_queue") {
-        Ok(queue) => {
-            let _ = FLAGS_LOGS_QUEUE.set(queue);
-        }
-        Err(_e) => {
+    FLAGS_LOGS_QUEUES.get_or_init(|| {
+        let queues = flag_log_queues::discover(|name| env.queue(name).ok());
+        if queues.is_empty() {
             console_log!("flag_logs_queue binding is missing; logging disabled");
         }
-    }
+        queues
+    });
 
     match env.queue("events_queue") {
         Ok(queue) => {

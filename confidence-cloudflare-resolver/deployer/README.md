@@ -58,6 +58,7 @@ The deployer automatically:
 | `RESOLVE_TOKEN_ENCRYPTION_KEY`       | AES-128 key (base64-encoded, 16 bytes). Used to encrypt resolve tokens for `apply=false`. Auto-generated on first deploy if not provided, and stored as a Cloudflare Worker secret |
 | `FORCE_DEPLOY`                       | Force re-deploy regardless of state changes                                                                                                       |
 | `NO_DEPLOY`                          | Build only, skip deployment                                                                                                                       |
+| `FLAG_LOG_QUEUE_COUNT`               | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
 | `WORKER_NAME_PREFIX`                 | Prefix for worker and queue names. Deploys as `<prefix>-confidence-cloudflare-resolver` with queue `<prefix>-flag-logs-queue` (auto-created)     |
 | `WRANGLER_CONFIG_APPEND_FILE`        | Path to a file containing TOML to append to the generated `wrangler.toml`                                                                          |
 | `WRANGLER_DEPLOY_TAG`                | Value passed to `wrangler deploy --tag`                                                                                                           |
@@ -69,6 +70,23 @@ The deployer automatically:
 | `MATERIALIZATION_TTL_SECONDS`        | TTL in seconds for sticky assignment KV entries. Omit for no expiration |
 | `FORCE_APPLY`                        | Defaults to `true`: every resolve is treated as `apply=true` and assignments are logged at resolve time. Set to `false` to respect the `apply` value sent by SDKs (deferred-apply flow via `flags:apply`) |
 | `ENABLE_APPLY_DEDUP`                 | Defaults to `false`: set to `true` to enable apply-event deduplication — repeated identical assignments within a 120s window are logged once |
+
+### Scaling flag-log queues
+
+For traffic exceeding one queue's throughput, pass `-e FLAG_LOG_QUEUE_COUNT=2`
+to the Docker command. This keeps `flag-logs-queue` and adds `flag-logs-queue-2`,
+with the same optional `WORKER_NAME_PREFIX` applied to both. Further queues use
+suffixes `-3`, `-4`, and so on. The events queue is unaffected.
+
+Use `-e FORCE_DEPLOY=1` when changing the count so an unchanged resolver state
+does not skip deployment. Keep the count in subsequent deployer runs. Reducing
+the count does not delete old queues; drain their backlog before removing their
+consumer bindings by deploying the lower count.
+
+Two queues spread 7,000 messages/sec to approximately 3,500 each, below
+Cloudflare's 5,000 messages/sec per-queue limit. Allow headroom for bursts and
+verify downstream processing capacity. This distributes traffic; it does not
+add retries or durable fallback for rejected publishes.
 
 ### Extending Wrangler Configuration
 

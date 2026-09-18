@@ -15,6 +15,7 @@ CONFIDENCE_CLIENT_SECRET=${CONFIDENCE_CLIENT_SECRET:=}
 NO_DEPLOY=${NO_DEPLOY:=}
 FORCE_DEPLOY=${FORCE_DEPLOY:=}
 WORKER_NAME_PREFIX=${WORKER_NAME_PREFIX:=}
+FLAG_LOG_QUEUE_COUNT=${FLAG_LOG_QUEUE_COUNT:-1}
 WRANGLER_CONFIG_APPEND_FILE=${WRANGLER_CONFIG_APPEND_FILE:=}
 WRANGLER_DEPLOY_ARGS=${WRANGLER_DEPLOY_ARGS:=}
 WRANGLER_DEPLOY_ARGS_FILE=${WRANGLER_DEPLOY_ARGS_FILE:=}
@@ -24,6 +25,11 @@ ENABLE_STICKY_ASSIGNMENTS=${ENABLE_STICKY_ASSIGNMENTS:=}
 FORCE_APPLY=${FORCE_APPLY:=}
 ENABLE_APPLY_DEDUP=${ENABLE_APPLY_DEDUP:=}
 INITIAL_WORKDIR="$(pwd)"
+
+if [[ ! "$FLAG_LOG_QUEUE_COUNT" =~ ^[1-9][0-9]*$ ]] || [ "${#FLAG_LOG_QUEUE_COUNT}" -gt 4 ] || [ "$FLAG_LOG_QUEUE_COUNT" -gt 9999 ]; then
+    echo "FLAG_LOG_QUEUE_COUNT must be an integer between 1 and 9999" >&2
+    exit 1
+fi
 
 # CDN base URL for fetching resolver state
 CDN_BASE_URL="https://confidence-resolver-state-cdn.spotifycdn.com"
@@ -370,36 +376,49 @@ else
 fi
 
 # Create queue if it doesn't exist
-echo "🔍 Checking if queue '$QUEUE_NAME' exists..."
-QUEUE_CHECK=$(curl -sS -w "%{http_code}" \
-    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-    "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues?name=${QUEUE_NAME}")
-QUEUE_STATUS="${QUEUE_CHECK: -3}"
-QUEUE_BODY="${QUEUE_CHECK%???}"
+ensure_queue() {
+    local QUEUE_NAME="$1"
+    echo "🔍 Checking if queue '$QUEUE_NAME' exists..."
+    QUEUE_CHECK=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues?name=${QUEUE_NAME}")
+    QUEUE_STATUS="${QUEUE_CHECK: -3}"
+    QUEUE_BODY="${QUEUE_CHECK%???}"
 
-if [ "$QUEUE_STATUS" = "200" ]; then
-    QUEUE_COUNT=$(printf "%s" "$QUEUE_BODY" | jq -r '.result | length')
-    if [ "$QUEUE_COUNT" = "0" ]; then
-        echo "📦 Queue '$QUEUE_NAME' not found, creating..."
-        CREATE_RESP=$(curl -sS -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"queue_name\": \"${QUEUE_NAME}\"}" \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues")
-        CREATE_STATUS="${CREATE_RESP: -3}"
-        if [ "$CREATE_STATUS" = "200" ] || [ "$CREATE_STATUS" = "201" ]; then
-            echo "✅ Queue '$QUEUE_NAME' created successfully"
+    if [ "$QUEUE_STATUS" = "200" ]; then
+        QUEUE_COUNT=$(printf "%s" "$QUEUE_BODY" | jq -r '.result | length')
+        if [ "$QUEUE_COUNT" = "0" ]; then
+            echo "📦 Queue '$QUEUE_NAME' not found, creating..."
+            CREATE_RESP=$(curl -sS -w "%{http_code}" -X POST \
+                -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "{\"queue_name\": \"${QUEUE_NAME}\"}" \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues")
+            CREATE_STATUS="${CREATE_RESP: -3}"
+            if [ "$CREATE_STATUS" = "200" ] || [ "$CREATE_STATUS" = "201" ]; then
+                echo "✅ Queue '$QUEUE_NAME' created successfully"
+            else
+                echo "❌ Failed to create queue (HTTP $CREATE_STATUS)"
+                echo "$CREATE_RESP"
+                exit 1
+            fi
         else
-            echo "❌ Failed to create queue (HTTP $CREATE_STATUS)"
-            echo "$CREATE_RESP"
-            exit 1
+            echo "✅ Queue '$QUEUE_NAME' already exists"
         fi
     else
-        echo "✅ Queue '$QUEUE_NAME' already exists"
+        echo "⚠️ Could not check queue status (HTTP $QUEUE_STATUS)"
     fi
-else
-    echo "⚠️ Could not check queue status (HTTP $QUEUE_STATUS)"
-fi
+}
+
+# Keep the original queue and binding for backwards compatibility.
+FLAG_LOG_QUEUE_BASE="$QUEUE_NAME"
+for ((queue_index = 1; queue_index <= FLAG_LOG_QUEUE_COUNT; queue_index++)); do
+    if [ "$queue_index" -eq 1 ]; then
+        ensure_queue "$FLAG_LOG_QUEUE_BASE"
+    else
+        ensure_queue "${FLAG_LOG_QUEUE_BASE}-${queue_index}"
+    fi
+done
 
 # Create events queue if it doesn't exist
 if [ -n "$WORKER_NAME_PREFIX" ]; then
@@ -570,6 +589,21 @@ if [ -n "$WORKER_NAME_PREFIX" ]; then
     echo "✅ Updated worker name to \"$WORKER_NAME\" in wrangler.toml"
     echo "✅ Updated queue names to \"$QUEUE_NAME\" and \"$EVENTS_QUEUE_NAME\" in wrangler.toml"
 fi
+
+# Additional flag-log queues share the existing consumer Worker.
+for ((queue_index = 2; queue_index <= FLAG_LOG_QUEUE_COUNT; queue_index++)); do
+    cat >> wrangler.toml <<EOF
+
+[[queues.consumers]]
+queue = "${FLAG_LOG_QUEUE_BASE}-${queue_index}"
+max_batch_size = 100
+max_batch_timeout = 10
+
+[[queues.producers]]
+queue = "${FLAG_LOG_QUEUE_BASE}-${queue_index}"
+binding = "flag_logs_queue_${queue_index}"
+EOF
+done
 
 # Prepare ALLOWED_ORIGIN for TOML (escape quotes and backslashes)
 if [ -n "$CONFIDENCE_RESOLVER_ALLOWED_ORIGIN" ]; then
