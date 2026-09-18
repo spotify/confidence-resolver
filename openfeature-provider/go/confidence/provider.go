@@ -156,6 +156,7 @@ type LocalResolverProvider struct {
 	eventPublishAttempts atomic.Int64
 	eventPublishFailures atomic.Int64
 	ready                atomic.Bool
+	lifecycleEvents      chan openfeature.Event
 
 	// Feature options forwarded to SetResolverState
 	enableApplyDedup          bool
@@ -166,6 +167,7 @@ type LocalResolverProvider struct {
 var (
 	_ openfeature.FeatureProvider = (*LocalResolverProvider)(nil)
 	_ openfeature.StateHandler    = (*LocalResolverProvider)(nil)
+	_ openfeature.EventHandler    = (*LocalResolverProvider)(nil)
 	_ openfeature.Tracker         = (*LocalResolverProvider)(nil)
 )
 
@@ -209,6 +211,7 @@ func newLocalResolverProvider(
 		logger:                    logger,
 		statePollInterval:         statePollInterval,
 		logPollInterval:           logPollInterval,
+		lifecycleEvents:           make(chan openfeature.Event, 2),
 		enableApplyDedup:          !options.disableApplyDedup,
 		disableExposureCollection: options.disableExposureCollection,
 	}
@@ -793,6 +796,31 @@ func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
 	return []openfeature.Hook{}
 }
 
+// EventChannel reports provider lifecycle changes to the OpenFeature SDK.
+func (p *LocalResolverProvider) EventChannel() <-chan openfeature.Event {
+	return p.lifecycleEvents
+}
+
+func (p *LocalResolverProvider) emitLifecycleEvent(
+	eventType openfeature.EventType,
+	message string,
+	errorCode openfeature.ErrorCode,
+) {
+	event := openfeature.Event{
+		ProviderName: p.Metadata().Name,
+		EventType:    eventType,
+		ProviderEventDetails: openfeature.ProviderEventDetails{
+			Message:   message,
+			ErrorCode: errorCode,
+		},
+	}
+	select {
+	case p.lifecycleEvents <- event:
+	default:
+		p.logger.Warn("Dropping provider lifecycle event", "event_type", eventType)
+	}
+}
+
 // Init initializes the provider (part of StateHandler interface)
 // Fetches initial state and starts background tasks for state updates and log flushing
 func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationContext) (err error) {
@@ -839,8 +867,10 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 	}
 	if err != nil {
 		p.logger.Error("Failed to fetch initial state", "error", err)
+		p.emitLifecycleEvent(openfeature.ProviderError, fmt.Sprintf("Failed to fetch initial state: %v", err), openfeature.GeneralCode)
 	} else if accountId == "" {
 		p.logger.Error("AccountID is empty in the fetched state, this should not happen")
+		p.emitLifecycleEvent(openfeature.ProviderError, "AccountID is empty in the initial state", openfeature.GeneralCode)
 	} else if err := p.setResolverState(initialState, accountId); err != nil {
 		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
 		cancel()
@@ -988,6 +1018,7 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 						appliedAccountId = accountId
 						if !wasReady {
 							p.logger.Info("Provider recovered and is now ready")
+							p.emitLifecycleEvent(openfeature.ProviderReady, "Provider recovered and is now ready", "")
 						}
 					}
 				}

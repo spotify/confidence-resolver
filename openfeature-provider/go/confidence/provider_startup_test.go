@@ -107,6 +107,37 @@ func TestLocalResolverProvider_RecoversAfterRepeatedStartupFailures(t *testing.T
 	}
 }
 
+func TestLocalResolverProvider_ReportsRecoveryToOpenFeature(t *testing.T) {
+	stateProvider := &recoveringStateProvider{succeedAt: 2}
+	provider := newStartupTestProvider(stateProvider, &mockResolverAPIForInit{})
+	const domain = "startup-recovery-test"
+	api := openfeature.GetApiInstance()
+
+	if err := api.SetNamedProvider(domain, provider, false); err != nil {
+		t.Fatalf("SetNamedProviderAndWait returned a recoverable state fetch error: %v", err)
+	}
+	t.Cleanup(func() {
+		provider.Shutdown()
+	})
+
+	client := api.GetNamedClient(domain)
+	waitFor(t, time.Second, func() bool {
+		return client.State() == openfeature.ErrorState
+	})
+
+	value, err := client.BooleanValue(context.Background(), "flag", true, openfeature.EvaluationContext{})
+	if !value {
+		t.Fatal("expected caller-supplied default while provider is not ready")
+	}
+	if err == nil {
+		t.Fatal("expected evaluation error while provider is not ready")
+	}
+
+	waitFor(t, 2500*time.Millisecond, func() bool {
+		return client.State() == openfeature.ReadyState
+	})
+}
+
 func TestLocalResolverProvider_ReturnsDefaultWhileNotReady(t *testing.T) {
 	provider := newStartupTestProvider(
 		&recoveringStateProvider{succeedAt: 100},
