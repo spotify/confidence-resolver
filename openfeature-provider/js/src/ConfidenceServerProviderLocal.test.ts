@@ -5,7 +5,9 @@ import { LocalResolver } from './LocalResolver';
 import {
   ConfidenceServerProviderLocal,
   DEFAULT_FLUSH_INTERVAL,
+  DEFAULT_INITIALIZE_TIMEOUT,
   DEFAULT_STATE_INTERVAL,
+  NOT_READY_STATE_INTERVAL,
 } from './ConfidenceServerProviderLocal';
 import { abortableSleep, TimeUnit, timeoutSignal } from './util';
 import { advanceTimersUntil, NetworkMock, noopEventTracker } from './test-helpers';
@@ -13,6 +15,7 @@ import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
 import { VERSION } from './version';
+import { OpenFeature, ProviderStatus, ProviderEvents } from '@openfeature/server-sdk';
 // Type-only: pins the README's documented entry point without loading its WASM.
 import type * as NodeEntry from './index.node';
 
@@ -89,11 +92,16 @@ describe('no network', () => {
     net.error = 'No network';
   });
 
-  it('initialize throws after timeout', async () => {
-    await advanceTimersUntil(expect(provider.initialize()).rejects.toThrow());
+  it('starts in NOT_READY and keeps retrying after the initialization timeout', async () => {
+    await advanceTimersUntil(expect(provider.initialize()).rejects.toMatchObject({ code: 'PROVIDER_NOT_READY' }));
 
-    expect(provider.status).toBe('ERROR');
+    expect(provider.status).toBe('NOT_READY');
     expect(Date.now()).toBe(DEFAULT_STATE_INTERVAL);
+
+    const callsAfterInit = net.calls;
+    await vi.advanceTimersByTimeAsync(NOT_READY_STATE_INTERVAL * 3);
+
+    expect(net.calls).toBeGreaterThan(callsAfterInit);
   });
 });
 
@@ -147,6 +155,7 @@ describe('state update scheduling', () => {
     expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
   });
   it('retries state download with backoff and stall-timeout', async () => {
+    provider.status = ProviderStatus.READY;
     let chunkDelay = 1500;
     net.cdn.state.handler = req => {
       const encrypted = encryptTestState(new Uint8Array(1000));
@@ -296,7 +305,7 @@ describe('flush behavior', () => {
 });
 
 describe('timeouts and aborts', () => {
-  it('initialize times out if state not fetched before initializeTimeout', async () => {
+  it('recovers in the background if state is not fetched before initializeTimeout', async () => {
     // Make resolverStateUri unreachable so initialize must rely on initializeTimeout
     net.cdn.state.status = 'No network';
 
@@ -307,10 +316,44 @@ describe('timeouts and aborts', () => {
       fetch: net.fetch,
     });
 
-    await advanceTimersUntil(expect(shortTimeoutProvider.initialize()).rejects.toThrow());
+    await advanceTimersUntil(
+      expect(shortTimeoutProvider.initialize()).rejects.toMatchObject({ code: 'PROVIDER_NOT_READY' }),
+    );
 
     expect(Date.now()).toBe(1000);
-    expect(shortTimeoutProvider.status).toBe('ERROR');
+    expect(shortTimeoutProvider.status).toBe('NOT_READY');
+
+    net.cdn.state.status = 200;
+    await vi.advanceTimersByTimeAsync(NOT_READY_STATE_INTERVAL);
+    await vi.waitFor(() => expect(shortTimeoutProvider.status).toBe('READY'));
+
+    const callsAfterRecovery = net.cdn.state.calls;
+    await vi.advanceTimersByTimeAsync(DEFAULT_STATE_INTERVAL - 1000);
+    expect(net.cdn.state.calls).toBe(callsAfterRecovery);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(net.cdn.state.calls).toBe(callsAfterRecovery + 1);
+
+    await advanceTimersUntil(shortTimeoutProvider.onClose());
+  });
+  it('returns the default with a provider-not-ready error before recovery', async () => {
+    net.cdn.state.status = 'No network';
+
+    const initialization = expect(OpenFeature.setProviderAndWait(provider)).rejects.toMatchObject({
+      code: 'PROVIDER_NOT_READY',
+    });
+    await vi.advanceTimersByTimeAsync(DEFAULT_INITIALIZE_TIMEOUT);
+    await initialization;
+
+    await expect(OpenFeature.getClient().getBooleanDetails('flag.enabled', true)).resolves.toEqual(
+      expect.objectContaining({
+        value: true,
+        reason: 'ERROR',
+        errorCode: 'PROVIDER_NOT_READY',
+      }),
+    );
+    expect(mockedWasmResolver.resolveProcess).not.toHaveBeenCalled();
+
+    await advanceTimersUntil(OpenFeature.clearProviders());
   });
   it('aborts in-flight state update when provider is closed', async () => {
     // Make state fetch slow so initialize is in-flight
@@ -320,10 +363,12 @@ describe('timeouts and aborts', () => {
     // Abort provider immediately
     const close = provider.onClose();
 
-    await advanceTimersUntil(expect(init).rejects.toThrow());
+    await advanceTimersUntil(expect(init).rejects.toMatchObject({ code: 'PROVIDER_NOT_READY' }));
     await advanceTimersUntil(close);
-    expect(provider.status).toBe('ERROR');
+    expect(provider.status).toBe('NOT_READY');
+    const callsAfterClose = net.cdn.state.calls;
     await vi.runAllTimersAsync();
+    expect(net.cdn.state.calls).toBe(callsAfterClose);
   });
 
   it('handles post-dispatch latency aborts (endpoint invoked)', async () => {
@@ -333,6 +378,114 @@ describe('timeouts and aborts', () => {
     await advanceTimersUntil(expect(provider.updateState(signal)).rejects.toThrow());
     // endpoint was invoked once
     expect(net.cdn.state.calls).toBe(1);
+  });
+});
+
+describe('OpenFeature startup lifecycle', () => {
+  it.each([undefined, 'startup-recovery'])('recovers after the full budget for domain %s', async domain => {
+    net.cdn.state.status = 'No network';
+    const client = domain ? OpenFeature.getClient(domain) : OpenFeature.getClient();
+    const ready = vi.fn();
+    const error = vi.fn();
+    client.addHandler(ProviderEvents.Ready, ready);
+    client.addHandler(ProviderEvents.Error, error);
+    let settled = false;
+    const init = domain ? OpenFeature.setProviderAndWait(domain, provider) : OpenFeature.setProviderAndWait(provider);
+    const checked = expect(init.finally(() => (settled = true))).rejects.toMatchObject({ code: 'PROVIDER_NOT_READY' });
+    try {
+      await vi.advanceTimersByTimeAsync(DEFAULT_INITIALIZE_TIMEOUT - 1);
+      expect(settled).toBe(false);
+      expect(client.providerStatus).toBe(ProviderStatus.NOT_READY);
+      expect(net.cdn.state.calls).toBeGreaterThan(20);
+      expect(ready).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await checked;
+      expect(Date.now()).toBe(DEFAULT_INITIALIZE_TIMEOUT);
+      expect(client.providerStatus).toBe(ProviderStatus.ERROR);
+      expect(provider.status).toBe(ProviderStatus.NOT_READY);
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(ready).not.toHaveBeenCalled();
+      await expect(client.getBooleanDetails('flag.enabled', true)).resolves.toMatchObject({
+        value: true,
+        errorCode: 'PROVIDER_NOT_READY',
+      });
+      expect(mockedWasmResolver.resolveProcess).not.toHaveBeenCalled();
+
+      net.cdn.state.status = 200;
+      await vi.advanceTimersByTimeAsync(NOT_READY_STATE_INTERVAL);
+      await vi.waitFor(() => expect(client.providerStatus).toBe(ProviderStatus.READY));
+      expect(provider.status).toBe(ProviderStatus.READY);
+      expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
+      expect(ready).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(DEFAULT_STATE_INTERVAL);
+      expect(ready).toHaveBeenCalledTimes(1);
+    } finally {
+      client.removeHandler(ProviderEvents.Ready, ready);
+      client.removeHandler(ProviderEvents.Error, error);
+      await advanceTimersUntil(OpenFeature.clearProviders());
+    }
+  });
+
+  it('finishes early and announces readiness once when startup retries succeed', async () => {
+    net.cdn.state.status = 503;
+    const client = OpenFeature.getClient('early-recovery');
+    const ready = vi.fn();
+    client.addHandler(ProviderEvents.Ready, ready);
+    const init = OpenFeature.setProviderAndWait('early-recovery', provider);
+    try {
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(client.providerStatus).toBe(ProviderStatus.NOT_READY);
+      net.cdn.state.status = 200;
+      await advanceTimersUntil(init);
+      expect(Date.now()).toBeLessThan(DEFAULT_INITIALIZE_TIMEOUT);
+      expect(client.providerStatus).toBe(ProviderStatus.READY);
+      expect(ready).toHaveBeenCalledTimes(1);
+    } finally {
+      client.removeHandler(ProviderEvents.Ready, ready);
+      await advanceTimersUntil(OpenFeature.clearProviders());
+    }
+  });
+
+  it.each(['rejected', 'invalid'])('keeps retrying %s state within the full initialization budget', async failure => {
+    if (failure === 'rejected') net.cdn.state.status = 403;
+    else net.cdn.state.handler = () => new Response(new Uint8Array([1, 2, 3]));
+    const checked = expect(provider.initialize()).rejects.toMatchObject({ code: 'PROVIDER_NOT_READY' });
+    await vi.advanceTimersByTimeAsync(DEFAULT_INITIALIZE_TIMEOUT);
+    await checked;
+    expect(Date.now()).toBe(DEFAULT_INITIALIZE_TIMEOUT);
+    expect(net.cdn.state.calls).toBeGreaterThan(20);
+    expect(mockedWasmResolver.setResolverState).not.toHaveBeenCalled();
+    await advanceTimersUntil(provider.onClose());
+  });
+
+  it('cancels background recovery when closed after a timeout', async () => {
+    net.cdn.state.status = 'No network';
+    const ready = vi.fn();
+    provider.events.addHandler(ProviderEvents.Ready, ready);
+    await advanceTimersUntil(expect(provider.initialize()).rejects.toMatchObject({ code: 'PROVIDER_NOT_READY' }));
+    await advanceTimersUntil(provider.onClose());
+    net.cdn.state.status = 200;
+    const callsAfterClose = net.cdn.state.calls;
+    await vi.runAllTimersAsync();
+    expect(net.cdn.state.calls).toBe(callsAfterClose);
+    expect(ready).not.toHaveBeenCalled();
+    expect(provider.status).toBe(ProviderStatus.NOT_READY);
+  });
+
+  it('bounds pending decryption and does not install state from an expired attempt', async () => {
+    let finishDecrypt!: (value: ArrayBuffer) => void;
+    vi.mocked(crypto.subtle.decrypt).mockImplementationOnce(() => new Promise(resolve => (finishDecrypt = resolve)));
+    await advanceTimersUntil(expect(provider.initialize()).rejects.toMatchObject({ code: 'PROVIDER_NOT_READY' }));
+    expect(Date.now()).toBe(DEFAULT_INITIALIZE_TIMEOUT);
+    finishDecrypt(new ArrayBuffer(0));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockedWasmResolver.setResolverState).not.toHaveBeenCalled();
+    expect(provider.status).toBe(ProviderStatus.NOT_READY);
+    await vi.advanceTimersByTimeAsync(NOT_READY_STATE_INTERVAL);
+    await vi.waitFor(() => expect(provider.status).toBe(ProviderStatus.READY));
+    expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
+    await advanceTimersUntil(provider.onClose());
   });
 });
 

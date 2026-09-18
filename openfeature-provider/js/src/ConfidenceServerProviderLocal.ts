@@ -4,6 +4,7 @@ import type {
   Provider,
   ProviderMetadata,
   ProviderStatus,
+  ServerProviderEvents,
   TrackingEventDetails,
 } from '@openfeature/server-sdk';
 import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
@@ -11,7 +12,16 @@ import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidenc
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, hexToBytes, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import {
+  abortablePromise,
+  abortableSleep,
+  castStringToEnum,
+  hexToBytes,
+  scheduleWithFixedInterval,
+  timeoutSignal,
+  TimeUnit,
+} from './util';
+import { ProviderEvents } from './ProviderEvents';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -39,6 +49,7 @@ const logger = getLogger('provider');
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
 export const DEFAULT_FLUSH_INTERVAL = 15_000;
+export const NOT_READY_STATE_INTERVAL = 1_000;
 /** Upper bound on flush calls during shutdown drain, so a failing publish cannot spin forever. */
 const MAX_DRAIN_BATCHES = 100;
 
@@ -85,6 +96,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   };
   /** Current status of the provider. Can be READY, NOT_READY, ERROR, STALE and FATAL. */
   status: ProviderStatus = castStringToEnum<ProviderStatus>('NOT_READY');
+  readonly events: ProviderEvents = new ProviderEvents(this.metadata.name);
 
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
@@ -135,11 +147,12 @@ export class ConfidenceServerProviderLocal implements Provider {
       [
         withRouter({
           'https://confidence-resolver-state-cdn.spotifycdn.com/*': [
-            withRetry({
-              maxAttempts: Infinity,
-              baseInterval: 500,
-              maxInterval: this.stateUpdateInterval,
-            }),
+            next => (url, init) =>
+              withRetry({
+                maxAttempts: Infinity,
+                baseInterval: 500,
+                maxInterval: this.status === 'READY' ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL,
+              })(next)(url, init),
             withStallTimeout(1 * TimeUnit.SECOND),
           ],
           'https://resolver.confidence.dev/*': [
@@ -215,20 +228,54 @@ export class ConfidenceServerProviderLocal implements Provider {
     ]);
     try {
       this.resolverInstance = await this.resolverOrPromise;
-      // TODO set schedulers irrespective of failure
-      // TODO if 403 here,
-      await this.updateState(initialUpdateSignal);
-      scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
       this.eventTracker = await this.eventTrackerOrPromise;
-      scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      // TODO Better with fixed delay so we don't do a double fetch when we're behind. Alt, skip if in progress
-      scheduleWithFixedInterval(signal => this.updateState(signal), this.stateUpdateInterval, { signal });
-      this.status = castStringToEnum<ProviderStatus>('READY');
-    } catch (e: unknown) {
+    } catch (error) {
       this.status = castStringToEnum<ProviderStatus>('ERROR');
-      // TODO should we swallow this?
-      throw e;
+      throw error;
     }
+
+    let initializationError: Error | undefined;
+    try {
+      // Network retries happen inside fetch; also retry rejected/invalid state
+      // within the same overall initialization budget.
+      while (true) {
+        initialUpdateSignal.throwIfAborted();
+        try {
+          await abortablePromise(this.updateState(initialUpdateSignal), initialUpdateSignal);
+          initialUpdateSignal.throwIfAborted();
+          this.status = castStringToEnum<ProviderStatus>('READY');
+          break;
+        } catch (error) {
+          initialUpdateSignal.throwIfAborted();
+          logger.warn('Initial state load failed, retrying:', error);
+          await abortableSleep(NOT_READY_STATE_INTERVAL, initialUpdateSignal);
+        }
+      }
+    } catch (cause) {
+      initializationError = Object.assign(
+        new Error(signal.aborted ? 'Provider closed during initialization' : 'Timed out waiting for initial state'),
+        { code: ErrorCode.PROVIDER_NOT_READY, cause },
+      );
+      logger.warn('Initial state unavailable:', initializationError);
+    }
+
+    if (!signal.aborted) {
+      scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
+      scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
+      scheduleWithFixedInterval(
+        async signal => {
+          await this.updateState(signal);
+          signal?.throwIfAborted();
+          if (this.status !== 'READY') {
+            this.status = castStringToEnum<ProviderStatus>('READY');
+            this.events.emit(castStringToEnum<ServerProviderEvents>('PROVIDER_READY'));
+          }
+        },
+        () => (this.status === 'READY' ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL),
+        { signal },
+      );
+    }
+    if (initializationError) throw initializationError;
   }
 
   async onClose(): Promise<void> {
@@ -385,6 +432,15 @@ export class ConfidenceServerProviderLocal implements Provider {
     defaultValue: T,
     context: EvaluationContext,
   ): Promise<ResolutionDetails<T>> {
+    if (this.status === 'NOT_READY') {
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: ErrorCode.PROVIDER_NOT_READY,
+        errorMessage: 'Provider is not ready',
+        shouldApply: false,
+      };
+    }
     const startMs = performance.now();
     try {
       const [flagName] = flagKey.split('.', 1);
@@ -502,6 +558,7 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
 
     const plaintext = await decryptAesGcm(bytes, hexToBytes(encryptionKey));
+    signal?.throwIfAborted();
     const clientState = ClientResolverState.decode(plaintext);
     this.logDestinations = clientState.logDestinations;
     this.accountId = clientState.account;

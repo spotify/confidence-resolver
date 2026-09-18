@@ -157,7 +157,7 @@ if (details.errorCode) {
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
 - `encryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
-- `initializeTimeout` (number, optional): Max ms to wait for initial state fetch. Defaults to 30_000.
+- `initializeTimeout` (number, optional): Total retry budget in ms for initial state loading. Defaults to 30_000. Initialization returns early on success; otherwise it rejects with a recoverable `PROVIDER_NOT_READY` error after this budget. Background retries continue until valid state is available, then the provider emits `PROVIDER_READY`. Catch the initialization error if the application should start using flag defaults during an outage.
 - `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
 - `fetch` (optional): Custom `fetch` implementation. Required for Node < 18; for Node 18+ you can omit.
