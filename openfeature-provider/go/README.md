@@ -121,6 +121,8 @@ evalCtx := openfeature.NewEvaluationContext("user-123", map[string]interface{}{
 
 The provider uses a **default value fallback** pattern - when evaluation fails, it returns your specified default value instead of throwing an error.
 
+With OpenFeature Go SDK v1.16.0, `SetProviderAndWait` waits for the first state request, not for eventual recovery from a transient CDN failure. The call returns `nil` after a recoverable failure so the SDK can subscribe to provider lifecycle events. The provider reports `PROVIDER_ERROR`, serves caller-supplied defaults while retrying, and reports `PROVIDER_READY` after it loads state successfully. A non-nil return from `SetProviderAndWait` still indicates a fatal initialization failure.
+
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
 
 - Common failure scenarios

@@ -30,6 +30,7 @@ import (
 const (
 	defaultStatePollIntervalSeconds = 10
 	defaultLogPollIntervalSeconds   = 15
+	initialStateRetryInterval       = time.Second
 )
 
 type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
@@ -154,6 +155,8 @@ type LocalResolverProvider struct {
 	// per eventPublishLogWindow attempts instead of logging every failed RPC.
 	eventPublishAttempts atomic.Int64
 	eventPublishFailures atomic.Int64
+	ready                atomic.Bool
+	lifecycleEvents      chan openfeature.Event
 
 	// Feature options forwarded to SetResolverState
 	enableApplyDedup          bool
@@ -164,6 +167,7 @@ type LocalResolverProvider struct {
 var (
 	_ openfeature.FeatureProvider = (*LocalResolverProvider)(nil)
 	_ openfeature.StateHandler    = (*LocalResolverProvider)(nil)
+	_ openfeature.EventHandler    = (*LocalResolverProvider)(nil)
 	_ openfeature.Tracker         = (*LocalResolverProvider)(nil)
 )
 
@@ -207,6 +211,7 @@ func newLocalResolverProvider(
 		logger:                    logger,
 		statePollInterval:         statePollInterval,
 		logPollInterval:           logPollInterval,
+		lifecycleEvents:           make(chan openfeature.Event, 2),
 		enableApplyDedup:          !options.disableApplyDedup,
 		disableExposureCollection: options.disableExposureCollection,
 	}
@@ -352,7 +357,7 @@ func evaluate[T any](
 	defaultValue T,
 	evalCtx openfeature.FlattenedContext,
 ) openfeature.GenericResolutionDetail[T] {
-	if p.resolver == nil {
+	if !p.ready.Load() {
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -746,7 +751,7 @@ func (p *LocalResolverProvider) Resolve(
 	flagNames []string,
 	apply bool,
 ) (*resolver.ResolveFlagsResponse, error) {
-	if p.resolver == nil {
+	if !p.ready.Load() {
 		return nil, fmt.Errorf("provider not initialized")
 	}
 
@@ -780,7 +785,7 @@ func (p *LocalResolverProvider) Resolve(
 func (p *LocalResolverProvider) ApplyFlags(
 	request *resolver.ApplyFlagsRequest,
 ) error {
-	if p.resolver == nil {
+	if !p.ready.Load() {
 		return fmt.Errorf("provider not initialized")
 	}
 	return p.resolver.ApplyFlags(request)
@@ -791,12 +796,44 @@ func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
 	return []openfeature.Hook{}
 }
 
+// EventChannel reports provider lifecycle changes to the OpenFeature SDK.
+func (p *LocalResolverProvider) EventChannel() <-chan openfeature.Event {
+	return p.lifecycleEvents
+}
+
+func (p *LocalResolverProvider) emitLifecycleEvent(
+	eventType openfeature.EventType,
+	message string,
+	errorCode openfeature.ErrorCode,
+) {
+	event := openfeature.Event{
+		ProviderName: p.Metadata().Name,
+		EventType:    eventType,
+		ProviderEventDetails: openfeature.ProviderEventDetails{
+			Message:   message,
+			ErrorCode: errorCode,
+		},
+	}
+	select {
+	case p.lifecycleEvents <- event:
+	default:
+		p.logger.Warn("Dropping provider lifecycle event", "event_type", eventType)
+	}
+}
+
 // Init initializes the provider (part of StateHandler interface)
 // Fetches initial state and starts background tasks for state updates and log flushing
 func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationContext) (err error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	p.mu.Lock()
+	p.ready.Store(false)
+	p.cancelFunc = cancel
+	p.wg.Add(1)
+	p.mu.Unlock()
+	defer p.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
+			cancel()
 			err = &openfeature.ProviderInitError{
 				ErrorCode: openfeature.ProviderFatalCode,
 				Message:   fmt.Sprintf("Init panicked: %v", r),
@@ -806,14 +843,17 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 
 	// Check if required components are present
 	if p.stateProvider == nil {
+		cancel()
 		return fmt.Errorf("state provider is nil, cannot initialize")
 	}
 
 	if p.resolverSupplier == nil {
+		cancel()
 		return fmt.Errorf("resolverSupplier is nil, cannot initialize")
 	}
 
 	if p.flagLogger == nil {
+		cancel()
 		return fmt.Errorf("flag logger is nil, cannot initialize")
 	}
 	logSink := p.flagLogger.Write
@@ -822,19 +862,36 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 
 	// Fetch initial state and accountID from StateProvider
 	initialState, accountId, err := p.stateProvider.Provide(ctx)
+	if ctx.Err() != nil {
+		return nil
+	}
 	if err != nil {
 		p.logger.Error("Failed to fetch initial state", "error", err)
-		return fmt.Errorf("failed to fetch initial state: %w", err)
-	}
-
-	if accountId == "" {
+		p.emitLifecycleEvent(openfeature.ProviderError, fmt.Sprintf("Failed to fetch initial state: %v", err), openfeature.GeneralCode)
+	} else if accountId == "" {
 		p.logger.Error("AccountID is empty in the fetched state, this should not happen")
-		return fmt.Errorf("AccountID is empty in the initial state")
+		p.emitLifecycleEvent(openfeature.ProviderError, "AccountID is empty in the initial state", openfeature.GeneralCode)
+	} else if err := p.setResolverState(initialState, accountId); err != nil {
+		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
+		cancel()
+		return fmt.Errorf("failed to initialize resolver: %w", err)
+	} else if !p.transitionToReady(ctx, false) {
+		return nil
 	}
+	// Start background tasks for state updates and log flushing
+	p.startScheduledTasks(ctx, initialState, accountId)
 
-	// Update resolver with initial state (triggers WASM compilation and initialization)
-	setResolverStateRequest := &wasm.SetResolverStateRequest{
-		State:                     initialState,
+	if p.ready.Load() {
+		p.logger.Info("Provider initialized successfully")
+	} else {
+		p.logger.Warn("Initial state load failed, provider starting not ready and serving default values")
+	}
+	return nil
+}
+
+func (p *LocalResolverProvider) setResolverState(state []byte, accountId string) error {
+	return p.resolver.SetResolverState(&wasm.SetResolverStateRequest{
+		State:                     state,
 		AccountId:                 accountId,
 		EnableApplyDedup:          p.enableApplyDedup,
 		DisableExposureCollection: p.disableExposureCollection,
@@ -842,34 +899,38 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 			Version: Version,
 		},
-	}
-	if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
-		p.logger.Error("Failed to initialize resolver with initial state", "error", err)
-		return fmt.Errorf("failed to initialize resolver: %w", err)
-	}
+	})
+}
 
-	// Start background tasks for state updates and log flushing
-	p.startScheduledTasks(ctx, initialState, accountId)
+func (p *LocalResolverProvider) transitionToReady(ctx context.Context, reportRecovery bool) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	p.logger.Info("Provider initialized successfully")
-	return nil
+	if ctx.Err() != nil {
+		return false
+	}
+	if becameReady := !p.ready.Swap(true); becameReady && reportRecovery {
+		p.logger.Info("Provider recovered and is now ready")
+		p.emitLifecycleEvent(openfeature.ProviderReady, "Provider recovered and is now ready", "")
+	}
+	return true
 }
 
 // Shutdown closes the provider and cleans up resources (part of StateHandler interface)
 func (p *LocalResolverProvider) Shutdown() {
 	ctx := context.Background()
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	cancel := p.cancelFunc
+	p.cancelFunc = nil
+	if cancel != nil {
+		cancel()
+	}
+	p.ready.Store(false)
+	p.mu.Unlock()
 
 	if p.logger != nil {
 		p.logger.Info("Shutting down provider")
-	}
-
-	// Cancel background tasks
-	if p.cancelFunc != nil {
-		p.cancelFunc()
-		p.cancelFunc = nil
-		if p.logger != nil {
+		if cancel != nil {
 			p.logger.Debug("Cancelled scheduled tasks")
 		}
 	}
@@ -924,63 +985,55 @@ func (p *LocalResolverProvider) Shutdown() {
 
 // startScheduledTasks starts the background tasks for state fetching and log polling
 func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, appliedState []byte, appliedAccountId string) {
-	ctx, cancel := context.WithCancel(parentCtx)
-	p.mu.Lock()
-	p.cancelFunc = cancel
-	p.mu.Unlock()
-
 	// Goroutine for state fetching
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		stateTicker := time.NewTicker(p.statePollInterval)
-		defer stateTicker.Stop()
+		nextInterval := func() time.Duration {
+			if p.ready.Load() {
+				return p.statePollInterval
+			}
+			return initialStateRetryInterval
+		}
+		stateTimer := time.NewTimer(nextInterval())
+		defer stateTimer.Stop()
 
 		for {
 			select {
-			case <-stateTicker.C:
+			case <-stateTimer.C:
 				// Fetch latest state and accountID
-				state, accountId, err := p.stateProvider.Provide(ctx)
+				state, accountId, err := p.stateProvider.Provide(parentCtx)
+				if parentCtx.Err() != nil {
+					return
+				}
 				if err != nil {
 					p.logger.Error("State fetch failed", "error", err)
-					continue
-				}
-
-				if accountId == "" {
+				} else if accountId == "" {
 					p.logger.Error("AccountID inside fetched state is empty, skipping this state update attempt")
-					continue
-				}
+				} else if p.ready.Load() && accountId == appliedAccountId && bytes.Equal(state, appliedState) {
+					// Skip the WASM state update if nothing changed (e.g. the fetch
+					// was answered with 304 Not Modified). Re-ingesting identical
+					// state churns the WASM heap for no benefit (#455).
+				} else {
+					// Flush logs before state update to reduce WASM heap fragmentation (#455)
+					if p.ready.Load() {
+						if err := p.resolver.FlushAllLogs(); err != nil {
+							p.logger.Error("Failed to flush logs before state update", "error", err)
+						}
+					}
 
-				// Skip the WASM state update if nothing changed (e.g. the fetch
-				// was answered with 304 Not Modified). Re-ingesting identical
-				// state churns the WASM heap for no benefit (#455).
-				if accountId == appliedAccountId && bytes.Equal(state, appliedState) {
-					continue
+					if err := p.setResolverState(state, accountId); err != nil {
+						p.logger.Error("Failed to update state", "error", err)
+					} else {
+						if !p.transitionToReady(parentCtx, true) {
+							return
+						}
+						appliedState = state
+						appliedAccountId = accountId
+					}
 				}
-
-				// Flush logs before state update to reduce WASM heap fragmentation (#455)
-				if err := p.resolver.FlushAllLogs(); err != nil {
-					p.logger.Error("Failed to flush logs before state update", "error", err)
-				}
-
-				// Update state
-				setResolverStateRequest := &wasm.SetResolverStateRequest{
-					State:                     state,
-					AccountId:                 accountId,
-					EnableApplyDedup:          p.enableApplyDedup,
-					DisableExposureCollection: p.disableExposureCollection,
-					Sdk: &resolvertypes.Sdk{
-						Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
-						Version: Version,
-					},
-				}
-				if err := p.resolver.SetResolverState(setResolverStateRequest); err != nil {
-					p.logger.Error("Failed to update state", "error", err)
-					continue
-				}
-				appliedState = state
-				appliedAccountId = accountId
-			case <-ctx.Done():
+				stateTimer.Reset(nextInterval())
+			case <-parentCtx.Done():
 				return
 			}
 		}
@@ -1006,14 +1059,18 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 		for {
 			select {
 			case <-logTicker.C:
-				if err := p.resolver.FlushAllLogs(); err != nil {
-					p.logger.Error("Failed to flush all logs", "error", err)
+				if p.ready.Load() {
+					if err := p.resolver.FlushAllLogs(); err != nil {
+						p.logger.Error("Failed to flush all logs", "error", err)
+					}
 				}
 			case <-assignC:
-				if err := p.resolver.FlushAssignLogs(); err != nil {
-					p.logger.Error("Failed to flush assign logs", "error", err)
+				if p.ready.Load() {
+					if err := p.resolver.FlushAssignLogs(); err != nil {
+						p.logger.Error("Failed to flush assign logs", "error", err)
+					}
 				}
-			case <-ctx.Done():
+			case <-parentCtx.Done():
 				return
 			}
 		}
@@ -1032,8 +1089,8 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 			for {
 				select {
 				case <-eventTicker.C:
-					p.flushAndPublishEvents(ctx)
-				case <-ctx.Done():
+					p.flushAndPublishEvents(parentCtx)
+				case <-parentCtx.Done():
 					return
 				}
 			}
