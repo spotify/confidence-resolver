@@ -6,6 +6,7 @@ import {
   ConfidenceServerProviderLocal,
   DEFAULT_FLUSH_INTERVAL,
   DEFAULT_STATE_INTERVAL,
+  INITIAL_STATE_RETRY_INTERVAL,
 } from './ConfidenceServerProviderLocal';
 import { abortableSleep, TimeUnit, timeoutSignal } from './util';
 import { advanceTimersUntil, NetworkMock, noopEventTracker } from './test-helpers';
@@ -13,6 +14,7 @@ import { sha256Hex } from './hash';
 import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { WriteFlagLogsRequest } from './proto/test-only';
 import { VERSION } from './version';
+import { OpenFeature } from '@openfeature/server-sdk';
 // Type-only: pins the README's documented entry point without loading its WASM.
 import type * as NodeEntry from './index.node';
 
@@ -89,11 +91,20 @@ describe('no network', () => {
     net.error = 'No network';
   });
 
-  it('initialize throws after timeout', async () => {
-    await advanceTimersUntil(expect(provider.initialize()).rejects.toThrow());
+  it('keeps initialization pending and recovers', async () => {
+    let settled = false;
+    const initialization = provider.initialize().finally(() => (settled = true));
 
-    expect(provider.status).toBe('ERROR');
-    expect(Date.now()).toBe(DEFAULT_STATE_INTERVAL);
+    await vi.advanceTimersByTimeAsync(DEFAULT_STATE_INTERVAL * 2);
+
+    expect(settled).toBe(false);
+    expect(provider.status).toBe('NOT_READY');
+    expect(net.calls).toBeGreaterThan(1);
+
+    net.error = undefined;
+    await advanceTimersUntil(initialization);
+
+    expect(provider.status).toBe('READY');
   });
 });
 
@@ -134,6 +145,13 @@ describe('state update scheduling', () => {
     eTag = 'v2';
     await advanceTimersUntil(provider.updateState());
     expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(2);
+  });
+  it('does not accept 304 before any resolver state has been installed', async () => {
+    net.cdn.state.status = 304;
+
+    await expect(provider.updateState()).rejects.toThrow('Received 304 before initial resolver state');
+
+    expect(mockedWasmResolver.setResolverState).not.toHaveBeenCalled();
   });
   it('retries resolverStateUri on 5xx/network errors with fast backoff', async () => {
     net.cdn.state.status = 503;
@@ -296,21 +314,29 @@ describe('flush behavior', () => {
 });
 
 describe('timeouts and aborts', () => {
-  it('initialize times out if state not fetched before initializeTimeout', async () => {
-    // Make resolverStateUri unreachable so initialize must rely on initializeTimeout
-    net.cdn.state.status = 'No network';
+  it('returns defaults without reading the resolver while initialization is pending', async () => {
+    net.cdn.state.status = 403;
+    const initialization = OpenFeature.setProviderAndWait(provider);
 
-    const shortTimeoutProvider = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
-      flagClientSecret: 'flagClientSecret',
-      encryptionKey: '00'.repeat(32),
-      initializeTimeout: 1000,
-      fetch: net.fetch,
+    await vi.advanceTimersByTimeAsync(INITIAL_STATE_RETRY_INTERVAL * 2);
+
+    await expect(OpenFeature.getClient().getBooleanDetails('flag.enabled', true)).resolves.toMatchObject({
+      value: true,
+      reason: 'ERROR',
+      errorCode: 'PROVIDER_NOT_READY',
     });
+    await expect(provider.resolveBooleanEvaluation('flag.enabled', true, {})).resolves.toMatchObject({
+      value: true,
+      reason: 'ERROR',
+      errorCode: 'PROVIDER_NOT_READY',
+    });
+    expect(provider.status).toBe('NOT_READY');
+    expect(mockedWasmResolver.resolveProcess).not.toHaveBeenCalled();
 
-    await advanceTimersUntil(expect(shortTimeoutProvider.initialize()).rejects.toThrow());
-
-    expect(Date.now()).toBe(1000);
-    expect(shortTimeoutProvider.status).toBe('ERROR');
+    net.cdn.state.status = 200;
+    await advanceTimersUntil(initialization);
+    expect(OpenFeature.getClient().providerStatus).toBe('READY');
+    await advanceTimersUntil(OpenFeature.clearProviders());
   });
   it('aborts in-flight state update when provider is closed', async () => {
     // Make state fetch slow so initialize is in-flight
@@ -322,8 +348,25 @@ describe('timeouts and aborts', () => {
 
     await advanceTimersUntil(expect(init).rejects.toThrow());
     await advanceTimersUntil(close);
-    expect(provider.status).toBe('ERROR');
+    expect(provider.status).toBe('NOT_READY');
+    const callsAfterClose = net.cdn.state.calls;
     await vi.runAllTimersAsync();
+    expect(net.cdn.state.calls).toBe(callsAfterClose);
+  });
+
+  it('does not install state after initialization is aborted during decryption', async () => {
+    let finishDecrypt!: (value: ArrayBuffer) => void;
+    vi.mocked(crypto.subtle.decrypt).mockImplementationOnce(() => new Promise(resolve => (finishDecrypt = resolve)));
+    const initialization = provider.initialize();
+    await advanceTimersUntil(() => finishDecrypt !== undefined);
+
+    const close = provider.onClose();
+    await advanceTimersUntil(expect(initialization).rejects.toThrow());
+    await advanceTimersUntil(close);
+    finishDecrypt(new ArrayBuffer(0));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockedWasmResolver.setResolverState).not.toHaveBeenCalled();
   });
 
   it('handles post-dispatch latency aborts (endpoint invoked)', async () => {

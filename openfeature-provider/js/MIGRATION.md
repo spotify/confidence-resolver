@@ -42,7 +42,6 @@ import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-
 const provider = createConfidenceServerProvider({
   flagClientSecret: 'your-client-secret', // this is the same client secret as before
   encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
-  // initializeTimeout?: number
   // flushInterval?: number
   // fetch?: typeof fetch (Node <18 or custom transport)
 });
@@ -74,10 +73,10 @@ The old provider used `timeout` to control network request timeouts for each fla
 The new provider works differently:
 
 - Flag evaluations happen **locally in WebAssembly** (no network calls during evaluation)
-- The optional `initializeTimeout` parameter (default: 30 seconds) controls how long to wait for the initial resolver state fetch
+- Initialization keeps retrying until the initial resolver state is available. Applications can race `OpenFeature.setProviderAndWait(provider)` against their own startup timeout and continue with flag defaults while initialization remains in progress
 - You typically don't need to configure timeouts anymore
 
-**Migration**: Remove the `timeout` parameter. If you need to control initialization wait time, use `initializeTimeout` instead.
+**Migration**: Remove the `timeout` parameter. If server startup must be bounded, use the caller-owned timeout pattern documented in the README.
 
 ## Usage
 

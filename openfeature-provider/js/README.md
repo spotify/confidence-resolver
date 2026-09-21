@@ -75,7 +75,6 @@ import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-
 const provider = createConfidenceServerProvider({
   flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
   encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
-  // initializeTimeout?: number
   // stateUpdateInterval?: number
   // flushInterval?: number
   // fetch?: typeof fetch (Node <18 or custom transport)
@@ -104,6 +103,36 @@ const ratio = await client.getNumberValue('experiments.groupA.ratio', 0, context
 // On shutdown, flush any pending logs
 await provider.onClose();
 ```
+
+### Limit how long server startup waits
+
+Initialization keeps retrying until the initial resolver state is available. To
+start your server after a bounded wait, race initialization against an
+application-owned timeout. The timeout stops waiting; it does not cancel the
+provider's initialization:
+
+```ts
+const initialization = OpenFeature.setProviderAndWait(provider);
+let startupTimer: ReturnType<typeof setTimeout> | undefined;
+
+const providerReady = await Promise.race([
+  initialization.then(() => true),
+  new Promise<false>(resolve => {
+    startupTimer = setTimeout(() => resolve(false), 10_000);
+  }),
+]).finally(() => clearTimeout(startupTimer));
+
+if (!providerReady) {
+  console.warn('Confidence is still initializing; starting with flag defaults');
+}
+
+startServer();
+```
+
+While initialization is pending, evaluations return their caller-provided
+default with a `PROVIDER_NOT_READY` error and do not invoke the local resolver.
+When state loading eventually succeeds, OpenFeature transitions the provider to
+`READY` and subsequent evaluations use the fetched state.
 
 ---
 
@@ -157,7 +186,6 @@ if (details.errorCode) {
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
 - `encryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
-- `initializeTimeout` (number, optional): Max ms to wait for initial state fetch. Defaults to 30_000.
 - `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
 - `fetch` (optional): Custom `fetch` implementation. Required for Node < 18; for Node 18+ you can omit.

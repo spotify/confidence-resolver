@@ -30,13 +30,16 @@ Defined in `src/ConfidenceServerProviderLocal.ts`:
 interface ProviderOptions {
   flagClientSecret: string;
   encryptionKey: string;
-  initializeTimeout?: number;
   stateUpdateInterval?: number; // ms between state polls (default: 30000)
   flushInterval?: number; // ms between log flushes (default: 15000)
   fetch?: typeof fetch;
   materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
 }
 ```
+
+Initialization retries the initial state load until it succeeds or the provider
+is closed. Applications that need bounded startup should impose their own wait
+timeout without cancelling initialization.
 
 ## Build & Test
 
