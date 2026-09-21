@@ -122,35 +122,6 @@ Cloudflare documents [up to 30 seconds for HTTP `waitUntil` work](https://develo
 not a guaranteed 1–5 second isolate lifetime. No queue-message savings should be
 assumed without measuring the per-isolate assignment and request rates.
 
-#### Testing the buffer
-
-From the repository root, run all local scenarios (requires Cargo and Node.js):
-
-```bash
-node confidence-cloudflare-resolver/scripts/test-flag-log-buffer.cjs
-```
-
-Use `--list` to list scenarios, or select groups, for example:
-
-```bash
-node confidence-cloudflare-resolver/scripts/test-flag-log-buffer.cjs silence piggyback recovery
-```
-
-The runner exercises the real Rust aggregation and scheduler with a controlled
-clock and fake publisher. It checks bursts, a lone request followed by silence,
-immediate exposure publication, piggybacked statistics, failure recovery,
-exposure priority, and size limits. It fails if an expected Rust test is missing.
-The `config` group checks deployer configuration, including disabled/default
-values; it does not exercise the disabled runtime path.
-
-No deployment, credentials, or real queue traffic is involved. This is not a
-Cloudflare lifecycle test: before rollout, use a dedicated staging Worker/queue
-to verify a lone request flushes through `waitUntil`, compare queue writes with
-buffering off/on under identical traffic, and check delivered exposure and
-telemetry counts. Queue consumer arrival times include delivery/batching latency;
-they cannot alone establish the producer's 200 ms flush timing. Aggregation is
-per isolate, so a distributed burst need not produce a single message.
-
 ### Scaling flag-log queues
 
 For traffic exceeding one queue's throughput, pass `-e FLAG_LOGS_QUEUE_COUNT=2`
