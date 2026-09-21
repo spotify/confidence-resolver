@@ -357,8 +357,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
     let enable_apply_dedup = env
         .var("ENABLE_APPLY_DEDUP")
-        .map(|var| var.to_string().trim().eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+        .map(|var| !var.to_string().trim().eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
     APPLY_DEDUP_ENABLED.with(|c| c.set(enable_apply_dedup));
 
     if req.method() == Method::Options {
@@ -760,7 +760,13 @@ async fn consume_flag_logs(message_batch: MessageBatch<String>, env: Env) -> Res
             )
             .collect();
 
-        dedup_batch_flag_applies(&mut logs, (js_sys::Date::now() / 1000.0) as i64);
+        let enable_dedup = env
+            .var("ENABLE_APPLY_DEDUP")
+            .map(|var| !var.to_string().trim().eq_ignore_ascii_case("false"))
+            .unwrap_or(true);
+        if enable_dedup {
+            dedup_batch_flag_applies(&mut logs, (js_sys::Date::now() / 1000.0) as i64);
+        }
 
         let req = flag_logger::aggregate_batch(logs);
 
