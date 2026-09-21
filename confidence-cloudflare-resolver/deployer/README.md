@@ -68,7 +68,7 @@ The deployer automatically:
 | `ENABLE_STICKY_ASSIGNMENTS`          | Set to create a KV namespace and enable sticky assignments for experiments. Requires a [KV store](https://developers.cloudflare.com/kv/platform/pricing/) |
 | `MATERIALIZATION_TTL_SECONDS`        | TTL in seconds for sticky assignment KV entries. Omit for no expiration |
 | `FORCE_APPLY`                        | Defaults to `true`: every resolve is treated as `apply=true` and assignments are logged at resolve time. Set to `false` to respect the `apply` value sent by SDKs (deferred-apply flow via `flags:apply`) |
-| `ENABLE_APPLY_DEDUP`                 | Defaults to `false`: set to `true` to enable apply-event deduplication — repeated identical assignments within a 120s window are logged once |
+| `ENABLE_APPLY_DEDUP`                 | Defaults to `true`: apply-event deduplication is enabled — repeated identical assignments within a 120s window are logged once, both at resolve time and across queue consumer batches. Set to `false` to disable |
 | `FLAG_LOGS_QUEUE_COUNT`              | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
 
 ### Scaling flag-log queues

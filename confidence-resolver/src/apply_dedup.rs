@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
+use crate::proto::confidence::flags::resolver::v1::events::flag_assigned::applied_flag::Assignment;
+use crate::proto::confidence::flags::resolver::v1::events::flag_assigned::default_assignment::DefaultAssignmentReason;
+use crate::proto::confidence::flags::resolver::v1::events::flag_assigned::AppliedFlag as EventAppliedFlag;
 use crate::proto::confidence::flags::resolver::v1::events::FallthroughAssignment;
 use crate::proto::confidence::flags::resolver::v1::resolve_token_v1::AssignedFlag;
 use crate::proto::confidence::flags::resolver::v1::telemetry_data::ApplyDedupTelemetry;
+use crate::proto::confidence::flags::resolver::v1::ResolveReason;
 use crate::FlagToApply;
 
 const HASH_INIT: u64 = 0xCBF2_9CE4_8422_2325;
@@ -108,6 +112,44 @@ impl<'a> From<&'a AssignedFlag> for AppliedFlagRef<'a> {
             variant: &a.variant,
             segment: &a.segment,
             reason: a.reason,
+            fallthrough_assignments: &a.fallthrough_assignments,
+        }
+    }
+}
+
+fn default_assignment_reason_to_resolve_reason(dar: i32) -> i32 {
+    match DefaultAssignmentReason::try_from(dar) {
+        Ok(DefaultAssignmentReason::NoSegmentMatch) => ResolveReason::NoSegmentMatch as i32,
+        Ok(DefaultAssignmentReason::NoTreatmentMatch) => ResolveReason::NoTreatmentMatch as i32,
+        Ok(DefaultAssignmentReason::FlagArchived) => ResolveReason::FlagArchived as i32,
+        _ => ResolveReason::Unspecified as i32,
+    }
+}
+
+impl<'a> From<&'a EventAppliedFlag> for AppliedFlagRef<'a> {
+    fn from(a: &'a EventAppliedFlag) -> Self {
+        let (variant, segment, reason) = match &a.assignment {
+            Some(Assignment::AssignmentInfo(ai)) => (
+                ai.variant.as_str(),
+                ai.segment.as_str(),
+                ResolveReason::Match as i32,
+            ),
+            Some(Assignment::DefaultAssignment(da)) => (
+                "",
+                "",
+                default_assignment_reason_to_resolve_reason(da.reason),
+            ),
+            None => ("", "", ResolveReason::Unspecified as i32),
+        };
+        Self {
+            flag: &a.flag,
+            targeting_key: &a.targeting_key,
+            targeting_key_selector: &a.targeting_key_selector,
+            assignment_id: &a.assignment_id,
+            rule: &a.rule,
+            variant,
+            segment,
+            reason,
             fallthrough_assignments: &a.fallthrough_assignments,
         }
     }
@@ -271,6 +313,24 @@ impl ApplyDedup {
             map_size: self.seen.len() as u32,
             map_capacity: self.max_entries as u32,
         }
+    }
+
+    /// Returns `true` if the hash is new (not a duplicate), inserting it into
+    /// the map. Used by queue consumers that compute the dedup hash externally
+    /// (e.g. from events proto `AppliedFlag` via [`compute_applied_flag_dedup_hash`]).
+    pub fn check_hash(&mut self, hash: u64, now_seconds: i64) -> bool {
+        let now_seconds = now_seconds.max(self.last_sweep_seconds);
+        self.applies_total = self.applies_total.wrapping_add(1);
+        if self.seen.contains_key(&hash) {
+            self.applies_deduped = self.applies_deduped.wrapping_add(1);
+            return false;
+        }
+        if self.seen.len() < self.max_entries {
+            self.seen.insert(hash, now_seconds);
+        } else {
+            self.apply_dedup_overflow = self.apply_dedup_overflow.wrapping_add(1);
+        }
+        true
     }
 
     /// Returns `true` for each flag that should be logged (not a duplicate).
@@ -1469,5 +1529,186 @@ mod tests {
         // Gauges are already u32 and pass through untouched.
         assert_eq!(delta.map_size, 7);
         assert_eq!(delta.map_capacity, 9);
+    }
+
+    // --- check_hash ---
+
+    #[test]
+    fn check_hash_deduplicates() {
+        let mut dedup = ApplyDedup::new(120, 1000);
+        let hash = 0x1234_5678_ABCD_EF00;
+
+        assert!(dedup.check_hash(hash, 1000), "first insert should succeed");
+        assert!(
+            !dedup.check_hash(hash, 1001),
+            "duplicate should be rejected"
+        );
+
+        let snap = dedup.telemetry_snapshot();
+        assert_eq!(snap.applies_total, 2);
+        assert_eq!(snap.applies_deduped, 1);
+        assert_eq!(snap.map_size, 1);
+    }
+
+    #[test]
+    fn check_hash_different_hashes_pass() {
+        let mut dedup = ApplyDedup::new(120, 1000);
+        assert!(dedup.check_hash(1, 1000));
+        assert!(dedup.check_hash(2, 1000));
+        assert_eq!(dedup.telemetry_snapshot().map_size, 2);
+    }
+
+    #[test]
+    fn check_hash_respects_max_entries() {
+        let mut dedup = ApplyDedup::new(120, 2);
+        assert!(dedup.check_hash(1, 1000));
+        assert!(dedup.check_hash(2, 1000));
+        assert!(dedup.check_hash(3, 1000));
+        assert!(dedup.check_hash(3, 1001));
+
+        let snap = dedup.telemetry_snapshot();
+        assert_eq!(snap.apply_dedup_overflow, 2);
+        assert_eq!(snap.map_size, 2);
+    }
+
+    // --- EventAppliedFlag <-> AssignedFlag hash consistency ---
+
+    fn make_event_applied(
+        flag: &str,
+        targeting_key: &str,
+        variant: &str,
+        segment: &str,
+    ) -> EventAppliedFlag {
+        use crate::proto::confidence::flags::resolver::v1::events::flag_assigned::AssignmentInfo;
+        EventAppliedFlag {
+            flag: flag.to_string(),
+            targeting_key: targeting_key.to_string(),
+            assignment_id: String::new(),
+            rule: String::new(),
+            targeting_key_selector: String::new(),
+            fallthrough_assignments: vec![],
+            apply_time: None,
+            assignment: if variant.is_empty() {
+                None
+            } else {
+                Some(Assignment::AssignmentInfo(AssignmentInfo {
+                    variant: variant.to_string(),
+                    segment: segment.to_string(),
+                }))
+            },
+        }
+    }
+
+    #[test]
+    fn event_applied_flag_hash_matches_assigned_flag_hash() {
+        let assigned = AssignedFlag {
+            flag: "flags/test".to_string(),
+            targeting_key: "user-1".to_string(),
+            targeting_key_selector: String::new(),
+            assignment_id: String::new(),
+            variant: "on".to_string(),
+            segment: "seg-1".to_string(),
+            rule: String::new(),
+            reason: ResolveReason::Match as i32,
+            fallthrough_assignments: vec![],
+        };
+        let event = make_event_applied("flags/test", "user-1", "on", "seg-1");
+
+        assert_eq!(
+            compute_dedup_hash(&assigned),
+            compute_applied_flag_dedup_hash(&AppliedFlagRef::from(&event)),
+            "same apply must produce the same dedup hash from either proto shape"
+        );
+    }
+
+    #[test]
+    fn event_applied_default_assignment_hash_matches_assigned() {
+        use crate::proto::confidence::flags::resolver::v1::events::flag_assigned::DefaultAssignment;
+
+        let assigned = AssignedFlag {
+            flag: "flags/test".to_string(),
+            targeting_key: "user-1".to_string(),
+            targeting_key_selector: String::new(),
+            assignment_id: String::new(),
+            variant: String::new(),
+            segment: String::new(),
+            rule: String::new(),
+            reason: ResolveReason::NoSegmentMatch as i32,
+            fallthrough_assignments: vec![],
+        };
+        let event = EventAppliedFlag {
+            flag: "flags/test".to_string(),
+            targeting_key: "user-1".to_string(),
+            targeting_key_selector: String::new(),
+            assignment_id: String::new(),
+            rule: String::new(),
+            fallthrough_assignments: vec![],
+            apply_time: None,
+            assignment: Some(Assignment::DefaultAssignment(DefaultAssignment {
+                reason: DefaultAssignmentReason::NoSegmentMatch as i32,
+            })),
+        };
+
+        assert_eq!(
+            compute_dedup_hash(&assigned),
+            compute_applied_flag_dedup_hash(&AppliedFlagRef::from(&event)),
+        );
+    }
+
+    #[test]
+    fn event_applied_flag_archived_hash_matches() {
+        use crate::proto::confidence::flags::resolver::v1::events::flag_assigned::DefaultAssignment;
+
+        let assigned = AssignedFlag {
+            flag: "flags/f".to_string(),
+            targeting_key: "u1".to_string(),
+            reason: ResolveReason::FlagArchived as i32,
+            ..Default::default()
+        };
+        let event = EventAppliedFlag {
+            flag: "flags/f".to_string(),
+            targeting_key: "u1".to_string(),
+            assignment: Some(Assignment::DefaultAssignment(DefaultAssignment {
+                reason: DefaultAssignmentReason::FlagArchived as i32,
+            })),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            compute_dedup_hash(&assigned),
+            compute_applied_flag_dedup_hash(&AppliedFlagRef::from(&event)),
+        );
+    }
+
+    #[test]
+    fn event_applied_different_users_produce_different_hashes() {
+        let e1 = make_event_applied("flags/a", "user-1", "on", "seg");
+        let e2 = make_event_applied("flags/a", "user-2", "on", "seg");
+
+        assert_ne!(
+            compute_applied_flag_dedup_hash(&AppliedFlagRef::from(&e1)),
+            compute_applied_flag_dedup_hash(&AppliedFlagRef::from(&e2)),
+        );
+    }
+
+    #[test]
+    fn event_applied_apply_time_is_not_part_of_hash() {
+        use crate::proto::google::Timestamp;
+        let mut e1 = make_event_applied("flags/a", "user-1", "on", "seg");
+        e1.apply_time = Some(Timestamp {
+            seconds: 1000,
+            nanos: 0,
+        });
+        let mut e2 = make_event_applied("flags/a", "user-1", "on", "seg");
+        e2.apply_time = Some(Timestamp {
+            seconds: 9999,
+            nanos: 0,
+        });
+
+        assert_eq!(
+            compute_applied_flag_dedup_hash(&AppliedFlagRef::from(&e1)),
+            compute_applied_flag_dedup_hash(&AppliedFlagRef::from(&e2)),
+            "apply_time must not affect the dedup hash"
+        );
     }
 }
