@@ -53,7 +53,10 @@ pub(crate) async fn send_to_any(queues: &[worker::Queue], json: &str, sample: f6
         }
     }
     if total > 1 {
-        worker::console_log!("all {} queue shards exhausted, flag log dropped", total);
+        worker::console_log!(
+            "all {} queue shards exhausted, flag log publish failed",
+            total
+        );
     }
     false
 }

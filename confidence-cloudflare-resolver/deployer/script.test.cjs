@@ -7,6 +7,43 @@ const { test } = require('node:test');
 
 const wranglerTomlPath = join(__dirname, '../wrangler.toml');
 
+for (const value of ['', 'true', 'TRUE', 'false', 'invalid']) {
+  test(`flag log buffer option: ${value || 'unset'}`, () => {
+    const directory = mkdtempSync(join(tmpdir(), 'flag-log-buffer-test-'));
+    try {
+      copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
+      const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+      // Execute the actual validation/config-generation block, without deploying.
+      const block = script.slice(
+        script.indexOf('# Validate the opt-in isolate buffer'),
+        script.indexOf('if [ -n "$WRANGLER_CONFIG_APPEND_FILE" ]; then'),
+      );
+      assert.ok(block.includes('ENABLE_FLAG_LOG_BUFFER'));
+      const result = spawnSync('bash', ['-c', `set -eu\n${block}\n${block}`], {
+        cwd: directory,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ENABLE_FLAG_LOG_BUFFER: value,
+          ALLOWED_ORIGIN_TOML: '', ETAG_TOML: '', DEPLOYER_VERSION: '',
+          CLIENT_SECRET_TOML: '', FORCE_APPLY: '', ENABLE_APPLY_DEDUP: '',
+        },
+      });
+      if (value === 'invalid') {
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /ENABLE_FLAG_LOG_BUFFER must be/);
+      } else {
+        assert.equal(result.status, 0, result.stderr);
+        const config = readFileSync(join(directory, 'wrangler.toml'), 'utf8');
+        const settings = config.match(/^ENABLE_FLAG_LOG_BUFFER = .*$/gm) || [];
+        assert.deepEqual(settings, value ? [`ENABLE_FLAG_LOG_BUFFER = "${value.toLowerCase()}"`] : []);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
+
 function runValidation(count) {
   const result = spawnSync('bash', ['-c', `
 set -euo pipefail

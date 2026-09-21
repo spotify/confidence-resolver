@@ -1,3 +1,4 @@
+mod flag_log_buffer;
 mod flag_log_queues;
 mod materialization;
 
@@ -54,6 +55,7 @@ thread_local! {
     static FLAG_LOG: RefCell<Option<WriteFlagLogsRequest>> = const { RefCell::new(None) };
     static APPLY_DEDUP: RefCell<ApplyDedup> = RefCell::new(ApplyDedup::new(120, 100_000));
     static APPLY_DEDUP_ENABLED: Cell<bool> = const { Cell::new(false) };
+    static FLAG_LOG_BUFFER_ENABLED: Cell<bool> = const { Cell::new(false) };
     static LAST_DEDUP_SNAPSHOT: RefCell<ApplyDedupSnapshot> =
         RefCell::new(ApplyDedupSnapshot::default());
 }
@@ -85,6 +87,12 @@ fn dedup_telemetry_delta(
 async fn queue_flag_log(log: WriteFlagLogsRequest) {
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
+    }
+    if FLAG_LOG_BUFFER_ENABLED.with(|enabled| enabled.get()) {
+        if let Some(queues) = FLAGS_LOGS_QUEUES.get().filter(|queues| !queues.is_empty()) {
+            flag_log_buffer::send(log, queues).await;
+        }
+        return;
     }
     match serde_json::to_string(&log) {
         Ok(json) => {
@@ -360,6 +368,13 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         .map(|var| !var.to_string().trim().eq_ignore_ascii_case("false"))
         .unwrap_or(true);
     APPLY_DEDUP_ENABLED.with(|c| c.set(enable_apply_dedup));
+    FLAG_LOG_BUFFER_ENABLED.with(|enabled| {
+        enabled.set(
+            env.var("ENABLE_FLAG_LOG_BUFFER")
+                .map(|value| value.to_string().trim().eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+        );
+    });
 
     if req.method() == Method::Options {
         return Response::ok("")?.with_cors_headers(&allowed_origin_env);

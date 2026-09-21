@@ -69,7 +69,87 @@ The deployer automatically:
 | `MATERIALIZATION_TTL_SECONDS`        | TTL in seconds for sticky assignment KV entries. Omit for no expiration |
 | `FORCE_APPLY`                        | Defaults to `true`: every resolve is treated as `apply=true` and assignments are logged at resolve time. Set to `false` to respect the `apply` value sent by SDKs (deferred-apply flow via `flags:apply`) |
 | `ENABLE_APPLY_DEDUP`                 | Defaults to `true`: apply-event deduplication is enabled — repeated identical assignments within a 120s window are logged once, both at resolve time and across queue consumer batches. Set to `false` to disable |
+| `ENABLE_FLAG_LOG_BUFFER`             | Defaults to `false`. Set to `true` to aggregate flag logs in each isolate before enqueueing, with a 200 ms flush interval and early flush for nonempty assignments. Best effort; see below. |
 | `FLAG_LOGS_QUEUE_COUNT`              | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
+
+### Best-effort flag-log buffering
+
+Set `-e ENABLE_FLAG_LOG_BUFFER=true` (and `-e FORCE_DEPLOY=1` when updating an
+existing deployment). Logs without exposure producing flags are aggregated in the isolate,
+then sent after 200 ms even if no further requests arrive.
+
+- **Envelope with nonempty `flag_assigned`: add buffered information that fits,
+  then send directly to the queue without waiting for the 200 ms timer.**
+- **Envelope without exposure producing flags: aggregate it in the isolate.**
+  It rides along with the next exposure envelope, or is sent by the 200 ms timer.
+
+Empty `FlagAssigned` envelopes do not trigger an early flush. This reduces queue messages
+when producer-side apply deduplication leaves requests with only statistics and
+telemetry. If every request has new assignments, savings may be small.
+
+**Exposure flag logs are prioritised.** Only logs containing nonempty flag
+assignments trigger an immediate publish; statistics-only logs wait for the
+200 ms timer. Exposure batches are sent before statistics-only batches, including
+failed statistics awaiting retry. When full, the buffer evicts a pending
+statistics-only batch to admit an exposure batch. Statistics cannot evict exposures.
+A publish already in flight is allowed to complete (or time out) before the next
+batch is selected. The periodic timer intentionally remains an exception to
+"only send when there are assignments", so quiet isolates can still report telemetry.
+
+The buffer reuses the consumer's aggregation: resolve counts and telemetry are
+combined, context schemas deduplicated, and exposure records preserved. Each
+aggregate targets at most 60,000 encoded bytes, including the outer JSON string
+encoding. Individual logs up to 120,000 bytes are retained separately. At most
+four batches are retained per isolate (including a publish in flight).
+Larger aggregates split into batches; statistics-only batches still wait for the timer. Incoming
+logs are dropped with a console warning if they exceed the individual size limit
+or cannot fit in the buffer. These are serialized-size bounds, not exact heap usage.
+
+Failed publishes retain the batch and retry after 200 ms unless a new exposure
+wakes the sender earlier, up to three consecutive failed attempts per run.
+Each attempt has a one-second timeout across all shards; a
+timeout can be ambiguous and retrying may duplicate data. After three failures,
+data remains buffered for a later request. Each background run is also capped at
+16 attempts; remaining data waits for a later request. Flush work runs through
+`waitUntil`, not a perpetual detached timer. An in-flight batch remains retained
+if its task is cancelled.
+
+This buffer is **not durable**: eviction, deployment, runtime termination, or
+overflow can lose data, including assignment records from failed publishes.
+Telemetry is timestamped downstream when delivered, so buffering/retries shift its
+reporting time. 200 ms is a batching target, not a delivery or eviction guarantee.
+Cloudflare documents [up to 30 seconds for HTTP `waitUntil` work](https://developers.cloudflare.com/workers/runtime-apis/context/),
+not a guaranteed 1–5 second isolate lifetime. No queue-message savings should be
+assumed without measuring the per-isolate assignment and request rates.
+
+#### Testing the buffer
+
+From the repository root, run all local scenarios (requires Cargo and Node.js):
+
+```bash
+node confidence-cloudflare-resolver/scripts/test-flag-log-buffer.cjs
+```
+
+Use `--list` to list scenarios, or select groups, for example:
+
+```bash
+node confidence-cloudflare-resolver/scripts/test-flag-log-buffer.cjs silence piggyback recovery
+```
+
+The runner exercises the real Rust aggregation and scheduler with a controlled
+clock and fake publisher. It checks bursts, a lone request followed by silence,
+immediate exposure publication, piggybacked statistics, failure recovery,
+exposure priority, and size limits. It fails if an expected Rust test is missing.
+The `config` group checks deployer configuration, including disabled/default
+values; it does not exercise the disabled runtime path.
+
+No deployment, credentials, or real queue traffic is involved. This is not a
+Cloudflare lifecycle test: before rollout, use a dedicated staging Worker/queue
+to verify a lone request flushes through `waitUntil`, compare queue writes with
+buffering off/on under identical traffic, and check delivered exposure and
+telemetry counts. Queue consumer arrival times include delivery/batching latency;
+they cannot alone establish the producer's 200 ms flush timing. Aggregation is
+per isolate, so a distributed burst need not produce a single message.
 
 ### Scaling flag-log queues
 
