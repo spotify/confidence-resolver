@@ -87,26 +87,28 @@ Empty `FlagAssigned` envelopes do not trigger an early flush. This reduces queue
 when producer-side apply deduplication leaves requests with only statistics and
 telemetry. If every request has new assignments, savings may be small.
 
-**Exposure flag logs are prioritised.** Only logs containing nonempty flag
-assignments trigger an immediate publish; statistics-only logs wait for the
-200 ms timer. Exposure batches are sent before statistics-only batches, including
-failed statistics awaiting retry. When full, the buffer evicts a pending
-statistics-only batch to admit an exposure batch. Statistics cannot evict exposures.
-A publish already in flight is allowed to complete (or time out) before the next
-batch is selected. The periodic timer intentionally remains an exception to
-"only send when there are assignments", so quiet isolates can still report telemetry.
+**Exposure flag logs bypass the buffer entirely.** Each exposure-producing
+request publishes through its own queue-send path in its own `waitUntil`, adding
+pending statistics that fit. It does not wait for the statistics timer, another
+publish, or buffer capacity. Statistics already in flight are not attached again.
+Only statistics-only envelopes enter the best-effort buffer and periodic sender.
+Exposure sends retain the normal queue-shard fallback and error reporting;
+failed exposures are not moved into the statistics buffer. Queue failures or
+runtime termination can still prevent delivery; this is not a zero-loss guarantee.
 
 The buffer reuses the consumer's aggregation: resolve counts and telemetry are
 combined, context schemas deduplicated, and exposure records preserved. Each
 aggregate targets at most 60,000 encoded bytes, including the outer JSON string
-encoding. Individual logs up to 120,000 bytes are retained separately. At most
-four batches are retained per isolate (including a publish in flight).
+encoding. Individual statistics-only logs up to 120,000 bytes are retained separately. At most
+four statistics batches are retained per isolate (including a publish in flight).
 Larger aggregates split into batches; statistics-only batches still wait for the timer. Incoming
-logs are dropped with a console warning if they exceed the individual size limit
-or cannot fit in the buffer. These are serialized-size bounds, not exact heap usage.
+statistics are dropped with a console warning if they exceed the individual size limit
+or cannot fit in the buffer. These limits do not reject exposure envelopes: those
+are sent directly, subject to Cloudflare's queue limits. These are serialized-size
+bounds, not exact heap usage.
 
-Failed publishes retain the batch and retry after 200 ms unless a new exposure
-wakes the sender earlier, up to three consecutive failed attempts per run.
+Failed statistics publishes retain the batch and retry after 200 ms,
+up to three consecutive failed attempts per run.
 Each attempt has a one-second timeout across all shards; a
 timeout can be ambiguous and retrying may duplicate data. After three failures,
 data remains buffered for a later request. Each background run is also capped at
@@ -115,7 +117,7 @@ data remains buffered for a later request. Each background run is also capped at
 if its task is cancelled.
 
 This buffer is **not durable**: eviction, deployment, runtime termination, or
-overflow can lose data, including assignment records from failed publishes.
+overflow can lose buffered statistics. Exposure records are never held in it.
 Telemetry is timestamped downstream when delivered, so buffering/retries shift its
 reporting time. 200 ms is a batching target, not a delivery or eviction guarantee.
 Cloudflare documents [up to 30 seconds for HTTP `waitUntil` work](https://developers.cloudflare.com/workers/runtime-apis/context/),
