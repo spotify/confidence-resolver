@@ -131,11 +131,17 @@ every attempt is more time the records exist only in this isolate; that is
 why the budget is small. Riding out a real outage is not something an
 in-memory sink can do, and a batch that exhausts its attempts is dropped.
 
-**Under a stalled backend the isolate sheds load.** While deliveries are in
-flight the buffer keeps accumulating rather than starting more, up to its
-ceiling. Past 16 stuck deliveries a full buffer is discarded instead of
-started, loudly (`SHED`), so memory stays bounded by the backend's slowness
-rather than growing with it.
+**Under a stalled backend the buffer absorbs, then sheds.** While deliveries
+are in flight the buffer keeps accumulating rather than starting more, up to
+24 MB of encoded protobuf. A buffered record costs about its own size; a
+delivery in flight costs roughly 2.6x that, so memory is spent on the buffer
+rather than on concurrency, and the backlog is drained in delivery-sized
+pieces. Only once 8 deliveries are stuck *and* the buffer is full is a chunk
+discarded, loudly (`SHED`).
+
+Discarding is the last resort rather than the first, because the alternative
+at that point is running the isolate out of memory — which loses the whole
+buffer *and* fails live resolves, not just one batch.
 
 **This is the least durable sink, deliberately.** Cloudflare offers no
 shutdown hook, so an isolate evicted while holding a buffer loses it

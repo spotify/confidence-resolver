@@ -62,8 +62,15 @@ use worker::console_log;
 /// bounded by bytes rather than by the flush timers.
 const FLUSH_BYTES: usize = super::PROTO_CHUNK_BYTES;
 
-/// Hard ceiling, in case a single log is itself larger than the budget.
-const MAX_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+/// How much encoded protobuf the buffer may hold before records are shed.
+///
+/// Deliberately much larger than [`FLUSH_BYTES`]: a buffered record costs
+/// roughly its own encoded size, while a delivery in flight costs about
+/// 2.6x that (the records, plus an aggregate, plus a JSON body — measured,
+/// JSON runs 1.64x the encoded size). Memory is therefore far better spent
+/// here than on concurrency, and every byte of it is outage the sink rides
+/// out without losing anything.
+const MAX_BUFFER_BYTES: usize = 24 * 1024 * 1024;
 
 const _: () = assert!(FLUSH_BYTES < MAX_BUFFER_BYTES);
 
@@ -90,7 +97,12 @@ const MAX_IN_FLIGHT: usize = 4;
 /// a flush is dropped rather than started, loudly, so memory stays bounded
 /// by `MAX_BUFFER_BYTES + HARD_IN_FLIGHT * one delivery` instead of by how
 /// badly the backend is behaving.
-const HARD_IN_FLIGHT: usize = 16;
+///
+/// Small, for the reason above: slots are the expensive way to hold records.
+/// Eight deliveries of [`FLUSH_BYTES`] plus a full buffer is roughly 45 MB,
+/// which leaves the 128 MB isolate room for the resolver state and the
+/// request being served.
+const HARD_IN_FLIGHT: usize = 8;
 
 const _: () = assert!(MAX_IN_FLIGHT < HARD_IN_FLIGHT);
 
@@ -180,6 +192,35 @@ impl Buffer {
         self.last_ms = 0.0;
         std::mem::take(&mut self.logs)
     }
+
+    /// Splits off roughly [`FLUSH_BYTES`] worth, leaving the rest buffered.
+    ///
+    /// Used once the buffer has run past its flush size, so a backlog is
+    /// drained in delivery-sized pieces instead of handing one delivery the
+    /// entire backlog. Keeps every in-flight delivery the same size, which
+    /// is what makes the memory bound predictable.
+    fn take_chunk(&mut self) -> Vec<WriteFlagLogsRequest> {
+        // Counted first, then drained in one move: popping from the front
+        // one at a time is quadratic, and a full buffer is thousands of
+        // records.
+        let mut bytes = 0usize;
+        let mut count = 0usize;
+        for log in &self.logs {
+            let len = log.encoded_len();
+            if count > 0 && bytes.saturating_add(len) > FLUSH_BYTES {
+                break;
+            }
+            bytes = bytes.saturating_add(len);
+            count += 1;
+        }
+        let taken: Vec<_> = self.logs.drain(..count).collect();
+        self.bytes = self.bytes.saturating_sub(bytes);
+        if self.logs.is_empty() {
+            self.first_ms = 0.0;
+            self.last_ms = 0.0;
+        }
+        taken
+    }
 }
 
 /// Holds one in-flight delivery slot for as long as it is alive.
@@ -237,7 +278,7 @@ pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsReques
         if decision == Decision::Hold {
             return None;
         }
-        let batch = buffer.take();
+        let batch = buffer.take_chunk();
         if decision == Decision::Shed {
             // Starting another delivery here is how the isolate runs out of
             // memory instead of just losing a batch.
@@ -459,6 +500,53 @@ mod tests {
         assert_eq!(decide(MAX_BUFFER_BYTES, HARD_IN_FLIGHT), Decision::Shed);
         // Still below the buffer ceiling, so there is no need to shed yet.
         assert_eq!(decide(FLUSH_BYTES, HARD_IN_FLIGHT), Decision::Hold);
+    }
+
+    /// A backlog must drain in delivery-sized pieces, so one delivery never
+    /// gets handed the whole buffer.
+    #[test]
+    fn take_chunk_splits_a_backlog_and_leaves_the_rest() {
+        let mut buffer = Buffer::new();
+        while buffer.bytes < FLUSH_BYTES * 4 {
+            buffer.push(log_with_assigns(20), 0.0);
+        }
+        let total_before = buffer.bytes;
+        let total_records = buffer.logs.len();
+
+        let chunk = buffer.take_chunk();
+        assert!(!chunk.is_empty(), "must take something");
+        let chunk_bytes: usize = chunk.iter().map(prost::Message::encoded_len).sum();
+        assert!(
+            chunk_bytes <= FLUSH_BYTES,
+            "chunk {chunk_bytes} must fit the delivery budget {FLUSH_BYTES}"
+        );
+        assert!(!buffer.logs.is_empty(), "the rest stays buffered");
+        assert_eq!(
+            buffer.bytes,
+            total_before - chunk_bytes,
+            "running size must track what was removed"
+        );
+
+        // Draining repeatedly must conserve every record and empty the buffer.
+        let mut drained = chunk.len();
+        while !buffer.logs.is_empty() {
+            drained += buffer.take_chunk().len();
+        }
+        assert_eq!(
+            drained, total_records,
+            "no record may be lost or duplicated"
+        );
+        assert_eq!(buffer.bytes, 0);
+    }
+
+    /// A single log bigger than the budget must still leave, not wedge.
+    #[test]
+    fn take_chunk_always_makes_progress() {
+        let mut buffer = Buffer::new();
+        buffer.push(log_with_assigns(20_000), 0.0);
+        assert!(buffer.bytes > FLUSH_BYTES, "one oversized log");
+        assert_eq!(buffer.take_chunk().len(), 1);
+        assert!(buffer.logs.is_empty());
     }
 
     /// A cancelled delivery must not leak its in-flight slot, or the size
