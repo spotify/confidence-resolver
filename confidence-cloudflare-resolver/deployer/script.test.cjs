@@ -371,3 +371,157 @@ test('KV is only probed when metrics or sticky assignments are enabled', () => {
   assert.doesNotMatch(runPreflight('queue', {}).stdout, /Workers KV/);
   assert.match(runPreflight('queue', {}, { metrics: '1' }).stdout, /PROBE_OK Workers KV/);
 });
+
+// --- Rollback safety tests ---
+
+// The aggregator trigger must exist under BOTH sinks. Under queue it is a
+// no-op unless a bucket is bound, but without it a rollback from logpush
+// leaves no drainer and Logpush keeps filling R2.
+function runTriggerBlock(sink, bucketExists) {
+  const directory = mkdtempSync(join(tmpdir(), 'trigger-test-'));
+  try {
+    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
+    const result = spawnSync('bash', ['-c', `
+set -euo pipefail
+FLAG_LOG_SINK=${sink}
+FLAG_LOGS_BUCKET=loadtest-flag-logs
+FLAG_LOGS_AGGREGATOR_CRON="* * * * *"
+if [ "$FLAG_LOG_SINK" = "logpush" ] || [ "${bucketExists}" = "yes" ]; then
+    cat >> wrangler.toml <<EOF
+
+[[r2_buckets]]
+binding = "FLAG_LOGS_R2"
+bucket_name = "\${FLAG_LOGS_BUCKET}"
+EOF
+fi
+cat >> wrangler.toml <<EOF
+
+[triggers]
+crons = ["\${FLAG_LOGS_AGGREGATOR_CRON}"]
+EOF
+`], { cwd: directory, encoding: 'utf8', timeout: 5000 });
+    return { ...result, config: readFileSync(join(directory, 'wrangler.toml'), 'utf8') };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('logpush mode gets the cron and the R2 binding', () => {
+  const { status, config } = runTriggerBlock('logpush', 'no');
+  assert.equal(status, 0);
+  assert.match(config, /crons = \["\* \* \* \* \*"\]/);
+  assert.match(config, /binding = "FLAG_LOGS_R2"/);
+  // [limits] is script-wide, so raising cpu_ms here would also lift the
+  // resolve path's 30s safety net on every deployment.
+  assert.doesNotMatch(config, /cpu_ms/);
+});
+
+test('queue mode still gets the cron, so a rollback has a drainer', () => {
+  const { status, config } = runTriggerBlock('queue', 'no');
+  assert.equal(status, 0);
+  assert.match(config, /crons = \["\* \* \* \* \*"\]/);
+  // No bucket existed, so nothing to drain and nothing to bind.
+  assert.doesNotMatch(config, /FLAG_LOGS_R2/);
+});
+
+test('queue mode binds a leftover bucket so its objects still drain', () => {
+  const { status, config } = runTriggerBlock('queue', 'yes');
+  assert.equal(status, 0);
+  assert.match(config, /binding = "FLAG_LOGS_R2"/);
+  assert.match(config, /crons = \["\* \* \* \* \*"\]/);
+});
+
+// The disable call must target the job by name and set enabled:false, or a
+// rollback leaves Logpush writing into an undrained bucket.
+test('logpush job disable sends enabled:false for the matching job only', () => {
+  const r = spawnSync('bash', ['-c', `
+echo '{"result":[{"id":"abc123","name":"loadtest-confidence-cloudflare-resolver-flag-logs"},{"id":"other","name":"unrelated-job"}]}' \
+  | jq -r '.result[]? | select(.name == "loadtest-confidence-cloudflare-resolver-flag-logs") | .id'
+echo '{"enabled": false}' | jq -c .
+`], { encoding: 'utf8', timeout: 5000 });
+  assert.equal(r.status, 0);
+  const [id, body] = r.stdout.trim().split('\n');
+  assert.equal(id, 'abc123');
+  assert.deepEqual(JSON.parse(body), { enabled: false });
+});
+
+// --- Bucket-existence probe must distinguish "no bucket" from "no access" ---
+
+function runBucketProbe(code) {
+  const directory = mkdtempSync(join(tmpdir(), 'bucket-probe-'));
+  try {
+    writeFileSync(join(directory, 'curl'), `#!/bin/bash\necho -n "${code}"\n`, { mode: 0o755 });
+    return spawnSync('bash', ['-c', `
+set -uo pipefail
+export PATH="${directory}:$PATH"
+CLOUDFLARE_API_TOKEN=tok
+CLOUDFLARE_ACCOUNT_ID=acct
+r2_bucket_exists() {
+    local CODE
+    CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+        "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$1")
+    case "$CODE" in
+        200) return 0 ;;
+        404) return 1 ;;
+        *) echo "WARN could not determine bucket state (HTTP $CODE)" >&2; return 1 ;;
+    esac
+}
+if r2_bucket_exists my-bucket; then echo EXISTS; else echo ABSENT; fi
+`], { encoding: 'utf8', timeout: 5000 });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('a 200 means the bucket exists and should be bound', () => {
+  const r = runBucketProbe(200);
+  assert.match(r.stdout, /EXISTS/);
+  assert.doesNotMatch(r.stderr, /WARN/);
+});
+
+test('a 404 means no bucket, and that is not a problem worth warning about', () => {
+  const r = runBucketProbe(404);
+  assert.match(r.stdout, /ABSENT/);
+  assert.doesNotMatch(r.stderr, /WARN/);
+});
+
+// A 403 is the common case on a queue-mode rollback token, which does not
+// require R2 permissions. Silently reading it as "no bucket" would skip the
+// drain and strand whatever Logpush already wrote.
+test('a 403 is reported rather than silently treated as absent', () => {
+  const r = runBucketProbe(403);
+  assert.match(r.stdout, /ABSENT/);
+  assert.match(r.stderr, /WARN could not determine bucket state \(HTTP 403\)/);
+});
+
+// --- Rollback ordering ---
+
+// Disabling the Logpush job before the build would leave the previous
+// logpush-mode worker emitting console lines with nothing capturing them for
+// the length of a release build.
+test('the Logpush job is disabled only after a successful deploy', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const setsFlag = script.indexOf('DISABLE_LOGPUSH_JOB_AFTER_DEPLOY=1');
+  const deploys = script.indexOf('wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"');
+  const disables = script.indexOf('disable_logpush_job "${WORKER_NAME}-flag-logs"');
+  assert.ok(setsFlag > 0 && deploys > 0 && disables > 0);
+  assert.ok(setsFlag < deploys, 'the flag is set during sink provisioning');
+  assert.ok(disables > deploys, 'the disable call must come after wrangler deploy');
+});
+
+// The default bucket name must not be something a customer plausibly already
+// owns: the aggregator deletes the objects it claims.
+test('the default bucket name is namespaced to Confidence', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  assert.match(script, /FLAG_LOGS_BUCKET="confidence-flag-logs"/);
+  assert.doesNotMatch(script, /FLAG_LOGS_BUCKET="flag-logs"/);
+});
+
+// Objects must stay small enough that one fits the aggregator's per-object
+// memory budget after the decode expansion.
+test('logpush objects are pinned small', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const bytes = Number(/max_upload_bytes: (\d+)/.exec(script)[1]);
+  assert.ok(bytes <= 4000000, `max_upload_bytes should be small, was ${bytes}`);
+});

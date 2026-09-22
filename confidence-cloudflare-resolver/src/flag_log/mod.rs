@@ -92,33 +92,38 @@ pub(crate) fn init(env: &Env) {
         Sink::parse(raw.as_deref())
     });
 
-    match sink {
-        Sink::Queue => queue::init(env),
-        Sink::Logpush => BUCKET.with(|slot| {
-            let mut slot = slot.borrow_mut();
-            if slot.is_some() {
-                return;
-            }
-            // Missing here means a half-provisioned deployment: the variable
-            // asks for Logpush but the deployer never created the bucket.
-            // Ordinary logging still works — the console line is what Logpush
-            // captures — but oversized logs lose their overflow path and
-            // nothing drains the bucket, so say so rather than letting it be
-            // discovered by the first large resolve.
-            match env.bucket(BUCKET_BINDING) {
-                Ok(bucket) => *slot = Some(Some(bucket)),
-                Err(e) => {
+    if sink == Sink::Queue {
+        queue::init(env);
+    }
+
+    // The bucket is bound whenever it exists, under *either* sink. A switch
+    // back to `queue` has to keep draining whatever Logpush already wrote —
+    // Logpush lags by about a minute and keeps writing after the switch — so
+    // gating this on the active sink would strand those objects silently.
+    BUCKET.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_some() {
+            return;
+        }
+        match env.bucket(BUCKET_BINDING) {
+            Ok(bucket) => *slot = Some(Some(bucket)),
+            Err(e) => {
+                // Absent is the norm for a queue-only deployment, so this is
+                // only worth reporting when Logpush is the active sink: there
+                // it means a half-provisioned deploy, where oversized logs
+                // lose their overflow path and nothing drains the bucket.
+                if sink == Sink::Logpush {
                     console_log!(
                         "{} binding is missing; oversized flag logs will fall back to \
                          direct delivery and R2 aggregation is disabled: {:?}",
                         BUCKET_BINDING,
                         e
                     );
-                    *slot = Some(None);
                 }
+                *slot = Some(None);
             }
-        }),
-    }
+        }
+    });
 }
 
 fn sink() -> Sink {

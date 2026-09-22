@@ -586,10 +586,73 @@ ensure_r2_bucket() {
 # carries full request metadata and is most of the volume; Exceptions would
 # add panic text the aggregator ignores anyway.
 #
-# max_upload_bytes pins the uncompressed object size at 20 MB, comfortably
-# under the aggregator's 48 MB per-object ceiling. Without it the size is
-# whatever Cloudflare defaults to for the destination, which would leave the
-# aggregator's memory bound resting on an unknown.
+# max_upload_bytes pins the uncompressed object size at 2 MB. The aggregator
+# delivers one object at a time, so this — not any accumulator bound — is what
+# caps its peak memory, and the decoded form of a record is several times its
+# size on the wire. Without pinning it the size would be whatever Cloudflare
+# defaults to for the destination, leaving the memory bound resting on an
+# unknown.
+# Turns off a Logpush job left over from a previous logpush-mode deploy.
+#
+# Without this, switching back to queue leaves the job enabled and still
+# writing into R2 for as long as it exists, while the sink no longer produces
+# console lines — so the bucket accumulates undelivered logs and grows without
+# bound. Best effort: queue mode does not require Logpush permissions, so a
+# 403 here is reported rather than fatal.
+disable_logpush_job() {
+    local JOB_NAME="$1"
+    local LIST STATUS JOB_ID="" CODE
+    LIST=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/logpush/jobs")
+    STATUS="${LIST: -3}"
+    if [ "$STATUS" != "200" ]; then
+        echo "⚠️ Could not check for a leftover Logpush job (HTTP $STATUS)."
+        echo "   If this deployment previously used FLAG_LOG_SINK=logpush, disable the job"
+        echo "   '$JOB_NAME' manually or it will keep writing to R2 with nothing draining it."
+        return 0
+    fi
+    JOB_ID=$(printf "%s" "${LIST%???}" \
+        | jq -r ".result[]? | select(.name == \"${JOB_NAME}\") | .id" 2>/dev/null || true)
+    [ -n "$JOB_ID" ] || return 0
+
+    echo "⏸️ Disabling leftover Logpush job '$JOB_NAME' (id: $JOB_ID)..."
+    CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X PUT \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d '{"enabled": false}' \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/logpush/jobs/${JOB_ID}")
+    if [ "$CODE" = "200" ]; then
+        echo "✅ Logpush job disabled; the aggregator drains the remaining objects"
+    else
+        echo "⚠️ Failed to disable Logpush job '$JOB_NAME' (HTTP $CODE) — disable it manually"
+    fi
+}
+
+# Whether the flag-log bucket already exists, so a queue-mode deploy can still
+# bind it and drain whatever a previous logpush deploy left behind.
+r2_bucket_exists() {
+    local CODE
+    CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/$1")
+    case "$CODE" in
+        200) return 0 ;;
+        404) return 1 ;;
+        *)
+            # Anything else — typically 403, because queue mode does not
+            # require R2 permissions — is not an answer. Treating it as "no
+            # bucket" would silently skip the rollback drain and strand
+            # whatever Logpush already wrote, so say so instead.
+            echo "⚠️ Could not determine whether R2 bucket '$1' exists (HTTP $CODE)." >&2
+            echo "   If this deployment previously used FLAG_LOG_SINK=logpush, add R2 read" >&2
+            echo "   permission to the token so leftover flag logs can be drained, or bind" >&2
+            echo "   the bucket manually via WRANGLER_CONFIG_APPEND_FILE." >&2
+            return 1
+            ;;
+    esac
+}
+
 ensure_logpush_job() {
     local JOB_NAME="$1" BUCKET="$2"
 
@@ -614,8 +677,8 @@ ensure_logpush_job() {
                 field_names: ["EventTimestampMs", "Logs"],
                 timestamp_format: "rfc3339"
             },
-            max_upload_bytes: 20000000,
-            max_upload_records: 50000,
+            max_upload_bytes: 2000000,
+            max_upload_records: 5000,
             filter: ({where: {and: [
                 {key: "ScriptName", operator: "eq", value: $script},
                 {key: "EventType", operator: "eq", value: "fetch"}
@@ -675,9 +738,9 @@ if [ "$FLAG_LOG_SINK" = "logpush" ]; then
     fi
 
     if [ -n "$WORKER_NAME_PREFIX" ]; then
-        FLAG_LOGS_BUCKET="${WORKER_NAME_PREFIX}-flag-logs"
+        FLAG_LOGS_BUCKET="${WORKER_NAME_PREFIX}-confidence-flag-logs"
     else
-        FLAG_LOGS_BUCKET="flag-logs"
+        FLAG_LOGS_BUCKET="confidence-flag-logs"
     fi
 
     ensure_r2_bucket "$FLAG_LOGS_BUCKET" || exit 1
@@ -697,21 +760,47 @@ if [ "$FLAG_LOG_SINK" = "logpush" ]; then
 [[r2_buckets]]
 binding = "FLAG_LOGS_R2"
 bucket_name = "${FLAG_LOGS_BUCKET}"
+EOF
+    echo "✅ Added FLAG_LOGS_R2 binding for bucket '${FLAG_LOGS_BUCKET}'"
+    echo "✅ Flag-log sink: logpush"
+else
+    if [ -n "$WORKER_NAME_PREFIX" ]; then
+        FLAG_LOGS_BUCKET="${WORKER_NAME_PREFIX}-confidence-flag-logs"
+    else
+        FLAG_LOGS_BUCKET="confidence-flag-logs"
+    fi
+
+    # Deferred until after a successful deploy: disabling the job while the
+    # previous logpush-mode worker is still serving would drop every flag log
+    # it emits for the length of a release build.
+    DISABLE_LOGPUSH_JOB_AFTER_DEPLOY=1
+
+    # Bind the bucket if a previous logpush deploy created one. The worker
+    # drains it regardless of sink, so this is what stops a rollback from
+    # stranding logs that Logpush already wrote.
+    if r2_bucket_exists "$FLAG_LOGS_BUCKET"; then
+        cat >> wrangler.toml <<EOF
+
+# Left from a previous FLAG_LOG_SINK=logpush deploy. Bound so the aggregator
+# can finish draining it; harmless once empty.
+[[r2_buckets]]
+binding = "FLAG_LOGS_R2"
+bucket_name = "${FLAG_LOGS_BUCKET}"
+EOF
+        echo "✅ Bound existing R2 bucket '${FLAG_LOGS_BUCKET}' so leftover logs still drain"
+    fi
+    echo "✅ Flag-log sink: queue"
+fi
+
+# The aggregation trigger is configured under either sink. Under queue it is a
+# no-op unless an R2 bucket is bound, and one invocation a minute costs about
+# a cent a month — cheap insurance against a rollback leaving no drainer.
+cat >> wrangler.toml <<EOF
 
 [triggers]
 crons = ["${FLAG_LOGS_AGGREGATOR_CRON}"]
-
-# The aggregation pass decompresses and parses many R2 objects in one
-# invocation, which needs more than the 30s default. This raises the ceiling;
-# it does not reserve time, so resolve requests are unaffected.
-[limits]
-cpu_ms = 120000
 EOF
-    echo "✅ Added FLAG_LOGS_R2 binding and aggregator cron (${FLAG_LOGS_AGGREGATOR_CRON}) to wrangler.toml"
-    echo "✅ Flag-log sink: logpush (R2 bucket '${FLAG_LOGS_BUCKET}')"
-else
-    echo "✅ Flag-log sink: queue"
-fi
+echo "✅ Aggregator cron (${FLAG_LOGS_AGGREGATOR_CRON}) configured"
 
 # Create KV namespace for /metrics endpoint if it doesn't exist
 if [ -n "$WORKER_NAME_PREFIX" ]; then
@@ -977,6 +1066,13 @@ add_wrangler_deploy_args_from_lines "WRANGLER_DEPLOY_ARGS" "$WRANGLER_DEPLOY_ARG
 # only deploy if NO_DEPLOY is not set
 if test -z "$NO_DEPLOY"; then
      wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"
+
+     # Now that the queue-sink worker is live and no longer emitting console
+     # lines, stop Logpush writing into a bucket the aggregator will drain to
+     # empty and then leave alone.
+     if [ -n "${DISABLE_LOGPUSH_JOB_AFTER_DEPLOY:-}" ]; then
+         disable_logpush_job "${WORKER_NAME}-flag-logs"
+     fi
 
      # Store encryption key as a Cloudflare Worker secret (persists across deploys)
      if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then

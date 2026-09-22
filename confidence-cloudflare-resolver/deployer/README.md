@@ -83,15 +83,31 @@ The deployer automatically:
 | `ENABLE_APPLY_DEDUP`                 | Defaults to `true`: apply-event deduplication is enabled — repeated identical assignments within a 120s window are logged once, both at resolve time and across queue consumer batches. Set to `false` to disable |
 | `FLAG_LOGS_QUEUE_COUNT`              | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
 | `FLAG_LOG_SINK`                      | `queue` (default) or `logpush`. Selects how flag logs leave the Worker — see [Flag-log sinks](#flag-log-sinks) |
-| `R2_ACCESS_KEY_ID`                   | Required when `FLAG_LOG_SINK=logpush`. R2 API token key id that Logpush authenticates to the bucket with (create with **Edit** permissions) |
+| `R2_ACCESS_KEY_ID`                   | Required when `FLAG_LOG_SINK=logpush`. R2 API token key id that Logpush authenticates to the bucket with. Scope it to **object write on the flag-log bucket only** — it is embedded in the Logpush job's destination and is readable by anyone with Logpush read on the account |
 | `R2_SECRET_ACCESS_KEY`               | Required when `FLAG_LOG_SINK=logpush`. R2 API token secret |
 | `FLAG_LOGS_AGGREGATOR_CRON`          | Cron schedule for the Logpush aggregation pass (default `* * * * *`). Logpush delivers roughly once a minute regardless, so faster schedules only add invocations |
 
 ### Flag-log sinks
 
-`FLAG_LOG_SINK` selects how flag logs get from the Worker to Confidence. Queue
-bindings are created under either sink, so switching back to `queue` is an
-immediate rollback that also drains whatever is still queued.
+`FLAG_LOG_SINK` selects how flag logs get from the Worker to Confidence.
+
+Switching sinks is safe in both directions, and the deployer does the work to
+make it so:
+
+* **`queue` → `logpush`.** Queue bindings and the queue consumer are kept
+  under either sink, so messages a previous version already published still
+  get drained after the switch.
+* **`logpush` → `queue`.** Logpush lags by about a minute and keeps writing
+  into R2 after the switch, so a queue-mode deploy disables the leftover
+  Logpush job, binds the existing bucket, and keeps the aggregator cron
+  configured. The worker drains the bucket regardless of the active sink, so
+  those objects are delivered rather than stranded. Without this a rollback
+  would look clean while silently accumulating undelivered logs and growing
+  the bucket without bound.
+
+The aggregator cron is therefore configured under both sinks. Under `queue`
+it is a no-op unless a bucket is bound, and one invocation a minute costs
+roughly a cent a month.
 
 #### `queue` (default)
 
@@ -171,10 +187,30 @@ Trade-offs versus the queue:
 - **Statistics may be double-counted** if a delivery succeeds but the R2 delete
   fails, since the objects are then re-read. Applies are deduplicated; the
   statistics counters are not.
-- **Throughput has a ceiling.** One cron invocation claims up to 200 objects,
-  which comfortably covers traffic up to roughly 1–2K RPS. Beyond that the
-  bucket accumulates faster than a single pass drains it, and aggregation needs
-  to fan out or move to the ingest side.
+- **Throughput has a ceiling, and it has not been measured under sustained
+  load.** The aggregator delivers one R2 object at a time and stops after 25
+  seconds of wall clock, leaving the rest for the next tick. That bounds
+  memory and contains failures, but it also bounds drain rate: objects are
+  pinned at 2 MB, and a pass handles as many as fit the time budget.
+
+  The binding constraint is memory, not CPU. `aggregate_batch` concatenates
+  `flag_assigned`, so exposures cannot collapse, and a decoded record is
+  several times its size on the wire — which is why delivery is per object
+  rather than per pass. Treat the safe sustained rate as **unverified above a
+  few hundred requests/second** until measured on your own traffic; watch
+  `more_pending=true` in the aggregation log, which means the listing was
+  saturated and a backlog is building.
+
+- **Overlapping passes are possible.** Cron invocations are not serialized,
+  and the R2 binding offers no conditional write, so the pass lease is best
+  effort. Two passes racing the same object double-count its statistics.
+  Per-object delivery keeps the blast radius to one object rather than a
+  whole batch.
+
+- **An object that cannot be delivered is eventually dropped.** Retrying
+  forever would grow the bucket without bound and never succeed for a payload
+  the backend rejects outright, so an object still undelivered after an hour
+  is dropped with a `DROPPING ... records lost` log. Alert on that line.
 
 Set `-e FORCE_DEPLOY=1` when switching sinks so an unchanged resolver state does
 not skip deployment.
