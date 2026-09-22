@@ -157,10 +157,13 @@ if (details.errorCode) {
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
 - `encryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
-- `initializeTimeout` (number, optional): Total retry budget in ms for initial state loading. Defaults to 30_000. Initialization returns early on success; otherwise it rejects with a recoverable `PROVIDER_NOT_READY` error after this budget. Background retries continue until valid state is available, then the provider emits `PROVIDER_READY`. Catch the initialization error if the application should start using flag defaults during an outage.
+- `initializeTimeout` (number, optional): Total retry budget in ms for initial state loading. Defaults to 30_000. Initialization returns early on success. Transient failures exhaust this budget with a recoverable `PROVIDER_NOT_READY` error and `ERROR` status; background retries continue until valid state is available, then the provider emits `PROVIDER_READY`. Catch the initialization error if the application should start using flag defaults during an outage. HTTP 4xx (except 404/408/429), decryption/decoding failures, and rejected resolver state fail startup promptly with `PROVIDER_FATAL` and stop retries; correct the configuration and create a new provider.
 - `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
+- `maxStateAge` (number, optional): Maximum time in ms since the last successful state validation, including HTTP 304. Defaults to 300_000 (5 minutes); must be a positive integer no greater than 2_147_483_647 (zero is not allowed). The provider emits `PROVIDER_STALE` when this age is reached, even during a pending request. Cached flags remain usable while stale. A successful refresh restores `READY`; an attempted or failed refresh does not reset freshness.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
 - `fetch` (optional): Custom `fetch` implementation. Required for Node < 18; for Node 18+ you can omit.
+
+Network errors, timeouts, HTTP 408/429/5xx, and HTTP 404 are retried. A 404 may mean the client is still being provisioned, so background recovery has no provisioning deadline. Once state has been accepted, **all** refresh failures preserve the last accepted state, including authentication and invalid-payload errors; they never make an already usable provider fatal. The stale-state limit makes prolonged failures visible through the OpenFeature SDK without discarding cached flags.
 
 The provider periodically:
 

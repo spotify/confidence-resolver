@@ -243,6 +243,18 @@ describe('panic handling', () => {
     }).to.not.throw();
   });
 
+  it('reloads the last accepted state when an update panics', () => {
+    wasmResolver.setResolverState(SET_STATE_REQUEST);
+    setResolverStateSpy.mockImplementationOnce(throwUnreachable);
+    const invalidState = { ...SET_STATE_REQUEST, state: new Uint8Array([255]) };
+
+    expect(() => wasmResolver.setResolverState(invalidState)).toThrow('unreachable');
+    expect(setResolverStateSpy).toHaveBeenLastCalledWith(SET_STATE_REQUEST);
+    expect(wasmResolver.resolveProcess(RESOLVE_REQUEST)).toMatchObject({
+      resolved: { response: { resolvedFlags: [{ reason: ResolveReason.RESOLVE_REASON_MATCH }] } },
+    });
+  });
+
   it('can handle panic in setResolverState', () => {
     setResolverStateSpy.mockImplementation(throwUnreachable);
 
