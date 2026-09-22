@@ -549,7 +549,7 @@ describe('OpenFeature startup lifecycle', () => {
   });
 });
 
-describe('cached state freshness through OpenFeature', () => {
+describe('cached state preservation through OpenFeature', () => {
   it('commits metadata and ETag only after the resolver accepts an update', async () => {
     let account = 'accepted';
     const acceptedDestinations = [LogDestination.LOG_DESTINATION_SPOTIFY_EDGE];
@@ -589,24 +589,12 @@ describe('cached state freshness through OpenFeature', () => {
     await advanceTimersUntil(provider.onClose());
   });
 
-  it.each([0, -1, NaN, Infinity, 1.5])('rejects invalid maxStateAge %s', maxStateAge => {
-    expect(
-      () =>
-        new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
-          flagClientSecret: 'secret',
-          encryptionKey: '00'.repeat(32),
-          maxStateAge,
-        }),
-    ).toThrow('maxStateAge');
-  });
-
-  it.each([undefined, 'stale-cache'])('keeps cached evaluations usable during failures for domain %s', async domain => {
+  it.each([undefined, 'cache'])('keeps cached evaluations usable during failures for domain %s', async domain => {
     provider = new ConfidenceServerProviderLocal(mockedWasmResolver, noopEventTracker, {
       flagClientSecret: 'secret',
       encryptionKey: '00'.repeat(32),
       fetch: net.fetch,
       stateUpdateInterval: 1000,
-      maxStateAge: 2000,
     });
     mockedWasmResolver.resolveProcess.mockReturnValue({
       resolved: {
@@ -638,33 +626,29 @@ describe('cached state freshness through OpenFeature', () => {
       );
       // Authentication errors after startup keep the good state.
       net.cdn.state.status = 403;
-      await vi.advanceTimersByTimeAsync(1999);
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
       expect(client.providerStatus).toBe(ProviderStatus.READY);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(client.providerStatus).toBe(ProviderStatus.STALE);
-      expect(stale).toHaveBeenCalledTimes(1);
+      expect(stale).not.toHaveBeenCalled();
       await expect(client.getBooleanDetails('flag.enabled', false)).resolves.toMatchObject({ value: true });
-      // Invalid refresh payloads also leave cached evaluation and freshness untouched.
+      // Invalid refresh payloads also leave cached evaluation available.
       net.cdn.state.status = 200;
       const validHandler = net.cdn.state.handler;
       net.cdn.state.handler = () => new Response(new Uint8Array([1, 2, 3]));
       await vi.advanceTimersByTimeAsync(2000);
-      expect(client.providerStatus).toBe(ProviderStatus.STALE);
+      expect(client.providerStatus).toBe(ProviderStatus.READY);
       await expect(client.getBooleanDetails('flag.enabled', false)).resolves.toMatchObject({ value: true });
       expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
       net.cdn.state.handler = validHandler;
       net.cdn.state.status = 304;
       await vi.advanceTimersByTimeAsync(1000);
       expect(client.providerStatus).toBe(ProviderStatus.READY);
-      expect(ready).toHaveBeenCalledTimes(2);
+      expect(ready).toHaveBeenCalledTimes(1);
       expect(mockedWasmResolver.setResolverState).toHaveBeenCalledTimes(1);
-      // A 304 extends freshness, but an in-flight network retry does not.
+      // Network retries keep serving the accepted state too.
       net.cdn.state.status = 'No network';
-      await vi.advanceTimersByTimeAsync(1999);
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
       expect(client.providerStatus).toBe(ProviderStatus.READY);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(client.providerStatus).toBe(ProviderStatus.STALE);
-      expect(stale).toHaveBeenCalledTimes(2);
+      expect(stale).not.toHaveBeenCalled();
       await expect(client.getBooleanDetails('flag.enabled', false)).resolves.toMatchObject({ value: true });
     } finally {
       client.removeHandler(ProviderEvents.Stale, stale);

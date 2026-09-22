@@ -17,7 +17,6 @@ import {
   abortableSleep,
   castStringToEnum,
   hexToBytes,
-  portableSetTimeout,
   scheduleWithFixedInterval,
   timeoutSignal,
   TimeUnit,
@@ -49,7 +48,6 @@ const logger = getLogger('provider');
 
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
-export const DEFAULT_MAX_STATE_AGE: number = 5 * 60_000;
 export const DEFAULT_FLUSH_INTERVAL = 15_000;
 export const NOT_READY_STATE_INTERVAL = 1_000;
 /** Upper bound on flush calls during shutdown drain, so a failing publish cannot spin forever. */
@@ -73,8 +71,6 @@ export interface ProviderOptions {
   initializeTimeout?: number;
   /** Interval in milliseconds between state polling updates. Defaults to 30000ms. */
   stateUpdateInterval?: number;
-  /** Maximum time in milliseconds since successful state validation before STALE. Defaults to 5 minutes. */
-  maxStateAge?: number;
   /** Interval in milliseconds between log flushes. Defaults to 15000ms. */
   flushInterval?: number;
   fetch?: typeof fetch;
@@ -109,8 +105,6 @@ export class ConfidenceServerProviderLocal implements Provider {
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
   private readonly stateUpdateInterval: number;
-  private readonly maxStateAge: number;
-  private staleTimer?: number;
   private hasResolverState = false;
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
@@ -147,11 +141,6 @@ export class ConfidenceServerProviderLocal implements Provider {
       this.resolverInstance = resolverOrPromise;
     }
     this.stateUpdateInterval = options.stateUpdateInterval ?? DEFAULT_STATE_INTERVAL;
-    this.maxStateAge = options.maxStateAge ?? DEFAULT_MAX_STATE_AGE;
-    if (!Number.isInteger(this.maxStateAge) || this.maxStateAge < 1 || this.maxStateAge > 2_147_483_647) {
-      throw new Error('maxStateAge must be a positive integer <= 2147483647 (ms)');
-    }
-    this.main.signal.addEventListener('abort', () => clearTimeout(this.staleTimer));
     if (!Number.isInteger(this.stateUpdateInterval) || this.stateUpdateInterval < 1000) {
       throw new Error(`stateUpdateInterval must be an integer >= 1000 (1s), currently: ${this.stateUpdateInterval}`);
     }
@@ -579,7 +568,6 @@ export class ConfidenceServerProviderLocal implements Provider {
     if (resp.status === 304) {
       if (!this.hasResolverState) throw new Error('Received 304 before initial resolver state');
       signal?.throwIfAborted();
-      this.stateValidated();
       return;
     }
     if (!resp.ok) {
@@ -620,17 +608,6 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.logDestinations = clientState.logDestinations;
     this.accountId = clientState.account;
     this.stateEtag = resp.headers.get('etag');
-    this.stateValidated();
-  }
-
-  private stateValidated(): void {
-    clearTimeout(this.staleTimer);
-    if (this.main.signal.aborted) return;
-    // Independent of polling: a stalled request or retry loop must not hide stale data.
-    this.staleTimer = portableSetTimeout(() => {
-      this.status = castStringToEnum<ProviderStatus>('STALE');
-      this.events.emit(castStringToEnum<ServerProviderEvents>('PROVIDER_STALE'));
-    }, this.maxStateAge);
   }
 
   /**
