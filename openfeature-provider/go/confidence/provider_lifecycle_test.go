@@ -122,23 +122,23 @@ func TestOpenFeatureRejectedInitialResolverState(t *testing.T) {
 	}
 }
 
-func TestOpenFeatureStaleCachedStateAndRecovery(t *testing.T) {
+func TestOpenFeatureCachedStateSurvivesRefreshFailures(t *testing.T) {
 	good := encryptedClientState(t, tu.LoadTestResolverState(t), tu.LoadTestAccountID(t))
 	bad := encryptedClientState(t, []byte{0xff}, tu.LoadTestAccountID(t))
 	var phase atomic.Int32
-	var notModified atomic.Int32
+	var requests [6]atomic.Int32
 	blocked := make(chan struct{}, 1)
 	canceled := make(chan struct{}, 1)
 	fetcher, err := NewFlagsAdminStateFetcherWithTransport(tu.TestClientSecret, testEncryptionKey, slog.Default(), lifecycleTransport(func(req *http.Request) (*http.Response, error) {
-		switch phase.Load() {
+		current := phase.Load()
+		requests[current].Add(1)
+		switch current {
 		case 1:
 			if req.Header.Get("If-None-Match") == "bad" {
-				notModified.Add(1)
 				return stateResponse(304, nil, ""), nil
 			}
 			return stateResponse(200, bad, "bad"), nil
 		case 3:
-			notModified.Add(1)
 			return stateResponse(304, nil, ""), nil
 		case 4:
 			blocked <- struct{}{}
@@ -155,7 +155,7 @@ func TestOpenFeatureStaleCachedStateAndRecovery(t *testing.T) {
 	}
 	provider := newLocalResolverProvider(func(ctx context.Context, sink lr.LogSink) lr.LocalResolver {
 		return lr.NewLocalResolverWithPoolSize(ctx, sink, 1)
-	}, fetcher, lifecycleFlagLogger{}, tu.TestClientSecret, nil, WithStatePollInterval(5*time.Millisecond), WithMaxStateAge(80*time.Millisecond))
+	}, fetcher, lifecycleFlagLogger{}, tu.TestClientSecret, nil, WithStatePollInterval(5*time.Millisecond))
 	api := isolated.NewAPI()
 	defer api.Shutdown(context.Background())
 	if err := api.SetProviderAndWait(context.Background(), provider); err != nil {
@@ -166,36 +166,37 @@ func TestOpenFeatureStaleCachedStateAndRecovery(t *testing.T) {
 	evalCtx := openfeature.NewTargetlessEvaluationContext(map[string]interface{}{"visitor_id": "tutorial_visitor"})
 	assertCached := func() {
 		t.Helper()
+		if client.State() != openfeature.ReadyState {
+			t.Fatalf("provider state = %s, want READY", client.State())
+		}
 		value, err := client.StringValue(ctx, "tutorial-feature.message", "default", evalCtx)
 		if err != nil || value == "default" {
 			t.Fatalf("cached evaluation = %q, %v", value, err)
 		}
 	}
+	refreshPhase := func(next int32) {
+		t.Helper()
+		before := requests[next].Load()
+		phase.Store(next)
+		// Polling is sequential: the third request proves two previous refreshes
+		// completed, including a 304 after the rejected payload in phase 1.
+		waitFor(t, time.Second, func() bool { return requests[next].Load() >= before+3 })
+	}
 	assertCached()
 	for _, failedPhase := range []int32{1, 5} {
-		phase.Store(failedPhase)
-		waitFor(t, time.Second, func() bool { return client.State() == openfeature.StaleState })
+		refreshPhase(failedPhase)
 		assertCached()
-		if failedPhase == 1 && notModified.Load() == 0 {
-			t.Fatal("did not exercise 304 for rejected state")
-		}
-		phase.Store(2)
-		waitFor(t, time.Second, func() bool { return client.State() == openfeature.ReadyState })
+		refreshPhase(2)
+		assertCached()
 	}
-	phase.Store(3)
-	before := notModified.Load()
-	time.Sleep(200 * time.Millisecond)
-	if client.State() != openfeature.ReadyState || notModified.Load() <= before {
-		t.Fatal("304 did not renew freshness")
-	}
+	refreshPhase(3)
+	assertCached()
 	phase.Store(4)
 	select {
 	case <-blocked:
 	case <-time.After(time.Second):
 		t.Fatal("request did not block")
 	}
-	// The watchdog must report stale without waiting for the blocked request.
-	waitFor(t, time.Second, func() bool { return client.State() == openfeature.StaleState })
 	assertCached()
 	if err := api.Shutdown(ctx); err != nil {
 		t.Fatal(err)
@@ -204,18 +205,6 @@ func TestOpenFeatureStaleCachedStateAndRecovery(t *testing.T) {
 	case <-canceled:
 	case <-time.After(time.Second):
 		t.Fatal("shutdown did not cancel blocked refresh")
-	}
-}
-
-func TestMaxStateAgeConfig(t *testing.T) {
-	if _, err := NewProvider(context.Background(), ProviderConfig{MaxStateAge: -time.Second}); err == nil {
-		t.Fatal("negative MaxStateAge accepted")
-	}
-	if p := newStartupTestProvider(nil, nil); p.maxStateAge != 5*time.Minute {
-		t.Fatalf("default max age = %v", p.maxStateAge)
-	}
-	if p := newStartupTestProvider(nil, nil, WithMaxStateAge(time.Second)); p.maxStateAge != time.Second {
-		t.Fatalf("configured max age = %v", p.maxStateAge)
 	}
 }
 

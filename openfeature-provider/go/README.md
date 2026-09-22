@@ -125,7 +125,7 @@ Initialization uses one total 30-second budget by default, including state reque
 
 Network failures, timeouts, HTTP 408/429/5xx, and HTTP 404 are retried; 404 remains retryable to allow state provisioning. Other HTTP 4xx responses (including 401/403), decryption/decoding failures, missing account IDs, and rejected resolver state stop startup retries and report `FATAL` with the cause. Correct the configuration or payload and register a new provider to recover from a fatal startup error.
 
-Once valid state has been installed, **any** refresh failure preserves the last working state. After `MaxStateAge` without successful validation, OpenFeature reports `STALE` while evaluations continue using cached flags. The default is five minutes; zero selects that default and negative configuration values are rejected. A successful refresh (including a 304 for previously accepted state) renews freshness and reports `READY` after staleness. Failed installation, including repeated 304 responses for rejected bytes, never renews freshness. A separate watchdog reports staleness even while a state request is blocked.
+Once valid state has been installed, **any** refresh failure preserves the last working state. The provider remains `READY`, evaluations continue using cached flags, and polling continues. Rejected state, including subsequent 304 responses for those rejected bytes, never replaces the last working state.
 
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
 
@@ -195,7 +195,6 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
 - `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
 - `InitializationTimeout` (time.Duration): Total startup retry budget before initialization returns a recoverable timeout error (default: 30 seconds)
-- `MaxStateAge` (time.Duration): Positive time since successful state validation before reporting `STALE`; cached evaluations remain available (zero selects the 5-minute default)
 - `ResolverPoolSize` (int): Number of WASM resolver instances in the pool (default: `2`). Increase for higher concurrency (with the penalty of higher memory footprint).
 - `UseWasmInterpreter` (bool): Run the embedded WASM resolver in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode) for when to enable this and the performance trade-offs.
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:

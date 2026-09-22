@@ -31,7 +31,6 @@ const (
 	defaultStatePollIntervalSeconds = 10
 	defaultLogPollIntervalSeconds   = 15
 	defaultInitializationTimeout    = 30 * time.Second
-	defaultMaxStateAge              = 5 * time.Minute
 	initialStateRetryInterval       = time.Second
 )
 
@@ -41,7 +40,6 @@ type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
 type Option func(*providerOptions)
 
 type providerOptions struct {
-	maxStateAge           time.Duration
 	statePollInterval     time.Duration
 	logPollInterval       time.Duration
 	eventWasmBytes        []byte
@@ -54,12 +52,6 @@ type providerOptions struct {
 	// sets it.
 	disableApplyDedup         bool
 	disableExposureCollection bool
-}
-
-// WithMaxStateAge sets the time since successful validation before reporting STALE.
-// Non-positive values use the five-minute default. Cached state remains usable.
-func WithMaxStateAge(d time.Duration) Option {
-	return func(o *providerOptions) { o.maxStateAge = d }
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -159,10 +151,6 @@ type eventTracking interface {
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
-	maxStateAge           time.Duration
-	lastValidated         time.Time // guarded by mu
-	stale                 bool      // guarded by mu
-	stateValidated        chan struct{}
 	resolverSupplier      LocalResolverSupplier
 	resolver              lr.LocalResolver
 	stateProvider         StateProvider
@@ -241,14 +229,8 @@ func newLocalResolverProvider(
 	if initialRetryInterval <= 0 {
 		initialRetryInterval = initialStateRetryInterval
 	}
-	maxStateAge := options.maxStateAge
-	if maxStateAge <= 0 {
-		maxStateAge = defaultMaxStateAge
-	}
 
 	provider := &LocalResolverProvider{
-		maxStateAge:               maxStateAge,
-		stateValidated:            make(chan struct{}, 1),
 		resolverSupplier:          resolverSupplier,
 		stateProvider:             stateProvider,
 		flagLogger:                flagLogger,
@@ -984,15 +966,7 @@ func (p *LocalResolverProvider) transitionToReady(ctx context.Context, reportRec
 	if ctx.Err() != nil {
 		return false
 	}
-	becameReady := !p.ready.Swap(true)
-	p.lastValidated = time.Now()
-	select {
-	case p.stateValidated <- struct{}{}:
-	default:
-	}
-	wasStale := p.stale
-	p.stale = false
-	if (becameReady || wasStale) && reportRecovery {
+	if becameReady := !p.ready.Swap(true); becameReady && reportRecovery {
 		p.logger.Info("Provider recovered and is now ready")
 		p.emitLifecycleEvent(openfeature.ProviderReady, "Provider recovered and is now ready", "")
 	}
@@ -1068,33 +1042,6 @@ func (p *LocalResolverProvider) Shutdown() {
 
 // startScheduledTasks starts the background tasks for state fetching and log polling
 func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, appliedState []byte, appliedAccountId string) {
-	// Independent of HTTP requests: a blocked refresh must not delay STALE.
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		timer := time.NewTimer(p.maxStateAge)
-		defer timer.Stop()
-		for {
-			select {
-			case <-parentCtx.Done():
-				return
-			case <-timer.C:
-			case <-p.stateValidated:
-			}
-			p.mu.Lock()
-			remaining := p.maxStateAge
-			if p.ready.Load() && !p.stale && parentCtx.Err() == nil {
-				remaining = time.Until(p.lastValidated.Add(p.maxStateAge))
-				if remaining <= 0 {
-					p.stale = true
-					p.emitLifecycleEvent(openfeature.ProviderStale, "Resolver state exceeded maximum age", "")
-					remaining = p.maxStateAge
-				}
-			}
-			p.mu.Unlock()
-			timer.Reset(remaining)
-		}
-	}()
 	// Goroutine for state fetching
 	p.wg.Add(1)
 	go func() {
@@ -1124,7 +1071,6 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 					// Skip the WASM state update if nothing changed (e.g. the fetch
 					// was answered with 304 Not Modified). Re-ingesting identical
 					// state churns the WASM heap for no benefit (#455).
-					p.transitionToReady(parentCtx, true)
 				} else {
 					// Flush logs before state update to reduce WASM heap fragmentation (#455)
 					if p.ready.Load() {
