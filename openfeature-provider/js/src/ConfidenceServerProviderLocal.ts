@@ -49,7 +49,7 @@ const logger = getLogger('provider');
 
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
-export const DEFAULT_MAX_STATE_AGE = 5 * 60_000;
+export const DEFAULT_MAX_STATE_AGE: number = 5 * 60_000;
 export const DEFAULT_FLUSH_INTERVAL = 15_000;
 export const NOT_READY_STATE_INTERVAL = 1_000;
 /** Upper bound on flush calls during shutdown drain, so a failing publish cannot spin forever. */
