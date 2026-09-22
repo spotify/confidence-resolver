@@ -23,7 +23,8 @@
 //! delivery to its consumer once a publish succeeds, and only ever has one
 //! log in the air. The buffer has no durable hand-off at all: Cloudflare
 //! offers no shutdown hook, so an isolate evicted while holding a buffer
-//! loses it silently. Neither sink retries a failed delivery.
+//! loses it silently. Both sinks retry transient failures up to three
+//! times per destination, but a batch that exhausts its attempts is dropped.
 //!
 //! Queue bindings are created under either sink, so switching `FLAG_LOG_SINK`
 //! back to `queue` is an immediate rollback that also drains anything still
@@ -269,7 +270,11 @@ pub(super) fn deliver_all_within_limit(
         if encoded > PROTO_CHUNK_BYTES && logs.len() > 1 {
             let mut head = logs;
             let tail = head.split_off(head.len() / 2);
-            return deliver_all_within_limit(head).await && deliver_all_within_limit(tail).await;
+            // Both halves must be attempted even if the first fails: `&&` would
+            // short-circuit and silently drop the tail.
+            let a = deliver_all_within_limit(head).await;
+            let b = deliver_all_within_limit(tail).await;
+            return a && b;
         }
 
         let count = logs.len();
