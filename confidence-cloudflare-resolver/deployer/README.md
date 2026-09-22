@@ -69,13 +69,11 @@ The deployer automatically:
 | `MATERIALIZATION_TTL_SECONDS`        | TTL in seconds for sticky assignment KV entries. Omit for no expiration |
 | `FORCE_APPLY`                        | Defaults to `true`: every resolve is treated as `apply=true` and assignments are logged at resolve time. Set to `false` to respect the `apply` value sent by SDKs (deferred-apply flow via `flags:apply`) |
 | `ENABLE_APPLY_DEDUP`                 | Defaults to `true`: apply-event deduplication is enabled — repeated identical assignments within a 120s window are logged once, both at resolve time and across queue consumer batches. Set to `false` to disable |
-| `ENABLE_FLAG_LOG_BUFFER`             | Defaults to `false`. Set to `true` to reduce queue traffic by buffering statistics-only logs. Exposure logs are sent directly. See below. |
 | `FLAG_LOGS_QUEUE_COUNT`              | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
 
 ### Best-effort flag-log buffering
 
-To reduce queue traffic, set `-e ENABLE_FLAG_LOG_BUFFER=true`. When updating an
-existing deployment, also set `-e FORCE_DEPLOY=1`.
+Statistics buffering is always enabled to reduce queue traffic. No configuration is needed.
 
 - **Exposure logs go directly to the queue**, carrying buffered statistics that fit.
   They never wait for the buffer or its timer.

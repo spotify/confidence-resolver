@@ -23,7 +23,6 @@ WRANGLER_DEPLOY_MESSAGE=${WRANGLER_DEPLOY_MESSAGE:=}
 ENABLE_STICKY_ASSIGNMENTS=${ENABLE_STICKY_ASSIGNMENTS:=}
 FORCE_APPLY=${FORCE_APPLY:=}
 ENABLE_APPLY_DEDUP=${ENABLE_APPLY_DEDUP:=}
-ENABLE_FLAG_LOG_BUFFER=${ENABLE_FLAG_LOG_BUFFER:=}
 INITIAL_WORKDIR="$(pwd)"
 
 # CDN base URL for fetching resolver state
@@ -617,17 +616,8 @@ if [ -n "$ENABLE_APPLY_DEDUP" ]; then
     fi
 fi
 
-# Validate the opt-in isolate buffer (worker defaults to false).
-if [ -n "$ENABLE_FLAG_LOG_BUFFER" ]; then
-    ENABLE_FLAG_LOG_BUFFER=$(printf '%s' "$ENABLE_FLAG_LOG_BUFFER" | tr '[:upper:]' '[:lower:]')
-    if [ "$ENABLE_FLAG_LOG_BUFFER" != "true" ] && [ "$ENABLE_FLAG_LOG_BUFFER" != "false" ]; then
-        echo "❌ ENABLE_FLAG_LOG_BUFFER must be \"true\" or \"false\", got: $ENABLE_FLAG_LOG_BUFFER" >&2
-        exit 1
-    fi
-fi
-
 # Update [vars] without duplicating the table.
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$ENABLE_FLAG_LOG_BUFFER" ]; then
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
@@ -636,8 +626,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^FORCE_APPLY *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^ENABLE_APPLY_DEDUP *= *.*$/d' wrangler.toml || true
-    sed -i.tmp '/^ENABLE_FLAG_LOG_BUFFER *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v enable_flag_log_buffer="${ENABLE_FLAG_LOG_BUFFER}" '
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -648,7 +637,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
                 if (force_apply != "") print "FORCE_APPLY = \"" force_apply "\""
                 if (enable_apply_dedup != "") print "ENABLE_APPLY_DEDUP = \"" enable_apply_dedup "\""
-                if (enable_flag_log_buffer != "") print "ENABLE_FLAG_LOG_BUFFER = \"" enable_flag_log_buffer "\""
                 inserted=1
             }
         }
