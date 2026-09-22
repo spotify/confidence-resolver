@@ -37,10 +37,14 @@
 //! This is the least durable sink, deliberately. Cloudflare offers no
 //! shutdown hook, so an isolate evicted while holding a buffer loses it
 //! silently, and `wait_until` is not guaranteed to run. The exposure is
-//! bounded by [`FLUSH_BYTES`] rather than by time, and a failed delivery is
-//! dropped rather than retried — holding it only enlarges the next loss.
-//! Choose [`super::Sink::Queue`] where a durable hand-off matters more than
-//! cost and throughput.
+//! bounded by [`FLUSH_BYTES`] rather than by time.
+//!
+//! A delivery that fails transiently is retried by [`super::deliver`], but a
+//! batch that exhausts its attempts is dropped rather than held: holding it
+//! only enlarges the batch that fails next and the loss when the isolate
+//! goes away. Riding out a backend outage is not something an in-memory sink
+//! can do. Choose [`super::Sink::Queue`] where a durable hand-off matters
+//! more than cost and throughput.
 use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
 use prost::Message;
 use std::cell::RefCell;
@@ -229,13 +233,12 @@ pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsReques
             return None;
         }
         let in_flight = IN_FLIGHT.with(|n| n.get());
-        match decide(buffer.bytes, in_flight) {
-            Decision::Hold => return None,
-            Decision::Deliver | Decision::Shed => {}
+        let decision = decide(buffer.bytes, in_flight);
+        if decision == Decision::Hold {
+            return None;
         }
-        let shedding = decide(buffer.bytes, in_flight) == Decision::Shed;
         let batch = buffer.take();
-        if shedding {
+        if decision == Decision::Shed {
             // Starting another delivery here is how the isolate runs out of
             // memory instead of just losing a batch.
             console_log!(
@@ -270,9 +273,11 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
         delivered
     );
     if !delivered {
-        // Dropped rather than restored: a failed batch put back would be
-        // re-sent alongside the next one, enlarging the batch that fails and
-        // the loss when the isolate goes away.
+        // Already retried by `deliver_all_within_limit`; this is the batch
+        // having exhausted its attempts. Dropped rather than restored: a
+        // failed batch put back would be re-sent alongside the next one,
+        // enlarging the batch that fails and the loss when the isolate goes
+        // away.
         console_log!("flag log buffer: DROPPED {} records", records);
     }
 }
