@@ -80,8 +80,6 @@ pub struct ProviderOptions {
     pub initialize_timeout: Option<Duration>,
     /// Interval for polling state updates.
     pub state_poll_interval: Option<Duration>,
-    /// Maximum age since successful state validation before reporting STALE (default: 5 minutes).
-    pub max_state_age: Option<Duration>,
     /// Interval for flushing logs.
     pub flush_interval: Option<Duration>,
     /// Interval for flushing assign logs.
@@ -108,7 +106,6 @@ impl ProviderOptions {
             client_secret: client_secret.into(),
             initialize_timeout: None,
             state_poll_interval: None,
-            max_state_age: None,
             flush_interval: None,
             assign_flush_interval: None,
             materialization_store: None,
@@ -127,13 +124,6 @@ impl ProviderOptions {
     /// Set the state poll interval.
     pub fn with_state_poll_interval(mut self, interval_ms: Duration) -> Self {
         self.state_poll_interval = Some(interval_ms);
-        self
-    }
-
-    /// Set how long validated state remains fresh. Must be greater than zero.
-    /// Stale state can still be evaluated.
-    pub fn with_max_state_age(mut self, age: Duration) -> Self {
-        self.max_state_age = Some(age);
         self
     }
 
@@ -182,7 +172,6 @@ pub struct ConfidenceProvider {
     background_tasks: Vec<JoinHandle<()>>,
     initialize_timeout: Duration,
     state_poll_interval: Duration,
-    max_state_age: Duration,
     flush_interval: Duration,
     assign_flush_interval: Duration,
     disable_exposure_collection: bool,
@@ -191,11 +180,6 @@ pub struct ConfidenceProvider {
 impl ConfidenceProvider {
     /// Create a new Confidence provider.
     pub fn new(options: ProviderOptions) -> Result<Self> {
-        if options.max_state_age.is_some_and(|age| age.is_zero()) {
-            return Err(Error::Configuration(
-                "max_state_age must be greater than zero".into(),
-            ));
-        }
         crate::state::decode_encryption_key(&options.encryption_key)?;
         let mut client_builder = ClientBuilder::new(Client::new());
 
@@ -253,7 +237,6 @@ impl ConfidenceProvider {
             state_poll_interval: options
                 .state_poll_interval
                 .unwrap_or(DEFAULT_STATE_POLL_INTERVAL),
-            max_state_age: options.max_state_age.unwrap_or(Duration::from_secs(300)),
             flush_interval: options.flush_interval.unwrap_or(DEFAULT_FLUSH_INTERVAL),
             assign_flush_interval: options
                 .assign_flush_interval
@@ -601,8 +584,6 @@ async fn refresh_state(
         return Err(Error::StateFetch("No state returned from CDN".to_string()));
     }
 
-    state.validated();
-
     Ok(())
 }
 
@@ -622,7 +603,7 @@ impl FeatureProvider for ConfidenceProvider {
     }
 
     fn status(&self) -> ProviderStatus {
-        self.state.status(self.max_state_age)
+        self.state.status()
     }
 
     fn metadata(&self) -> &ProviderMetadata {
@@ -1662,16 +1643,6 @@ mod tests {
     }
 
     #[test]
-    fn max_state_age_must_be_positive() {
-        let options =
-            ProviderOptions::new("test-secret", "00".repeat(32)).with_max_state_age(Duration::ZERO);
-        assert!(matches!(
-            ConfidenceProvider::new(options),
-            Err(Error::Configuration(_))
-        ));
-    }
-
-    #[test]
     fn test_provider_options_with_state_poll_interval() {
         let options = ProviderOptions::new("test-secret", "00".repeat(32))
             .with_state_poll_interval(Duration::from_secs(60));
@@ -1807,10 +1778,7 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(1), api.set_provider(provider))
                 .await
                 .expect("terminal error must settle registration promptly");
-            assert_eq!(
-                state.status(Duration::from_secs(300)),
-                ProviderStatus::Error
-            );
+            assert_eq!(state.status(), ProviderStatus::Error);
             let result = api.create_client().get_bool_value("flag", None, None).await;
             assert!(result.as_ref().unwrap_err().message.is_some());
             assert!(!result.unwrap_or(false));
@@ -1848,10 +1816,7 @@ mod tests {
         })
         .await
         .expect("provider did not recover");
-        assert_eq!(
-            state.status(Duration::from_secs(300)),
-            ProviderStatus::Ready
-        );
+        assert_eq!(state.status(), ProviderStatus::Ready);
         assert_ne!(
             client
                 .get_bool_value("missing", None, None)
@@ -1864,11 +1829,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sdk_evaluates_stale_state_and_304_restores_freshness() {
+    async fn sdk_evaluates_cached_state_through_refresh_failures_and_304() {
         let server = MockServer::start().await;
         serve_state(&server, ResponseTemplate::new(304)).await;
         let mut provider = provider_with_gateway(&server, Duration::from_secs(5));
-        provider.max_state_age = Duration::from_millis(100);
         provider.state_poll_interval = Duration::from_secs(60);
         provider.disable_exposure_collection = true;
         let state = Arc::clone(&provider.state);
@@ -1879,27 +1843,8 @@ mod tests {
             .await;
         let mut api = open_feature::OpenFeature::default();
         api.set_provider(provider).await;
-        assert_eq!(
-            state.status(Duration::from_millis(100)),
-            ProviderStatus::Ready
-        );
-
-        // A hung request must not delay observing staleness.
-        serve_state(
-            &server,
-            ResponseTemplate::new(200).set_delay(Duration::from_secs(5)),
-        )
-        .await;
-        let refresh = refresh_state(&fetcher, &state, Duration::from_secs(5));
-        tokio::pin!(refresh);
-        tokio::select! {
-            _ = &mut refresh => panic!("request should still be pending"),
-            _ = tokio::time::sleep(Duration::from_millis(150)) => {}
-        }
-        assert_eq!(
-            state.status(Duration::from_millis(100)),
-            ProviderStatus::STALE
-        );
+        assert_eq!(state.status(), ProviderStatus::Ready);
+        let cached = state.get().unwrap();
         let context = EvaluationContext::default().with_targeting_key("test-user");
         let client = api.create_client();
         assert!(client
@@ -1916,10 +1861,8 @@ mod tests {
             assert!(refresh_state(&fetcher, &state, Duration::from_secs(1))
                 .await
                 .is_err());
-            assert_eq!(
-                state.status(Duration::from_millis(100)),
-                ProviderStatus::STALE
-            );
+            assert_eq!(state.status(), ProviderStatus::Ready);
+            assert!(Arc::ptr_eq(&cached, &state.get().unwrap()));
             assert!(client
                 .get_bool_value("test-flag.enabled", Some(&context), None)
                 .await
@@ -1929,10 +1872,12 @@ mod tests {
         refresh_state(&fetcher, &state, Duration::from_secs(1))
             .await
             .unwrap();
-        assert_eq!(
-            state.status(Duration::from_millis(100)),
-            ProviderStatus::Ready
-        );
+        assert_eq!(state.status(), ProviderStatus::Ready);
+        assert!(Arc::ptr_eq(&cached, &state.get().unwrap()));
+        assert!(client
+            .get_bool_value("test-flag.enabled", Some(&context), None)
+            .await
+            .unwrap());
         api.shutdown().await;
     }
 

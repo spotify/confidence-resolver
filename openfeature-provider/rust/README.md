@@ -115,7 +115,7 @@ let context = EvaluationContext::default()
 
 ## Error Handling
 
-### Initialization and freshness (OpenFeature Rust 0.3)
+### Initialization and recovery (OpenFeature Rust 0.3)
 
 `set_provider(...).await` and `set_named_provider(...).await` wait for one bounded
 initial state fetch, but return `()` even when it fails. Registration completing
@@ -135,11 +135,9 @@ any requests. Correct the credentials/configuration and register a new provider
 after a terminal failure.
 
 Once good state exists, **every** refresh failure preserves it and polling continues,
-including authentication or malformed-state failures. `status()` reports `STALE`
-after `max_state_age` since the last successful validation (a successful state load
-or HTTP 304). Cached flags remain evaluable while stale. Only successful validation
-restores `READY`. Status derives age directly from a monotonic clock, so a slow
-request cannot delay stale reporting; no lifecycle event timer is needed in SDK 0.3.
+including authentication or malformed-state failures. The provider remains `READY`
+and continues evaluating cached flags until a successful refresh replaces the state.
+HTTP 304 retains the existing state.
 The SDK does not expose provider status through its client or API; `status()` is
 the provider trait accessor.
 
@@ -203,7 +201,6 @@ let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
 
 - `initialize_timeout`: Timeout for each initial and background state fetch (default: 30 seconds)
 - `state_poll_interval`: Interval between state updates after initialization (default: 30 seconds). Retryable startup failures are retried 1 second after each attempt until the provider is ready or encounters a terminal error.
-- `max_state_age`: Positive duration since last successful state validation before reporting `STALE` (default: 5 minutes). Set with `with_max_state_age(Duration::from_secs(300))`. Cached evaluation continues regardless of age.
 - `flush_interval`: Interval for flushing logs (default: 15 seconds)
 - `assign_flush_interval`: Interval for flushing assign logs (default: 100 milliseconds)
 - `materialization_store`: Storage for sticky variant assignments and materialized segments

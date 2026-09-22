@@ -1,7 +1,6 @@
 //! State management for fetching and updating resolver state from CDN.
 
 use std::sync::{Arc, RwLock as SyncRwLock};
-use std::time::{Duration, Instant};
 
 use open_feature::provider::ProviderStatus;
 
@@ -178,7 +177,6 @@ pub struct SharedState {
     state: ArcSwapOption<ResolverState>,
     pub account_id: Arc<RwLock<Option<String>>>,
     pub log_destinations: Arc<RwLock<Vec<LogDestination>>>,
-    last_validated: SyncRwLock<Option<Instant>>,
     pub(crate) terminal_error: SyncRwLock<Option<String>>,
 }
 
@@ -189,7 +187,6 @@ impl SharedState {
             state: ArcSwapOption::empty(),
             account_id: Arc::new(RwLock::new(None)),
             log_destinations: Arc::new(RwLock::new(vec![LogDestination::Edge])),
-            last_validated: SyncRwLock::new(None),
             terminal_error: SyncRwLock::new(None),
         }
     }
@@ -228,24 +225,9 @@ impl SharedState {
         self.state.load().is_some()
     }
 
-    pub(crate) fn validated(&self) {
-        *self.last_validated.write().unwrap() = Some(Instant::now());
-    }
-
-    pub(crate) fn status(&self, max_state_age: Duration) -> ProviderStatus {
-        // Derive age on every observation, independently of in-flight requests.
-        // Rust SDK 0.3 has no lifecycle events requiring a separate timer.
+    pub(crate) fn status(&self) -> ProviderStatus {
         if self.is_initialized() {
-            if self
-                .last_validated
-                .read()
-                .unwrap()
-                .is_some_and(|at| at.elapsed() >= max_state_age)
-            {
-                ProviderStatus::STALE
-            } else {
-                ProviderStatus::Ready
-            }
+            ProviderStatus::Ready
         } else if self.terminal_error.read().unwrap().is_some() {
             ProviderStatus::Error
         } else {
