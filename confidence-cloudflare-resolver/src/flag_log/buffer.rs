@@ -109,11 +109,6 @@ const _: () = assert!(MAX_IN_FLIGHT < HARD_IN_FLIGHT);
 /// How often the pending waiter re-checks the triggers.
 const POLL_MS: u64 = 250;
 
-/// Treat a waiter that has not checked in for this long as gone, and let
-/// another request replace it. Several poll intervals, so a merely slow
-/// isolate is not mistaken for a cancelled one.
-const WAITER_STALE_MS: f64 = 5.0 * POLL_MS as f64;
-
 thread_local! {
     static BUFFER: RefCell<Buffer> = const { RefCell::new(Buffer::new()) };
     /// Deliveries currently awaiting a response on this isolate.
@@ -121,29 +116,33 @@ thread_local! {
 }
 
 struct Buffer {
-    /// Logs are held unaggregated and merged once at flush time, each
-    /// paired with its encoded length.
+    /// Logs are held unaggregated and merged once at flush time.
     ///
     /// Aggregating on every offer would re-clone the whole accumulator per
-    /// request, which is quadratic in the number of logs buffered. The
-    /// length is cached because `encoded_len` walks the whole message, so
-    /// recomputing it while chunking would re-walk the entire buffer on
-    /// every flush.
-    logs: Vec<(WriteFlagLogsRequest, usize)>,
+    /// request, which is quadratic in the number of logs buffered.
+    logs: Vec<Entry>,
     bytes: usize,
-    /// When the oldest log landed, for the age trigger.
-    first_ms: f64,
-    /// When the newest log landed, for the idle trigger.
-    last_ms: f64,
-    /// When the current waiter last proved it was alive, or `None` if there
-    /// is none.
+    /// Whether a waiter is currently polling the timers on this isolate.
     ///
-    /// `wait_until` can be cancelled mid-sleep, which would otherwise strand
-    /// the flag as set and leave the timers permanently dead on this isolate
-    /// — records would then only ever leave on the size trigger, so a buffer
-    /// that went quiet would never drain. Storing a heartbeat instead lets
-    /// the next request take over a waiter that stopped running.
-    waiting_since_ms: Option<f64>,
+    /// Released by [`Waiter`]'s `Drop`, so a `wait_until` cancelled mid-poll
+    /// frees it automatically. A heartbeat was the obvious alternative and
+    /// is wrong: a delivery with retries runs for seconds, which is longer
+    /// than any sane staleness window, so a second waiter would be elected
+    /// while the first was simply busy.
+    waiter_active: bool,
+}
+
+/// One buffered log, with everything the triggers need about it.
+struct Entry {
+    log: WriteFlagLogsRequest,
+    /// Cached because `encoded_len` walks the whole message, so recomputing
+    /// it while chunking would re-walk the buffer on every flush.
+    len: usize,
+    /// Cached so the age window survives a partial drain: `take_chunk`
+    /// leaves the tail behind, and a window stored on the buffer would go on
+    /// measuring from a record that has already left, firing the age trigger
+    /// immediately on records that are in fact fresh.
+    at_ms: f64,
 }
 
 impl Buffer {
@@ -151,20 +150,28 @@ impl Buffer {
         Buffer {
             logs: Vec::new(),
             bytes: 0,
-            first_ms: 0.0,
-            last_ms: 0.0,
-            waiting_since_ms: None,
+            waiter_active: false,
         }
     }
 
     fn push(&mut self, log: WriteFlagLogsRequest, now_ms: f64) {
-        if self.logs.is_empty() {
-            self.first_ms = now_ms;
-        }
-        self.last_ms = now_ms;
         let len = log.encoded_len();
         self.bytes = self.bytes.saturating_add(len);
-        self.logs.push((log, len));
+        self.logs.push(Entry {
+            log,
+            len,
+            at_ms: now_ms,
+        });
+    }
+
+    /// When the oldest still-buffered log landed.
+    fn first_ms(&self) -> Option<f64> {
+        self.logs.first().map(|e| e.at_ms)
+    }
+
+    /// When the newest log landed.
+    fn last_ms(&self) -> Option<f64> {
+        self.logs.last().map(|e| e.at_ms)
     }
 
     /// Whether the accumulated size alone calls for a flush.
@@ -175,29 +182,22 @@ impl Buffer {
     /// Whether either timer has expired. Size is checked separately because
     /// it is the only trigger evaluated in the request path.
     fn time_due(&self, now_ms: f64) -> bool {
-        if self.logs.is_empty() {
+        let (Some(first), Some(last)) = (self.first_ms(), self.last_ms()) else {
             return false;
-        }
-        now_ms - self.last_ms >= IDLE_MS || now_ms - self.first_ms >= MAX_AGE_MS
+        };
+        now_ms - last >= IDLE_MS || now_ms - first >= MAX_AGE_MS
     }
 
-    /// Whether a new waiter may start: either there is none, or the last one
-    /// missed enough heartbeats that it is presumed cancelled.
-    fn waiter_is_vacant(&self, now_ms: f64) -> bool {
-        match self.waiting_since_ms {
-            None => true,
-            Some(since) => now_ms - since >= WAITER_STALE_MS,
-        }
+    fn waiter_is_vacant(&self) -> bool {
+        !self.waiter_active
     }
 
     #[cfg(test)]
     fn take(&mut self) -> Vec<WriteFlagLogsRequest> {
         self.bytes = 0;
-        self.first_ms = 0.0;
-        self.last_ms = 0.0;
         std::mem::take(&mut self.logs)
             .into_iter()
-            .map(|(log, _)| log)
+            .map(|e| e.log)
             .collect()
     }
 
@@ -213,20 +213,39 @@ impl Buffer {
         // records.
         let mut bytes = 0usize;
         let mut count = 0usize;
-        for (_, len) in &self.logs {
-            if count > 0 && bytes.saturating_add(*len) > FLUSH_BYTES {
+        for entry in &self.logs {
+            if count > 0 && bytes.saturating_add(entry.len) > FLUSH_BYTES {
                 break;
             }
-            bytes = bytes.saturating_add(*len);
+            bytes = bytes.saturating_add(entry.len);
             count += 1;
         }
-        let taken: Vec<_> = self.logs.drain(..count).map(|(log, _)| log).collect();
+        let taken: Vec<_> = self.logs.drain(..count).map(|e| e.log).collect();
         self.bytes = self.bytes.saturating_sub(bytes);
-        if self.logs.is_empty() {
-            self.first_ms = 0.0;
-            self.last_ms = 0.0;
-        }
         taken
+    }
+}
+
+/// Holds the isolate's waiter role for as long as it is alive.
+struct Waiter;
+
+impl Waiter {
+    /// `Some` if the role was free and is now claimed.
+    fn claim() -> Option<Self> {
+        BUFFER.with(|cell| {
+            let mut buffer = cell.borrow_mut();
+            if buffer.logs.is_empty() || !buffer.waiter_is_vacant() {
+                return None;
+            }
+            buffer.waiter_active = true;
+            Some(Waiter)
+        })
+    }
+}
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        BUFFER.with(|cell| cell.borrow_mut().waiter_active = false);
     }
 }
 
@@ -336,18 +355,9 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
 /// unless it becomes the isolate's single waiter. The size trigger is handled
 /// in [`offer`]; this covers the tail, where traffic stops or trickles.
 pub(super) async fn tick() {
-    let claimed = BUFFER.with(|cell| {
-        let mut buffer = cell.borrow_mut();
-        let now_ms = js_sys::Date::now();
-        if buffer.logs.is_empty() || !buffer.waiter_is_vacant(now_ms) {
-            return false;
-        }
-        buffer.waiting_since_ms = Some(now_ms);
-        true
-    });
-    if !claimed {
+    let Some(_waiter) = Waiter::claim() else {
         return;
-    }
+    };
 
     loop {
         worker::Delay::from(std::time::Duration::from_millis(POLL_MS)).await;
@@ -356,18 +366,14 @@ pub(super) async fn tick() {
             let mut buffer = cell.borrow_mut();
             if buffer.logs.is_empty() {
                 // Emptied by a size flush while we slept.
-                buffer.waiting_since_ms = None;
                 return Step::Done;
             }
             if !buffer.time_due(now_ms) {
-                // Still waiting, and still alive.
-                buffer.waiting_since_ms = Some(now_ms);
                 return Step::Wait;
             }
             // Due. Respect the same in-flight backpressure the size trigger
             // does, or the timers become a way around it.
             let in_flight = IN_FLIGHT.with(|n| n.get());
-            buffer.waiting_since_ms = Some(now_ms);
             match decide(buffer.bytes, in_flight) {
                 Decision::Hold => Step::Wait,
                 // Shedding is the size trigger's job; here the buffer is
@@ -500,7 +506,8 @@ mod tests {
         let _ = buffer.take();
         buffer.push(log_with_assigns(1), 6_000.0);
         assert_eq!(
-            buffer.first_ms, 6_000.0,
+            buffer.first_ms(),
+            Some(6_000.0),
             "age must be measured from the new oldest log"
         );
     }
@@ -595,21 +602,54 @@ mod tests {
         );
     }
 
-    /// A waiter whose `wait_until` was cancelled must not lock the timers
-    /// out of this isolate for good.
+    /// The waiter role must be released even when the poll loop is dropped
+    /// mid-flight, or the timers go dead on this isolate for good.
     #[test]
-    fn a_stale_waiter_can_be_replaced() {
-        let mut buffer = Buffer::new();
-        buffer.push(log_with_assigns(1), 0.0);
-        assert!(buffer.waiter_is_vacant(0.0), "no waiter yet");
-        buffer.waiting_since_ms = Some(0.0);
+    fn the_waiter_role_is_released_on_drop() {
+        BUFFER.with(|cell| {
+            let mut b = cell.borrow_mut();
+            *b = Buffer::new();
+            b.push(log_with_assigns(1), 0.0);
+        });
+        {
+            let first = Waiter::claim();
+            assert!(first.is_some(), "role starts free");
+            assert!(Waiter::claim().is_none(), "only one waiter at a time");
+        }
         assert!(
-            !buffer.waiter_is_vacant(WAITER_STALE_MS - 1.0),
-            "live waiter holds"
+            Waiter::claim().is_some(),
+            "role must be free again once the waiter is dropped"
+        );
+        BUFFER.with(|cell| *cell.borrow_mut() = Buffer::new());
+    }
+
+    /// The age window must follow the records, not the buffer: after a
+    /// partial drain it measures from the oldest log still held.
+    #[test]
+    fn a_partial_drain_moves_the_age_window() {
+        let mut buffer = Buffer::new();
+        // One record over the budget, so the chunk takes exactly it...
+        buffer.push(log_with_assigns(20_000), 0.0);
+        // ...leaving this much later one behind.
+        buffer.push(log_with_assigns(1), 50_000.0);
+
+        assert_eq!(buffer.take_chunk().len(), 1, "chunk takes only the first");
+        assert_eq!(buffer.logs.len(), 1, "the fresh record stays");
+        assert_eq!(
+            buffer.first_ms(),
+            Some(50_000.0),
+            "age must measure from the surviving record, not a departed one"
+        );
+        // Just before the idle timer, so only the age trigger is in play.
+        // With the window stored on the buffer this read as 50s old and
+        // fired immediately; measured from the surviving record it is 999ms.
+        assert!(
+            !buffer.time_due(50_000.0 + IDLE_MS - 1.0),
+            "a fresh record must not inherit a departed record's age"
         );
         assert!(
-            buffer.waiter_is_vacant(WAITER_STALE_MS),
-            "cancelled waiter is replaceable"
+            buffer.time_due(50_000.0 + MAX_AGE_MS),
+            "and must still age out on its own schedule"
         );
     }
 
