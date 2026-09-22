@@ -23,9 +23,6 @@ ignored = ["getrandom"]
 [dependencies]
 bytes = "1.10.1"
 confidence_resolver = { path = "../confidence-resolver", version = "0.25.0" }
-# Pure-Rust inflate/deflate (miniz_oxide) so the worker can compress flag logs
-# and the aggregator can read gzipped R2 objects, with no JS interop.
-flate2 = "1"
 getrandom = { version = "0.3.3", features = ["wasm_js"] }
 worker = { version= "0.6.1", features=['queue'] }
 base64 = "0.22.1"

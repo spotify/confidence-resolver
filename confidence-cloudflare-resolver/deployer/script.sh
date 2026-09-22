@@ -402,8 +402,9 @@ fi
 # after some resources already exist.
 #
 # Probing the account explicitly matters: a token valid for one account
-# returns an indistinguishable authentication error for another, so "R2 is
-# enabled" and "this token can see R2" are different questions and only the
+# returns an indistinguishable authentication error for another, so "the
+# account has this feature" and "this token can see it" are different
+# questions and only the
 # second one is answered here.
 preflight_api_permissions() {
     local missing=0

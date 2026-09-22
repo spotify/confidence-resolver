@@ -193,92 +193,6 @@ test('logpush is gone from the deployer entirely', () => {
   assert.doesNotMatch(script, /FLAG_LOGS_INGEST_TOKEN/, 'no ingest token leftovers');
 });
 
-// The Logpush job must be scoped to this worker and exclude cron invocations:
-// without the ScriptName filter it captures every Worker in the account, and
-// without the EventType filter the aggregator's own console output feeds back
-// into the bucket it is draining.
-test('logpush job filter is a JSON string scoped to the worker and fetch events', () => {
-  const result = spawnSync('bash', ['-c', `
-jq -n --arg script "my-worker" '{
-    filter: ({where: {and: [
-        {key: "ScriptName", operator: "eq", value: $script},
-        {key: "EventType", operator: "eq", value: "fetch"}
-    ]}} | tostring)
-}'
-`], { encoding: 'utf8', timeout: 5000 });
-  assert.equal(result.status, 0);
-  const body = JSON.parse(result.stdout);
-  assert.equal(typeof body.filter, 'string', 'filter must be a JSON-encoded string');
-  assert.deepEqual(JSON.parse(body.filter), {
-    where: {
-      and: [
-        { key: 'ScriptName', operator: 'eq', value: 'my-worker' },
-        { key: 'EventType', operator: 'eq', value: 'fetch' },
-      ],
-    },
-  });
-});
-
-// logpush = true is a top-level key, so appending it would land it inside
-// whichever table happens to be last. It has to be prepended.
-test('logpush = true is prepended above every table', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'flag-log-logpush-test-'));
-  try {
-    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
-    const result = spawnSync('bash', ['-c', `
-set -euo pipefail
-sed -i.tmp '/^logpush *= *.*$/d' wrangler.toml || true
-LOGPUSH_TMPFILE=./wrangler.toml.logpush
-printf 'logpush = true\\n' > "$LOGPUSH_TMPFILE"
-cat wrangler.toml >> "$LOGPUSH_TMPFILE"
-mv "$LOGPUSH_TMPFILE" wrangler.toml
-cat >> wrangler.toml <<EOF
-
-[[r2_buckets]]
-binding = "FLAG_LOGS_R2"
-bucket_name = "flag-logs"
-
-[triggers]
-crons = ["* * * * *"]
-EOF
-`], { cwd: directory, encoding: 'utf8', timeout: 5000, env: { ...process.env, TMPDIR: directory } });
-    assert.equal(result.status, 0, result.stderr);
-    const config = readFileSync(join(directory, 'wrangler.toml'), 'utf8');
-    const logpushLine = config.split('\n').findIndex(l => l.trim() === 'logpush = true');
-    const firstTable = config.split('\n').findIndex(l => l.trim().startsWith('['));
-    assert.ok(logpushLine >= 0, 'logpush = true must be present');
-    assert.ok(logpushLine < firstTable, 'logpush = true must precede the first table');
-    assert.match(config, /binding = "FLAG_LOGS_R2"/);
-    assert.match(config, /crons = \["\* \* \* \* \*"\]/);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-// Running the deployer twice must not accumulate duplicate keys.
-test('re-running logpush setup does not duplicate logpush = true', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'flag-log-logpush-idem-'));
-  try {
-    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
-    const script = `
-set -euo pipefail
-sed -i.tmp '/^logpush *= *.*$/d' wrangler.toml || true
-LOGPUSH_TMPFILE=./wrangler.toml.logpush
-printf 'logpush = true\\n' > "$LOGPUSH_TMPFILE"
-cat wrangler.toml >> "$LOGPUSH_TMPFILE"
-mv "$LOGPUSH_TMPFILE" wrangler.toml
-`;
-    const opts = { cwd: directory, encoding: 'utf8', timeout: 5000, env: { ...process.env, TMPDIR: directory } };
-    assert.equal(spawnSync('bash', ['-c', script], opts).status, 0);
-    assert.equal(spawnSync('bash', ['-c', script], opts).status, 0);
-    const config = readFileSync(join(directory, 'wrangler.toml'), 'utf8');
-    const occurrences = config.split('\n').filter(l => l.trim() === 'logpush = true').length;
-    assert.equal(occurrences, 1);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 // --- API token preflight tests ---
 
 // Replicates the preflight probe loop with a stubbed `curl`, so the tests
@@ -316,9 +230,6 @@ check_perm() {
 }
 check_perm "Workers Scripts" "Account > Workers Scripts > Edit" "$base/workers/scripts"
 check_perm "Workers Queues"  "Account > Workers Queues > Edit"  "$base/queues"
-if [ "$FLAG_LOG_SINK" = "logpush" ]; then
-    check_perm "Logpush"    "Account > Logs > Edit"               "$base/logpush/jobs"
-fi
 if [ -n "$ENABLE_METRICS" ]; then
     check_perm "Workers KV" "Account > Workers KV Storage > Edit" "$base/storage/kv/namespaces"
 fi
@@ -332,55 +243,34 @@ exit 0
 }
 
 test('preflight passes when every probe returns 200', () => {
-  const r = runPreflight('logpush', {});
+  const r = runPreflight('queue', {});
   assert.equal(r.status, 0, r.stderr);
-  assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 3);
+  assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 2);
 });
 
-test('queue mode does not probe R2 or Logpush', () => {
-  const r = runPreflight('queue', {});
+// Neither sink needs anything beyond scripts and queues: the buffer
+// provisions no transport at all, and queue bindings exist under both.
+test('buffer mode probes nothing extra', () => {
+  const r = runPreflight('buffer', {});
   assert.equal(r.status, 0);
   assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 2);
-  assert.doesNotMatch(r.stdout, /Logpush/);
 });
 
-test('logpush mode probes Logpush', () => {
-  assert.match(runPreflight('logpush', {}).stdout, /PROBE_OK Logpush/);
-});
-
-test('a 403 on Logpush fails the deploy and names the scope', () => {
-  const r = runPreflight('logpush', { 'logpush/jobs': 403 });
+test('a 403 fails the deploy and names the scope', () => {
+  const r = runPreflight('queue', { 'workers/scripts': 403 });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /PROBE_FAIL Logpush needs: Account > Logs > Edit/);
+  assert.match(r.stderr, /PROBE_FAIL Workers Scripts needs: Account > Workers Scripts > Edit/);
 });
 
 // A token valid for one account returns an indistinguishable auth error for
 // another, so a wrong-account token must fail here rather than part-way in.
 test('a token with no access to the account fails every probe', () => {
-  const r = runPreflight('logpush', {
-    'workers/scripts': 403, queues: 403, 'logpush/jobs': 403,
-  });
+  const r = runPreflight('queue', { 'workers/scripts': 403, queues: 403 });
   assert.equal(r.status, 1);
-  assert.equal((r.stderr.match(/PROBE_FAIL/g) || []).length, 3);
+  assert.equal((r.stderr.match(/PROBE_FAIL/g) || []).length, 2);
 });
 
 test('KV is only probed when metrics or sticky assignments are enabled', () => {
   assert.doesNotMatch(runPreflight('queue', {}).stdout, /Workers KV/);
   assert.match(runPreflight('queue', {}, { metrics: '1' }).stdout, /PROBE_OK Workers KV/);
 });
-
-// --- Rollback safety tests ---
-
-// The aggregator trigger must exist under BOTH sinks. Under queue it is a
-// no-op unless a bucket is bound, but without it a rollback from logpush
-// leaves no drainer and Logpush keeps filling R2.
-
-// --- Rollback ordering ---
-
-// --- Object-notification wiring ---
-
-// --- HTTP ingest destination ---
-
-
-
-
