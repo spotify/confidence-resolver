@@ -371,14 +371,23 @@ if [ "$FLAG_LOG_SINK" != "queue" ] && [ "$FLAG_LOG_SINK" != "logpush" ]; then
     exit 1
 fi
 
-# How many object-draining consumers run at once. This is the throughput
-# dial: measured, one consumer delivers roughly 235 records/sec, so the
-# default carries ~2,300 resolves/sec and 10K needs about 43.
-FLAG_LOGS_CONSUMER_CONCURRENCY=${FLAG_LOGS_CONSUMER_CONCURRENCY:-10}
-if [[ ! "$FLAG_LOGS_CONSUMER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] \
-    || [ "$FLAG_LOGS_CONSUMER_CONCURRENCY" -gt 250 ]; then
-    echo "❌ FLAG_LOGS_CONSUMER_CONCURRENCY must be between 1 and 250" >&2
-    exit 1
+# Optional ceiling on concurrent object-draining consumers.
+#
+# Left unset by default, which is what makes the drain scale automatically:
+# Cloudflare autoscales consumer invocations against queue backlog, and
+# setting max_concurrency *caps* that rather than requesting it. Measured,
+# one consumer delivers roughly 200 records/sec, so the platform reaching its
+# 250 ceiling carries about 50K resolves/sec.
+#
+# Set this only to throttle — for instance to protect a backend that cannot
+# absorb the full rate.
+FLAG_LOGS_CONSUMER_CONCURRENCY=${FLAG_LOGS_CONSUMER_CONCURRENCY:-}
+if [ -n "$FLAG_LOGS_CONSUMER_CONCURRENCY" ]; then
+    if [[ ! "$FLAG_LOGS_CONSUMER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] \
+        || [ "$FLAG_LOGS_CONSUMER_CONCURRENCY" -gt 250 ]; then
+        echo "❌ FLAG_LOGS_CONSUMER_CONCURRENCY must be between 1 and 250" >&2
+        exit 1
+    fi
 fi
 
 # Fails fast if CLOUDFLARE_API_TOKEN cannot do what this deploy needs.
@@ -415,7 +424,6 @@ preflight_api_permissions() {
     check_perm "Workers Queues"  "Account > Workers Queues > Edit"  "${base}/queues"
 
     if [ "$FLAG_LOG_SINK" = "logpush" ]; then
-        check_perm "R2 Storage" "Account > Workers R2 Storage > Edit" "${base}/r2/buckets"
         check_perm "Logpush"    "Account > Logs > Edit"               "${base}/logpush/jobs"
     fi
 
@@ -431,7 +439,7 @@ preflight_api_permissions() {
             echo "   Create or edit a token at https://dash.cloudflare.com/profile/api-tokens"
             echo "   and make sure it is scoped to account ${CLOUDFLARE_ACCOUNT_ID}."
             if [ "$FLAG_LOG_SINK" = "logpush" ]; then
-                echo "   FLAG_LOG_SINK=logpush additionally requires R2 and Logpush access,"
+                echo "   FLAG_LOG_SINK=logpush additionally requires Logpush access,"
                 echo "   and Logpush requires the Workers Paid plan."
             fi
         } >&2
@@ -550,153 +558,19 @@ fi
 ensure_queue "$EVENTS_QUEUE_NAME" || exit 1
 
 
-ensure_r2_bucket() {
-    local B_NAME="$1"
-    echo "🔍 Checking if R2 bucket '$B_NAME' exists..."
-    local B_CHECK B_STATUS
-    B_CHECK=$(curl -sS -w "%{http_code}" \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${B_NAME}")
-    B_STATUS="${B_CHECK: -3}"
 
-    if [ "$B_STATUS" = "200" ]; then
-        echo "✅ R2 bucket '$B_NAME' already exists"
-        return 0
-    fi
 
-    echo "📦 R2 bucket '$B_NAME' not found, creating..."
-    local B_CREATE B_CREATE_STATUS
-    B_CREATE=$(curl -sS -w "%{http_code}" -X POST \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "{\"name\": \"${B_NAME}\"}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets")
-    B_CREATE_STATUS="${B_CREATE: -3}"
-    if [ "$B_CREATE_STATUS" = "200" ] || [ "$B_CREATE_STATUS" = "201" ]; then
-        echo "✅ R2 bucket '$B_NAME' created successfully"
-        return 0
-    fi
-    echo "❌ Failed to create R2 bucket '$B_NAME' (HTTP $B_CREATE_STATUS)"
-    echo "${B_CREATE%???}"
-    return 1
-}
 
-# Creates or updates the workers_trace_events job that feeds the bucket.
-#
-# The ScriptName filter is what keeps the job scoped to this worker — without
-# it the job captures every Worker in the account. The EventType filter drops
-# the aggregator's own cron invocations, so its console output can never feed
-# back into the bucket it is draining.
-#
-# field_names is restricted to the two fields the aggregator reads. Event
-# carries full request metadata and is most of the volume; Exceptions would
-# add panic text the aggregator ignores anyway.
-#
-# max_upload_records is the work-unit size, and it is sized against a
-# measured limit: the backend accepts a body up to 4 MiB and returns 413 above
-# it, which no retry can recover from. 700 records leaves roughly half that as
-# headroom for variation in flag count and context size.
-#
-# max_upload_bytes is set high enough that the record count is what binds,
-# while still capping a pathological object well inside the consumer's 8 MB
-# decompression guard.
-#
-# Larger objects amortise delivery better — measured latency is about
-# 1,370 ms plus 2.3 ms per assignment — so this is the knob to raise if the
-# backend limit ever does.
-# Turns off a Logpush job left over from a previous logpush-mode deploy.
-#
-# Without this, switching back to queue leaves the job enabled and still
-# writing into R2 for as long as it exists, while the sink no longer produces
-# console lines — so the bucket accumulates undelivered logs and grows without
-# bound. Best effort: queue mode does not require Logpush permissions, so a
-# 403 here is reported rather than fatal.
-disable_logpush_job() {
-    local JOB_NAME="$1"
-    local LIST STATUS JOB_ID="" CODE
-    LIST=$(curl -sS -w "%{http_code}" \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/logpush/jobs")
-    STATUS="${LIST: -3}"
-    if [ "$STATUS" != "200" ]; then
-        echo "⚠️ Could not check for a leftover Logpush job (HTTP $STATUS)."
-        echo "   If this deployment previously used FLAG_LOG_SINK=logpush, disable the job"
-        echo "   '$JOB_NAME' manually or it will keep writing to R2 with nothing draining it."
-        return 0
-    fi
-    JOB_ID=$(printf "%s" "${LIST%???}" \
-        | jq -r ".result[]? | select(.name == \"${JOB_NAME}\") | .id" 2>/dev/null || true)
-    [ -n "$JOB_ID" ] || return 0
-
-    echo "⏸️ Disabling leftover Logpush job '$JOB_NAME' (id: $JOB_ID)..."
-    CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X PUT \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d '{"enabled": false}' \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/logpush/jobs/${JOB_ID}")
-    if [ "$CODE" = "200" ]; then
-        echo "✅ Logpush job disabled; the aggregator drains the remaining objects"
-    else
-        echo "⚠️ Failed to disable Logpush job '$JOB_NAME' (HTTP $CODE) — disable it manually"
-    fi
-}
-
-# Whether the flag-log bucket already exists, so a queue-mode deploy can still
-# bind it and drain whatever a previous logpush deploy left behind.
-r2_bucket_exists() {
-    local CODE
-    CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/$1")
-    case "$CODE" in
-        200) return 0 ;;
-        404) return 1 ;;
-        *)
-            # Anything else — typically 403, because queue mode does not
-            # require R2 permissions — is not an answer. Treating it as "no
-            # bucket" would silently skip the rollback drain and strand
-            # whatever Logpush already wrote, so say so instead.
-            echo "⚠️ Could not determine whether R2 bucket '$1' exists (HTTP $CODE)." >&2
-            echo "   If this deployment previously used FLAG_LOG_SINK=logpush, add R2 read" >&2
-            echo "   permission to the token so leftover flag logs can be drained, or bind" >&2
-            echo "   the bucket manually via WRANGLER_CONFIG_APPEND_FILE." >&2
-            return 1
-            ;;
-    esac
-}
-
-# Points R2 object-create notifications at the drain queue.
-#
-# Scoped to the prefixes this pipeline writes, so an object the customer put
-# in the bucket never becomes work — the consumer deletes what it drains.
-ensure_r2_notification() {
-    local BUCKET="$1" QUEUE="$2" PREFIX CODE
-    for PREFIX in "flag-logs/" "overflow/"; do
-        CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X PUT \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"rules\":[{\"prefix\":\"${PREFIX}\",\"actions\":[\"PutObject\",\"CompleteMultipartUpload\"]}]}" \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/event_notifications/r2/${BUCKET}/configuration/queues/${QUEUE}")
-        if [ "$CODE" = "200" ]; then
-            echo "✅ R2 notifications on '${PREFIX}' -> queue '${QUEUE}'"
-        else
-            echo "⚠️ Could not configure R2 notifications for '${PREFIX}' (HTTP $CODE)."
-            echo "   Without them nothing drains the bucket; configure it under"
-            echo "   R2 > ${BUCKET} > Settings > Event notifications."
-        fi
-    done
-}
 
 ensure_logpush_job() {
-    local JOB_NAME="$1" BUCKET="$2"
+    local JOB_NAME="$1" INGEST="$2" TOKEN="$3"
 
     local DEST_CONF JOB_BODY
-    DEST_CONF=$(jq -rn \
-        --arg bucket "$BUCKET" \
-        --arg account "$CLOUDFLARE_ACCOUNT_ID" \
-        --arg key "$R2_ACCESS_KEY_ID" \
-        --arg secret "$R2_SECRET_ACCESS_KEY" \
-        '"r2://\($bucket)/flag-logs/{DATE}?account-id=\($account|@uri)&access-key-id=\($key|@uri)&secret-access-key=\($secret|@uri)"')
+    # The token rides in the URL as a `header_` parameter, which is how
+    # Logpush authenticates to an HTTP destination. URI-encoded because it
+    # lands in a query string.
+    DEST_CONF=$(jq -rn --arg url "$INGEST" --arg token "$TOKEN" \
+        '"\($url)?header_Authorization=Bearer%20\($token|@uri)"')
 
     JOB_BODY=$(jq -n \
         --arg name "$JOB_NAME" \
@@ -711,8 +585,8 @@ ensure_logpush_job() {
                 field_names: ["EventTimestampMs", "Logs"],
                 timestamp_format: "rfc3339"
             },
-            max_upload_bytes: 4000000,
-            max_upload_records: 700,
+            max_upload_bytes: 5000000,
+            max_upload_records: 10000,
             filter: ({where: {and: [
                 {key: "ScriptName", operator: "eq", value: $script},
                 {key: "EventType", operator: "eq", value: "fetch"}
@@ -764,21 +638,20 @@ ensure_logpush_job() {
 }
 
 if [ "$FLAG_LOG_SINK" = "logpush" ]; then
-    if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
-        echo "❌ FLAG_LOG_SINK=logpush requires R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY" >&2
-        echo "   Logpush authenticates to R2 with an S3-style key pair; create an R2" >&2
-        echo "   API token with object read+write and pass it via these variables." >&2
-        exit 1
-    fi
+    # Logpush POSTs batches of this Worker's own trace events back to it; the
+    # ingest route aggregates and delivers them. No R2, no queue, no cron —
+    # each POST is an ordinary Worker invocation, so it scales on its own.
+    RESOLVER_HOST="${CLOUDFLARE_RESOLVER_URL#https://}"
+    RESOLVER_HOST="${RESOLVER_HOST%%/*}"
+    INGEST_URL="https://${RESOLVER_HOST}/v1/flagLogs:ingest"
 
-    if [ -n "$WORKER_NAME_PREFIX" ]; then
-        FLAG_LOGS_BUCKET="${WORKER_NAME_PREFIX}-confidence-flag-logs"
-    else
-        FLAG_LOGS_BUCKET="confidence-flag-logs"
+    # Shared secret Logpush presents on every POST. Reused when already set,
+    # so re-running the deployer does not rotate it out from under a live job.
+    if [ -z "${FLAG_LOGS_INGEST_TOKEN:-}" ]; then
+        FLAG_LOGS_INGEST_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | cut -c1-40)
+        echo "🔐 Generated a flag-log ingest token"
     fi
-
-    ensure_r2_bucket "$FLAG_LOGS_BUCKET" || exit 1
-    ensure_logpush_job "${WORKER_NAME}-flag-logs" "$FLAG_LOGS_BUCKET" || exit 1
+    SET_INGEST_TOKEN_AFTER_DEPLOY=1
 
     # logpush = true is a top-level script setting, so it has to be prepended:
     # appending it would land inside whichever table comes last.
@@ -788,63 +661,8 @@ if [ "$FLAG_LOG_SINK" = "logpush" ]; then
     cat wrangler.toml >> "$LOGPUSH_TMPFILE"
     mv "$LOGPUSH_TMPFILE" wrangler.toml
 
-    cat >> wrangler.toml <<EOF
-
-# Bucket Logpush writes trace events into, drained by the cron trigger below.
-[[r2_buckets]]
-binding = "FLAG_LOGS_R2"
-bucket_name = "${FLAG_LOGS_BUCKET}"
-EOF
-    echo "✅ Added FLAG_LOGS_R2 binding for bucket '${FLAG_LOGS_BUCKET}'"
-
-    # R2 notifies this queue on every object Logpush writes, and the consumer
-    # drains one object per message. Concurrency is the throughput dial:
-    # measured, one consumer delivers ~235 records/sec at 700 records per
-    # object, so ~43 consumers carry 10K resolves/sec.
-    FLAG_LOGS_OBJECTS_QUEUE="${WORKER_NAME}-flag-log-objects"
-    ensure_queue "$FLAG_LOGS_OBJECTS_QUEUE" || exit 1
-    ensure_r2_notification "$FLAG_LOGS_BUCKET" "$FLAG_LOGS_OBJECTS_QUEUE"
-
-    cat >> wrangler.toml <<EOF
-
-[[queues.producers]]
-queue = "${FLAG_LOGS_OBJECTS_QUEUE}"
-binding = "flag_log_objects_queue"
-
-[[queues.consumers]]
-queue = "${FLAG_LOGS_OBJECTS_QUEUE}"
-max_batch_size = 10
-max_batch_timeout = 5
-max_concurrency = ${FLAG_LOGS_CONSUMER_CONCURRENCY}
-max_retries = 5
-EOF
-    echo "✅ Flag-log sink: logpush (object queue '${FLAG_LOGS_OBJECTS_QUEUE}', concurrency ${FLAG_LOGS_CONSUMER_CONCURRENCY})"
+    echo "✅ Flag-log sink: logpush -> ${INGEST_URL}"
 else
-    if [ -n "$WORKER_NAME_PREFIX" ]; then
-        FLAG_LOGS_BUCKET="${WORKER_NAME_PREFIX}-confidence-flag-logs"
-    else
-        FLAG_LOGS_BUCKET="confidence-flag-logs"
-    fi
-
-    # Deferred until after a successful deploy: disabling the job while the
-    # previous logpush-mode worker is still serving would drop every flag log
-    # it emits for the length of a release build.
-    DISABLE_LOGPUSH_JOB_AFTER_DEPLOY=1
-
-    # Bind the bucket if a previous logpush deploy created one. The worker
-    # drains it regardless of sink, so this is what stops a rollback from
-    # stranding logs that Logpush already wrote.
-    if r2_bucket_exists "$FLAG_LOGS_BUCKET"; then
-        cat >> wrangler.toml <<EOF
-
-# Left from a previous FLAG_LOG_SINK=logpush deploy. Bound so the aggregator
-# can finish draining it; harmless once empty.
-[[r2_buckets]]
-binding = "FLAG_LOGS_R2"
-bucket_name = "${FLAG_LOGS_BUCKET}"
-EOF
-        echo "✅ Bound existing R2 bucket '${FLAG_LOGS_BUCKET}' so leftover logs still drain"
-    fi
     echo "✅ Flag-log sink: queue"
 fi
 
@@ -1009,7 +827,7 @@ if [ -n "$ENABLE_APPLY_DEDUP" ]; then
 fi
 
 # Update [vars] without duplicating the table.
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ] || [ -n "${CONFIDENCE_ACCOUNT_ID:-}" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
@@ -1019,7 +837,8 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     sed -i.tmp '/^FORCE_APPLY *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^ENABLE_APPLY_DEDUP *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^FLAG_LOG_SINK *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" '
+    sed -i.tmp '/^CONFIDENCE_ACCOUNT_ID *= *.*$/d' wrangler.toml || true
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" -v account_id="${CONFIDENCE_ACCOUNT_ID}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -1031,6 +850,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (force_apply != "") print "FORCE_APPLY = \"" force_apply "\""
                 if (enable_apply_dedup != "") print "ENABLE_APPLY_DEDUP = \"" enable_apply_dedup "\""
                 if (flag_log_sink != "") print "FLAG_LOG_SINK = \"" flag_log_sink "\""
+                if (account_id != "") print "CONFIDENCE_ACCOUNT_ID = \"" account_id "\""
                 inserted=1
             }
         }
@@ -1114,11 +934,26 @@ add_wrangler_deploy_args_from_lines "WRANGLER_DEPLOY_ARGS" "$WRANGLER_DEPLOY_ARG
 if test -z "$NO_DEPLOY"; then
      wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"
 
-     # Now that the queue-sink worker is live and no longer emitting console
-     # lines, stop Logpush writing into a bucket the aggregator will drain to
-     # empty and then leave alone.
-     if [ -n "${DISABLE_LOGPUSH_JOB_AFTER_DEPLOY:-}" ]; then
-         disable_logpush_job "${WORKER_NAME}-flag-logs"
+     # Created after the deploy so the route exists: Logpush validates a
+     # destination by POSTing to it before the job is created, and a job
+     # pointing at a route that 404s cannot be created at all.
+     if [ -n "${SET_INGEST_TOKEN_AFTER_DEPLOY:-}" ]; then
+         echo "🔐 Storing FLAG_LOGS_INGEST_TOKEN as worker secret..."
+         INGEST_SECRET_BODY=$(jq -n --arg text "$FLAG_LOGS_INGEST_TOKEN" \
+             '{"name": "FLAG_LOGS_INGEST_TOKEN", "text": $text, "type": "secret_text"}')
+         INGEST_SECRET_CODE=$(printf "%s" "$INGEST_SECRET_BODY" | curl -sS -o /dev/null -w "%{http_code}" -X PUT \
+             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+             -H "Content-Type: application/json" --data-binary @- \
+             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
+         if [ "$INGEST_SECRET_CODE" = "200" ]; then
+             echo "✅ FLAG_LOGS_INGEST_TOKEN stored as worker secret"
+         else
+             echo "❌ Failed to store FLAG_LOGS_INGEST_TOKEN (HTTP $INGEST_SECRET_CODE);" >&2
+             echo "   the ingest route will reject every batch until it is set." >&2
+             exit 1
+         fi
+
+         ensure_logpush_job "${WORKER_NAME}-flag-logs" "$INGEST_URL" "$FLAG_LOGS_INGEST_TOKEN" || exit 1
      fi
 
      # Store encryption key as a Cloudflare Worker secret (persists across deploys)

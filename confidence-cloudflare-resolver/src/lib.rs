@@ -415,6 +415,11 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
             async move {
                 let path = ctx.param("path").unwrap();
                 match path.as_str() {
+                    // Logpush POSTs batches of this Worker's own trace
+                    // events here; the handler aggregates and delivers them.
+                    "flagLogs:ingest" => {
+                        return flag_log::handle_ingest(req, &ctx.env).await;
+                    }
                     "flags:resolve" => {
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let mut resolver_request: ResolveFlagsRequest =
@@ -708,10 +713,6 @@ pub async fn consume_queue(
     if queue_name.ends_with("events-queue") {
         return consume_events_queue(message_batch, env).await;
     }
-    if queue_name.ends_with("flag-log-objects") {
-        return flag_log::consume_notifications(message_batch, &env).await;
-    }
-
     flag_log::consume(message_batch, env).await
 }
 

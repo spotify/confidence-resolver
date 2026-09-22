@@ -26,7 +26,7 @@ A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-de
   * **Account > Workers Scripts > Edit**
   * **Account > Workers Queues > Edit** (needed for the first deploy)
   * **Account > Workers KV Storage > Edit** (only if using `ENABLE_METRICS` or `ENABLE_STICKY_ASSIGNMENTS`)
-  * **Account > Workers R2 Storage > Edit** (only if using `FLAG_LOG_SINK=logpush`)
+  * **Account > Logs > Edit** (only if using `FLAG_LOG_SINK=logpush`; also requires the Workers Paid plan)
   * **Account > Logs > Edit** (only if using `FLAG_LOG_SINK=logpush`)
 
   The deployer probes each of these against the resolved account before it
@@ -83,9 +83,7 @@ The deployer automatically:
 | `ENABLE_APPLY_DEDUP`                 | Defaults to `true`: apply-event deduplication is enabled — repeated identical assignments within a 120s window are logged once, both at resolve time and across queue consumer batches. Set to `false` to disable |
 | `FLAG_LOGS_QUEUE_COUNT`              | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
 | `FLAG_LOG_SINK`                      | `queue` (default) or `logpush`. Selects how flag logs leave the Worker — see [Flag-log sinks](#flag-log-sinks) |
-| `R2_ACCESS_KEY_ID`                   | Required when `FLAG_LOG_SINK=logpush`. R2 API token key id that Logpush authenticates to the bucket with. Scope it to **object write on the flag-log bucket only** — it is embedded in the Logpush job's destination and is readable by anyone with Logpush read on the account |
-| `R2_SECRET_ACCESS_KEY`               | Required when `FLAG_LOG_SINK=logpush`. R2 API token secret |
-| `FLAG_LOGS_AGGREGATOR_CRON`          | Cron schedule for the Logpush aggregation pass (default `* * * * *`). Logpush delivers roughly once a minute regardless, so faster schedules only add invocations |
+| `FLAG_LOGS_INGEST_TOKEN`             | Optional when `FLAG_LOG_SINK=logpush`. Shared secret Logpush presents on every POST to the ingest route. Generated and stored as a worker secret when unset; supply it to pin the value across deploys |
 
 ### Flag-log sinks
 
@@ -97,17 +95,10 @@ make it so:
 * **`queue` → `logpush`.** Queue bindings and the queue consumer are kept
   under either sink, so messages a previous version already published still
   get drained after the switch.
-* **`logpush` → `queue`.** Logpush lags by about a minute and keeps writing
-  into R2 after the switch, so a queue-mode deploy disables the leftover
-  Logpush job, binds the existing bucket, and keeps the aggregator cron
-  configured. The worker drains the bucket regardless of the active sink, so
-  those objects are delivered rather than stranded. Without this a rollback
-  would look clean while silently accumulating undelivered logs and growing
-  the bucket without bound.
-
-The aggregator cron is therefore configured under both sinks. Under `queue`
-it is a no-op unless a bucket is bound, and one invocation a minute costs
-roughly a cent a month.
+* **`logpush` → `queue`.** Logpush lags by about a minute, so a batch already
+  in flight arrives at the ingest route after the switch. The route stays
+  mounted under either sink and delivers what it receives, so those records
+  land rather than being rejected.
 
 #### `queue` (default)
 
@@ -123,102 +114,92 @@ isolate is evicted and Cloudflare provides no shutdown hook to flush it.
 #### `logpush`
 
 ```
-resolve → console.log → Logpush → R2 → cron aggregator → Confidence
+resolve → console.log → Logpush → /v1/flagLogs:ingest → Confidence
 ```
 
 The log is compressed and written to `console.log` with a `FLAGLOG ` prefix,
-Cloudflare's Logpush captures it into an R2 bucket, and the Worker's cron
-trigger reads the bucket, aggregates, delivers, and deletes.
+and Cloudflare's Logpush POSTs batches of the Worker's own trace events back
+to the Worker, which aggregates and delivers them.
 
-Nothing is retained in isolate memory between requests, so a hot isolate
-carries no backlog for an eviction to take. Both sinks emit from the same
-post-response hook, though, so this is a narrower window rather than no
-window — a local console write instead of a network round-trip to the queue.
-
-The durability difference that does matter is downstream: the aggregator
-deletes an object only after its contents are delivered, so R2 is a durable
-hand-off and a failed delivery is retried on the next tick rather than lost.
+Nothing is retained in isolate memory between requests, and the console write
+happens inline during the response rather than in a post-response hook, so an
+eviction cannot take a log with it. The queue sink publishes from
+`waitUntil`, which Cloudflare does not guarantee to run.
 
 Cost scales differently, which is the main reason to choose it. Queues bill per
 message and charge three operations each, so cost tracks the number of log
-records. Logpush bills per *request* — which you serve anyway — and Cloudflare
-batches thousands of records into each R2 object for the price of one write.
+records. Logpush bills per *request* — which you serve anyway — at $0.05 per
+million with the first 10 million included, and batches thousands of records
+into each push.
 
-The deployer provisions the whole path: the R2 bucket, a
-`workers_trace_events` Logpush job, `logpush = true`, the `FLAG_LOGS_R2`
-binding, an object-notification queue, and R2 event notifications pointing at
-it.
+The deployer provisions it: it sets `logpush = true`, generates an ingest
+token and stores it as a worker secret, passes `CONFIDENCE_ACCOUNT_ID`, and
+creates a `workers_trace_events` Logpush job pointed at the Worker's own
+`/v1/flagLogs:ingest` route.
 
-**How objects get drained.** R2 emits an `object-create` notification for
-every object Logpush writes; the worker consumes one object per message —
-read, aggregate, deliver, delete. The work unit is therefore fixed size, so
-memory per invocation is constant no matter how much traffic there is, and
-throughput is `FLAG_LOGS_CONSUMER_CONCURRENCY × records-per-object ÷
-delivery-latency`.
+**How batches get delivered.** Logpush POSTs a gzipped batch of trace events
+to the ingest route; the handler pulls out the flag logs, deduplicates
+applies across the whole batch, aggregates, and delivers. Each POST is an
+ordinary Worker invocation, so the handler side scales without a configured
+concurrency limit — unlike a queue consumer, which caps at 250.
 
-Measured, one consumer delivers about **235 records/sec** (delivery latency is
-roughly 1,370 ms plus 2.3 ms per assignment, at 700 records per object). So:
+**Throughput is bounded by Logpush, not by the Worker.** Measured, Logpush
+pushes to an HTTP destination **serially**: one POST completes before the
+next begins. At roughly 500 ms per 5 MB batch that is about 2 batches per
+second, or **~17,000 records/sec for a single job**. Records per second is
+therefore a function of batch size, which is why `max_upload_records` is set
+high rather than low.
 
-| Target | `FLAG_LOGS_CONSUMER_CONCURRENCY` |
-| ------ | -------------------------------- |
-| 1K resolves/sec | 5 |
-| 10K resolves/sec | 43 |
-| 50K resolves/sec | 213 |
+Beyond that ceiling the options are to shard the resolver across several
+worker scripts, each with its own job — Logpush filters on `ScriptName` — or
+to stop aggregating in Cloudflare and have the ingest side read the logs
+directly. Two Logpush jobs on one script do not help: filters cannot
+partition events, so both would push the same records.
 
-250 is Cloudflare's per-queue cap; beyond it, shard the queue.
+**Deduplication.** Applies are deduplicated in the ingest handler across the
+whole batch. This is the only place cross-isolate duplicates can be caught: a
+batch carries records from many isolates, while the resolver's own dedup
+window only ever sees one isolate's traffic.
 
-**Sizing.** The backend accepts a body up to **4 MiB** and returns `413` above
-it, which no retry recovers from. `max_upload_records` is pinned to 700,
-leaving roughly half the limit as headroom for variation in flag count and
-context size. Larger objects amortise the fixed delivery cost better, so this
-is the knob to raise if that limit ever does.
-
-**Retries.** A failed delivery leaves the object in R2 and fails the message,
-so Cloudflare Queues retries with backoff and dead-letters after
-`max_retries`. Nothing is dropped on a timer.
-
-**Deduplication.** Applies are deduplicated in the consumer across the whole
-queue batch. This is the only place cross-isolate duplicates can be caught: an
-object carries records from many isolates, and the resolver's own dedup window
-only ever sees one isolate's traffic.
+**Where logs are sent.** Each log line carries its own destination, taken
+from the resolver state when the line is written, and the first destination
+in a batch is used for the whole batch. The handler therefore needs no
+resolver state — only the account id, which arrives as a variable.
 
 **Payload encoding.** Logs are sent as `base64(gzip(protobuf))`. gzip is what
 matters: `AppliedFlag` entries repeat the targeting key and share
-`flags/…/rules/…/variants/…` path prefixes, so measured against realistic data
-it shrinks a log about 5.5x and cuts the marginal cost of an exposure from
-~365 to ~63 bytes. base64 keeps the result escape-free so it does not inflate
-again inside the trace event's JSON.
+`flags/…/rules/…/variants/…` path prefixes, so measured against realistic
+data it shrinks a log about 5.5x. base64 keeps the result escape-free so it
+does not inflate again inside the trace event's JSON.
 
 **Size handling.** Cloudflare truncates a trace event's `logs` and
 `exceptions` fields once their combined length reaches 16,384 characters,
-counting exceptions first. That limit is fixed — no configuration changes it,
-and splitting across several `console.log` calls does not help because it
-applies per trace event rather than per line. The Worker therefore caps a
-console line at 12,000 characters and writes anything larger straight to R2 in
-the same format Logpush produces, so the consumer reads it back with no
-special handling. Measured, a 57-flag exposure log encodes to roughly 3,800
-characters, so the cap engages only for resolves applying a few hundred flags
-at once.
+counting exceptions first. That limit is fixed, and splitting across several
+`console.log` calls does not help because it applies per trace event rather
+than per line. The Worker caps a console line at 12,000 characters and
+delivers anything larger inline instead. Measured, a single-flag exposure log
+encodes to ~350 characters and a 57-flag one to ~3,800, so the cap engages
+only for resolves applying a few hundred flags at once.
 
-**Job scoping.** The Logpush job is filtered to `ScriptName = <worker>` and
-`EventType = fetch`, and the R2 notification rules are scoped to the
-`flag-logs/` and `overflow/` prefixes — the consumer deletes what it drains,
-so it must never claim an object the pipeline did not write.
+On the way out, the handler measures each aggregate and splits it to stay
+under the backend's **4 MiB** limit — measured by bisection, with `413`
+above it and no retry recovering.
+
+**Job scoping.** The job is filtered to `ScriptName = <worker>` and
+`EventType = fetch`.
 
 Trade-offs versus the queue:
 
 - **Delivery latency is roughly a minute** and is not tunable. Logpush's
   upload settings influence batch size, not latency.
-- **The Logpush hop has no durability contract.** It retries a failed batch
-  about five times over five minutes, then drops it permanently, and disables
-  the job after prolonged failure. Targeting R2 rather than an external
-  endpoint makes that unlikely, but the Logpush Health dashboard is worth an
-  alert.
-- **Statistics may be double-counted** on a redelivery, since a queue message
-  is at-least-once. Applies are deduplicated; the statistics counters are not.
+- **A failed delivery is dropped**, loudly, and the handler always answers
+  200. Returning an error would make Logpush retry, and Logpush responds to
+  sustained failure by *disabling the job* — losing one batch is better than
+  silently stopping the pipeline until someone notices. Alert on
+  `flag log ingest: DROPPED`.
 - **Flag logs are billed twice while `[observability]` is enabled.** Every
-  `FLAGLOG` console line is also ingested by Workers Logs, on top of the R2
-  copy that is the intended destination.
+  `FLAGLOG` console line is also ingested by Workers Logs, on top of being
+  POSTed to the ingest route.
 
 Set `-e FORCE_DEPLOY=1` when switching sinks so an unchanged resolver state does
 not skip deployment.

@@ -5,56 +5,50 @@
 //! * [`Sink::Queue`] (the default) — the log is published to a Cloudflare
 //!   Queue shard and the queue consumer aggregates up to 100 messages before
 //!   delivery. A publish that fails is dropped. See [`queue`] and [`shards`].
-//! * [`Sink::Logpush`] — the log is written to `console.log`, Cloudflare's
-//!   Logpush captures it into R2, R2 notifies a queue on each object, and a
-//!   consumer drains one object per message. See [`logpush`] and
-//!   [`aggregator`].
+//! * [`Sink::Logpush`] — the log is written to `console.log` and Cloudflare's
+//!   Logpush POSTs batches of trace events back to this Worker, which
+//!   aggregates and delivers them. See [`logpush`] and [`ingest`].
 //!
 //! The sinks differ in where the batching happens, and that is the trade. The
 //! queue is billed per message — three operations each — so cost scales with
 //! the number of log records. Logpush is billed per *request*, which you are
-//! serving anyway, and Cloudflare batches thousands of records into each R2
-//! object for the price of one write.
+//! serving anyway, and Cloudflare batches thousands of records into each
+//! push.
 //!
-//! Durability differs too, in both directions. Both sinks emit from
-//! `wait_until`, so a dropped `wait_until` loses the log either way; Logpush
-//! only narrows that window, by writing to the console instead of making a
-//! network round-trip to the queue. From there they diverge: the queue gives
-//! at-least-once delivery to its consumer once a publish succeeds, whereas a
-//! failed publish is unrecoverable; Logpush drops a batch permanently after
-//! roughly five minutes of failures, but once an object lands in R2 the
-//! aggregator owns the retry.
+//! Durability differs too, in both directions. The queue sink publishes from
+//! `wait_until`, which Cloudflare does not guarantee to run; the Logpush sink
+//! writes to the console inline, during the response, so an eviction cannot
+//! take the log with it. Downstream the comparison reverses: the queue gives
+//! at-least-once delivery to its consumer once a publish succeeds, whereas
+//! Logpush drops a batch that the ingest route cannot deliver. Neither sink
+//! retries a failed delivery.
 //!
 //! Queue bindings are created under either sink, so switching `FLAG_LOG_SINK`
 //! back to `queue` is an immediate rollback that also drains anything still
 //! in flight.
-mod aggregator;
+mod ingest;
 mod logpush;
 mod queue;
 mod shards;
 
-pub(crate) use aggregator::consume_notifications;
+pub(crate) use ingest::handle as handle_ingest;
 
 use confidence_resolver::{
     apply_dedup::{compute_applied_flag_dedup_hash, AppliedFlagRef, ApplyDedup},
+    flag_logger,
     proto::confidence::flags::resolver::v1::WriteFlagLogsRequest,
 };
-use std::{cell::RefCell, sync::OnceLock};
-use worker::{console_log, Bucket, Env, MessageBatch, Result};
+use std::sync::OnceLock;
+use worker::{console_log, Env, MessageBatch, Result};
 
 /// Marks a `console.log` line as an encoded [`WriteFlagLogsRequest`].
 ///
 /// A trace event carries every console line the invocation emitted, and
 /// Logpush filters cannot reach inside the `Logs` array — it is typed
 /// `array[object]`, which filtering does not support. The prefix is what lets
-/// the aggregator keep flag logs and ignore diagnostics, panics, and anything
-/// a future change starts logging on the same request.
+/// the ingest route keep flag logs and ignore diagnostics, panics, and
+/// anything a future change starts logging on the same request.
 const FLAG_LOG_PREFIX: &str = "FLAGLOG ";
-
-/// R2 binding the deployer adds when `FLAG_LOG_SINK=logpush`. Logpush writes
-/// into it; the aggregator drains it; oversized logs are written to it
-/// directly.
-const BUCKET_BINDING: &str = "FLAG_LOGS_R2";
 
 /// Where this deployment ships flag logs.
 #[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
@@ -77,15 +71,9 @@ impl Sink {
 
 static SINK: OnceLock<Sink> = OnceLock::new();
 
-thread_local! {
-    /// `Bucket` wraps a `JsValue`, so it is neither `Send` nor `Sync` and
-    /// cannot live in a static the way the queue bindings do.
-    ///
-    /// The outer `Option` records whether the lookup has been attempted and
-    /// the inner one whether it succeeded, so a missing binding is reported
-    /// once per isolate rather than once per request.
-    static BUCKET: RefCell<Option<Option<Bucket>>> = const { RefCell::new(None) };
-}
+/// Account id the deployer reads out of the resolver state and passes as a
+/// variable, so delivery does not need the state itself.
+static ACCOUNT_ID: OnceLock<String> = OnceLock::new();
 
 /// Resolves the sink and binds whatever it needs. Call once per entry point,
 /// before [`send`].
@@ -99,45 +87,15 @@ pub(crate) fn init(env: &Env) {
         queue::init(env);
     }
 
-    // The bucket is bound whenever it exists, under *either* sink. A switch
-    // back to `queue` has to keep draining whatever Logpush already wrote —
-    // Logpush lags by about a minute and keeps writing after the switch — so
-    // gating this on the active sink would strand those objects silently.
-    BUCKET.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        if slot.is_some() {
-            return;
+    if ACCOUNT_ID.get().is_none() {
+        if let Ok(account) = env.var("CONFIDENCE_ACCOUNT_ID").map(|v| v.to_string()) {
+            let _ = ACCOUNT_ID.set(account);
         }
-        match env.bucket(BUCKET_BINDING) {
-            Ok(bucket) => *slot = Some(Some(bucket)),
-            Err(e) => {
-                // Absent is the norm for a queue-only deployment, so this is
-                // only worth reporting when Logpush is the active sink: there
-                // it means a half-provisioned deploy, where oversized logs
-                // lose their overflow path and nothing drains the bucket.
-                if sink == Sink::Logpush {
-                    console_log!(
-                        "{} binding is missing; oversized flag logs will fall back to \
-                         direct delivery and R2 aggregation is disabled: {:?}",
-                        BUCKET_BINDING,
-                        e
-                    );
-                }
-                *slot = Some(None);
-            }
-        }
-    });
+    }
 }
 
 fn sink() -> Sink {
     SINK.get().copied().unwrap_or_default()
-}
-
-/// Cloning a `Bucket` clones the underlying `JsValue` handle, so this is
-/// cheap and avoids handing out a borrow of thread-local state across an
-/// await point.
-fn bucket() -> Option<Bucket> {
-    BUCKET.with(|slot| slot.borrow().clone().flatten())
 }
 
 /// Emits the log inline where the active sink allows it, returning the log
@@ -172,11 +130,56 @@ pub(crate) async fn consume(batch: MessageBatch<String>, env: Env) -> Result<()>
     queue::consume(batch, env).await
 }
 
+/// Delivers to one named destination.
+///
+/// The destination comes from the log line rather than from state, and the
+/// account id from the environment, so this path needs neither. That is what
+/// lets the ingest handler run without the resolver state loaded.
+async fn deliver_to(destination: i32, req: &WriteFlagLogsRequest) -> bool {
+    let Some(client_secret) = crate::CONFIDENCE_CLIENT_SECRET.get() else {
+        console_log!("flag log delivery skipped: client secret unavailable");
+        return false;
+    };
+    let destination = confidence_resolver::LogDestination::from(destination);
+    let account_id = account_id();
+
+    let started_ms = js_sys::Date::now();
+    match crate::deliver_flag_logs(client_secret, &account_id, req, destination).await {
+        Ok(()) => {
+            console_log!(
+                "flag log delivered to {:?} in {}ms ({} assigns, {} flags)",
+                destination,
+                (js_sys::Date::now() - started_ms) as u64,
+                req.flag_assigned.len(),
+                req.flag_resolve_info.len()
+            );
+            true
+        }
+        Err(reason) => {
+            console_log!(
+                "flag log delivery to {:?} failed after {}ms: {}",
+                destination,
+                (js_sys::Date::now() - started_ms) as u64,
+                reason
+            );
+            false
+        }
+    }
+}
+
+/// Account id, from the environment where the deployer put it, falling back
+/// to the embedded state for the queue sink which already has it loaded.
+fn account_id() -> String {
+    ACCOUNT_ID
+        .get()
+        .cloned()
+        .unwrap_or_else(|| crate::CDN_STATE_REQUEST.account_id.clone())
+}
+
 /// Walks the configured destinations in order, stopping at the first success.
 ///
-/// Shared by the queue consumer, the R2 aggregator, and the oversized-log
-/// fallback, so they cannot drift apart on which destinations they try or how
-/// they report a failure.
+/// Used by the queue consumer, so the queue path keeps main's behaviour
+/// exactly: try each destination in order and stop at the first success.
 async fn deliver(req: &WriteFlagLogsRequest) -> bool {
     let Some(client_secret) = crate::CONFIDENCE_CLIENT_SECRET.get() else {
         console_log!("flag log delivery skipped: client secret unavailable");
@@ -232,13 +235,82 @@ fn new_dedup() -> ApplyDedup {
     ApplyDedup::new(i64::MAX, DEDUP_MAX_ENTRIES)
 }
 
+/// Largest body the backend accepts, less headroom.
+///
+/// Measured by bisection: it takes 4 MiB and returns `413` above, which no
+/// retry recovers from — a rejected object would be redelivered, rejected
+/// again, and eventually dead-lettered. The consumer therefore splits its
+/// records to fit rather than trusting the object to be small enough.
+///
+/// Splitting here rather than sizing the Logpush object is deliberate:
+/// `max_upload_records` has a floor of 1,000 and `max_upload_bytes` one of
+/// several MB, so object granularity is not ours to choose. Owning the
+/// delivery size locally makes the consumer correct for any object it is
+/// handed.
+const MAX_DELIVERY_BYTES: usize = 3 * 1024 * 1024 + 512 * 1024;
+
+/// Largest body observed to be accepted, from the bisection. Kept here so
+/// the headroom below is checked against a measurement rather than a memory.
+const MEASURED_BACKEND_LIMIT: usize = 4_193_298;
+
+/// Checked at compile time: raising the split threshold into the backend's
+/// ceiling would reintroduce the `413` that no retry can recover from.
+const _: () = assert!(MAX_DELIVERY_BYTES < MEASURED_BACKEND_LIMIT);
+const _: () = assert!(MEASURED_BACKEND_LIMIT - MAX_DELIVERY_BYTES >= 500_000);
+
+/// Aggregates and delivers, splitting until each body fits the backend.
+///
+/// Recursive halving rather than a size estimate: the serialized size of a
+/// batch is not a simple function of its record count — flag counts and
+/// context sizes vary — and being wrong means a `413` that retrying cannot
+/// fix. Measuring the actual body and splitting when it is too big is exact.
+///
+/// In the common case the whole object fits and this is one aggregate and one
+/// delivery, the same as before.
+pub(super) fn deliver_within_limit(
+    destination: i32,
+    logs: Vec<WriteFlagLogsRequest>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool>>> {
+    Box::pin(async move {
+        if logs.is_empty() {
+            return true;
+        }
+        let request = flag_logger::aggregate_batch(logs.clone());
+        let size = serde_json::to_string(&request).map_or(usize::MAX, |json| json.len());
+
+        if size <= MAX_DELIVERY_BYTES {
+            return deliver_to(destination, &request).await;
+        }
+        if logs.len() == 1 {
+            // A single record over the limit cannot be split any further.
+            console_log!(
+                "flag log objects: single record of {} bytes exceeds the {} byte limit; dropping",
+                size,
+                MAX_DELIVERY_BYTES
+            );
+            return true;
+        }
+
+        console_log!(
+            "flag log objects: aggregate of {} records is {} bytes, splitting",
+            logs.len(),
+            size
+        );
+        let mut halves = logs;
+        let tail = halves.split_off(halves.len() / 2);
+        // Sequential, not concurrent: a split means the payload is already
+        // near the limit, so holding two of them decoded at once is exactly
+        // the memory spike worth avoiding.
+        deliver_within_limit(destination, halves).await
+            && deliver_within_limit(destination, tail).await
+    })
+}
+
 /// Removes applied flags already seen in `dedup`.
 ///
-/// The map is taken by reference so one window can span several batches. The
-/// R2 aggregator needs that: it folds many objects into a single delivery and
-/// keeps the map alive between passes, so a fresh map per object would miss
-/// every duplicate spanning two objects — which is most of them, since an
-/// object holds only about a second of traffic.
+/// The map is taken by reference so one window can span several batches,
+/// which the resolve-time pass needs; the ingest route builds a fresh map per
+/// Logpush batch because each batch is self-contained.
 fn dedup_flag_applies(dedup: &mut ApplyDedup, logs: &mut [WriteFlagLogsRequest], now_seconds: i64) {
     for log in logs.iter_mut() {
         for assignment in &mut log.flag_assigned {

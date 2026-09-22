@@ -311,7 +311,6 @@ check_perm() {
 check_perm "Workers Scripts" "Account > Workers Scripts > Edit" "$base/workers/scripts"
 check_perm "Workers Queues"  "Account > Workers Queues > Edit"  "$base/queues"
 if [ "$FLAG_LOG_SINK" = "logpush" ]; then
-    check_perm "R2 Storage" "Account > Workers R2 Storage > Edit" "$base/r2/buckets"
     check_perm "Logpush"    "Account > Logs > Edit"               "$base/logpush/jobs"
 fi
 if [ -n "$ENABLE_METRICS" ]; then
@@ -329,20 +328,18 @@ exit 0
 test('preflight passes when every probe returns 200', () => {
   const r = runPreflight('logpush', {});
   assert.equal(r.status, 0, r.stderr);
-  assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 4);
+  assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 3);
 });
 
 test('queue mode does not probe R2 or Logpush', () => {
   const r = runPreflight('queue', {});
   assert.equal(r.status, 0);
   assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 2);
-  assert.doesNotMatch(r.stdout, /R2 Storage|Logpush/);
+  assert.doesNotMatch(r.stdout, /Logpush/);
 });
 
-test('logpush mode probes R2 and Logpush', () => {
-  const r = runPreflight('logpush', {});
-  assert.match(r.stdout, /PROBE_OK R2 Storage/);
-  assert.match(r.stdout, /PROBE_OK Logpush/);
+test('logpush mode probes Logpush', () => {
+  assert.match(runPreflight('logpush', {}).stdout, /PROBE_OK Logpush/);
 });
 
 test('a 403 on Logpush fails the deploy and names the scope', () => {
@@ -351,20 +348,14 @@ test('a 403 on Logpush fails the deploy and names the scope', () => {
   assert.match(r.stderr, /PROBE_FAIL Logpush needs: Account > Logs > Edit/);
 });
 
-test('a 403 on R2 fails the deploy and names the scope', () => {
-  const r = runPreflight('logpush', { 'r2/buckets': 403 });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /PROBE_FAIL R2 Storage needs: Account > Workers R2 Storage > Edit/);
-});
-
 // A token valid for one account returns an indistinguishable auth error for
 // another, so a wrong-account token must fail here rather than part-way in.
 test('a token with no access to the account fails every probe', () => {
   const r = runPreflight('logpush', {
-    'workers/scripts': 403, queues: 403, 'r2/buckets': 403, 'logpush/jobs': 403,
+    'workers/scripts': 403, queues: 403, 'logpush/jobs': 403,
   });
   assert.equal(r.status, 1);
-  assert.equal((r.stderr.match(/PROBE_FAIL/g) || []).length, 4);
+  assert.equal((r.stderr.match(/PROBE_FAIL/g) || []).length, 3);
 });
 
 test('KV is only probed when metrics or sticky assignments are enabled', () => {
@@ -378,166 +369,44 @@ test('KV is only probed when metrics or sticky assignments are enabled', () => {
 // no-op unless a bucket is bound, but without it a rollback from logpush
 // leaves no drainer and Logpush keeps filling R2.
 
-
-
-
-// The disable call must target the job by name and set enabled:false, or a
-// rollback leaves Logpush writing into an undrained bucket.
-test('logpush job disable sends enabled:false for the matching job only', () => {
-  const r = spawnSync('bash', ['-c', `
-echo '{"result":[{"id":"abc123","name":"loadtest-confidence-cloudflare-resolver-flag-logs"},{"id":"other","name":"unrelated-job"}]}' \
-  | jq -r '.result[]? | select(.name == "loadtest-confidence-cloudflare-resolver-flag-logs") | .id'
-echo '{"enabled": false}' | jq -c .
-`], { encoding: 'utf8', timeout: 5000 });
-  assert.equal(r.status, 0);
-  const [id, body] = r.stdout.trim().split('\n');
-  assert.equal(id, 'abc123');
-  assert.deepEqual(JSON.parse(body), { enabled: false });
-});
-
-// --- Bucket-existence probe must distinguish "no bucket" from "no access" ---
-
-function runBucketProbe(code) {
-  const directory = mkdtempSync(join(tmpdir(), 'bucket-probe-'));
-  try {
-    writeFileSync(join(directory, 'curl'), `#!/bin/bash\necho -n "${code}"\n`, { mode: 0o755 });
-    return spawnSync('bash', ['-c', `
-set -uo pipefail
-export PATH="${directory}:$PATH"
-CLOUDFLARE_API_TOKEN=tok
-CLOUDFLARE_ACCOUNT_ID=acct
-r2_bucket_exists() {
-    local CODE
-    CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
-        -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-        "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$1")
-    case "$CODE" in
-        200) return 0 ;;
-        404) return 1 ;;
-        *) echo "WARN could not determine bucket state (HTTP $CODE)" >&2; return 1 ;;
-    esac
-}
-if r2_bucket_exists my-bucket; then echo EXISTS; else echo ABSENT; fi
-`], { encoding: 'utf8', timeout: 5000 });
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-}
-
-test('a 200 means the bucket exists and should be bound', () => {
-  const r = runBucketProbe(200);
-  assert.match(r.stdout, /EXISTS/);
-  assert.doesNotMatch(r.stderr, /WARN/);
-});
-
-test('a 404 means no bucket, and that is not a problem worth warning about', () => {
-  const r = runBucketProbe(404);
-  assert.match(r.stdout, /ABSENT/);
-  assert.doesNotMatch(r.stderr, /WARN/);
-});
-
-// A 403 is the common case on a queue-mode rollback token, which does not
-// require R2 permissions. Silently reading it as "no bucket" would skip the
-// drain and strand whatever Logpush already wrote.
-test('a 403 is reported rather than silently treated as absent', () => {
-  const r = runBucketProbe(403);
-  assert.match(r.stdout, /ABSENT/);
-  assert.match(r.stderr, /WARN could not determine bucket state \(HTTP 403\)/);
-});
-
 // --- Rollback ordering ---
-
-// Disabling the Logpush job before the build would leave the previous
-// logpush-mode worker emitting console lines with nothing capturing them for
-// the length of a release build.
-test('the Logpush job is disabled only after a successful deploy', () => {
-  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  const setsFlag = script.indexOf('DISABLE_LOGPUSH_JOB_AFTER_DEPLOY=1');
-  const deploys = script.indexOf('wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"');
-  const disables = script.indexOf('disable_logpush_job "${WORKER_NAME}-flag-logs"');
-  assert.ok(setsFlag > 0 && deploys > 0 && disables > 0);
-  assert.ok(setsFlag < deploys, 'the flag is set during sink provisioning');
-  assert.ok(disables > deploys, 'the disable call must come after wrangler deploy');
-});
-
-// The default bucket name must not be something a customer plausibly already
-// owns: the aggregator deletes the objects it claims.
-test('the default bucket name is namespaced to Confidence', () => {
-  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  assert.match(script, /FLAG_LOGS_BUCKET="confidence-flag-logs"/);
-  assert.doesNotMatch(script, /FLAG_LOGS_BUCKET="flag-logs"/);
-});
-
-// Objects must stay small enough that one fits the aggregator's per-object
-// memory budget after the decode expansion.
-test('logpush objects are pinned small', () => {
-  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  const bytes = Number(/max_upload_bytes: (\d+)/.exec(script)[1]);
-  assert.ok(bytes <= 4000000, `max_upload_bytes should be small, was ${bytes}`);
-});
 
 // --- Object-notification wiring ---
 
-// R2 notifies on deletes too, and the consumer deletes everything it drains.
-// An unscoped rule would therefore re-enqueue every key it just removed, and
-// would also claim objects the customer put in the bucket themselves.
-test('R2 notification rules are scoped to the prefixes this pipeline writes', () => {
+// --- HTTP ingest destination ---
+
+// Logpush authenticates to an HTTP destination with a `header_` URL
+// parameter; there is no other way to pass credentials.
+test('the logpush job targets the ingest route with a bearer token', () => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  const fn = script.slice(script.indexOf('ensure_r2_notification()'),
-                          script.indexOf('ensure_logpush_job()'));
-  assert.match(fn, /"flag-logs\/" "overflow\/"/);
-  assert.match(fn, /PutObject/);
-  assert.match(fn, /CompleteMultipartUpload/);
-  assert.doesNotMatch(fn, /DeleteObject/);
+  assert.match(script, /header_Authorization=Bearer%20/);
+  assert.match(script, /flagLogs:ingest/);
+  assert.doesNotMatch(script, /r2:\/\//, 'must no longer target R2');
 });
 
-test('the object queue is created with a bounded consumer concurrency', () => {
+// Logpush validates a destination by POSTing to it before creating the job,
+// so the route has to exist first — and the secret has to be set or the
+// route rejects the validation POST.
+test('the job is created after deploy, with the token stored first', () => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  assert.match(script, /ensure_queue "\$FLAG_LOGS_OBJECTS_QUEUE"/);
-  assert.match(script, /max_concurrency = \$\{FLAG_LOGS_CONSUMER_CONCURRENCY\}/);
-  assert.match(script, /max_retries = 5/);
+  const deployAt = script.indexOf('wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"');
+  const secretAt = script.indexOf('Storing FLAG_LOGS_INGEST_TOKEN');
+  const jobAt = script.indexOf('ensure_logpush_job "${WORKER_NAME}-flag-logs"');
+  assert.ok(deployAt > 0 && secretAt > deployAt, 'secret is stored after deploy');
+  assert.ok(jobAt > secretAt, 'job is created after the secret exists');
 });
 
-// The cron aggregator is gone; R2 notifies per object instead.
-test('no cron trigger is configured any more', () => {
-  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  assert.doesNotMatch(script, /\[triggers\]/);
-  assert.doesNotMatch(script, /crons =/);
-});
-
-function runConcurrencyValidation(value) {
-  return spawnSync('bash', ['-c', `
-set -uo pipefail
-FLAG_LOGS_CONSUMER_CONCURRENCY=${value}
-if [[ ! "$FLAG_LOGS_CONSUMER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] \
-    || [ "$FLAG_LOGS_CONSUMER_CONCURRENCY" -gt 250 ]; then
-    echo "must be between 1 and 250" >&2
-    exit 1
-fi
-echo OK
-`], { encoding: 'utf8', timeout: 5000 });
-}
-
-for (const value of ['1', '10', '43', '250']) {
-  test(`accepts consumer concurrency ${value}`, () => {
-    assert.equal(runConcurrencyValidation(value).status, 0);
-  });
-}
-
-// 250 is Cloudflare's per-queue cap; beyond it the deploy would silently get
-// less parallelism than asked for, which is the wrong way to find out.
-for (const value of ['0', '-1', '251', 'abc', '1.5']) {
-  test(`rejects consumer concurrency ${value}`, () => {
-    const r = runConcurrencyValidation(value);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /between 1 and 250/);
-  });
-}
-
-// Sized against the measured 4 MiB backend limit: above it the delivery is
-// rejected with 413 and no retry recovers.
-test('logpush object size is sized under the measured backend limit', () => {
+// Measured: Logpush pushes to an HTTP destination serially, so records per
+// second is bounded by how many ride in each batch.
+test('batches are large, because pushes are serial', () => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
   const records = Number(/max_upload_records: (\d+)/.exec(script)[1]);
-  assert.ok(records <= 1000, `max_upload_records should leave headroom, was ${records}`);
+  assert.ok(records >= 10000, `batch should be large, was ${records}`);
+});
+
+// The ingest path delivers without loading the resolver state, so the
+// account id has to arrive as a variable.
+test('the account id is passed as a worker var', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  assert.match(script, /CONFIDENCE_ACCOUNT_ID = /);
 });

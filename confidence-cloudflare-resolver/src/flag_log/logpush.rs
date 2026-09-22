@@ -51,11 +51,6 @@ const CLOUDFLARE_COMBINED_LIMIT: usize = 16_384;
 const _: () = assert!(MAX_CONSOLE_CHARS < CLOUDFLARE_COMBINED_LIMIT);
 const _: () = assert!(CLOUDFLARE_COMBINED_LIMIT - MAX_CONSOLE_CHARS >= 4_000);
 
-/// Key prefix for oversized logs this worker writes to R2 itself, kept
-/// distinct from Logpush's own `flag-logs/{DATE}/…` so the overflow rate is
-/// visible in the bucket.
-const OVERFLOW_PREFIX: &str = "overflow/";
-
 /// Emits the log as a single prefixed line, or routes it around the trace
 /// event when it is too large for one.
 ///
@@ -83,10 +78,10 @@ const OVERFLOW_PREFIX: &str = "overflow/";
 /// spent either way; doing it before the response moves it, it does not add
 /// it.
 ///
-/// The oversized path is returned to the caller because writing to R2 is a
+/// The oversized path is returned to the caller because delivering it is a
 /// network round-trip, which does have to happen after the response.
 pub(super) fn emit_inline(log: WriteFlagLogsRequest) -> Option<WriteFlagLogsRequest> {
-    match encode(&log) {
+    match encode(&log, destination()) {
         Some(line) if line.len() <= MAX_CONSOLE_CHARS => {
             console_log!("{}", line);
             None
@@ -101,7 +96,7 @@ pub(super) fn emit_inline(log: WriteFlagLogsRequest) -> Option<WriteFlagLogsRequ
 }
 
 pub(super) async fn send(log: WriteFlagLogsRequest) {
-    let Some(line) = encode(&log) else {
+    let Some(line) = encode(&log, destination()) else {
         console_log!("flag log dropped: encoding failed");
         return;
     };
@@ -111,68 +106,57 @@ pub(super) async fn send(log: WriteFlagLogsRequest) {
         return;
     }
 
+    // Logpush would replace the record with a truncation marker and drop it,
+    // so the console is not a transport for this one. Delivered inline
+    // instead: that bypasses aggregation, but it is rare and the alternative
+    // is losing it outright.
     console_log!(
-        "flag log of {} chars exceeds the trace event budget; writing to R2",
+        "flag log of {} chars exceeds the trace event budget; delivering inline",
         line.len()
     );
-    if overflow_to_r2(&line).await {
-        return;
-    }
-
-    // No bucket bound, or R2 rejected the write. Inline delivery bypasses
-    // aggregation and depends on the backend being reachable right now, so it
-    // is the last resort rather than the first.
-    if !super::deliver(&log).await {
-        console_log!("flag log dropped: oversized, R2 and direct delivery both failed");
+    if !super::deliver_to(destination(), &log).await {
+        console_log!("flag log dropped: oversized and direct delivery failed");
     }
 }
 
-/// Writes one oversized log to R2 as a single-record gzipped NDJSON trace
-/// event — byte-compatible with a Logpush object, so [`extract`] reads it
-/// back without knowing the difference.
-async fn overflow_to_r2(line: &str) -> bool {
-    let Some(bucket) = super::bucket() else {
-        return false;
-    };
-    let record = serde_json::json!({ "Logs": [{ "Message": [line] }] }).to_string();
-    let Some(body) = gzip(record.as_bytes()) else {
-        return false;
-    };
-
-    // Millisecond clock plus 32 bits of entropy: concurrent isolates can
-    // share a millisecond, and a collision would silently overwrite a log.
-    let key = format!(
-        "{}{}-{:08x}",
-        OVERFLOW_PREFIX,
-        js_sys::Date::now() as u64,
-        (js_sys::Math::random() * f64::from(u32::MAX)) as u32
-    );
-
-    match bucket.put(&key, body).execute().await {
-        Ok(_) => true,
-        Err(e) => {
-            console_log!("R2 overflow write {} failed: {:?}", key, e);
-            false
-        }
-    }
-}
-
-/// `None` only if compression fails, which writing to a `Vec` cannot do — it
-/// is surfaced rather than unwrapped so a future encoder change cannot turn
-/// into a panic in the request path.
 fn gzip(bytes: &[u8]) -> Option<Vec<u8>> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(bytes).ok()?;
     encoder.finish().ok()
 }
 
-fn encode(log: &WriteFlagLogsRequest) -> Option<String> {
+/// `FLAGLOG <destination> <base64(gzip(protobuf))>`
+///
+/// The destination travels with the log rather than being looked up where it
+/// is delivered, so the consumer needs no resolver state — it reads where a
+/// batch should go from the batch itself.
+/// Takes the destination rather than reading it, so this stays a pure
+/// function: resolving it touches the embedded resolver state, which is not
+/// loadable off wasm32 and would make the encoding untestable.
+fn encode(log: &WriteFlagLogsRequest, destination: i32) -> Option<String> {
     let compressed = gzip(&log.encode_to_vec())?;
     Some(format!(
-        "{}{}",
+        "{}{} {}",
         FLAG_LOG_PREFIX,
+        destination,
         STANDARD.encode(compressed)
     ))
+}
+
+/// This deployment's log destination, as the protobuf value carried in the
+/// resolver state.
+///
+/// Taken from the raw state rather than from the parsed `LOG_DESTINATIONS`,
+/// because the two numbering schemes differ: `LogDestination::from` reads 2
+/// as Cloudflare, while the Rust enum's own discriminant for Cloudflare is 1.
+/// Casting the parsed enum would emit 1, which decodes back as Edge — the
+/// logs would silently go to the wrong destination.
+fn destination() -> i32 {
+    crate::CDN_STATE_REQUEST
+        .log_destinations
+        .first()
+        .copied()
+        .unwrap_or_default()
 }
 
 fn decode(payload: &str) -> Option<WriteFlagLogsRequest> {
@@ -182,6 +166,15 @@ fn decode(payload: &str) -> Option<WriteFlagLogsRequest> {
         .read_to_end(&mut proto)
         .ok()?;
     WriteFlagLogsRequest::decode(proto.as_slice()).ok()
+}
+
+/// What one batch of trace events yielded.
+pub(super) struct Extracted {
+    pub(super) logs: Vec<WriteFlagLogsRequest>,
+    /// Destination named by the first readable record, if any.
+    pub(super) destination: Option<i32>,
+    /// Records that carried the prefix but could not be decoded.
+    pub(super) skipped: usize,
 }
 
 /// One Workers trace event, reduced to the console output we care about.
@@ -217,9 +210,10 @@ struct TraceLog {
 /// The skipped count is returned rather than logged so this stays a pure
 /// function: `console_log!` aborts off wasm32, and the decoding is the part
 /// worth covering with native tests.
-pub(super) fn extract(ndjson: &str) -> (Vec<WriteFlagLogsRequest>, usize) {
+pub(super) fn extract(ndjson: &str) -> Extracted {
     let mut logs = Vec::new();
     let mut skipped = 0usize;
+    let mut destination = None;
     for line in ndjson.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -233,17 +227,33 @@ pub(super) fn extract(ndjson: &str) -> (Vec<WriteFlagLogsRequest>, usize) {
                 let Some(text) = message.as_str() else {
                     continue;
                 };
-                let Some(payload) = text.strip_prefix(FLAG_LOG_PREFIX) else {
+                let Some(rest) = text.strip_prefix(FLAG_LOG_PREFIX) else {
+                    continue;
+                };
+                let Some((dest, payload)) = rest.split_once(' ') else {
+                    skipped = skipped.saturating_add(1);
                     continue;
                 };
                 match decode(payload) {
-                    Some(log) => logs.push(log),
+                    Some(log) => {
+                        // First one wins: every record in a batch comes from
+                        // the same deployment, so they agree except across a
+                        // destination change, where a batch may straddle it.
+                        if destination.is_none() {
+                            destination = dest.parse::<i32>().ok();
+                        }
+                        logs.push(log);
+                    }
                     None => skipped = skipped.saturating_add(1),
                 }
             }
         }
     }
-    (logs, skipped)
+    Extracted {
+        logs,
+        destination,
+        skipped,
+    }
 }
 
 #[cfg(test)]
@@ -270,7 +280,7 @@ mod tests {
     /// The logs half of `extract`, for cases where the skipped count is not
     /// what is under test.
     fn logs(ndjson: &str) -> Vec<WriteFlagLogsRequest> {
-        extract(ndjson).0
+        extract(ndjson).logs
     }
 
     fn statistics(flag: &str) -> WriteFlagLogsRequest {
@@ -333,7 +343,7 @@ mod tests {
     #[test]
     fn round_trips_a_statistics_log() {
         let log = statistics("flags/test-flag");
-        let ndjson = trace_event(&[&encode(&log).unwrap()]);
+        let ndjson = trace_event(&[&encode(&log, 0).unwrap()]);
 
         assert_eq!(logs(&ndjson), vec![log]);
     }
@@ -341,19 +351,36 @@ mod tests {
     #[test]
     fn round_trips_an_exposure_log_with_many_flags() {
         let log = exposures(57);
-        let ndjson = trace_event(&[&encode(&log).unwrap()]);
+        let ndjson = trace_event(&[&encode(&log, 0).unwrap()]);
 
         assert_eq!(logs(&ndjson), vec![log]);
     }
 
+    /// The wire value must survive `LogDestination::from`, which numbers
+    /// Cloudflare as 2 — not as the Rust enum discriminant 1. Emitting the
+    /// discriminant would route Cloudflare logs to Edge.
+    #[test]
+    fn destination_values_round_trip_through_the_proto_numbering() {
+        use confidence_resolver::LogDestination;
+        assert!(matches!(LogDestination::from(0), LogDestination::Edge));
+        assert!(matches!(
+            LogDestination::from(2),
+            LogDestination::Cloudflare
+        ));
+        // The discriminant of Cloudflare is 1, which is *not* Cloudflare here.
+        assert!(matches!(LogDestination::from(1), LogDestination::Edge));
+    }
+
     #[test]
     fn encoded_line_is_prefixed_and_ascii() {
-        let line = encode(&exposures(5)).unwrap();
+        let line = encode(&exposures(5), 0).unwrap();
         assert!(line.starts_with(FLAG_LOG_PREFIX), "line = {line}");
         // base64 is ASCII, so the character budget and the byte length agree.
         // With JSON it would be ambiguous whether Cloudflare counts either.
         assert!(line.is_ascii());
-        assert!(decode(line.strip_prefix(FLAG_LOG_PREFIX).unwrap()).is_some());
+        let rest = line.strip_prefix(FLAG_LOG_PREFIX).unwrap();
+        let (_, payload) = rest.split_once(' ').expect("destination then payload");
+        assert!(decode(payload).is_some());
     }
 
     /// The production case that would truncate uncompressed: this account
@@ -361,7 +388,7 @@ mod tests {
     /// characters — over Cloudflare's 16,384 combined limit.
     #[test]
     fn a_full_account_exposure_log_fits_the_console_budget() {
-        let line = encode(&exposures(57)).unwrap();
+        let line = encode(&exposures(57), 0).unwrap();
 
         assert!(
             line.len() <= MAX_CONSOLE_CHARS,
@@ -374,7 +401,7 @@ mod tests {
     /// regression in encoding size is caught before it starts truncating.
     #[test]
     fn budget_leaves_room_for_several_times_the_expected_worst_case() {
-        let line = encode(&exposures(57)).unwrap();
+        let line = encode(&exposures(57), 0).unwrap();
 
         assert!(
             line.len() * 3 <= MAX_CONSOLE_CHARS,
@@ -389,7 +416,7 @@ mod tests {
     fn compression_substantially_shrinks_a_large_exposure_log() {
         let log = exposures(100);
         let raw = log.encode_to_vec().len();
-        let encoded = encode(&log).unwrap().len();
+        let encoded = encode(&log, 0).unwrap().len();
 
         assert!(
             encoded * 3 < raw,
@@ -414,7 +441,7 @@ mod tests {
         let log = statistics("flags/mixed");
         let ndjson = trace_event(&[
             "flag log dropped: oversized and direct delivery failed",
-            &encode(&log).unwrap(),
+            &encode(&log, 0).unwrap(),
             "unrelated noise",
         ]);
 
@@ -428,8 +455,8 @@ mod tests {
         let third = statistics("flags/third");
         let ndjson = format!(
             "{}\n{}\n",
-            trace_event(&[&encode(&first).unwrap(), &encode(&second).unwrap()]),
-            trace_event(&[&encode(&third).unwrap()]),
+            trace_event(&[&encode(&first, 0).unwrap(), &encode(&second, 0).unwrap()]),
+            trace_event(&[&encode(&third, 0).unwrap()]),
         );
 
         assert_eq!(logs(&ndjson), vec![first, second, third]);
@@ -440,7 +467,7 @@ mod tests {
         let log = statistics("flags/survivor");
         let ndjson = format!(
             "not json at all\n{{\"Logs\": [broken\n{}\n",
-            trace_event(&[&encode(&log).unwrap()])
+            trace_event(&[&encode(&log, 0).unwrap()])
         );
 
         assert_eq!(logs(&ndjson), vec![log]);
@@ -450,34 +477,41 @@ mod tests {
     fn counts_a_prefixed_record_that_is_not_valid_base64() {
         let good = statistics("flags/good");
         let ndjson = trace_event(&[
-            &format!("{FLAG_LOG_PREFIX}!!!not base64!!!"),
-            &encode(&good).unwrap(),
+            &format!("{FLAG_LOG_PREFIX}0 !!!not base64!!!"),
+            &encode(&good, 0).unwrap(),
         ]);
 
-        assert_eq!(extract(&ndjson), (vec![good], 1));
+        let e = extract(&ndjson);
+        assert_eq!(e.logs, vec![good]);
+        assert_eq!(e.skipped, 1);
     }
 
     #[test]
     fn counts_a_prefixed_record_that_is_base64_but_not_gzip() {
         let good = statistics("flags/good");
         let ndjson = trace_event(&[
-            &format!("{}{}", FLAG_LOG_PREFIX, STANDARD.encode("plain bytes")),
-            &encode(&good).unwrap(),
+            &format!("{}0 {}", FLAG_LOG_PREFIX, STANDARD.encode("plain bytes")),
+            &encode(&good, 0).unwrap(),
         ]);
 
-        assert_eq!(extract(&ndjson), (vec![good], 1));
+        let e = extract(&ndjson);
+        assert_eq!(e.logs, vec![good]);
+        assert_eq!(e.skipped, 1);
     }
 
     #[test]
     fn counts_a_truncated_record_as_skipped() {
         // Cloudflare truncation, or any byte-level mangling, makes a gzip
         // record unrecoverable rather than partially readable.
-        let line = encode(&exposures(20)).unwrap();
-        let payload = line.strip_prefix(FLAG_LOG_PREFIX).unwrap();
+        let line = encode(&exposures(20), 0).unwrap();
+        let rest = line.strip_prefix(FLAG_LOG_PREFIX).unwrap();
+        let (dest, payload) = rest.split_once(' ').unwrap();
         let half = &payload[..payload.len() / 2];
-        let ndjson = trace_event(&[&format!("{FLAG_LOG_PREFIX}{half}")]);
+        let ndjson = trace_event(&[&format!("{FLAG_LOG_PREFIX}{dest} {half}")]);
 
-        assert_eq!(extract(&ndjson), (Vec::new(), 1));
+        let e = extract(&ndjson);
+        assert!(e.logs.is_empty());
+        assert_eq!(e.skipped, 1);
     }
 
     #[test]
@@ -486,13 +520,15 @@ mod tests {
         // output would make the metric meaningless.
         let ndjson = trace_event(&["not a flag log", "also not a flag log"]);
 
-        assert_eq!(extract(&ndjson), (Vec::new(), 0));
+        let e = extract(&ndjson);
+        assert!(e.logs.is_empty());
+        assert_eq!(e.skipped, 0);
     }
 
     #[test]
     fn tolerates_blank_lines_and_trailing_newlines() {
         let log = statistics("flags/blank");
-        let ndjson = format!("\n\n{}\n\n\n", trace_event(&[&encode(&log).unwrap()]));
+        let ndjson = format!("\n\n{}\n\n\n", trace_event(&[&encode(&log, 0).unwrap()]));
 
         assert_eq!(logs(&ndjson), vec![log]);
     }
@@ -516,63 +552,15 @@ mod tests {
     fn requires_the_prefix_at_the_start_of_the_line() {
         // A message merely containing the prefix is not a flag log; treating
         // it as one would feed operator text to the decoder.
-        let ndjson = trace_event(&["about to write FLAGLOG somepayload"]);
+        let ndjson = trace_event(&["about to write FLAGLOG 0 somepayload"]);
 
         assert!(logs(&ndjson).is_empty());
-    }
-
-    /// The overflow path writes this exact shape to R2. It has to be readable
-    /// by `extract` with no special handling — that is what lets a single
-    /// decoder serve both Logpush objects and worker-written overflow
-    /// objects, and it is the whole reason the overflow needs no aggregator
-    /// change.
-    #[test]
-    fn overflow_record_is_indistinguishable_from_a_logpush_record() {
-        let log = exposures(300);
-        let line = encode(&log).unwrap();
-        assert!(
-            line.len() > MAX_CONSOLE_CHARS,
-            "this log must be oversized for the test to mean anything, was {}",
-            line.len()
-        );
-
-        // Byte-for-byte what `overflow_to_r2` gzips and puts.
-        let record = serde_json::json!({ "Logs": [{ "Message": [line] }] }).to_string();
-
-        assert_eq!(extract(&record), (vec![log], 0));
-    }
-
-    /// An oversized log has no size ceiling once it leaves the console path,
-    /// so the encoding must survive well past the trace-event budget.
-    #[test]
-    fn oversized_logs_round_trip_at_any_size() {
-        for n in [200usize, 1_000, 5_000] {
-            let log = exposures(n);
-            let record =
-                serde_json::json!({ "Logs": [{ "Message": [encode(&log).unwrap()] }] }).to_string();
-
-            assert_eq!(extract(&record), (vec![log], 0), "n = {n}");
-        }
-    }
-
-    #[test]
-    fn gzip_output_is_a_gzip_member_the_aggregator_can_read() {
-        // The aggregator sniffs the gzip magic bytes to decide whether an R2
-        // object needs decompressing, so the overflow body must carry them.
-        let body = gzip(b"{\"Logs\":[]}").unwrap();
-        assert_eq!(&body[..2], &[0x1f, 0x8b]);
-
-        let mut out = Vec::new();
-        GzDecoder::new(body.as_slice())
-            .read_to_end(&mut out)
-            .unwrap();
-        assert_eq!(out, b"{\"Logs\":[]}");
     }
 
     #[test]
     fn empty_request_round_trips() {
         let log = WriteFlagLogsRequest::default();
-        let ndjson = trace_event(&[&encode(&log).unwrap()]);
+        let ndjson = trace_event(&[&encode(&log, 0).unwrap()]);
 
         assert_eq!(logs(&ndjson), vec![log]);
     }
