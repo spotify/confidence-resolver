@@ -350,6 +350,92 @@ echo "🏁 Starting CloudFlare deployment"
 echo "☁️ CloudFlare API token: ${CLOUDFLARE_API_TOKEN:0:5}.."
 echo "☁️ CloudFlare account ID: $CLOUDFLARE_ACCOUNT_ID"
 
+# ---------------------------------------------------------------------------
+# Flag-log sink: "queue" (default) or "logpush".
+#
+# queue   — flag logs publish to the flag-logs queue shards created above and
+#           the worker's queue consumer batches them.
+# logpush — flag logs are written to console.log, Cloudflare Logpush captures
+#           them into R2, and the worker's cron trigger aggregates, delivers
+#           and deletes. Nothing is held in isolate memory between requests,
+#           so an isolate eviction cannot lose a log for a completed request.
+#
+# Queue bindings are created under either sink, so switching FLAG_LOG_SINK
+# back to "queue" is an immediate rollback that also drains whatever is still
+# queued.
+# ---------------------------------------------------------------------------
+FLAG_LOG_SINK=${FLAG_LOG_SINK:-queue}
+FLAG_LOG_SINK=$(printf '%s' "$FLAG_LOG_SINK" | tr '[:upper:]' '[:lower:]')
+if [ "$FLAG_LOG_SINK" != "queue" ] && [ "$FLAG_LOG_SINK" != "logpush" ]; then
+    echo "❌ FLAG_LOG_SINK must be \"queue\" or \"logpush\", got: $FLAG_LOG_SINK" >&2
+    exit 1
+fi
+
+# Logpush delivers batches roughly once a minute regardless of its upload
+# settings, so polling faster than that only burns invocations.
+FLAG_LOGS_AGGREGATOR_CRON=${FLAG_LOGS_AGGREGATOR_CRON:-* * * * *}
+
+# Fails fast if CLOUDFLARE_API_TOKEN cannot do what this deploy needs.
+#
+# Every capability is probed with a cheap read against the same endpoint the
+# deploy will later write to, and against the resolved account. A permission
+# gap then surfaces here, naming the scope to add, instead of half-way through
+# after some resources already exist.
+#
+# Probing the account explicitly matters: a token valid for one account
+# returns an indistinguishable authentication error for another, so "R2 is
+# enabled" and "this token can see R2" are different questions and only the
+# second one is answered here.
+preflight_api_permissions() {
+    local missing=0
+    local base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+    local label perm url code
+
+    echo "🔐 Verifying API token permissions on account ${CLOUDFLARE_ACCOUNT_ID}..."
+
+    check_perm() {
+        label="$1"; perm="$2"; url="$3"
+        code=$(curl -sS -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "$url")
+        if [ "$code" = "200" ]; then
+            echo "   ✅ ${label}"
+        else
+            echo "   ❌ ${label} (HTTP ${code}) — token needs: ${perm}" >&2
+            missing=1
+        fi
+    }
+
+    check_perm "Workers Scripts" "Account > Workers Scripts > Edit" "${base}/workers/scripts"
+    check_perm "Workers Queues"  "Account > Workers Queues > Edit"  "${base}/queues"
+
+    if [ "$FLAG_LOG_SINK" = "logpush" ]; then
+        check_perm "R2 Storage" "Account > Workers R2 Storage > Edit" "${base}/r2/buckets"
+        check_perm "Logpush"    "Account > Logs > Edit"               "${base}/logpush/jobs"
+    fi
+
+    if [ -n "${ENABLE_METRICS:-}" ] || [ -n "${ENABLE_STICKY_ASSIGNMENTS:-}" ]; then
+        check_perm "Workers KV" "Account > Workers KV Storage > Edit" \
+            "${base}/storage/kv/namespaces"
+    fi
+
+    if [ "$missing" -ne 0 ]; then
+        {
+            echo ""
+            echo "❌ CLOUDFLARE_API_TOKEN lacks permissions required for this deploy."
+            echo "   Create or edit a token at https://dash.cloudflare.com/profile/api-tokens"
+            echo "   and make sure it is scoped to account ${CLOUDFLARE_ACCOUNT_ID}."
+            if [ "$FLAG_LOG_SINK" = "logpush" ]; then
+                echo "   FLAG_LOG_SINK=logpush additionally requires R2 and Logpush access,"
+                echo "   and Logpush requires the Workers Paid plan."
+            fi
+        } >&2
+        exit 1
+    fi
+    echo "✅ API token has every permission this deploy needs"
+}
+
+preflight_api_permissions
+
 
 if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
     # Remove existing account_id line if present
@@ -457,30 +543,6 @@ else
 fi
 ensure_queue "$EVENTS_QUEUE_NAME" || exit 1
 
-# ---------------------------------------------------------------------------
-# Flag-log sink: "queue" (default) or "logpush".
-#
-# queue   — flag logs publish to the flag-logs queue shards created above and
-#           the worker's queue consumer batches them.
-# logpush — flag logs are written to console.log, Cloudflare Logpush captures
-#           them into R2, and the worker's cron trigger aggregates, delivers
-#           and deletes. Nothing is held in isolate memory between requests,
-#           so an isolate eviction cannot lose a log for a completed request.
-#
-# Queue bindings are created under either sink, so switching FLAG_LOG_SINK
-# back to "queue" is an immediate rollback that also drains whatever is still
-# queued.
-# ---------------------------------------------------------------------------
-FLAG_LOG_SINK=${FLAG_LOG_SINK:-queue}
-FLAG_LOG_SINK=$(printf '%s' "$FLAG_LOG_SINK" | tr '[:upper:]' '[:lower:]')
-if [ "$FLAG_LOG_SINK" != "queue" ] && [ "$FLAG_LOG_SINK" != "logpush" ]; then
-    echo "❌ FLAG_LOG_SINK must be \"queue\" or \"logpush\", got: $FLAG_LOG_SINK" >&2
-    exit 1
-fi
-
-# Logpush delivers batches roughly once a minute regardless of its upload
-# settings, so polling faster than that only burns invocations.
-FLAG_LOGS_AGGREGATOR_CRON=${FLAG_LOGS_AGGREGATOR_CRON:-* * * * *}
 
 ensure_r2_bucket() {
     local B_NAME="$1"

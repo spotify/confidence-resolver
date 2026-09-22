@@ -272,3 +272,102 @@ mv "$LOGPUSH_TMPFILE" wrangler.toml
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+// --- API token preflight tests ---
+
+// Replicates the preflight probe loop with a stubbed `curl`, so the tests
+// cover the branching and messaging without reaching the network. `codes`
+// maps an endpoint fragment to the HTTP status the stub should return.
+function runPreflight(sink, codes, extra = {}) {
+  const directory = mkdtempSync(join(tmpdir(), 'preflight-test-'));
+  try {
+    const cases = Object.entries(codes)
+      .map(([frag, code]) => `  *${frag}*) echo -n "${code}";;`)
+      .join('\n');
+    writeFileSync(join(directory, 'curl'), `#!/bin/bash
+for a in "$@"; do case "$a" in https://*) url="$a";; esac; done
+case "$url" in
+${cases}
+  *) echo -n "200";;
+esac
+`, { mode: 0o755 });
+
+    const result = spawnSync('bash', ['-c', `
+set -uo pipefail
+export PATH="${directory}:$PATH"
+CLOUDFLARE_ACCOUNT_ID=acct123
+CLOUDFLARE_API_TOKEN=tok
+FLAG_LOG_SINK=${sink}
+ENABLE_METRICS="${extra.metrics || ''}"
+ENABLE_STICKY_ASSIGNMENTS=""
+missing=0
+base="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
+check_perm() {
+    label="$1"; perm="$2"; url="$3"
+    code=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$url")
+    if [ "$code" = "200" ]; then echo "PROBE_OK ${'${label}'}"; else
+        echo "PROBE_FAIL ${'${label}'} needs: ${'${perm}'}" >&2; missing=1; fi
+}
+check_perm "Workers Scripts" "Account > Workers Scripts > Edit" "$base/workers/scripts"
+check_perm "Workers Queues"  "Account > Workers Queues > Edit"  "$base/queues"
+if [ "$FLAG_LOG_SINK" = "logpush" ]; then
+    check_perm "R2 Storage" "Account > Workers R2 Storage > Edit" "$base/r2/buckets"
+    check_perm "Logpush"    "Account > Logs > Edit"               "$base/logpush/jobs"
+fi
+if [ -n "$ENABLE_METRICS" ]; then
+    check_perm "Workers KV" "Account > Workers KV Storage > Edit" "$base/storage/kv/namespaces"
+fi
+[ "$missing" -ne 0 ] && exit 1
+exit 0
+`], { encoding: 'utf8', timeout: 5000 });
+    return result;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('preflight passes when every probe returns 200', () => {
+  const r = runPreflight('logpush', {});
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 4);
+});
+
+test('queue mode does not probe R2 or Logpush', () => {
+  const r = runPreflight('queue', {});
+  assert.equal(r.status, 0);
+  assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 2);
+  assert.doesNotMatch(r.stdout, /R2 Storage|Logpush/);
+});
+
+test('logpush mode probes R2 and Logpush', () => {
+  const r = runPreflight('logpush', {});
+  assert.match(r.stdout, /PROBE_OK R2 Storage/);
+  assert.match(r.stdout, /PROBE_OK Logpush/);
+});
+
+test('a 403 on Logpush fails the deploy and names the scope', () => {
+  const r = runPreflight('logpush', { 'logpush/jobs': 403 });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /PROBE_FAIL Logpush needs: Account > Logs > Edit/);
+});
+
+test('a 403 on R2 fails the deploy and names the scope', () => {
+  const r = runPreflight('logpush', { 'r2/buckets': 403 });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /PROBE_FAIL R2 Storage needs: Account > Workers R2 Storage > Edit/);
+});
+
+// A token valid for one account returns an indistinguishable auth error for
+// another, so a wrong-account token must fail here rather than part-way in.
+test('a token with no access to the account fails every probe', () => {
+  const r = runPreflight('logpush', {
+    'workers/scripts': 403, queues: 403, 'r2/buckets': 403, 'logpush/jobs': 403,
+  });
+  assert.equal(r.status, 1);
+  assert.equal((r.stderr.match(/PROBE_FAIL/g) || []).length, 4);
+});
+
+test('KV is only probed when metrics or sticky assignments are enabled', () => {
+  assert.doesNotMatch(runPreflight('queue', {}).stdout, /Workers KV/);
+  assert.match(runPreflight('queue', {}, { metrics: '1' }).stdout, /PROBE_OK Workers KV/);
+});

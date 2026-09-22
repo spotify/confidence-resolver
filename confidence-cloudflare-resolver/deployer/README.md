@@ -26,6 +26,18 @@ A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-de
   * **Account > Workers Scripts > Edit**
   * **Account > Workers Queues > Edit** (needed for the first deploy)
   * **Account > Workers KV Storage > Edit** (only if using `ENABLE_METRICS` or `ENABLE_STICKY_ASSIGNMENTS`)
+  * **Account > Workers R2 Storage > Edit** (only if using `FLAG_LOG_SINK=logpush`)
+  * **Account > Logs > Edit** (only if using `FLAG_LOG_SINK=logpush`)
+
+  The deployer probes each of these against the resolved account before it
+  creates anything, and exits naming the missing scope. Note that a token
+  valid for one account returns an indistinguishable authentication error for
+  another, so a token scoped to the wrong account fails here too — check the
+  account id in the error against the one you expect.
+
+  A `wrangler login` OAuth session is **not** sufficient: wrangler cannot
+  request a Logpush scope at all, so `FLAG_LOG_SINK=logpush` requires a real
+  API token created in the dashboard.
 * Confidence client secret (must be type **BACKEND**)
 
 ## Usage
