@@ -424,10 +424,10 @@ mod dedup_batch_tests {
         )])]
     }
 
-    /// The R2 aggregator folds many objects into a single delivery, so the
-    /// dedup window has to span them. An object holds roughly a second of
-    /// traffic against a 120-second window, so most duplicates arrive in
-    /// *different* objects — sharing one map is what catches them.
+    /// The window is shared across calls rather than rebuilt per call, so a
+    /// duplicate spanning two batches is still caught. The queue consumer
+    /// relies on this: a repeated assignment rarely lands twice inside one
+    /// batch, so a fresh map per batch would miss most of them.
     #[test]
     fn one_window_deduplicates_across_separate_batches() {
         let mut first = same_assignment("resolve-1");
