@@ -150,7 +150,9 @@ by the size budget rather than by time. Apply-dedup also only sees one
 isolate's traffic here, so duplicate exposures that the queue consumer would
 have collapsed are sent.
 
-Alert on `flag log buffer: DROPPED` and `flag log buffer: SHED`.
+Alert on `DROPPED` and `SHED` in the worker's logs. Between them they cover
+every case where a record does not reach Confidence, except an isolate
+evicted while holding a buffer, which by its nature leaves no log.
 
 Measured on an 800k-resolve run, conservation was within a rounding error of
 100%, but that is one account on one day; treat the durability trade as the

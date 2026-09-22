@@ -299,12 +299,18 @@ pub(super) fn deliver_all_within_limit(
         // Past the measured limit the backend answers 413, and the records
         // are gone into the aggregate so there is nothing left to split.
         console_log!(
-            "flag log: aggregate of {} records is {} bytes, past the {} byte backend limit; \
-             dropping",
+            "flag log: DROPPED {} records, aggregate of {} bytes is past the {} byte \
+             backend limit",
             count,
             size,
             MEASURED_BACKEND_LIMIT
         );
+        // A single record over the limit reports success even though it was
+        // dropped, because the only caller that acts on `false` is the queue
+        // consumer, and failing there redelivers a record that will be over
+        // the limit every time until it dead-letters. The loss is reported
+        // above rather than through the return value, so alerting still sees
+        // it. Anything splittable reports the failure honestly.
         count == 1
     })
 }
