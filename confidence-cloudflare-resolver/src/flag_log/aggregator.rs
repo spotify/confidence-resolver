@@ -104,7 +104,37 @@ thread_local! {
     /// single isolate, so this widens the window on a best-effort basis
     /// rather than guaranteeing it. The resolver's own dedup map has the same
     /// property.
+    ///
+    /// Bounded by entry count rather than time — see `super::new_dedup` for
+    /// why a TTL would be meaningless on this path.
     static DEDUP: RefCell<ApplyDedup> = RefCell::new(super::new_dedup());
+}
+
+/// Starts a fresh window once the current one is full.
+///
+/// Left alone, `check_hash` fails open past its entry cap: it stops recording
+/// new hashes and returns "not a duplicate" for everything it has not seen.
+/// That is the safe direction — no data is lost — but it means dedup silently
+/// stops working, permanently, under exactly the sustained load where
+/// duplicates are most likely. Resetting trades a short amnesia for a window
+/// that keeps functioning.
+fn reset_dedup_if_full() {
+    DEDUP.with(|slot| {
+        let snapshot = {
+            let dedup = slot.borrow();
+            dedup.telemetry_snapshot()
+        };
+        if snapshot.map_size < snapshot.map_capacity {
+            return;
+        }
+        console_log!(
+            "flag log aggregation: dedup window full at {} entries ({} deduped,              {} overflowed), resetting",
+            snapshot.map_size,
+            snapshot.applies_deduped,
+            snapshot.apply_dedup_overflow
+        );
+        *slot.borrow_mut() = super::new_dedup();
+    });
 }
 
 /// What one pass did. Reported unconditionally, including the idle case, so
@@ -149,10 +179,7 @@ pub(crate) async fn run(env: &Env) {
 
     let dedup = super::dedup_enabled(env);
     if dedup {
-        // The only thing that evicts: `check_hash` never scans the map, so
-        // without this the window fills to its entry cap and silently stops
-        // tracking anything new.
-        DEDUP.with(|d| d.borrow_mut().sweep((started_ms / 1000.0) as i64));
+        reset_dedup_if_full();
     }
 
     let mut stats = Stats::default();

@@ -177,10 +177,23 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
     false
 }
 
-/// A dedup window matching the resolver's own, capped at 100k entries so a
-/// hot isolate cannot grow it without bound.
+/// A dedup window bounded by entry count.
+///
+/// The TTL argument is inert here: `ApplyDedup` expires entries only in
+/// `sweep`, and neither sink sweeps. The queue consumer builds a fresh map
+/// per batch, and the aggregator has no meaningful clock to sweep against —
+/// it reads objects oldest-first while Logpush lags behind, so aggregation
+/// wall-clock bears no fixed relation to when an apply actually happened.
+/// Expiring by that measure would drop entries arbitrarily.
+///
+/// Bounding by entry count instead makes the window's behaviour independent
+/// of any clock: the first 100k distinct assignments are deduplicated, and
+/// the caller decides what to do when it fills.
+const DEDUP_MAX_ENTRIES: usize = 100_000;
+
 fn new_dedup() -> ApplyDedup {
-    ApplyDedup::new(120, 100_000)
+    // TTL unused; see above.
+    ApplyDedup::new(i64::MAX, DEDUP_MAX_ENTRIES)
 }
 
 /// Removes applied flags already seen in `dedup`.
