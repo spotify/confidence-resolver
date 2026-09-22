@@ -81,7 +81,10 @@ Statistics buffering is always enabled to reduce queue traffic. No configuration
   exposure log or after 200 ms, even if no further requests arrive.
 
 Buffered statistics are best effort and can be lost on restart or when the buffer
-is full. Normal queue delivery failures still apply to exposure logs.
+is full. Failed exposure sends retain the complete envelope for up to three
+retries, ahead of statistics. These in-memory retries are best effort: restarts,
+capacity limits, or persistent queue failures can still lose exposures; retries
+can also produce duplicates.
 Savings depend on how many requests produce no exposures.
 
 ### Scaling flag-log queues

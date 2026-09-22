@@ -1,9 +1,10 @@
-//! Best-effort statistics aggregation. Exposures never enter the shared buffer.
+//! Best-effort statistics aggregation and bounded retries for failed exposures.
 use confidence_resolver::{
     flag_logger, proto::confidence::flags::resolver::v1::WriteFlagLogsRequest,
 };
 use futures_util::future::{select, Either};
 use std::{cell::RefCell, collections::VecDeque, future::Future, time::Duration};
+use worker::console_log;
 
 thread_local! {
     static BUFFER: RefCell<Buffer> = RefCell::new(Buffer::default());
@@ -14,7 +15,7 @@ const TARGET_MESSAGE_BYTES: usize = 60_000;
 const MAX_MESSAGE_BYTES: usize = 120_000;
 const MAX_BATCHES: usize = 4;
 
-// Only owns the statistics timer. Exposure requests never acquire this guard.
+// Owns the shared flush/retry timer, never the first exposure publish.
 struct Running;
 impl Drop for Running {
     fn drop(&mut self) {
@@ -40,24 +41,30 @@ async fn send_with<D, P>(
     P: Future<Output = bool>,
 {
     if has_flag_assigns(&log) {
-        // Exposures NEVER enter the best-effort buffer, even on publish failure.
         BUFFER.with(|buffer| buffer.borrow_mut().attach_pending(&mut log));
         match serde_json::to_string(&log) {
             Ok(json) => {
-                if !publish(json).await {
-                    worker::console_log!("exposure flag log publish failed");
+                if publish(json).await {
+                    return;
                 }
+                console_log!("exposure flag log publish failed; scheduling retry");
+                BUFFER.with(|buffer| buffer.borrow_mut().push_exposure(log));
             }
-            Err(e) => worker::console_log!("exposure flag log serialize failed: {:?}", e),
+            Err(e) => {
+                console_log!("exposure flag log serialize failed: {:?}", e);
+                return;
+            }
         }
-        return;
+    } else {
+        BUFFER.with(|buffer| {
+            if !buffer.borrow_mut().push(log) {
+                console_log!("statistics buffer full or message too large; statistics dropped");
+            }
+        });
     }
 
     let start = BUFFER.with(|buffer| {
         let mut buffer = buffer.borrow_mut();
-        if !buffer.push(log) {
-            worker::console_log!("statistics buffer full or message too large; statistics dropped");
-        }
         if buffer.running || buffer.is_empty() {
             return false;
         }
@@ -69,9 +76,9 @@ async fn send_with<D, P>(
     }
     let _running = Running;
     let mut failures = 0;
-    // Bound best-effort statistics work within this request's waitUntil.
+    // Bound best-effort retry/flush work within this request's waitUntil.
     for _ in 0..16 {
-        delay(FLUSH_INTERVAL).await;
+        delay(FLUSH_INTERVAL * (1 << failures)).await;
         let json = BUFFER.with(|buffer| buffer.borrow_mut().start_send());
         let Some(json) = json else { break };
         let delivered = matches!(
@@ -86,6 +93,16 @@ async fn send_with<D, P>(
             BUFFER.with(|buffer| buffer.borrow_mut().in_flight = None);
             failures = 0;
         } else {
+            BUFFER.with(|buffer| {
+                let mut buffer = buffer.borrow_mut();
+                if buffer.in_flight.as_ref().is_some_and(has_flag_assigns) {
+                    buffer.exposure_attempts += 1;
+                    if buffer.exposure_attempts == 3 {
+                        buffer.in_flight = None;
+                        console_log!("exposure retry limit reached; envelope dropped");
+                    }
+                }
+            });
             failures += 1;
             if failures == 3 {
                 break;
@@ -106,7 +123,9 @@ fn has_flag_assigns(log: &WriteFlagLogsRequest) -> bool {
 #[derive(Default)]
 struct Buffer {
     pending: VecDeque<WriteFlagLogsRequest>,
+    exposure_retries: VecDeque<WriteFlagLogsRequest>,
     in_flight: Option<WriteFlagLogsRequest>,
+    exposure_attempts: usize,
     running: bool,
 }
 
@@ -118,6 +137,25 @@ fn fits(log: &WriteFlagLogsRequest, limit: usize) -> bool {
 }
 
 impl Buffer {
+    fn len(&self) -> usize {
+        self.pending.len() + self.exposure_retries.len() + usize::from(self.in_flight.is_some())
+    }
+
+    fn push_exposure(&mut self, log: WriteFlagLogsRequest) {
+        if !fits(&log, MAX_MESSAGE_BYTES) {
+            console_log!("exposure too large for retry buffer; envelope dropped");
+            return;
+        }
+        if self.len() >= MAX_BATCHES && self.pending.pop_back().is_some() {
+            console_log!("statistics dropped to retain failed exposure");
+        }
+        if self.len() >= MAX_BATCHES {
+            console_log!("exposure retry buffer full; envelope dropped");
+            return;
+        }
+        self.exposure_retries.push_back(log);
+    }
+
     fn push(&mut self, mut log: WriteFlagLogsRequest) -> bool {
         debug_assert!(!has_flag_assigns(&log), "exposures must bypass the buffer");
         log.flag_assigned.clear();
@@ -131,7 +169,7 @@ impl Buffer {
                 return true;
             }
         }
-        if self.pending.len() + usize::from(self.in_flight.is_some()) >= MAX_BATCHES {
+        if self.len() >= MAX_BATCHES {
             return false;
         }
         self.pending.push_back(log);
@@ -154,15 +192,28 @@ impl Buffer {
     }
 
     fn start_send(&mut self) -> Option<String> {
+        // Called only between sends: an outstanding publish is never preempted.
+        if !self.exposure_retries.is_empty()
+            && self
+                .in_flight
+                .as_ref()
+                .is_some_and(|log| !has_flag_assigns(log))
+        {
+            self.pending.push_front(self.in_flight.take().unwrap());
+        }
         if self.in_flight.is_none() {
-            self.in_flight = self.pending.pop_front();
+            self.in_flight = self
+                .exposure_retries
+                .pop_front()
+                .or_else(|| self.pending.pop_front());
+            self.exposure_attempts = 0;
         }
         self.in_flight.as_ref().map(|log| {
-            serde_json::to_string(log).expect("buffer only accepts serializable statistics")
+            serde_json::to_string(log).expect("buffer only accepts serializable envelopes")
         })
     }
 
     fn is_empty(&self) -> bool {
-        self.in_flight.is_none() && self.pending.is_empty()
+        self.in_flight.is_none() && self.pending.is_empty() && self.exposure_retries.is_empty()
     }
 }
