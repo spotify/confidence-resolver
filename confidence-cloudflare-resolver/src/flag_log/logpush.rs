@@ -72,6 +72,34 @@ const OVERFLOW_PREFIX: &str = "overflow/";
 /// is written to R2 directly instead, in the same format Logpush produces, so
 /// the aggregator picks it up with no special handling and it is still
 /// aggregated and deduplicated with everything else.
+/// Emits the log without awaiting anything, returning it back only when
+/// shipping needs async work.
+///
+/// This is the whole durability argument for the sink, and it only holds if
+/// it runs *in* the request rather than after it. `wait_until` is best
+/// effort — Cloudflare cancels pending work when an isolate is evicted or the
+/// budget is exceeded — so a log that costs microseconds to emit should not
+/// depend on it. Encoding plus a console write is local CPU that was being
+/// spent either way; doing it before the response moves it, it does not add
+/// it.
+///
+/// The oversized path is returned to the caller because writing to R2 is a
+/// network round-trip, which does have to happen after the response.
+pub(super) fn emit_inline(log: WriteFlagLogsRequest) -> Option<WriteFlagLogsRequest> {
+    match encode(&log) {
+        Some(line) if line.len() <= MAX_CONSOLE_CHARS => {
+            console_log!("{}", line);
+            None
+        }
+        // Too large for a trace event; needs the R2 overflow write.
+        Some(_) => Some(log),
+        None => {
+            console_log!("flag log dropped: encoding failed");
+            None
+        }
+    }
+}
+
 pub(super) async fn send(log: WriteFlagLogsRequest) {
     let Some(line) = encode(&log) else {
         console_log!("flag log dropped: encoding failed");

@@ -144,82 +144,81 @@ message and charge three operations each, so cost tracks the number of log
 records. Logpush bills per *request* — which you serve anyway — and Cloudflare
 batches thousands of records into each R2 object for the price of one write.
 
-The deployer provisions everything: it creates the R2 bucket, creates or
-updates a `workers_trace_events` Logpush job, sets `logpush = true`, and adds
-the `FLAG_LOGS_R2` binding, the cron trigger, and a raised `cpu_ms` limit for
-the aggregation pass.
+The deployer provisions the whole path: the R2 bucket, a
+`workers_trace_events` Logpush job, `logpush = true`, the `FLAG_LOGS_R2`
+binding, an object-notification queue, and R2 event notifications pointing at
+it.
+
+**How objects get drained.** R2 emits an `object-create` notification for
+every object Logpush writes; the worker consumes one object per message —
+read, aggregate, deliver, delete. The work unit is therefore fixed size, so
+memory per invocation is constant no matter how much traffic there is, and
+throughput is `FLAG_LOGS_CONSUMER_CONCURRENCY × records-per-object ÷
+delivery-latency`.
+
+Measured, one consumer delivers about **235 records/sec** (delivery latency is
+roughly 1,370 ms plus 2.3 ms per assignment, at 700 records per object). So:
+
+| Target | `FLAG_LOGS_CONSUMER_CONCURRENCY` |
+| ------ | -------------------------------- |
+| 1K resolves/sec | 5 |
+| 10K resolves/sec | 43 |
+| 50K resolves/sec | 213 |
+
+250 is Cloudflare's per-queue cap; beyond it, shard the queue.
+
+**Sizing.** The backend accepts a body up to **4 MiB** and returns `413` above
+it, which no retry recovers from. `max_upload_records` is pinned to 700,
+leaving roughly half the limit as headroom for variation in flag count and
+context size. Larger objects amortise the fixed delivery cost better, so this
+is the knob to raise if that limit ever does.
+
+**Retries.** A failed delivery leaves the object in R2 and fails the message,
+so Cloudflare Queues retries with backoff and dead-letters after
+`max_retries`. Nothing is dropped on a timer.
+
+**Deduplication.** Applies are deduplicated in the consumer across the whole
+queue batch. This is the only place cross-isolate duplicates can be caught: an
+object carries records from many isolates, and the resolver's own dedup window
+only ever sees one isolate's traffic.
 
 **Payload encoding.** Logs are sent as `base64(gzip(protobuf))`. gzip is what
 matters: `AppliedFlag` entries repeat the targeting key and share
 `flags/…/rules/…/variants/…` path prefixes, so measured against realistic data
-it shrinks a log about 5.5x and cuts the marginal cost of an exposure from ~365
-to ~63 bytes. base64 keeps the result escape-free so it does not inflate again
-inside the trace event's JSON.
+it shrinks a log about 5.5x and cuts the marginal cost of an exposure from
+~365 to ~63 bytes. base64 keeps the result escape-free so it does not inflate
+again inside the trace event's JSON.
 
-**Size handling.** Cloudflare truncates a trace event's `logs` and `exceptions`
-fields once their combined length reaches 16,384 characters, counting
-exceptions first. That limit is fixed — no configuration changes it, and
-splitting across several `console.log` calls does not help because it applies
-per trace event rather than per line. The Worker therefore caps a console line
-at 12,000 characters and writes anything larger straight to R2 in the same
-format Logpush produces, so the aggregator reads it back with no special
-handling and it is still aggregated and deduplicated with everything else. If
-the bucket is unavailable, such a log is delivered inline as a last resort.
-
-Measured, a 57-flag exposure log encodes to roughly 3,800 characters, so the
-12,000 cap engages only for resolves applying a few hundred flags at once.
+**Size handling.** Cloudflare truncates a trace event's `logs` and
+`exceptions` fields once their combined length reaches 16,384 characters,
+counting exceptions first. That limit is fixed — no configuration changes it,
+and splitting across several `console.log` calls does not help because it
+applies per trace event rather than per line. The Worker therefore caps a
+console line at 12,000 characters and writes anything larger straight to R2 in
+the same format Logpush produces, so the consumer reads it back with no
+special handling. Measured, a 57-flag exposure log encodes to roughly 3,800
+characters, so the cap engages only for resolves applying a few hundred flags
+at once.
 
 **Job scoping.** The Logpush job is filtered to `ScriptName = <worker>` and
-`EventType = fetch`. The first keeps it from capturing every Worker in the
-account; the second excludes the aggregator's own cron invocations, so its
-console output cannot feed back into the bucket it is draining.
-`output_options.field_names` is restricted to `EventTimestampMs` and `Logs`,
-dropping the request-metadata and exception fields the aggregator does not
-read. Only `FLAGLOG `-prefixed console lines are parsed, so error logs sharing
-a trace event are ignored.
+`EventType = fetch`, and the R2 notification rules are scoped to the
+`flag-logs/` and `overflow/` prefixes — the consumer deletes what it drains,
+so it must never claim an object the pipeline did not write.
 
 Trade-offs versus the queue:
 
-- **Delivery latency is roughly a minute** and is not tunable. Logpush's upload
-  settings influence batch size, not latency.
+- **Delivery latency is roughly a minute** and is not tunable. Logpush's
+  upload settings influence batch size, not latency.
 - **The Logpush hop has no durability contract.** It retries a failed batch
   about five times over five minutes, then drops it permanently, and disables
   the job after prolonged failure. Targeting R2 rather than an external
   endpoint makes that unlikely, but the Logpush Health dashboard is worth an
   alert.
-- **Statistics may be double-counted** if a delivery succeeds but the R2 delete
-  fails, or if two cron passes overlap. Applies are deduplicated; the
-  statistics counters are not.
+- **Statistics may be double-counted** on a redelivery, since a queue message
+  is at-least-once. Applies are deduplicated; the statistics counters are not.
 - **Flag logs are billed twice while `[observability]` is enabled.** Every
   `FLAGLOG` console line is also ingested by Workers Logs, on top of the R2
-  copy that is the intended destination. At the volumes where this sink's cost
-  advantage matters that is a real line item, so consider lowering
-  `observability.head_sampling_rate` — bearing in mind it also samples the
-  aggregation summary lines you would want for the alerts above.
-- **Throughput has a ceiling, and it has not been measured under sustained
-  load.** The aggregator delivers one R2 object at a time and stops after 25
-  seconds of wall clock, leaving the rest for the next tick. That bounds
-  memory and contains failures, but it also bounds drain rate: objects are
-  pinned at 2 MB, and a pass handles as many as fit the time budget.
-
-  The binding constraint is memory, not CPU. `aggregate_batch` concatenates
-  `flag_assigned`, so exposures cannot collapse, and a decoded record is
-  several times its size on the wire — which is why delivery is per object
-  rather than per pass. Treat the safe sustained rate as **unverified above a
-  few hundred requests/second** until measured on your own traffic; watch
-  `more_pending=true` in the aggregation log, which means the listing was
-  saturated and a backlog is building.
-
-- **Overlapping passes are possible.** Cron invocations are not serialized,
-  and the R2 binding offers no conditional write, so the pass lease is best
-  effort. Two passes racing the same object double-count its statistics.
-  Per-object delivery keeps the blast radius to one object rather than a
-  whole batch.
-
-- **An object that cannot be delivered is eventually dropped.** Retrying
-  forever would grow the bucket without bound and never succeed for a payload
-  the backend rejects outright, so an object still undelivered after an hour
-  is dropped with a `DROPPING ... records lost` log. Alert on that line.
+  copy that is the intended destination.
 
 Set `-e FORCE_DEPLOY=1` when switching sinks so an unchanged resolver state does
 not skip deployment.

@@ -6,8 +6,9 @@
 //!   Queue shard and the queue consumer aggregates up to 100 messages before
 //!   delivery. A publish that fails is dropped. See [`queue`] and [`shards`].
 //! * [`Sink::Logpush`] — the log is written to `console.log`, Cloudflare's
-//!   Logpush captures it into R2, and a cron-triggered pass aggregates,
-//!   delivers, and deletes. See [`logpush`] and [`aggregator`].
+//!   Logpush captures it into R2, R2 notifies a queue on each object, and a
+//!   consumer drains one object per message. See [`logpush`] and
+//!   [`aggregator`].
 //!
 //! The sinks differ in where the batching happens, and that is the trade. The
 //! queue is billed per message — three operations each — so cost scales with
@@ -32,7 +33,7 @@ mod logpush;
 mod queue;
 mod shards;
 
-pub(crate) use aggregator::run as run_aggregator;
+pub(crate) use aggregator::consume_notifications;
 
 use confidence_resolver::{
     apply_dedup::{compute_applied_flag_dedup_hash, AppliedFlagRef, ApplyDedup},
@@ -139,6 +140,23 @@ fn bucket() -> Option<Bucket> {
     BUCKET.with(|slot| slot.borrow().clone().flatten())
 }
 
+/// Emits the log inline where the active sink allows it, returning the log
+/// back when shipping it needs async work.
+///
+/// `wait_until` is best effort: Cloudflare can cancel pending work when an
+/// isolate is evicted or the post-response budget is exceeded. The Logpush
+/// sink's common path is a local console write, so it runs here, inside the
+/// request — which is what makes its durability claim true rather than
+/// aspirational. The queue sink cannot do this: publishing is a network
+/// round-trip, and awaiting it in the request path would charge the caller
+/// for it.
+pub(crate) fn emit_inline(log: WriteFlagLogsRequest) -> Option<WriteFlagLogsRequest> {
+    match sink() {
+        Sink::Queue => Some(log),
+        Sink::Logpush => logpush::emit_inline(log),
+    }
+}
+
 /// Ships one request's flag log. Called from `wait_until`, so it runs after
 /// the response has been returned.
 pub(crate) async fn send(log: WriteFlagLogsRequest) {
@@ -167,11 +185,29 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
     let account_id = crate::CDN_STATE_REQUEST.account_id.as_str();
 
     for &destination in crate::LOG_DESTINATIONS.iter() {
-        match crate::deliver_flag_logs(client_secret, account_id, req, destination).await {
-            Ok(()) => return true,
-            Err(reason) => {
-                console_log!("flag log delivery to {:?} failed: {}", destination, reason)
+        let started_ms = js_sys::Date::now();
+        let result = crate::deliver_flag_logs(client_secret, account_id, req, destination).await;
+        let elapsed_ms = (js_sys::Date::now() - started_ms) as u64;
+        match result {
+            Ok(()) => {
+                // Timed per destination: a slow first destination and a slow
+                // backend look identical in an aggregate figure, and they
+                // call for completely different fixes.
+                console_log!(
+                    "flag log delivered to {:?} in {}ms ({} assigns, {} flags)",
+                    destination,
+                    elapsed_ms,
+                    req.flag_assigned.len(),
+                    req.flag_resolve_info.len()
+                );
+                return true;
             }
+            Err(reason) => console_log!(
+                "flag log delivery to {:?} failed after {}ms: {}",
+                destination,
+                elapsed_ms,
+                reason
+            ),
         }
     }
     false

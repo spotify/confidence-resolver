@@ -80,11 +80,13 @@ fn dedup_telemetry_delta(
 ///
 /// When multiple queue shards are configured, picks one at random. If
 /// the send fails, tries the remaining shards before giving up.
-async fn queue_flag_log(log: WriteFlagLogsRequest) {
+async fn queue_flag_log(log: Option<WriteFlagLogsRequest>) {
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     }
-    flag_log::send(log).await;
+    if let Some(log) = log {
+        flag_log::send(log).await;
+    }
 }
 
 /// Runs `f` with `log` installed as the destination for the `Host` logging
@@ -535,7 +537,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         td.sdk = Some(sdk_info());
                         td.apply_dedup = dedup_telemetry_delta();
                         log.telemetry_data = Some(td);
-                        event_ctx.wait_until(queue_flag_log(log));
+                        event_ctx.wait_until(queue_flag_log(flag_log::emit_inline(log)));
 
                         resp
                     }
@@ -582,7 +584,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             td.apply_dedup = Some(dedup_delta);
                         }
                         if log != WriteFlagLogsRequest::default() {
-                            event_ctx.wait_until(queue_flag_log(log));
+                            event_ctx.wait_until(queue_flag_log(flag_log::emit_inline(log)));
                         }
                         resp
                     }
@@ -706,18 +708,11 @@ pub async fn consume_queue(
     if queue_name.ends_with("events-queue") {
         return consume_events_queue(message_batch, env).await;
     }
+    if queue_name.ends_with("flag-log-objects") {
+        return flag_log::consume_notifications(message_batch, &env).await;
+    }
 
     flag_log::consume(message_batch, env).await
-}
-
-/// Cron entry point for the Logpush sink's R2 aggregation pass. A no-op under
-/// the queue sink, whose batching the queue consumer does instead.
-#[event(scheduled)]
-pub async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    set_client_secret(&env);
-    seed_resolver_rng();
-    flag_log::init(&env);
-    flag_log::run_aggregator(&env).await;
 }
 
 /// Attempt delivery to one destination. Any transport error or non-2xx/3xx

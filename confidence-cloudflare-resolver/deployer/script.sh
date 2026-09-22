@@ -371,9 +371,15 @@ if [ "$FLAG_LOG_SINK" != "queue" ] && [ "$FLAG_LOG_SINK" != "logpush" ]; then
     exit 1
 fi
 
-# Logpush delivers batches roughly once a minute regardless of its upload
-# settings, so polling faster than that only burns invocations.
-FLAG_LOGS_AGGREGATOR_CRON=${FLAG_LOGS_AGGREGATOR_CRON:-* * * * *}
+# How many object-draining consumers run at once. This is the throughput
+# dial: measured, one consumer delivers roughly 235 records/sec, so the
+# default carries ~2,300 resolves/sec and 10K needs about 43.
+FLAG_LOGS_CONSUMER_CONCURRENCY=${FLAG_LOGS_CONSUMER_CONCURRENCY:-10}
+if [[ ! "$FLAG_LOGS_CONSUMER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] \
+    || [ "$FLAG_LOGS_CONSUMER_CONCURRENCY" -gt 250 ]; then
+    echo "❌ FLAG_LOGS_CONSUMER_CONCURRENCY must be between 1 and 250" >&2
+    exit 1
+fi
 
 # Fails fast if CLOUDFLARE_API_TOKEN cannot do what this deploy needs.
 #
@@ -586,12 +592,18 @@ ensure_r2_bucket() {
 # carries full request metadata and is most of the volume; Exceptions would
 # add panic text the aggregator ignores anyway.
 #
-# max_upload_bytes pins the uncompressed object size at 2 MB. The aggregator
-# delivers one object at a time, so this — not any accumulator bound — is what
-# caps its peak memory, and the decoded form of a record is several times its
-# size on the wire. Without pinning it the size would be whatever Cloudflare
-# defaults to for the destination, leaving the memory bound resting on an
-# unknown.
+# max_upload_records is the work-unit size, and it is sized against a
+# measured limit: the backend accepts a body up to 4 MiB and returns 413 above
+# it, which no retry can recover from. 700 records leaves roughly half that as
+# headroom for variation in flag count and context size.
+#
+# max_upload_bytes is set high enough that the record count is what binds,
+# while still capping a pathological object well inside the consumer's 8 MB
+# decompression guard.
+#
+# Larger objects amortise delivery better — measured latency is about
+# 1,370 ms plus 2.3 ms per assignment — so this is the knob to raise if the
+# backend limit ever does.
 # Turns off a Logpush job left over from a previous logpush-mode deploy.
 #
 # Without this, switching back to queue leaves the job enabled and still
@@ -653,6 +665,28 @@ r2_bucket_exists() {
     esac
 }
 
+# Points R2 object-create notifications at the drain queue.
+#
+# Scoped to the prefixes this pipeline writes, so an object the customer put
+# in the bucket never becomes work — the consumer deletes what it drains.
+ensure_r2_notification() {
+    local BUCKET="$1" QUEUE="$2" PREFIX CODE
+    for PREFIX in "flag-logs/" "overflow/"; do
+        CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X PUT \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"rules\":[{\"prefix\":\"${PREFIX}\",\"actions\":[\"PutObject\",\"CompleteMultipartUpload\"]}]}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/event_notifications/r2/${BUCKET}/configuration/queues/${QUEUE}")
+        if [ "$CODE" = "200" ]; then
+            echo "✅ R2 notifications on '${PREFIX}' -> queue '${QUEUE}'"
+        else
+            echo "⚠️ Could not configure R2 notifications for '${PREFIX}' (HTTP $CODE)."
+            echo "   Without them nothing drains the bucket; configure it under"
+            echo "   R2 > ${BUCKET} > Settings > Event notifications."
+        fi
+    done
+}
+
 ensure_logpush_job() {
     local JOB_NAME="$1" BUCKET="$2"
 
@@ -677,8 +711,8 @@ ensure_logpush_job() {
                 field_names: ["EventTimestampMs", "Logs"],
                 timestamp_format: "rfc3339"
             },
-            max_upload_bytes: 2000000,
-            max_upload_records: 5000,
+            max_upload_bytes: 4000000,
+            max_upload_records: 700,
             filter: ({where: {and: [
                 {key: "ScriptName", operator: "eq", value: $script},
                 {key: "EventType", operator: "eq", value: "fetch"}
@@ -762,7 +796,29 @@ binding = "FLAG_LOGS_R2"
 bucket_name = "${FLAG_LOGS_BUCKET}"
 EOF
     echo "✅ Added FLAG_LOGS_R2 binding for bucket '${FLAG_LOGS_BUCKET}'"
-    echo "✅ Flag-log sink: logpush"
+
+    # R2 notifies this queue on every object Logpush writes, and the consumer
+    # drains one object per message. Concurrency is the throughput dial:
+    # measured, one consumer delivers ~235 records/sec at 700 records per
+    # object, so ~43 consumers carry 10K resolves/sec.
+    FLAG_LOGS_OBJECTS_QUEUE="${WORKER_NAME}-flag-log-objects"
+    ensure_queue "$FLAG_LOGS_OBJECTS_QUEUE" || exit 1
+    ensure_r2_notification "$FLAG_LOGS_BUCKET" "$FLAG_LOGS_OBJECTS_QUEUE"
+
+    cat >> wrangler.toml <<EOF
+
+[[queues.producers]]
+queue = "${FLAG_LOGS_OBJECTS_QUEUE}"
+binding = "flag_log_objects_queue"
+
+[[queues.consumers]]
+queue = "${FLAG_LOGS_OBJECTS_QUEUE}"
+max_batch_size = 10
+max_batch_timeout = 5
+max_concurrency = ${FLAG_LOGS_CONSUMER_CONCURRENCY}
+max_retries = 5
+EOF
+    echo "✅ Flag-log sink: logpush (object queue '${FLAG_LOGS_OBJECTS_QUEUE}', concurrency ${FLAG_LOGS_CONSUMER_CONCURRENCY})"
 else
     if [ -n "$WORKER_NAME_PREFIX" ]; then
         FLAG_LOGS_BUCKET="${WORKER_NAME_PREFIX}-confidence-flag-logs"
@@ -792,15 +848,6 @@ EOF
     echo "✅ Flag-log sink: queue"
 fi
 
-# The aggregation trigger is configured under either sink. Under queue it is a
-# no-op unless an R2 bucket is bound, and one invocation a minute costs about
-# a cent a month — cheap insurance against a rollback leaving no drainer.
-cat >> wrangler.toml <<EOF
-
-[triggers]
-crons = ["${FLAG_LOGS_AGGREGATOR_CRON}"]
-EOF
-echo "✅ Aggregator cron (${FLAG_LOGS_AGGREGATOR_CRON}) configured"
 
 # Create KV namespace for /metrics endpoint if it doesn't exist
 if [ -n "$WORKER_NAME_PREFIX" ]; then

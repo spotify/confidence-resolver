@@ -1,373 +1,233 @@
-//! The Logpush sink's consumer half: a cron-triggered pass over the R2
-//! bucket Logpush writes into.
+//! The Logpush sink's consumer half: one R2 object per queue message.
 //!
-//! Each object is newline-delimited JSON, one Workers trace event per line,
-//! written gzipped. Only console lines carrying the flag-log prefix are
-//! parsed — see [`super::logpush::extract`] — so diagnostics, panics and
-//! request metadata sharing a trace event are ignored rather than fed to the
-//! aggregate.
+//! Logpush writes gzipped NDJSON objects into R2, R2 emits an `object-create`
+//! notification into a queue, and each notification is handled here as a
+//! self-contained unit of work: read, extract, aggregate, deliver, delete.
 //!
-//! # One object per delivery
+//! # Why one object per message
 //!
-//! Each object is read, aggregated, delivered and deleted on its own, and
-//! nothing is carried between objects except the apply-dedup window. That is
-//! a deliberate choice rather than an efficiency compromise:
+//! The work unit is fixed size, so **memory per invocation is constant
+//! regardless of total traffic**. That is what makes this scale: throughput
+//! is `max_concurrency × records-per-object ÷ delivery-latency`, and every
+//! term is a dial rather than a ceiling.
 //!
-//! * **Memory is bounded by one object.** `flag_logger::aggregate_batch`
-//!   concatenates `flag_assigned` — exposures are the payload, so they cannot
-//!   collapse. A cross-object accumulator therefore grows with the *sum* of
-//!   every object in the pass, and decoding expands the wire format several
-//!   times over, so a single pass over a backlog would exhaust the isolate's
-//!   128 MB. An OOM here would be unrecoverable: the isolate is killed with
-//!   nothing catchable, so delivery never happens, and because deletion is
-//!   delivery-gated the next pass would read the same objects and die the
-//!   same way, stalling permanently while the bucket grew.
-//! * **Cost is linear.** Folding pairwise with `aggregate_batch(vec![acc,
-//!   next])` re-clones the whole accumulator once per object, which is
-//!   quadratic. One call per object is linear.
-//! * **A failure is contained.** A body too large or otherwise rejected by
-//!   the backend affects one object. With a shared batch, a rejected
-//!   aggregate would be retried next pass *plus* whatever arrived meanwhile,
-//!   growing monotonically and never succeeding again.
+//! The cron pass this replaced aggregated many objects per invocation, and
+//! every way it failed traced back to unbounded work per invocation.
+//! `flag_logger::aggregate_batch` concatenates `flag_assigned` — exposures
+//! are the payload, so they never collapse — meaning the accumulator grew
+//! with the backlog until the isolate died. That OOM was unrecoverable:
+//! delivery never happened, deletion is delivery-gated, and the next pass
+//! read the same objects and died identically. Sizing the unit to the
+//! *object* rather than to the backlog removes the whole class.
 //!
-//! Within an object, `aggregate_batch` still collapses its records into a
-//! single request, so the delivery count is a small fraction of the log
-//! count.
+//! Queues also supply what the cron version hand-rolled and got wrong: one
+//! consumer per message instead of a best-effort R2 lease, retries with
+//! backoff and a dead letter queue instead of an age-out that silently
+//! dropped data, and queue depth as real backpressure instead of a flag in a
+//! log line.
 //!
-//! # Durability
+//! # Sizing
 //!
-//! An object is deleted only once its contents have been delivered, so a
-//! failed run leaves the work for the next tick. That makes the pass
-//! at-least-once with R2 as the durable hand-off and this module owning the
-//! retry — the property the Logpush hop itself does not give you, since it
-//! drops a batch permanently after roughly five minutes of failures.
+//! The backend accepts a body up to **4 MiB** — measured by bisection, with
+//! `413` above it and no amount of retrying helping. The deployer pins the
+//! Logpush job's `max_upload_records` so one object's aggregate lands well
+//! inside that, and `max_upload_bytes` high enough that the record count is
+//! what binds.
 //!
-//! Retrying forever is its own failure mode, so an object that cannot be
-//! delivered before [`MAX_OBJECT_AGE_MS`] is dropped with a loud log. That
-//! bounds both the bucket and the blast radius of a permanently rejected
-//! payload.
+//! Delivery latency measured under load is roughly `1,370 ms + 2.3 ms per
+//! assignment`, so larger objects amortise the fixed cost better — up to that
+//! hard ceiling. `max_upload_records` is where that trade is expressed.
 use super::logpush;
-use confidence_resolver::{
-    apply_dedup::ApplyDedup, flag_logger,
-    proto::confidence::flags::resolver::v1::WriteFlagLogsRequest,
-};
+use confidence_resolver::{apply_dedup::ApplyDedup, flag_logger};
 use flate2::read::MultiGzDecoder;
-use std::{cell::RefCell, io::Read};
-use worker::{console_log, Bucket, Env};
-
-/// Prefixes this worker owns. Listings are restricted to these, so an object
-/// the pipeline did not write is never read and — far more importantly —
-/// never deleted. The bucket may be one the customer already had.
-const PREFIXES: [&str; 2] = ["flag-logs/", "overflow/"];
-
-/// Best-effort pass lease, kept outside [`PREFIXES`] so it is never treated
-/// as data.
-const LEASE_KEY: &str = "aggregator-lease";
-
-/// How long a lease is honoured. Longer than [`MAX_PASS_MS`] plus delivery,
-/// short enough that a crashed pass does not park the bucket for long.
-const LEASE_TTL_MS: f64 = 90_000.0;
-
-/// Objects to list per prefix per pass.
-const MAX_OBJECTS_PER_PREFIX: u32 = 100;
+use serde::Deserialize;
+use std::io::Read;
+use worker::{console_log, Bucket, Env, MessageBatch, Result};
 
 /// Reject an object whose decompressed text exceeds this.
 ///
 /// Enforced *during* decompression rather than after, so a malformed or
 /// hostile object cannot allocate its way through the isolate before the
-/// check runs. The deployer pins the Logpush job's `max_upload_bytes` well
-/// below this, so a legitimate object always fits.
+/// check runs. The deployer pins the Logpush job's `max_upload_bytes` below
+/// this, so a legitimate object always fits.
 const MAX_OBJECT_BYTES: usize = 8 * 1024 * 1024;
 
-/// Wall-clock budget for one pass.
-///
-/// Sized so a pass plus its deliveries finishes inside one cron tick, which
-/// is what keeps two passes from overlapping and double-counting. Whatever is
-/// left over is picked up on the next tick.
-const MAX_PASS_MS: f64 = 25_000.0;
-
-/// Give up on an object that has resisted delivery for this long.
-const MAX_OBJECT_AGE_MS: f64 = 60.0 * 60.0 * 1000.0;
-
-/// A pass plus its deliveries has to finish inside one cron tick, or two
-/// passes overlap and double-count. Checked at compile time so neither
-/// constant can drift into an overlapping configuration.
-const _: () = assert!(MAX_PASS_MS < 60_000.0);
-/// A lease has to outlive the pass holding it, or it stops protecting anything.
-const _: () = assert!(LEASE_TTL_MS > MAX_PASS_MS);
-
-thread_local! {
-    /// Apply-dedup window, kept alive between cron invocations so a duplicate
-    /// is caught even when its two copies are drained by different passes.
-    ///
-    /// Per-isolate, not global: Cloudflare does not pin cron invocations to a
-    /// single isolate, so this widens the window on a best-effort basis
-    /// rather than guaranteeing it. The resolver's own dedup map has the same
-    /// property.
-    ///
-    /// Bounded by entry count rather than time — see `super::new_dedup` for
-    /// why a TTL would be meaningless on this path.
-    static DEDUP: RefCell<ApplyDedup> = RefCell::new(super::new_dedup());
+/// One R2 `object-create` notification. Only the fields needed to locate the
+/// object are modelled; R2 also sends the account, bucket, size and etag.
+#[derive(Deserialize)]
+struct ObjectNotification {
+    #[serde(default)]
+    object: NotificationObject,
+    #[serde(default)]
+    action: String,
 }
 
-/// Starts a fresh window once the current one is full.
-///
-/// Left alone, `check_hash` fails open past its entry cap: it stops recording
-/// new hashes and returns "not a duplicate" for everything it has not seen.
-/// That is the safe direction — no data is lost — but it means dedup silently
-/// stops working, permanently, under exactly the sustained load where
-/// duplicates are most likely. Resetting trades a short amnesia for a window
-/// that keeps functioning.
-fn reset_dedup_if_full() {
-    DEDUP.with(|slot| {
-        let snapshot = {
-            let dedup = slot.borrow();
-            dedup.telemetry_snapshot()
-        };
-        if snapshot.map_size < snapshot.map_capacity {
-            return;
-        }
-        console_log!(
-            "flag log aggregation: dedup window full at {} entries ({} deduped,              {} overflowed), resetting",
-            snapshot.map_size,
-            snapshot.applies_deduped,
-            snapshot.apply_dedup_overflow
-        );
-        *slot.borrow_mut() = super::new_dedup();
-    });
+#[derive(Deserialize, Default)]
+struct NotificationObject {
+    #[serde(default)]
+    key: String,
 }
 
-/// What one pass did. Reported unconditionally, including the idle case, so
-/// "healthy but quiet" is distinguishable from "pipeline dead".
-#[derive(Default)]
-struct Stats {
-    listed: usize,
-    delivered_objects: usize,
-    delivered_records: usize,
-    retained: usize,
-    dropped_aged_out: usize,
-    dropped_unreadable: usize,
-    skipped_records: usize,
-    bytes: usize,
-    truncated_listing: bool,
-    /// Telemetry from delivered objects, folded across the pass.
-    ///
-    /// Carried separately from the payload because `/metrics` needs it and
-    /// KV permits only one write per second per key, so a per-object update
-    /// is not an option. Telemetry is small and keyed rather than
-    /// concatenated, so folding it is cheap even over hundreds of objects.
-    telemetry: Option<WriteFlagLogsRequest>,
+/// Actions that mean an object was written. R2 notifies on deletes too, and
+/// this worker deletes every object it drains, so without this filter each
+/// drain would enqueue a second message for a key that no longer exists.
+fn is_create(action: &str) -> bool {
+    matches!(
+        action,
+        "PutObject" | "CopyObject" | "CompleteMultipartUpload"
+    )
 }
 
-/// Runs one aggregation pass.
+/// Handles one batch of object notifications.
 ///
-/// Deliberately not gated on the active sink. A rollback from `logpush` to
-/// `queue` must still finish draining the bucket, and Logpush keeps writing
-/// into it for a while after the switch; returning early would leave those
-/// objects undelivered and the bucket growing. A queue-only deployment has no
-/// bucket bound, so this returns immediately.
-pub(crate) async fn run(env: &Env) {
+/// Returning `Err` makes the queue redeliver the batch, which *is* the retry
+/// mechanism: a transient delivery failure is retried by the platform with
+/// backoff, and an object that keeps failing ends up in the dead letter queue
+/// rather than being dropped on a timer.
+pub(crate) async fn consume_notifications(batch: MessageBatch<String>, env: &Env) -> Result<()> {
     let Some(bucket) = super::bucket() else {
-        return;
+        console_log!(
+            "flag log objects: {} binding is missing; cannot drain",
+            super::BUCKET_BINDING
+        );
+        return Ok(());
+    };
+    let Ok(messages) = batch.messages() else {
+        return Ok(());
     };
 
-    let started_ms = js_sys::Date::now();
-    if !claim_lease(&bucket, started_ms).await {
-        console_log!("flag log aggregation: another pass holds the lease, skipping");
-        return;
+    // One window for the whole batch rather than one per object.
+    //
+    // This is where cross-isolate duplicates are caught, and it is the only
+    // place they can be: an object carries records from many isolates, and
+    // the resolver's own dedup map only ever sees one isolate's traffic. A
+    // batch spans several objects, so sharing the window catches duplicates
+    // that straddle them too — at the cost of hashes only, since delivery
+    // stays per object.
+    let mut dedup = super::dedup_enabled(env).then(super::new_dedup);
+    let mut records_delivered = 0usize;
+    let mut objects_done = 0usize;
+    let mut failures = 0usize;
+
+    for message in messages.iter() {
+        let key = match classify(message.body()) {
+            Work::Drain(key) => key,
+            Work::Skip => continue,
+            Work::Unparseable => {
+                // Acked rather than retried: it will never become parseable,
+                // and redelivering forever would block the queue behind it.
+                console_log!(
+                    "flag log objects: unparseable notification, skipping: {}",
+                    &message.body().chars().take(120).collect::<String>()
+                );
+                continue;
+            }
+        };
+
+        match process_object(&bucket, &key, dedup.as_mut()).await {
+            Some(records) => {
+                objects_done = objects_done.saturating_add(1);
+                records_delivered = records_delivered.saturating_add(records);
+            }
+            None => failures = failures.saturating_add(1),
+        }
     }
 
-    let dedup = super::dedup_enabled(env);
-    if dedup {
-        reset_dedup_if_full();
-    }
-
-    let mut stats = Stats::default();
-    for prefix in PREFIXES {
-        drain_prefix(&bucket, prefix, dedup, started_ms, &mut stats).await;
-    }
-
-    // Unconditional: an operator has to be able to tell a quiet deployment
-    // from a Logpush job that was disabled, filtered wrong, or auto-disabled
-    // by Cloudflare after prolonged failure. Silence used to mean both.
     console_log!(
-        "flag log aggregation: listed={} delivered_objects={} delivered_records={} \
-         retained={} aged_out={} unreadable={} bad_records={} bytes={} more_pending={} \
-         elapsed_ms={}",
-        stats.listed,
-        stats.delivered_objects,
-        stats.delivered_records,
-        stats.retained,
-        stats.dropped_aged_out,
-        stats.dropped_unreadable,
-        stats.skipped_records,
-        stats.bytes,
-        stats.truncated_listing,
-        (js_sys::Date::now() - started_ms) as u64
+        "flag log objects: {} messages, {} objects drained, {} records delivered, {} failed",
+        messages.len(),
+        objects_done,
+        records_delivered,
+        failures
     );
 
-    if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-        let all_delivered = stats.retained == 0 && stats.dropped_aged_out == 0;
-        crate::update_kv_snapshot(
-            &kv,
-            crate::SnapshotPipeline::FlagLogs,
-            stats
-                .telemetry
-                .as_ref()
-                .and_then(|t| t.telemetry_data.as_ref()),
-            Some(all_delivered),
-            None,
-        )
-        .await;
+    if failures > 0 {
+        return Err(worker::Error::RustError(format!(
+            "{failures} flag log objects failed delivery"
+        )));
     }
+    Ok(())
 }
 
-/// Reads a lease object and rewrites it if stale.
+/// What a queue message asks for.
+#[derive(Debug, PartialEq)]
+enum Work {
+    /// Drain this object.
+    Drain(String),
+    /// Nothing to do — a delete notification, or a create with no key.
+    Skip,
+    /// Not a notification this worker understands.
+    Unparseable,
+}
+
+/// Classifies one message.
 ///
-/// Best effort by construction: R2 offers no conditional put in this binding,
-/// so two passes that read the lease within the same instant can both proceed.
-/// It narrows the overlap window from the whole pass to the read-write gap,
-/// which is what makes double-counting rare rather than routine. Per-object
-/// delivery bounds the damage when it does happen to a single object.
-async fn claim_lease(bucket: &Bucket, now_ms: f64) -> bool {
-    if let Ok(Some(object)) = bucket.get(LEASE_KEY).execute().await {
-        if let Some(body) = object.body() {
-            if let Ok(text) = body.text().await {
-                if let Ok(held_ms) = text.trim().parse::<f64>() {
-                    if now_ms - held_ms < LEASE_TTL_MS {
-                        return false;
-                    }
-                }
-            }
-        }
-    }
-    if let Err(e) = bucket
-        .put(LEASE_KEY, format!("{}", now_ms as u64))
-        .execute()
-        .await
-    {
-        // Not fatal: losing the lease only costs overlap protection.
-        console_log!("flag log aggregation: lease write failed: {:?}", e);
-    }
-    true
-}
-
-async fn drain_prefix(
-    bucket: &Bucket,
-    prefix: &str,
-    dedup: bool,
-    started_ms: f64,
-    stats: &mut Stats,
-) {
-    let listing = match bucket
-        .list()
-        .prefix(prefix)
-        .limit(MAX_OBJECTS_PER_PREFIX)
-        .execute()
-        .await
-    {
-        Ok(listing) => listing,
-        Err(e) => {
-            console_log!("flag log aggregation: R2 list {} failed: {:?}", prefix, e);
-            return;
-        }
+/// Pure so it can be tested natively: `console_log!` aborts off wasm32, and
+/// the classification is the part worth covering.
+fn classify(body: &str) -> Work {
+    let Ok(notification) = serde_json::from_str::<ObjectNotification>(body) else {
+        return Work::Unparseable;
     };
-    if listing.truncated() {
-        stats.truncated_listing = true;
+    if !is_create(&notification.action) || notification.object.key.is_empty() {
+        return Work::Skip;
     }
-
-    for object in listing.objects() {
-        if js_sys::Date::now() - started_ms >= MAX_PASS_MS {
-            stats.truncated_listing = true;
-            return;
-        }
-
-        let key = object.key();
-        let age_ms = started_ms - object.uploaded().as_millis() as f64;
-        stats.listed = stats.listed.saturating_add(1);
-
-        let Some(body) = read_object(bucket, &key).await else {
-            // Unreadable is usually a truncated write. Claim it so one
-            // poisoned object cannot park the prefix forever.
-            console_log!("flag log aggregation: dropping unreadable object {}", key);
-            stats.dropped_unreadable = stats.dropped_unreadable.saturating_add(1);
-            delete(bucket, &key).await;
-            continue;
-        };
-        stats.bytes = stats.bytes.saturating_add(body.len());
-
-        let (mut logs, skipped) = logpush::extract(&body);
-        stats.skipped_records = stats.skipped_records.saturating_add(skipped);
-        if skipped > 0 {
-            console_log!(
-                "flag log aggregation: {} unparseable records in {}",
-                skipped,
-                key
-            );
-        }
-
-        if logs.is_empty() {
-            // Nothing recoverable in it, so there is nothing to deliver and
-            // no reason to re-read it next pass.
-            delete(bucket, &key).await;
-            continue;
-        }
-
-        let records = logs.len();
-        if dedup {
-            DEDUP.with(|d| {
-                super::dedup_flag_applies(
-                    &mut d.borrow_mut(),
-                    &mut logs,
-                    (started_ms / 1000.0) as i64,
-                )
-            });
-        }
-
-        let request = flag_logger::aggregate_batch(logs);
-        if super::deliver(&request).await {
-            stats.delivered_objects = stats.delivered_objects.saturating_add(1);
-            stats.delivered_records = stats.delivered_records.saturating_add(records);
-            let shell = WriteFlagLogsRequest {
-                telemetry_data: request.telemetry_data,
-                ..Default::default()
-            };
-            stats.telemetry = Some(match stats.telemetry.take() {
-                Some(previous) => flag_logger::aggregate_batch(vec![previous, shell]),
-                None => shell,
-            });
-            delete(bucket, &key).await;
-        } else if age_ms > MAX_OBJECT_AGE_MS {
-            // Retrying indefinitely would grow the bucket without bound and
-            // never succeed for a payload the backend refuses outright.
-            console_log!(
-                "flag log aggregation: DROPPING {} after {}s of failed delivery, \
-                 {} records lost",
-                key,
-                (age_ms / 1000.0) as u64,
-                records
-            );
-            stats.dropped_aged_out = stats.dropped_aged_out.saturating_add(1);
-            delete(bucket, &key).await;
-        } else {
-            // Left in place on purpose: the next tick retries it.
-            stats.retained = stats.retained.saturating_add(1);
-        }
-    }
+    Work::Drain(notification.object.key)
 }
 
-/// Reads and decompresses one object, refusing anything over
-/// [`MAX_OBJECT_BYTES`].
+/// Reads, aggregates, delivers and deletes one object.
 ///
-/// The cap is applied to the decompressing reader rather than to the result,
-/// so a highly compressible object cannot allocate past the budget before
-/// being rejected.
+/// `Some(records)` on success, `None` when the batch should be retried. An
+/// object that can never succeed — unreadable, or carrying no flag logs — is
+/// deleted and counted as done, because redelivering it would block the queue
+/// behind something that will not change.
+async fn process_object(
+    bucket: &Bucket,
+    key: &str,
+    dedup: Option<&mut ApplyDedup>,
+) -> Option<usize> {
+    let Some(body) = read_object(bucket, key).await else {
+        console_log!("flag log objects: dropping unreadable object {}", key);
+        delete(bucket, key).await;
+        return Some(0);
+    };
+
+    let (mut logs, skipped) = logpush::extract(&body);
+    if skipped > 0 {
+        console_log!(
+            "flag log objects: {} unparseable records in {}",
+            skipped,
+            key
+        );
+    }
+    if logs.is_empty() {
+        delete(bucket, key).await;
+        return Some(0);
+    }
+
+    let records = logs.len();
+    if let Some(dedup) = dedup {
+        super::dedup_flag_applies(dedup, &mut logs, (js_sys::Date::now() / 1000.0) as i64);
+    }
+
+    let request = flag_logger::aggregate_batch(logs);
+    if !super::deliver(&request).await {
+        // Left in R2 and reported as a failure, so the queue retries with
+        // backoff and eventually dead-letters it.
+        return None;
+    }
+
+    delete(bucket, key).await;
+    Some(records)
+}
+
 async fn read_object(bucket: &Bucket, key: &str) -> Option<String> {
     let object = match bucket.get(key).execute().await {
         Ok(Some(object)) => object,
+        // Already drained, most likely by a redelivery of the same
+        // notification. Not an error.
         Ok(None) => return None,
         Err(e) => {
-            console_log!("flag log aggregation: R2 get {} failed: {:?}", key, e);
+            console_log!("flag log objects: R2 get {} failed: {:?}", key, e);
             return None;
         }
     };
@@ -375,7 +235,7 @@ async fn read_object(bucket: &Bucket, key: &str) -> Option<String> {
         Some(body) => match body.bytes().await {
             Ok(bytes) => bytes,
             Err(e) => {
-                console_log!("flag log aggregation: R2 read {} failed: {:?}", key, e);
+                console_log!("flag log objects: R2 read {} failed: {:?}", key, e);
                 return None;
             }
         },
@@ -407,15 +267,15 @@ fn decompress(bytes: &[u8]) -> Option<String> {
 
 async fn delete(bucket: &Bucket, key: &str) {
     if let Err(e) = bucket.delete(key).await {
-        // Not fatal: the object is re-read next pass. Duplicate statistics
-        // are the cost of at-least-once, and applies are deduplicated.
-        console_log!("flag log aggregation: R2 delete {} failed: {:?}", key, e);
+        // Not fatal: a redelivery re-reads it, and applies are deduplicated.
+        console_log!("flag log objects: R2 delete {} failed: {:?}", key, e);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
     use flate2::{write::GzEncoder, Compression};
     use std::io::Write;
 
@@ -423,6 +283,47 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
         encoder.write_all(text.as_bytes()).unwrap();
         encoder.finish().unwrap()
+    }
+
+    /// The consumer is the only place cross-isolate duplicates can be
+    /// caught: an object carries records from many isolates, and the
+    /// resolver's own window only ever sees one isolate's traffic.
+    #[test]
+    fn one_window_spans_the_objects_in_a_batch() {
+        use confidence_resolver::proto::confidence::flags::resolver::v1::events::{
+            flag_assigned::{applied_flag::Assignment, AppliedFlag, AssignmentInfo},
+            FlagAssigned,
+        };
+
+        let duplicate = || {
+            vec![WriteFlagLogsRequest {
+                flag_assigned: vec![FlagAssigned {
+                    resolve_id: "r".to_string(),
+                    flags: vec![AppliedFlag {
+                        flag: "flags/a".to_string(),
+                        targeting_key: "user-1".to_string(),
+                        assignment: Some(Assignment::AssignmentInfo(AssignmentInfo {
+                            variant: "on".to_string(),
+                            segment: String::new(),
+                        })),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }]
+        };
+
+        let mut window = super::super::new_dedup();
+        let (mut first, mut second) = (duplicate(), duplicate());
+        super::super::dedup_flag_applies(&mut window, &mut first, 1000);
+        super::super::dedup_flag_applies(&mut window, &mut second, 1000);
+
+        assert_eq!(first[0].flag_assigned.len(), 1, "first copy is kept");
+        assert!(
+            second[0].flag_assigned.is_empty(),
+            "a copy in a later object of the same batch must be dropped"
+        );
     }
 
     #[test]
@@ -433,8 +334,10 @@ mod tests {
 
     #[test]
     fn passes_through_uncompressed_bytes() {
-        let text = "{\"Logs\":[]}\n";
-        assert_eq!(decompress(text.as_bytes()).as_deref(), Some(text));
+        assert_eq!(
+            decompress(b"{\"Logs\":[]}\n").as_deref(),
+            Some("{\"Logs\":[]}\n")
+        );
     }
 
     #[test]
@@ -456,22 +359,12 @@ mod tests {
         assert_eq!(decompress(&bytes[..bytes.len() / 2]), None);
     }
 
-    #[test]
-    fn rejects_non_utf8_uncompressed_bytes() {
-        assert_eq!(decompress(&[0xff, 0xfe, 0x00]), None);
-    }
-
     /// A gzip bomb must be refused without first materialising it, which is
     /// why the cap is applied to the reader rather than to the output.
     #[test]
     fn rejects_an_object_that_decompresses_past_the_cap() {
         let bomb = gzip(&"a".repeat(MAX_OBJECT_BYTES + 1024));
-        assert!(
-            bomb.len() < 100_000,
-            "compressed bomb should be small, was {}",
-            bomb.len()
-        );
-
+        assert!(bomb.len() < 100_000, "bomb should be small compressed");
         assert_eq!(decompress(&bomb), None);
     }
 
@@ -482,21 +375,58 @@ mod tests {
     }
 
     #[test]
-    fn empty_object_yields_nothing_extractable() {
-        assert_eq!(decompress(&gzip("")).as_deref(), Some(""));
-        assert_eq!(logpush::extract(""), (Vec::new(), 0));
+    fn reads_the_key_from_an_r2_create_notification() {
+        let body = serde_json::json!({
+            "account": "abc",
+            "action": "PutObject",
+            "bucket": "flag-logs",
+            "object": {"key": "flag-logs/20260922/x.log.gz", "size": 1234, "eTag": "e"},
+            "eventTime": "2026-09-22T16:00:00Z"
+        })
+        .to_string();
+
+        assert_eq!(
+            classify(&body),
+            Work::Drain("flag-logs/20260922/x.log.gz".to_string())
+        );
     }
 
-    /// The listing is restricted to prefixes this pipeline writes, because
-    /// the bucket may be one the customer already had and every listed key is
-    /// eligible for deletion.
+    /// This worker deletes every object it drains and R2 notifies on delete,
+    /// so without filtering, each drain would enqueue a second message for a
+    /// key that no longer exists — doubling queue traffic forever.
     #[test]
-    fn owned_prefixes_cover_both_writers_and_exclude_the_lease() {
-        assert!(PREFIXES.contains(&"flag-logs/"));
-        assert!(PREFIXES.contains(&"overflow/"));
-        assert!(
-            !PREFIXES.iter().any(|p| LEASE_KEY.starts_with(p)),
-            "the lease must never be processed as data"
-        );
+    fn delete_notifications_are_not_treated_as_work() {
+        let body = serde_json::json!({
+            "action": "DeleteObject",
+            "object": {"key": "flag-logs/20260922/x.log.gz"}
+        })
+        .to_string();
+
+        assert_eq!(classify(&body), Work::Skip);
+    }
+
+    #[test]
+    fn multipart_and_copy_creates_are_work() {
+        for action in ["PutObject", "CopyObject", "CompleteMultipartUpload"] {
+            let body =
+                serde_json::json!({"action": action, "object": {"key": "flag-logs/a"}}).to_string();
+            assert_eq!(
+                classify(&body),
+                Work::Drain("flag-logs/a".to_string()),
+                "action = {action}"
+            );
+        }
+    }
+
+    #[test]
+    fn tolerates_a_notification_missing_the_object_field() {
+        assert_eq!(classify("{\"action\":\"PutObject\"}"), Work::Skip);
+    }
+
+    #[test]
+    fn a_body_that_is_not_json_is_skipped_rather_than_retried() {
+        // Retrying it forever would block the queue behind something that
+        // will never parse.
+        assert_eq!(classify("not json"), Work::Unparseable);
     }
 }

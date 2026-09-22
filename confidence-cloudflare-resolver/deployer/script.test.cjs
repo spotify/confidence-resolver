@@ -377,59 +377,9 @@ test('KV is only probed when metrics or sticky assignments are enabled', () => {
 // The aggregator trigger must exist under BOTH sinks. Under queue it is a
 // no-op unless a bucket is bound, but without it a rollback from logpush
 // leaves no drainer and Logpush keeps filling R2.
-function runTriggerBlock(sink, bucketExists) {
-  const directory = mkdtempSync(join(tmpdir(), 'trigger-test-'));
-  try {
-    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
-    const result = spawnSync('bash', ['-c', `
-set -euo pipefail
-FLAG_LOG_SINK=${sink}
-FLAG_LOGS_BUCKET=loadtest-flag-logs
-FLAG_LOGS_AGGREGATOR_CRON="* * * * *"
-if [ "$FLAG_LOG_SINK" = "logpush" ] || [ "${bucketExists}" = "yes" ]; then
-    cat >> wrangler.toml <<EOF
 
-[[r2_buckets]]
-binding = "FLAG_LOGS_R2"
-bucket_name = "\${FLAG_LOGS_BUCKET}"
-EOF
-fi
-cat >> wrangler.toml <<EOF
 
-[triggers]
-crons = ["\${FLAG_LOGS_AGGREGATOR_CRON}"]
-EOF
-`], { cwd: directory, encoding: 'utf8', timeout: 5000 });
-    return { ...result, config: readFileSync(join(directory, 'wrangler.toml'), 'utf8') };
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-}
 
-test('logpush mode gets the cron and the R2 binding', () => {
-  const { status, config } = runTriggerBlock('logpush', 'no');
-  assert.equal(status, 0);
-  assert.match(config, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(config, /binding = "FLAG_LOGS_R2"/);
-  // [limits] is script-wide, so raising cpu_ms here would also lift the
-  // resolve path's 30s safety net on every deployment.
-  assert.doesNotMatch(config, /cpu_ms/);
-});
-
-test('queue mode still gets the cron, so a rollback has a drainer', () => {
-  const { status, config } = runTriggerBlock('queue', 'no');
-  assert.equal(status, 0);
-  assert.match(config, /crons = \["\* \* \* \* \*"\]/);
-  // No bucket existed, so nothing to drain and nothing to bind.
-  assert.doesNotMatch(config, /FLAG_LOGS_R2/);
-});
-
-test('queue mode binds a leftover bucket so its objects still drain', () => {
-  const { status, config } = runTriggerBlock('queue', 'yes');
-  assert.equal(status, 0);
-  assert.match(config, /binding = "FLAG_LOGS_R2"/);
-  assert.match(config, /crons = \["\* \* \* \* \*"\]/);
-});
 
 // The disable call must target the job by name and set enabled:false, or a
 // rollback leaves Logpush writing into an undrained bucket.
@@ -524,4 +474,70 @@ test('logpush objects are pinned small', () => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
   const bytes = Number(/max_upload_bytes: (\d+)/.exec(script)[1]);
   assert.ok(bytes <= 4000000, `max_upload_bytes should be small, was ${bytes}`);
+});
+
+// --- Object-notification wiring ---
+
+// R2 notifies on deletes too, and the consumer deletes everything it drains.
+// An unscoped rule would therefore re-enqueue every key it just removed, and
+// would also claim objects the customer put in the bucket themselves.
+test('R2 notification rules are scoped to the prefixes this pipeline writes', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const fn = script.slice(script.indexOf('ensure_r2_notification()'),
+                          script.indexOf('ensure_logpush_job()'));
+  assert.match(fn, /"flag-logs\/" "overflow\/"/);
+  assert.match(fn, /PutObject/);
+  assert.match(fn, /CompleteMultipartUpload/);
+  assert.doesNotMatch(fn, /DeleteObject/);
+});
+
+test('the object queue is created with a bounded consumer concurrency', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  assert.match(script, /ensure_queue "\$FLAG_LOGS_OBJECTS_QUEUE"/);
+  assert.match(script, /max_concurrency = \$\{FLAG_LOGS_CONSUMER_CONCURRENCY\}/);
+  assert.match(script, /max_retries = 5/);
+});
+
+// The cron aggregator is gone; R2 notifies per object instead.
+test('no cron trigger is configured any more', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  assert.doesNotMatch(script, /\[triggers\]/);
+  assert.doesNotMatch(script, /crons =/);
+});
+
+function runConcurrencyValidation(value) {
+  return spawnSync('bash', ['-c', `
+set -uo pipefail
+FLAG_LOGS_CONSUMER_CONCURRENCY=${value}
+if [[ ! "$FLAG_LOGS_CONSUMER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] \
+    || [ "$FLAG_LOGS_CONSUMER_CONCURRENCY" -gt 250 ]; then
+    echo "must be between 1 and 250" >&2
+    exit 1
+fi
+echo OK
+`], { encoding: 'utf8', timeout: 5000 });
+}
+
+for (const value of ['1', '10', '43', '250']) {
+  test(`accepts consumer concurrency ${value}`, () => {
+    assert.equal(runConcurrencyValidation(value).status, 0);
+  });
+}
+
+// 250 is Cloudflare's per-queue cap; beyond it the deploy would silently get
+// less parallelism than asked for, which is the wrong way to find out.
+for (const value of ['0', '-1', '251', 'abc', '1.5']) {
+  test(`rejects consumer concurrency ${value}`, () => {
+    const r = runConcurrencyValidation(value);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /between 1 and 250/);
+  });
+}
+
+// Sized against the measured 4 MiB backend limit: above it the delivery is
+// rejected with 413 and no retry recovers.
+test('logpush object size is sized under the measured backend limit', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const records = Number(/max_upload_records: (\d+)/.exec(script)[1]);
+  assert.ok(records <= 1000, `max_upload_records should leave headroom, was ${records}`);
 });
