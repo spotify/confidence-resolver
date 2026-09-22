@@ -80,12 +80,12 @@ fn dedup_telemetry_delta(
 ///
 /// When multiple queue shards are configured, picks one at random. If
 /// the send fails, tries the remaining shards before giving up.
-async fn queue_flag_log(logs: Option<Vec<WriteFlagLogsRequest>>) {
+async fn queue_flag_log(emitted: Option<flag_log::Emitted>) {
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     }
-    if let Some(logs) = logs {
-        flag_log::send(logs).await;
+    if let Some(emitted) = emitted {
+        flag_log::send(emitted).await;
     }
     // The buffer sink's idle and age triggers need something still running
     // after the traffic stops; every other sink makes this a no-op.

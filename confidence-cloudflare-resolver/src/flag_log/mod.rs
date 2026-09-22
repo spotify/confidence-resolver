@@ -90,23 +90,28 @@ fn sink() -> Sink {
 /// request, and returns a batch only when a flush is due. Neither sink does
 /// I/O here: a network round-trip in the request path would charge the
 /// caller for it.
-pub(crate) fn emit_inline(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsRequest>> {
+/// Result of [`emit_inline`]: either a single log to queue, or a batch the
+/// buffer decided to flush.
+pub(crate) enum Emitted {
+    /// Ship this single log (queue mode).
+    One(Box<WriteFlagLogsRequest>),
+    /// Deliver this flushed batch (buffer mode).
+    Batch(Vec<WriteFlagLogsRequest>),
+}
+
+pub(crate) fn emit_inline(log: WriteFlagLogsRequest) -> Option<Emitted> {
     match sink() {
-        Sink::Queue => Some(vec![log]),
-        Sink::Buffer => buffer::offer(log),
+        Sink::Queue => Some(Emitted::One(Box::new(log))),
+        Sink::Buffer => buffer::offer(log).map(Emitted::Batch),
     }
 }
 
 /// Ships one request's flag log. Called from `wait_until`, so it runs after
 /// the response has been returned.
-pub(crate) async fn send(logs: Vec<WriteFlagLogsRequest>) {
-    match sink() {
-        Sink::Queue => {
-            for log in logs {
-                queue::send(log).await;
-            }
-        }
-        Sink::Buffer => buffer::deliver(logs).await,
+pub(crate) async fn send(emitted: Emitted) {
+    match emitted {
+        Emitted::One(log) => queue::send(*log).await,
+        Emitted::Batch(logs) => buffer::deliver(logs).await,
     }
 }
 

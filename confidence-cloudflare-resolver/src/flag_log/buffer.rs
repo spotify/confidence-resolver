@@ -109,6 +109,11 @@ const _: () = assert!(MAX_IN_FLIGHT < HARD_IN_FLIGHT);
 /// How often the pending waiter re-checks the triggers.
 const POLL_MS: u64 = 250;
 
+/// After this many consecutive Hold/Shed iterations the waiter gives up, so
+/// it does not pin a `wait_until` slot forever while the backend is stalled.
+/// The next request will elect a new waiter that checks again.
+const MAX_WAIT_ITERS: usize = 120; // 120 * 250ms = 30s
+
 thread_local! {
     static BUFFER: RefCell<Buffer> = const { RefCell::new(Buffer::new()) };
     /// Deliveries currently awaiting a response on this isolate.
@@ -359,6 +364,7 @@ pub(super) async fn tick() {
         return;
     };
 
+    let mut wait_iters = 0usize;
     loop {
         worker::Delay::from(std::time::Duration::from_millis(POLL_MS)).await;
         let now_ms = js_sys::Date::now();
@@ -387,11 +393,24 @@ pub(super) async fn tick() {
         });
         match step {
             Step::Done => return,
-            Step::Wait => continue,
+            Step::Wait => {
+                wait_iters += 1;
+                if wait_iters >= MAX_WAIT_ITERS {
+                    console_log!(
+                        "flag log buffer: waiter giving up after {}ms of backpressure",
+                        wait_iters as u64 * POLL_MS
+                    );
+                    return;
+                }
+                continue;
+            }
             // Keep the waiter for the next chunk: once traffic has stopped
             // there may be no further request to elect a replacement, so
             // returning here would strand the rest of the backlog.
-            Step::Deliver(batch) => deliver(batch).await,
+            Step::Deliver(batch) => {
+                wait_iters = 0;
+                deliver(batch).await;
+            }
         }
     }
 }
