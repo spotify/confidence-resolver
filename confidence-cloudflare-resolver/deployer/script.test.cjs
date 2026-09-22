@@ -135,3 +135,140 @@ test('count=1 with prefix: only base queue prefixed', () => {
   const { consumers } = extractQueues(config);
   assert.deepEqual(consumers, ['customer-flag-logs-queue', 'customer-events-queue']);
 });
+
+// --- Flag-log sink tests ---
+
+function runSinkValidation(value) {
+  return spawnSync('bash', ['-c', `
+set -euo pipefail
+FLAG_LOG_SINK=${value === undefined ? '${FLAG_LOG_SINK:-queue}' : `"${value}"`}
+FLAG_LOG_SINK=$(printf '%s' "$FLAG_LOG_SINK" | tr '[:upper:]' '[:lower:]')
+if [ "$FLAG_LOG_SINK" != "queue" ] && [ "$FLAG_LOG_SINK" != "logpush" ]; then
+    echo "FLAG_LOG_SINK must be \\"queue\\" or \\"logpush\\", got: $FLAG_LOG_SINK" >&2
+    exit 1
+fi
+echo "$FLAG_LOG_SINK"
+`], { encoding: 'utf8', timeout: 5000, env: { ...process.env, FLAG_LOG_SINK: '' } });
+}
+
+for (const value of ['logpush', 'LOGPUSH', 'LogPush', 'queue', 'QUEUE']) {
+  test(`accepts sink ${value} and lowercases it`, () => {
+    const result = runSinkValidation(value);
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), value.toLowerCase());
+  });
+}
+
+for (const value of ['', 'r2', 'logpsuh', 'true', 'queues']) {
+  test(`rejects sink ${JSON.stringify(value)}`, () => {
+    const result = runSinkValidation(value);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /FLAG_LOG_SINK must be/);
+  });
+}
+
+test('defaults to queue when unset', () => {
+  const result = runSinkValidation(undefined);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout.trim(), 'queue');
+});
+
+test('logpush mode refuses to deploy without R2 credentials', () => {
+  const result = spawnSync('bash', ['-c', `
+set -uo pipefail
+FLAG_LOG_SINK=logpush
+if [ -z "\${R2_ACCESS_KEY_ID:-}" ] || [ -z "\${R2_SECRET_ACCESS_KEY:-}" ]; then
+    echo "FLAG_LOG_SINK=logpush requires R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY" >&2
+    exit 1
+fi
+echo "OK"
+`], { encoding: 'utf8', timeout: 5000, env: { ...process.env, R2_ACCESS_KEY_ID: '', R2_SECRET_ACCESS_KEY: '' } });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /requires R2_ACCESS_KEY_ID/);
+});
+
+// The Logpush job must be scoped to this worker and exclude cron invocations:
+// without the ScriptName filter it captures every Worker in the account, and
+// without the EventType filter the aggregator's own console output feeds back
+// into the bucket it is draining.
+test('logpush job filter is a JSON string scoped to the worker and fetch events', () => {
+  const result = spawnSync('bash', ['-c', `
+jq -n --arg script "my-worker" '{
+    filter: ({where: {and: [
+        {key: "ScriptName", operator: "eq", value: $script},
+        {key: "EventType", operator: "eq", value: "fetch"}
+    ]}} | tostring)
+}'
+`], { encoding: 'utf8', timeout: 5000 });
+  assert.equal(result.status, 0);
+  const body = JSON.parse(result.stdout);
+  assert.equal(typeof body.filter, 'string', 'filter must be a JSON-encoded string');
+  assert.deepEqual(JSON.parse(body.filter), {
+    where: {
+      and: [
+        { key: 'ScriptName', operator: 'eq', value: 'my-worker' },
+        { key: 'EventType', operator: 'eq', value: 'fetch' },
+      ],
+    },
+  });
+});
+
+// logpush = true is a top-level key, so appending it would land it inside
+// whichever table happens to be last. It has to be prepended.
+test('logpush = true is prepended above every table', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'flag-log-logpush-test-'));
+  try {
+    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
+    const result = spawnSync('bash', ['-c', `
+set -euo pipefail
+sed -i.tmp '/^logpush *= *.*$/d' wrangler.toml || true
+LOGPUSH_TMPFILE=./wrangler.toml.logpush
+printf 'logpush = true\\n' > "$LOGPUSH_TMPFILE"
+cat wrangler.toml >> "$LOGPUSH_TMPFILE"
+mv "$LOGPUSH_TMPFILE" wrangler.toml
+cat >> wrangler.toml <<EOF
+
+[[r2_buckets]]
+binding = "FLAG_LOGS_R2"
+bucket_name = "flag-logs"
+
+[triggers]
+crons = ["* * * * *"]
+EOF
+`], { cwd: directory, encoding: 'utf8', timeout: 5000, env: { ...process.env, TMPDIR: directory } });
+    assert.equal(result.status, 0, result.stderr);
+    const config = readFileSync(join(directory, 'wrangler.toml'), 'utf8');
+    const logpushLine = config.split('\n').findIndex(l => l.trim() === 'logpush = true');
+    const firstTable = config.split('\n').findIndex(l => l.trim().startsWith('['));
+    assert.ok(logpushLine >= 0, 'logpush = true must be present');
+    assert.ok(logpushLine < firstTable, 'logpush = true must precede the first table');
+    assert.match(config, /binding = "FLAG_LOGS_R2"/);
+    assert.match(config, /crons = \["\* \* \* \* \*"\]/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// Running the deployer twice must not accumulate duplicate keys.
+test('re-running logpush setup does not duplicate logpush = true', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'flag-log-logpush-idem-'));
+  try {
+    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
+    const script = `
+set -euo pipefail
+sed -i.tmp '/^logpush *= *.*$/d' wrangler.toml || true
+LOGPUSH_TMPFILE=./wrangler.toml.logpush
+printf 'logpush = true\\n' > "$LOGPUSH_TMPFILE"
+cat wrangler.toml >> "$LOGPUSH_TMPFILE"
+mv "$LOGPUSH_TMPFILE" wrangler.toml
+`;
+    const opts = { cwd: directory, encoding: 'utf8', timeout: 5000, env: { ...process.env, TMPDIR: directory } };
+    assert.equal(spawnSync('bash', ['-c', script], opts).status, 0);
+    assert.equal(spawnSync('bash', ['-c', script], opts).status, 0);
+    const config = readFileSync(join(directory, 'wrangler.toml'), 'utf8');
+    const occurrences = config.split('\n').filter(l => l.trim() === 'logpush = true').length;
+    assert.equal(occurrences, 1);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -1,11 +1,9 @@
-mod flag_log_queues;
+mod flag_log;
 mod materialization;
 
 use confidence_resolver::{
-    apply_dedup::{
-        compute_applied_flag_dedup_hash, AppliedFlagRef, ApplyDedup, ApplyDedupSnapshot,
-    },
-    assign_logger, flag_logger,
+    apply_dedup::{ApplyDedup, ApplyDedupSnapshot},
+    assign_logger,
     proto::{confidence, google::Struct},
     resolve_logger,
     telemetry::{self, TelemetrySnapshot},
@@ -86,14 +84,7 @@ async fn queue_flag_log(log: WriteFlagLogsRequest) {
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     }
-    match serde_json::to_string(&log) {
-        Ok(json) => {
-            if let Some(queues) = FLAGS_LOGS_QUEUES.get() {
-                flag_log_queues::send_to_any(queues, &json, js_sys::Math::random()).await;
-            }
-        }
-        Err(e) => console_log!("flag log serialize failed: {:?}", e),
-    }
+    flag_log::send(log).await;
 }
 
 /// Runs `f` with `log` installed as the destination for the `Host` logging
@@ -128,8 +119,6 @@ fn seed_resolver_rng() {
 
 /// Prometheus exposition format content type (version 0.0.4).
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
-
-static FLAGS_LOGS_QUEUES: OnceLock<Vec<Queue>> = OnceLock::new();
 
 static EVENTS_QUEUE: OnceLock<Queue> = OnceLock::new();
 
@@ -308,13 +297,7 @@ async fn resolve_with_sticky(
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
-    FLAGS_LOGS_QUEUES.get_or_init(|| {
-        let queues = flag_log_queues::discover(|name| env.queue(name).ok());
-        if queues.is_empty() {
-            console_log!("flag_logs_queue binding is missing; logging disabled");
-        }
-        queues
-    });
+    flag_log::init(&env);
 
     match env.queue("events_queue") {
         Ok(queue) => {
@@ -717,114 +700,24 @@ pub async fn consume_queue(
 ) -> Result<()> {
     set_client_secret(&env);
     seed_resolver_rng();
+    flag_log::init(&env);
 
     let queue_name = message_batch.queue();
     if queue_name.ends_with("events-queue") {
         return consume_events_queue(message_batch, env).await;
     }
 
-    consume_flag_logs(message_batch, env).await
+    flag_log::consume(message_batch, env).await
 }
 
-/// Deduplicates applied flags across a batch of log messages. Different
-/// isolates may each log the same user+flag assignment within the batch
-/// window; this removes the duplicates before the network request.
-fn dedup_batch_flag_applies(logs: &mut [WriteFlagLogsRequest], now_seconds: i64) {
-    let mut dedup = ApplyDedup::new(120, 100_000);
-    for log in logs.iter_mut() {
-        for fa in &mut log.flag_assigned {
-            fa.flags.retain(|applied| {
-                let hash = compute_applied_flag_dedup_hash(&AppliedFlagRef::from(applied));
-                dedup.check_hash(hash, now_seconds)
-            });
-        }
-        log.flag_assigned.retain(|fa| !fa.flags.is_empty());
-    }
-}
-
-async fn consume_flag_logs(message_batch: MessageBatch<String>, env: Env) -> Result<()> {
-    if let Ok(messages) = message_batch.messages() {
-        // A message that fails to parse is skipped instead of panicking the
-        // whole batch (a panic would retry and eventually drop all of it).
-        let mut logs: Vec<WriteFlagLogsRequest> = messages
-            .iter()
-            .map(|m| m.body().clone())
-            .filter_map(
-                |s| match serde_json::from_str::<WriteFlagLogsRequest>(s.as_str()) {
-                    Ok(log) => Some(log),
-                    Err(e) => {
-                        console_log!("flag log message parse failed, skipping: {:?}", e);
-                        None
-                    }
-                },
-            )
-            .collect();
-
-        let enable_dedup = env
-            .var("ENABLE_APPLY_DEDUP")
-            .map(|var| !var.to_string().trim().eq_ignore_ascii_case("false"))
-            .unwrap_or(true);
-        if enable_dedup {
-            dedup_batch_flag_applies(&mut logs, (js_sys::Date::now() / 1000.0) as i64);
-        }
-
-        let req = flag_logger::aggregate_batch(logs);
-
-        let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
-        let account_id = CDN_STATE_REQUEST.account_id.as_str();
-        let destinations = &*LOG_DESTINATIONS;
-
-        let (primary, fallback) = if destinations.len() >= 2 {
-            (destinations[0], Some(destinations[1]))
-        } else {
-            (destinations[0], None)
-        };
-
-        let delivered = if let Err(reason) =
-            deliver_flag_logs(client_secret, account_id, &req, primary).await
-        {
-            console_log!(
-                "flag log delivery to {:?} failed ({}), trying fallback",
-                primary,
-                reason
-            );
-            match fallback {
-                Some(fb) => match deliver_flag_logs(client_secret, account_id, &req, fb).await {
-                    Ok(()) => true,
-                    Err(fb_reason) => {
-                        console_log!(
-                            "fallback flag log delivery to {:?} also failed: {}",
-                            fb,
-                            fb_reason
-                        );
-                        false
-                    }
-                },
-                None => false,
-            }
-        } else {
-            true
-        };
-
-        if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-            update_kv_snapshot(
-                &kv,
-                SnapshotPipeline::FlagLogs,
-                request_telemetry_to_accumulate(req.telemetry_data.as_ref(), delivered),
-                Some(delivered),
-                None,
-            )
-            .await;
-        }
-
-        if !delivered {
-            return Err(worker::Error::RustError(
-                "flag log delivery failed on all destinations".to_string(),
-            ));
-        }
-    }
-
-    Ok(())
+/// Cron entry point for the Logpush sink's R2 aggregation pass. A no-op under
+/// the queue sink, whose batching the queue consumer does instead.
+#[event(scheduled)]
+pub async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    set_client_secret(&env);
+    seed_resolver_rng();
+    flag_log::init(&env);
+    flag_log::run_aggregator(&env).await;
 }
 
 /// Attempt delivery to one destination. Any transport error or non-2xx/3xx
@@ -1914,282 +1807,5 @@ mod tests {
         assert_eq!(events[0]["payload"]["count"], 42.0);
         assert_eq!(events[0]["payload"]["tags"][0], "a");
         assert_eq!(events[0]["payload"]["tags"][1], "b");
-    }
-}
-
-#[cfg(test)]
-mod dedup_batch_tests {
-    use super::*;
-    use confidence_resolver::proto::confidence::flags::resolver::v1::events::flag_assigned::{
-        applied_flag::Assignment, AppliedFlag, AssignmentInfo, DefaultAssignment,
-    };
-    use confidence_resolver::proto::confidence::flags::resolver::v1::events::FlagAssigned;
-
-    fn applied(flag: &str, user: &str, variant: &str) -> AppliedFlag {
-        AppliedFlag {
-            flag: flag.to_string(),
-            targeting_key: user.to_string(),
-            assignment: Some(Assignment::AssignmentInfo(AssignmentInfo {
-                variant: variant.to_string(),
-                segment: String::new(),
-            })),
-            ..Default::default()
-        }
-    }
-
-    fn assigned_event(resolve_id: &str, flags: Vec<AppliedFlag>) -> FlagAssigned {
-        FlagAssigned {
-            resolve_id: resolve_id.to_string(),
-            client_info: None,
-            flags,
-        }
-    }
-
-    fn log_with_assigns(assigns: Vec<FlagAssigned>) -> WriteFlagLogsRequest {
-        WriteFlagLogsRequest {
-            flag_assigned: assigns,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn no_duplicates_all_preserved() {
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event(
-                "r1",
-                vec![
-                    applied("flags/a", "user-1", "on"),
-                    applied("flags/b", "user-1", "off"),
-                ],
-            )]),
-            log_with_assigns(vec![assigned_event(
-                "r2",
-                vec![applied("flags/c", "user-2", "on")],
-            )]),
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
-        assert_eq!(logs[1].flag_assigned[0].flags.len(), 1);
-    }
-
-    #[test]
-    fn exact_duplicate_across_messages_removed() {
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event(
-                "r1",
-                vec![applied("flags/a", "user-1", "on")],
-            )]),
-            log_with_assigns(vec![assigned_event(
-                "r2",
-                vec![applied("flags/a", "user-1", "on")],
-            )]),
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned.len(), 1);
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-        assert!(logs[1].flag_assigned.is_empty());
-    }
-
-    #[test]
-    fn duplicate_within_same_flag_assigned_removed() {
-        let mut logs = vec![log_with_assigns(vec![assigned_event(
-            "r1",
-            vec![
-                applied("flags/a", "user-1", "on"),
-                applied("flags/a", "user-1", "on"),
-            ],
-        )])];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-    }
-
-    #[test]
-    fn partial_dedup_keeps_unique_flags() {
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event(
-                "r1",
-                vec![applied("flags/a", "user-1", "on")],
-            )]),
-            log_with_assigns(vec![assigned_event(
-                "r2",
-                vec![
-                    applied("flags/a", "user-1", "on"),
-                    applied("flags/b", "user-1", "off"),
-                ],
-            )]),
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-        assert_eq!(logs[1].flag_assigned[0].flags.len(), 1);
-        assert_eq!(logs[1].flag_assigned[0].flags[0].flag, "flags/b");
-    }
-
-    #[test]
-    fn same_flag_different_users_not_deduped() {
-        let mut logs = vec![log_with_assigns(vec![assigned_event(
-            "r1",
-            vec![
-                applied("flags/a", "user-1", "on"),
-                applied("flags/a", "user-2", "on"),
-            ],
-        )])];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
-    }
-
-    #[test]
-    fn same_flag_same_user_different_variant_not_deduped() {
-        let mut logs = vec![log_with_assigns(vec![assigned_event(
-            "r1",
-            vec![
-                applied("flags/a", "user-1", "on"),
-                applied("flags/a", "user-1", "off"),
-            ],
-        )])];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
-    }
-
-    #[test]
-    fn empty_batch_is_noop() {
-        let mut logs: Vec<WriteFlagLogsRequest> = vec![];
-        dedup_batch_flag_applies(&mut logs, 1000);
-        assert!(logs.is_empty());
-    }
-
-    #[test]
-    fn logs_without_flag_assigned_unchanged() {
-        use confidence_resolver::proto::confidence::flags::admin::v1::FlagResolveInfo;
-
-        let mut logs = vec![WriteFlagLogsRequest {
-            flag_resolve_info: vec![FlagResolveInfo {
-                flag: "flags/a".to_string(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_resolve_info.len(), 1);
-        assert!(logs[0].flag_assigned.is_empty());
-    }
-
-    #[test]
-    fn default_assignment_deduped_correctly() {
-        let da = AppliedFlag {
-            flag: "flags/archived".to_string(),
-            targeting_key: "user-1".to_string(),
-            assignment: Some(Assignment::DefaultAssignment(DefaultAssignment {
-                reason: 3, // FLAG_ARCHIVED
-            })),
-            ..Default::default()
-        };
-
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event("r1", vec![da.clone()])]),
-            log_with_assigns(vec![assigned_event("r2", vec![da])]),
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-        assert!(logs[1].flag_assigned.is_empty());
-    }
-
-    #[test]
-    fn flag_resolve_info_untouched_by_dedup() {
-        use confidence_resolver::proto::confidence::flags::admin::v1::{
-            flag_resolve_info::VariantResolveInfo, FlagResolveInfo,
-        };
-
-        let mut logs = vec![WriteFlagLogsRequest {
-            flag_assigned: vec![
-                assigned_event("r1", vec![applied("flags/a", "user-1", "on")]),
-                assigned_event("r2", vec![applied("flags/a", "user-1", "on")]),
-            ],
-            flag_resolve_info: vec![FlagResolveInfo {
-                flag: "flags/a".to_string(),
-                variant_resolve_info: vec![VariantResolveInfo {
-                    variant: "on".to_string(),
-                    count: 42,
-                }],
-                ..Default::default()
-            }],
-            ..Default::default()
-        }];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_resolve_info.len(), 1);
-        assert_eq!(
-            logs[0].flag_resolve_info[0].variant_resolve_info[0].count,
-            42
-        );
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-    }
-
-    #[test]
-    fn telemetry_data_preserved_even_when_all_assigns_deduped() {
-        use confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData;
-
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event(
-                "r1",
-                vec![applied("flags/a", "user-1", "on")],
-            )]),
-            WriteFlagLogsRequest {
-                flag_assigned: vec![assigned_event(
-                    "r2",
-                    vec![applied("flags/a", "user-1", "on")],
-                )],
-                telemetry_data: Some(TelemetryData {
-                    memory_bytes: 4096,
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert!(logs[1].flag_assigned.is_empty());
-        assert_eq!(logs[1].telemetry_data.as_ref().unwrap().memory_bytes, 4096);
-    }
-
-    #[test]
-    fn many_duplicates_across_many_messages() {
-        let mut logs: Vec<WriteFlagLogsRequest> = (0..50)
-            .map(|i| {
-                log_with_assigns(vec![assigned_event(
-                    &format!("r{}", i),
-                    vec![applied("flags/a", "user-1", "on")],
-                )])
-            })
-            .collect();
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        let total_flags: usize = logs
-            .iter()
-            .flat_map(|l| &l.flag_assigned)
-            .map(|fa| fa.flags.len())
-            .sum();
-        assert_eq!(
-            total_flags, 1,
-            "50 identical applies should yield 1 survivor"
-        );
     }
 }

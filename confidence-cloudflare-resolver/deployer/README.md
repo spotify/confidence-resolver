@@ -70,6 +70,102 @@ The deployer automatically:
 | `FORCE_APPLY`                        | Defaults to `true`: every resolve is treated as `apply=true` and assignments are logged at resolve time. Set to `false` to respect the `apply` value sent by SDKs (deferred-apply flow via `flags:apply`) |
 | `ENABLE_APPLY_DEDUP`                 | Defaults to `true`: apply-event deduplication is enabled — repeated identical assignments within a 120s window are logged once, both at resolve time and across queue consumer batches. Set to `false` to disable |
 | `FLAG_LOGS_QUEUE_COUNT`              | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
+| `FLAG_LOG_SINK`                      | `queue` (default) or `logpush`. Selects how flag logs leave the Worker — see [Flag-log sinks](#flag-log-sinks) |
+| `R2_ACCESS_KEY_ID`                   | Required when `FLAG_LOG_SINK=logpush`. R2 API token key id that Logpush authenticates to the bucket with (create with **Edit** permissions) |
+| `R2_SECRET_ACCESS_KEY`               | Required when `FLAG_LOG_SINK=logpush`. R2 API token secret |
+| `FLAG_LOGS_AGGREGATOR_CRON`          | Cron schedule for the Logpush aggregation pass (default `* * * * *`). Logpush delivers roughly once a minute regardless, so faster schedules only add invocations |
+
+### Flag-log sinks
+
+`FLAG_LOG_SINK` selects how flag logs get from the Worker to Confidence. Queue
+bindings are created under either sink, so switching back to `queue` is an
+immediate rollback that also drains whatever is still queued.
+
+#### `queue` (default)
+
+```
+resolve → flag-logs-queue → queue consumer → Confidence
+```
+
+Each log is published to a queue shard; the consumer aggregates up to 100
+messages before delivery. A publish that fails is dropped — there is no
+in-isolate retry, because anything held between requests is lost when the
+isolate is evicted and Cloudflare provides no shutdown hook to flush it.
+
+#### `logpush`
+
+```
+resolve → console.log → Logpush → R2 → cron aggregator → Confidence
+```
+
+The log is compressed and written to `console.log` with a `FLAGLOG ` prefix,
+Cloudflare's Logpush captures it into an R2 bucket, and the Worker's cron
+trigger reads the bucket, aggregates, delivers, and deletes.
+
+Nothing is retained in isolate memory between requests, so an isolate eviction
+cannot lose a log belonging to a request that completed — the capture happens
+on Cloudflare's side as the request finishes. The aggregator deletes an object
+only after its contents are delivered, so R2 is a durable hand-off and a failed
+delivery is retried on the next tick.
+
+Cost scales differently, which is the main reason to choose it. Queues bill per
+message and charge three operations each, so cost tracks the number of log
+records. Logpush bills per *request* — which you serve anyway — and Cloudflare
+batches thousands of records into each R2 object for the price of one write.
+
+The deployer provisions everything: it creates the R2 bucket, creates or
+updates a `workers_trace_events` Logpush job, sets `logpush = true`, and adds
+the `FLAG_LOGS_R2` binding, the cron trigger, and a raised `cpu_ms` limit for
+the aggregation pass.
+
+**Payload encoding.** Logs are sent as `base64(gzip(protobuf))`. gzip is what
+matters: `AppliedFlag` entries repeat the targeting key and share
+`flags/…/rules/…/variants/…` path prefixes, so measured against realistic data
+it shrinks a log about 5.5x and cuts the marginal cost of an exposure from ~365
+to ~63 bytes. base64 keeps the result escape-free so it does not inflate again
+inside the trace event's JSON.
+
+**Size handling.** Cloudflare truncates a trace event's `logs` and `exceptions`
+fields once their combined length reaches 16,384 characters, counting
+exceptions first. That limit is fixed — no configuration changes it, and
+splitting across several `console.log` calls does not help because it applies
+per trace event rather than per line. The Worker therefore caps a console line
+at 12,000 characters and writes anything larger straight to R2 in the same
+format Logpush produces, so the aggregator reads it back with no special
+handling and it is still aggregated and deduplicated with everything else. If
+the bucket is unavailable, such a log is delivered inline as a last resort.
+
+Measured, a 57-flag exposure log encodes to roughly 3,800 characters, so the
+12,000 cap engages only for resolves applying a few hundred flags at once.
+
+**Job scoping.** The Logpush job is filtered to `ScriptName = <worker>` and
+`EventType = fetch`. The first keeps it from capturing every Worker in the
+account; the second excludes the aggregator's own cron invocations, so its
+console output cannot feed back into the bucket it is draining.
+`output_options.field_names` is restricted to `EventTimestampMs` and `Logs`,
+dropping the request-metadata and exception fields the aggregator does not
+read. Only `FLAGLOG `-prefixed console lines are parsed, so error logs sharing
+a trace event are ignored.
+
+Trade-offs versus the queue:
+
+- **Delivery latency is roughly a minute** and is not tunable. Logpush's upload
+  settings influence batch size, not latency.
+- **The Logpush hop has no durability contract.** It retries a failed batch
+  about five times over five minutes, then drops it permanently, and disables
+  the job after prolonged failure. Targeting R2 rather than an external
+  endpoint makes that unlikely, but the Logpush Health dashboard is worth an
+  alert.
+- **Statistics may be double-counted** if a delivery succeeds but the R2 delete
+  fails, since the objects are then re-read. Applies are deduplicated; the
+  statistics counters are not.
+- **Throughput has a ceiling.** One cron invocation claims up to 200 objects,
+  which comfortably covers traffic up to roughly 1–2K RPS. Beyond that the
+  bucket accumulates faster than a single pass drains it, and aggregation needs
+  to fan out or move to the ingest side.
+
+Set `-e FORCE_DEPLOY=1` when switching sinks so an unchanged resolver state does
+not skip deployment.
 
 ### Scaling flag-log queues
 

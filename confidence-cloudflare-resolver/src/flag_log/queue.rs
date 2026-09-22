@@ -1,0 +1,92 @@
+//! The queue sink: shard bindings, the producer, and the consumer that
+//! aggregates a batch before delivery.
+//!
+//! Shard discovery and failover live in [`super::shards`].
+//!
+//! Delivery is best effort on the way in and at-least-once on the way out. A
+//! publish runs in the request's `wait_until` and is dropped if every shard
+//! rejects it — there is no in-isolate retry, because anything held between
+//! requests is lost when the isolate is evicted and Cloudflare offers no
+//! shutdown hook to flush it. Once a publish succeeds the queue redelivers to
+//! the consumer until it acks.
+use super::{dedup_batch_flag_applies, dedup_enabled, shards};
+use confidence_resolver::{
+    flag_logger, proto::confidence::flags::resolver::v1::WriteFlagLogsRequest,
+};
+use std::sync::OnceLock;
+use worker::{console_log, Env, MessageBatch, Queue, Result};
+
+static QUEUES: OnceLock<Vec<Queue>> = OnceLock::new();
+
+/// Binds every configured shard. Called only when the queue sink is active,
+/// so a Logpush deployment does not warn about a binding it does not use.
+pub(super) fn init(env: &Env) {
+    QUEUES.get_or_init(|| {
+        let queues = shards::discover(|name| env.queue(name).ok());
+        if queues.is_empty() {
+            console_log!("flag_logs_queue binding is missing; logging disabled");
+        }
+        queues
+    });
+}
+
+/// Publishes to a randomly chosen shard, falling through the rest on failure.
+pub(super) async fn send(log: WriteFlagLogsRequest) {
+    match serde_json::to_string(&log) {
+        Ok(json) => {
+            if let Some(queues) = QUEUES.get() {
+                shards::send_to_any(queues, &json, js_sys::Math::random()).await;
+            }
+        }
+        Err(e) => console_log!("flag log serialize failed: {:?}", e),
+    }
+}
+
+/// Aggregates one queue batch and delivers it.
+///
+/// A message that fails to parse is skipped instead of panicking the whole
+/// batch, since a panic would retry and eventually drop all of it — including
+/// the messages that were fine. Returning `Err` on a failed delivery is
+/// deliberate: that is what makes the queue redeliver the batch.
+pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Result<()> {
+    let Ok(messages) = message_batch.messages() else {
+        return Ok(());
+    };
+
+    let mut logs: Vec<WriteFlagLogsRequest> = messages
+        .iter()
+        .map(|message| message.body().clone())
+        .filter_map(|body| match serde_json::from_str(body.as_str()) {
+            Ok(log) => Some(log),
+            Err(e) => {
+                console_log!("flag log message parse failed, skipping: {:?}", e);
+                None
+            }
+        })
+        .collect();
+
+    if dedup_enabled(&env) {
+        dedup_batch_flag_applies(&mut logs, (js_sys::Date::now() / 1000.0) as i64);
+    }
+
+    let request = flag_logger::aggregate_batch(logs);
+    let delivered = super::deliver(&request).await;
+
+    if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
+        crate::update_kv_snapshot(
+            &kv,
+            crate::SnapshotPipeline::FlagLogs,
+            crate::request_telemetry_to_accumulate(request.telemetry_data.as_ref(), delivered),
+            Some(delivered),
+            None,
+        )
+        .await;
+    }
+
+    if !delivered {
+        return Err(worker::Error::RustError(
+            "flag log delivery failed on all destinations".to_string(),
+        ));
+    }
+    Ok(())
+}

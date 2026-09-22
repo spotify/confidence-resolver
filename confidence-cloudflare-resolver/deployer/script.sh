@@ -457,6 +457,200 @@ else
 fi
 ensure_queue "$EVENTS_QUEUE_NAME" || exit 1
 
+# ---------------------------------------------------------------------------
+# Flag-log sink: "queue" (default) or "logpush".
+#
+# queue   — flag logs publish to the flag-logs queue shards created above and
+#           the worker's queue consumer batches them.
+# logpush — flag logs are written to console.log, Cloudflare Logpush captures
+#           them into R2, and the worker's cron trigger aggregates, delivers
+#           and deletes. Nothing is held in isolate memory between requests,
+#           so an isolate eviction cannot lose a log for a completed request.
+#
+# Queue bindings are created under either sink, so switching FLAG_LOG_SINK
+# back to "queue" is an immediate rollback that also drains whatever is still
+# queued.
+# ---------------------------------------------------------------------------
+FLAG_LOG_SINK=${FLAG_LOG_SINK:-queue}
+FLAG_LOG_SINK=$(printf '%s' "$FLAG_LOG_SINK" | tr '[:upper:]' '[:lower:]')
+if [ "$FLAG_LOG_SINK" != "queue" ] && [ "$FLAG_LOG_SINK" != "logpush" ]; then
+    echo "❌ FLAG_LOG_SINK must be \"queue\" or \"logpush\", got: $FLAG_LOG_SINK" >&2
+    exit 1
+fi
+
+# Logpush delivers batches roughly once a minute regardless of its upload
+# settings, so polling faster than that only burns invocations.
+FLAG_LOGS_AGGREGATOR_CRON=${FLAG_LOGS_AGGREGATOR_CRON:-* * * * *}
+
+ensure_r2_bucket() {
+    local B_NAME="$1"
+    echo "🔍 Checking if R2 bucket '$B_NAME' exists..."
+    local B_CHECK B_STATUS
+    B_CHECK=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${B_NAME}")
+    B_STATUS="${B_CHECK: -3}"
+
+    if [ "$B_STATUS" = "200" ]; then
+        echo "✅ R2 bucket '$B_NAME' already exists"
+        return 0
+    fi
+
+    echo "📦 R2 bucket '$B_NAME' not found, creating..."
+    local B_CREATE B_CREATE_STATUS
+    B_CREATE=$(curl -sS -w "%{http_code}" -X POST \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\": \"${B_NAME}\"}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets")
+    B_CREATE_STATUS="${B_CREATE: -3}"
+    if [ "$B_CREATE_STATUS" = "200" ] || [ "$B_CREATE_STATUS" = "201" ]; then
+        echo "✅ R2 bucket '$B_NAME' created successfully"
+        return 0
+    fi
+    echo "❌ Failed to create R2 bucket '$B_NAME' (HTTP $B_CREATE_STATUS)"
+    echo "${B_CREATE%???}"
+    return 1
+}
+
+# Creates or updates the workers_trace_events job that feeds the bucket.
+#
+# The ScriptName filter is what keeps the job scoped to this worker — without
+# it the job captures every Worker in the account. The EventType filter drops
+# the aggregator's own cron invocations, so its console output can never feed
+# back into the bucket it is draining.
+#
+# field_names is restricted to the two fields the aggregator reads. Event
+# carries full request metadata and is most of the volume; Exceptions would
+# add panic text the aggregator ignores anyway.
+#
+# max_upload_bytes pins the uncompressed object size at 20 MB, comfortably
+# under the aggregator's 48 MB per-object ceiling. Without it the size is
+# whatever Cloudflare defaults to for the destination, which would leave the
+# aggregator's memory bound resting on an unknown.
+ensure_logpush_job() {
+    local JOB_NAME="$1" BUCKET="$2"
+
+    local DEST_CONF JOB_BODY
+    DEST_CONF=$(jq -rn \
+        --arg bucket "$BUCKET" \
+        --arg account "$CLOUDFLARE_ACCOUNT_ID" \
+        --arg key "$R2_ACCESS_KEY_ID" \
+        --arg secret "$R2_SECRET_ACCESS_KEY" \
+        '"r2://\($bucket)/flag-logs/{DATE}?account-id=\($account|@uri)&access-key-id=\($key|@uri)&secret-access-key=\($secret|@uri)"')
+
+    JOB_BODY=$(jq -n \
+        --arg name "$JOB_NAME" \
+        --arg dest "$DEST_CONF" \
+        --arg script "$WORKER_NAME" \
+        '{
+            name: $name,
+            dataset: "workers_trace_events",
+            destination_conf: $dest,
+            enabled: true,
+            output_options: {
+                field_names: ["EventTimestampMs", "Logs"],
+                timestamp_format: "rfc3339"
+            },
+            max_upload_bytes: 20000000,
+            max_upload_records: 50000,
+            filter: ({where: {and: [
+                {key: "ScriptName", operator: "eq", value: $script},
+                {key: "EventType", operator: "eq", value: "fetch"}
+            ]}} | tostring)
+        }')
+
+    echo "🔍 Checking for existing Logpush job '$JOB_NAME'..."
+    local JOB_LIST JOB_LIST_STATUS JOB_ID=""
+    JOB_LIST=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/logpush/jobs")
+    JOB_LIST_STATUS="${JOB_LIST: -3}"
+    if [ "$JOB_LIST_STATUS" = "200" ]; then
+        JOB_ID=$(printf "%s" "${JOB_LIST%???}" \
+            | jq -r ".result[]? | select(.name == \"${JOB_NAME}\") | .id" 2>/dev/null || true)
+    else
+        echo "⚠️ Could not list Logpush jobs (HTTP $JOB_LIST_STATUS)"
+    fi
+
+    local RESP RESP_STATUS
+    if [ -n "$JOB_ID" ]; then
+        # Re-PUT so a rotated R2 credential or an edited filter takes effect.
+        # name and dataset are immutable, so they are dropped from the body.
+        echo "♻️ Updating Logpush job '$JOB_NAME' (id: $JOB_ID)..."
+        RESP=$(printf "%s" "$JOB_BODY" | jq 'del(.name, .dataset)' | curl -sS -w "%{http_code}" -X PUT \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @- \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/logpush/jobs/${JOB_ID}")
+    else
+        echo "📦 Creating Logpush job '$JOB_NAME'..."
+        RESP=$(printf "%s" "$JOB_BODY" | curl -sS -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary @- \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/logpush/jobs")
+    fi
+
+    RESP_STATUS="${RESP: -3}"
+    if [ "$RESP_STATUS" = "200" ] || [ "$RESP_STATUS" = "201" ]; then
+        echo "✅ Logpush job '$JOB_NAME' is configured"
+        return 0
+    fi
+    # The response body can echo the destination, which carries the R2
+    # secret, so only the error messages are printed.
+    echo "❌ Failed to configure Logpush job '$JOB_NAME' (HTTP $RESP_STATUS)"
+    printf "%s" "${RESP%???}" | jq -r '.errors[]? | "   \(.code): \(.message)"' 2>/dev/null || true
+    return 1
+}
+
+if [ "$FLAG_LOG_SINK" = "logpush" ]; then
+    if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+        echo "❌ FLAG_LOG_SINK=logpush requires R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY" >&2
+        echo "   Logpush authenticates to R2 with an S3-style key pair; create an R2" >&2
+        echo "   API token with object read+write and pass it via these variables." >&2
+        exit 1
+    fi
+
+    if [ -n "$WORKER_NAME_PREFIX" ]; then
+        FLAG_LOGS_BUCKET="${WORKER_NAME_PREFIX}-flag-logs"
+    else
+        FLAG_LOGS_BUCKET="flag-logs"
+    fi
+
+    ensure_r2_bucket "$FLAG_LOGS_BUCKET" || exit 1
+    ensure_logpush_job "${WORKER_NAME}-flag-logs" "$FLAG_LOGS_BUCKET" || exit 1
+
+    # logpush = true is a top-level script setting, so it has to be prepended:
+    # appending it would land inside whichever table comes last.
+    sed -i.tmp '/^logpush *= *.*$/d' wrangler.toml || true
+    LOGPUSH_TMPFILE=$(mktemp)
+    printf 'logpush = true\n' > "$LOGPUSH_TMPFILE"
+    cat wrangler.toml >> "$LOGPUSH_TMPFILE"
+    mv "$LOGPUSH_TMPFILE" wrangler.toml
+
+    cat >> wrangler.toml <<EOF
+
+# Bucket Logpush writes trace events into, drained by the cron trigger below.
+[[r2_buckets]]
+binding = "FLAG_LOGS_R2"
+bucket_name = "${FLAG_LOGS_BUCKET}"
+
+[triggers]
+crons = ["${FLAG_LOGS_AGGREGATOR_CRON}"]
+
+# The aggregation pass decompresses and parses many R2 objects in one
+# invocation, which needs more than the 30s default. This raises the ceiling;
+# it does not reserve time, so resolve requests are unaffected.
+[limits]
+cpu_ms = 120000
+EOF
+    echo "✅ Added FLAG_LOGS_R2 binding and aggregator cron (${FLAG_LOGS_AGGREGATOR_CRON}) to wrangler.toml"
+    echo "✅ Flag-log sink: logpush (R2 bucket '${FLAG_LOGS_BUCKET}')"
+else
+    echo "✅ Flag-log sink: queue"
+fi
+
 # Create KV namespace for /metrics endpoint if it doesn't exist
 if [ -n "$WORKER_NAME_PREFIX" ]; then
     KV_NAMESPACE_TITLE="${WORKER_NAME_PREFIX}-resolver-metrics"
@@ -616,8 +810,8 @@ if [ -n "$ENABLE_APPLY_DEDUP" ]; then
     fi
 fi
 
-# Update [vars] table with ALLOWED_ORIGIN, RESOLVER_STATE_ETAG and RESOLVER_VERSION, without duplicating the table
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ]; then
+# Update [vars] without duplicating the table.
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
@@ -626,7 +820,8 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^FORCE_APPLY *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^ENABLE_APPLY_DEDUP *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" '
+    sed -i.tmp '/^FLAG_LOG_SINK *= *.*$/d' wrangler.toml || true
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -637,6 +832,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
                 if (force_apply != "") print "FORCE_APPLY = \"" force_apply "\""
                 if (enable_apply_dedup != "") print "ENABLE_APPLY_DEDUP = \"" enable_apply_dedup "\""
+                if (flag_log_sink != "") print "FLAG_LOG_SINK = \"" flag_log_sink "\""
                 inserted=1
             }
         }
@@ -655,6 +851,9 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     fi
     if [ -n "$FORCE_APPLY" ]; then
         echo "✅ FORCE_APPLY set to \"$FORCE_APPLY\" in wrangler.toml"
+    fi
+    if [ -n "$FLAG_LOG_SINK" ]; then
+        echo "✅ FLAG_LOG_SINK set to \"$FLAG_LOG_SINK\" in wrangler.toml"
     fi
 fi
 
