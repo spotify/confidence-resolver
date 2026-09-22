@@ -190,6 +190,7 @@ impl Buffer {
         }
     }
 
+    #[cfg(test)]
     fn take(&mut self) -> Vec<WriteFlagLogsRequest> {
         self.bytes = 0;
         self.first_ms = 0.0;
