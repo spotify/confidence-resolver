@@ -121,12 +121,15 @@ thread_local! {
 }
 
 struct Buffer {
-    /// Logs are held unaggregated and merged once at flush time.
+    /// Logs are held unaggregated and merged once at flush time, each
+    /// paired with its encoded length.
     ///
     /// Aggregating on every offer would re-clone the whole accumulator per
-    /// request, which is quadratic in the number of logs buffered. Summing
-    /// `encoded_len` instead keeps the running size cheap and exact enough.
-    logs: Vec<WriteFlagLogsRequest>,
+    /// request, which is quadratic in the number of logs buffered. The
+    /// length is cached because `encoded_len` walks the whole message, so
+    /// recomputing it while chunking would re-walk the entire buffer on
+    /// every flush.
+    logs: Vec<(WriteFlagLogsRequest, usize)>,
     bytes: usize,
     /// When the oldest log landed, for the age trigger.
     first_ms: f64,
@@ -159,8 +162,9 @@ impl Buffer {
             self.first_ms = now_ms;
         }
         self.last_ms = now_ms;
-        self.bytes = self.bytes.saturating_add(log.encoded_len());
-        self.logs.push(log);
+        let len = log.encoded_len();
+        self.bytes = self.bytes.saturating_add(len);
+        self.logs.push((log, len));
     }
 
     /// Whether the accumulated size alone calls for a flush.
@@ -191,6 +195,9 @@ impl Buffer {
         self.first_ms = 0.0;
         self.last_ms = 0.0;
         std::mem::take(&mut self.logs)
+            .into_iter()
+            .map(|(log, _)| log)
+            .collect()
     }
 
     /// Splits off roughly [`FLUSH_BYTES`] worth, leaving the rest buffered.
@@ -205,15 +212,14 @@ impl Buffer {
         // records.
         let mut bytes = 0usize;
         let mut count = 0usize;
-        for log in &self.logs {
-            let len = log.encoded_len();
-            if count > 0 && bytes.saturating_add(len) > FLUSH_BYTES {
+        for (_, len) in &self.logs {
+            if count > 0 && bytes.saturating_add(*len) > FLUSH_BYTES {
                 break;
             }
-            bytes = bytes.saturating_add(len);
+            bytes = bytes.saturating_add(*len);
             count += 1;
         }
-        let taken: Vec<_> = self.logs.drain(..count).collect();
+        let taken: Vec<_> = self.logs.drain(..count).map(|(log, _)| log).collect();
         self.bytes = self.bytes.saturating_sub(bytes);
         if self.logs.is_empty() {
             self.first_ms = 0.0;
@@ -345,30 +351,52 @@ pub(super) async fn tick() {
     loop {
         worker::Delay::from(std::time::Duration::from_millis(POLL_MS)).await;
         let now_ms = js_sys::Date::now();
-        let batch = BUFFER.with(|cell| {
+        let step = BUFFER.with(|cell| {
             let mut buffer = cell.borrow_mut();
             if buffer.logs.is_empty() {
+                // Emptied by a size flush while we slept.
                 buffer.waiting_since_ms = None;
-                return Some(Vec::new());
+                return Step::Done;
             }
-            if buffer.time_due(now_ms) {
-                buffer.waiting_since_ms = None;
-                return Some(buffer.take());
+            if !buffer.time_due(now_ms) {
+                // Still waiting, and still alive.
+                buffer.waiting_since_ms = Some(now_ms);
+                return Step::Wait;
             }
-            // Still waiting, and still alive.
+            // Due. Respect the same in-flight backpressure the size trigger
+            // does, or the timers become a way around it.
+            let in_flight = IN_FLIGHT.with(|n| n.get());
             buffer.waiting_since_ms = Some(now_ms);
-            None
-        });
-        match batch {
-            // Emptied by a size flush while we slept; nothing left to wait on.
-            Some(batch) if batch.is_empty() => return,
-            Some(batch) => {
-                deliver(batch).await;
-                return;
+            match decide(buffer.bytes, in_flight) {
+                Decision::Hold => Step::Wait,
+                // Shedding is the size trigger's job; here the buffer is
+                // draining rather than filling, so waiting is right.
+                Decision::Shed => Step::Wait,
+                // One chunk at a time, not the whole buffer: a backlog can
+                // be MAX_BUFFER_BYTES and handing that to a single delivery
+                // is the memory spike `take_chunk` exists to avoid.
+                Decision::Deliver => Step::Deliver(buffer.take_chunk()),
             }
-            None => continue,
+        });
+        match step {
+            Step::Done => return,
+            Step::Wait => continue,
+            // Keep the waiter for the next chunk: once traffic has stopped
+            // there may be no further request to elect a replacement, so
+            // returning here would strand the rest of the backlog.
+            Step::Deliver(batch) => deliver(batch).await,
         }
     }
+}
+
+/// One iteration of the waiter loop.
+enum Step {
+    /// Nothing left; release the waiter.
+    Done,
+    /// Not due yet, or the pipe is busy.
+    Wait,
+    /// Deliver this chunk, then look again.
+    Deliver(Vec<WriteFlagLogsRequest>),
 }
 
 #[cfg(test)]
