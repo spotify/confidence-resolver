@@ -15,12 +15,14 @@
 //! serving anyway, and Cloudflare batches thousands of records into each R2
 //! object for the price of one write.
 //!
-//! Durability differs too, in both directions. The queue gives at-least-once
-//! delivery to its consumer once a publish succeeds, but the publish itself
-//! happens in `wait_until` and a failure is unrecoverable. Logpush captures
-//! the line while the request completes, so an isolate eviction cannot lose a
-//! log belonging to a request that returned — but the Logpush hop itself
-//! drops a batch permanently after roughly five minutes of failures.
+//! Durability differs too, in both directions. Both sinks emit from
+//! `wait_until`, so a dropped `wait_until` loses the log either way; Logpush
+//! only narrows that window, by writing to the console instead of making a
+//! network round-trip to the queue. From there they diverge: the queue gives
+//! at-least-once delivery to its consumer once a publish succeeds, whereas a
+//! failed publish is unrecoverable; Logpush drops a batch permanently after
+//! roughly five minutes of failures, but once an object lands in R2 the
+//! aggregator owns the retry.
 //!
 //! Queue bindings are created under either sink, so switching `FLAG_LOG_SINK`
 //! back to `queue` is an immediate rollback that also drains anything still

@@ -130,11 +130,14 @@ The log is compressed and written to `console.log` with a `FLAGLOG ` prefix,
 Cloudflare's Logpush captures it into an R2 bucket, and the Worker's cron
 trigger reads the bucket, aggregates, delivers, and deletes.
 
-Nothing is retained in isolate memory between requests, so an isolate eviction
-cannot lose a log belonging to a request that completed — the capture happens
-on Cloudflare's side as the request finishes. The aggregator deletes an object
-only after its contents are delivered, so R2 is a durable hand-off and a failed
-delivery is retried on the next tick.
+Nothing is retained in isolate memory between requests, so a hot isolate
+carries no backlog for an eviction to take. Both sinks emit from the same
+post-response hook, though, so this is a narrower window rather than no
+window — a local console write instead of a network round-trip to the queue.
+
+The durability difference that does matter is downstream: the aggregator
+deletes an object only after its contents are delivered, so R2 is a durable
+hand-off and a failed delivery is retried on the next tick rather than lost.
 
 Cost scales differently, which is the main reason to choose it. Queues bill per
 message and charge three operations each, so cost tracks the number of log
@@ -185,8 +188,14 @@ Trade-offs versus the queue:
   endpoint makes that unlikely, but the Logpush Health dashboard is worth an
   alert.
 - **Statistics may be double-counted** if a delivery succeeds but the R2 delete
-  fails, since the objects are then re-read. Applies are deduplicated; the
+  fails, or if two cron passes overlap. Applies are deduplicated; the
   statistics counters are not.
+- **Flag logs are billed twice while `[observability]` is enabled.** Every
+  `FLAGLOG` console line is also ingested by Workers Logs, on top of the R2
+  copy that is the intended destination. At the volumes where this sink's cost
+  advantage matters that is a real line item, so consider lowering
+  `observability.head_sampling_rate` — bearing in mind it also samples the
+  aggregation summary lines you would want for the alerts above.
 - **Throughput has a ceiling, and it has not been measured under sustained
   load.** The aggregator delivers one R2 object at a time and stops after 25
   seconds of wall clock, leaving the rest for the next tick. That bounds

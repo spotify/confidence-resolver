@@ -59,9 +59,13 @@ const OVERFLOW_PREFIX: &str = "overflow/";
 /// Emits the log as a single prefixed line, or routes it around the trace
 /// event when it is too large for one.
 ///
-/// The common path retains nothing in this isolate: Cloudflare captures the
-/// line while completing the request, so the only way to lose it is for the
-/// request itself to fail — in which case there was no resolve to record.
+/// The common path retains nothing in this isolate between requests, so a
+/// hot isolate carries no backlog that an eviction could take. It is *not*
+/// immune to eviction though: `send` is called from `wait_until`, the same
+/// place the queue publish happens, so a dropped `wait_until` loses the log
+/// under either sink. The difference is narrower than it looks — a local
+/// console write rather than a network round-trip to the queue, so a smaller
+/// window, not no window.
 ///
 /// Above [`MAX_CONSOLE_CHARS`] that guarantee is worthless, because Logpush
 /// would replace the record with a truncation marker and drop it. Such a log
