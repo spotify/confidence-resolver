@@ -123,13 +123,28 @@ cover the tail, where few records are at risk.
 buffer and delivers the old one from `waitUntil`, so the request that
 happened to fill the buffer does not pay the round-trip.
 
+**Failed deliveries are retried, up to 3 attempts** per destination with a
+250 ms then 1 s backoff, and only while the failure looks transient — `5xx`,
+`429`, `408` and transport errors. A `413` or `401` moves straight on rather
+than failing identically twice more. Retrying runs inside `waitUntil`, so
+every attempt is more time the records exist only in this isolate; that is
+why the budget is small. Riding out a real outage is not something an
+in-memory sink can do, and a batch that exhausts its attempts is dropped.
+
+**Under a stalled backend the isolate sheds load.** While deliveries are in
+flight the buffer keeps accumulating rather than starting more, up to its
+ceiling. Past 16 stuck deliveries a full buffer is discarded instead of
+started, loudly (`SHED`), so memory stays bounded by the backend's slowness
+rather than growing with it.
+
 **This is the least durable sink, deliberately.** Cloudflare offers no
 shutdown hook, so an isolate evicted while holding a buffer loses it
 silently, and `waitUntil` is not guaranteed to run. The exposure is bounded
-by the size budget rather than by time. A failed delivery is dropped rather
-than retried — holding it would only enlarge the next loss. Apply-dedup also
-only sees one isolate's traffic here, so duplicate exposures that the queue
-consumer would have collapsed are sent.
+by the size budget rather than by time. Apply-dedup also only sees one
+isolate's traffic here, so duplicate exposures that the queue consumer would
+have collapsed are sent.
+
+Alert on `flag log buffer: DROPPED` and `flag log buffer: SHED`.
 
 Measured on an 800k-resolve run, conservation was within a rounding error of
 100%, but that is one account on one day; treat the durability trade as the

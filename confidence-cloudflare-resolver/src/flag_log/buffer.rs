@@ -67,14 +67,26 @@ const IDLE_MS: f64 = 1_000.0;
 /// Flush this long after the oldest log, however slow the trickle.
 const MAX_AGE_MS: f64 = 10_000.0;
 
-/// Deliveries allowed in flight at once, per isolate.
+/// Deliveries allowed in flight before the size trigger stops firing.
 ///
 /// Each carries its own aggregate and JSON body, so without a cap a busy
 /// isolate can have arbitrarily many live at once and exhaust memory however
-/// small each one is. Past the cap the buffer keeps accumulating instead,
-/// bounded by [`MAX_BUFFER_BYTES`], which puts a ceiling on the total:
-/// `MAX_BUFFER_BYTES + MAX_IN_FLIGHT * one delivery`.
+/// small each one is. Past this the buffer keeps accumulating instead.
 const MAX_IN_FLIGHT: usize = 4;
+
+/// Deliveries in flight past which the isolate sheds load.
+///
+/// [`MAX_IN_FLIGHT`] alone is a soft cap: once the buffer reaches
+/// [`MAX_BUFFER_BYTES`] it flushes regardless, because growing the buffer
+/// without limit is worse. That escape hatch means a backend slow enough to
+/// hold every delivery open lets the in-flight count climb without bound —
+/// and retries make each one live longer. This is the actual ceiling: at it,
+/// a flush is dropped rather than started, loudly, so memory stays bounded
+/// by `MAX_BUFFER_BYTES + HARD_IN_FLIGHT * one delivery` instead of by how
+/// badly the backend is behaving.
+const HARD_IN_FLIGHT: usize = 16;
+
+const _: () = assert!(MAX_IN_FLIGHT < HARD_IN_FLIGHT);
 
 /// How often the pending waiter re-checks the triggers.
 const POLL_MS: u64 = 250;
@@ -180,6 +192,28 @@ impl Drop for InFlight {
     }
 }
 
+/// What to do with a buffer that has reached the size trigger.
+#[derive(Debug, PartialEq, Eq)]
+enum Decision {
+    /// Keep accumulating: the pipe is busy but the buffer is still small.
+    Hold,
+    /// Flush and deliver.
+    Deliver,
+    /// Flush and discard: too many deliveries are already stuck.
+    Shed,
+}
+
+/// Pure so it can be tested off wasm32, where `console_log!` aborts.
+fn decide(bytes: usize, in_flight: usize) -> Decision {
+    if in_flight >= HARD_IN_FLIGHT && bytes >= MAX_BUFFER_BYTES {
+        return Decision::Shed;
+    }
+    if in_flight >= MAX_IN_FLIGHT && bytes < MAX_BUFFER_BYTES {
+        return Decision::Hold;
+    }
+    Decision::Deliver
+}
+
 /// Accumulates one log, returning the batch to deliver when a flush is due.
 ///
 /// Runs in the request path, so it does no I/O: the returned batch is
@@ -192,12 +226,24 @@ pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsReques
         if !buffer.size_due() {
             return None;
         }
-        // Over the hard ceiling the buffer must drain whatever is in flight,
-        // because the alternative is growing it without bound.
-        if IN_FLIGHT.with(|n| n.get()) >= MAX_IN_FLIGHT && buffer.bytes < MAX_BUFFER_BYTES {
+        let in_flight = IN_FLIGHT.with(|n| n.get());
+        match decide(buffer.bytes, in_flight) {
+            Decision::Hold => return None,
+            Decision::Deliver | Decision::Shed => {}
+        }
+        let shedding = decide(buffer.bytes, in_flight) == Decision::Shed;
+        let batch = buffer.take();
+        if shedding {
+            // Starting another delivery here is how the isolate runs out of
+            // memory instead of just losing a batch.
+            console_log!(
+                "flag log buffer: SHED {} records, {} deliveries already in flight",
+                batch.len(),
+                in_flight
+            );
             return None;
         }
-        Some(buffer.take())
+        Some(batch)
     })
 }
 
@@ -380,6 +426,32 @@ mod tests {
             buffer.first_ms, 6_000.0,
             "age must be measured from the new oldest log"
         );
+    }
+
+    #[test]
+    fn a_busy_pipe_holds_rather_than_piling_up() {
+        assert_eq!(decide(FLUSH_BYTES, 0), Decision::Deliver);
+        assert_eq!(decide(FLUSH_BYTES, MAX_IN_FLIGHT - 1), Decision::Deliver);
+        assert_eq!(decide(FLUSH_BYTES, MAX_IN_FLIGHT), Decision::Hold);
+    }
+
+    /// Holding stops at the buffer ceiling: growing without bound is worse
+    /// than one more concurrent delivery.
+    #[test]
+    fn the_buffer_ceiling_overrides_the_soft_cap() {
+        assert_eq!(decide(MAX_BUFFER_BYTES, MAX_IN_FLIGHT), Decision::Deliver);
+        assert_eq!(
+            decide(MAX_BUFFER_BYTES, HARD_IN_FLIGHT - 1),
+            Decision::Deliver
+        );
+    }
+
+    /// ...but not past the hard ceiling, where memory is the bigger risk.
+    #[test]
+    fn the_hard_ceiling_sheds() {
+        assert_eq!(decide(MAX_BUFFER_BYTES, HARD_IN_FLIGHT), Decision::Shed);
+        // Still below the buffer ceiling, so there is no need to shed yet.
+        assert_eq!(decide(FLUSH_BYTES, HARD_IN_FLIGHT), Decision::Hold);
     }
 
     /// A cancelled delivery must not leak its in-flight slot, or the size

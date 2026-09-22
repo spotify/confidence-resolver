@@ -721,7 +721,7 @@ async fn deliver_flag_logs(
     account_id: &str,
     req: &WriteFlagLogsRequest,
     dest: LogDestination,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<(), DeliveryError> {
     let url = log_destination_url(&dest);
     let acct = match dest {
         LogDestination::Edge => None,
@@ -729,8 +729,73 @@ async fn deliver_flag_logs(
     };
     match send_flags_logs(client_secret, req, url, acct).await {
         Ok(resp) if resp.status_code() < 400 => Ok(()),
-        Ok(resp) => Err(format!("HTTP {}", resp.status_code())),
-        Err(e) => Err(format!("{:?}", e)),
+        Ok(resp) => Err(DeliveryError::Status(resp.status_code())),
+        Err(e) => Err(DeliveryError::Transport(format!("{:?}", e))),
+    }
+}
+
+/// Why a flag-log delivery failed, kept structured so callers can tell a
+/// failure worth retrying from one that will fail identically forever.
+#[derive(Debug)]
+pub(crate) enum DeliveryError {
+    /// The backend answered, with this status.
+    Status(u16),
+    /// The request never produced a response.
+    Transport(String),
+}
+
+impl DeliveryError {
+    /// Whether retrying the identical body could plausibly succeed.
+    ///
+    /// Retrying a `413` or a `401` just burns the retry budget and delays
+    /// every later flush behind it: an oversized body stays oversized and a
+    /// bad secret stays bad. `429` and `408` are explicitly retryable, and
+    /// so is anything `5xx` — those are the backend saying "not now" rather
+    /// than "not ever". A request that never got a response is retried too,
+    /// which risks a duplicate if it actually landed; apply-dedup upstream
+    /// makes that the cheaper error.
+    pub(crate) fn is_retryable(&self) -> bool {
+        match self {
+            DeliveryError::Status(code) => *code >= 500 || *code == 429 || *code == 408,
+            DeliveryError::Transport(_) => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod delivery_error_tests {
+    use super::DeliveryError;
+
+    /// Retrying these just burns the budget and delays every later flush:
+    /// an oversized body stays oversized, a bad secret stays bad.
+    #[test]
+    fn permanent_failures_are_not_retried() {
+        for code in [400, 401, 403, 404, 413, 422] {
+            assert!(
+                !DeliveryError::Status(code).is_retryable(),
+                "HTTP {code} must not be retried"
+            );
+        }
+    }
+
+    #[test]
+    fn transient_failures_are_retried() {
+        for code in [408, 429, 500, 502, 503, 504] {
+            assert!(
+                DeliveryError::Status(code).is_retryable(),
+                "HTTP {code} must be retried"
+            );
+        }
+        assert!(DeliveryError::Transport("socket hang up".into()).is_retryable());
+    }
+}
+
+impl std::fmt::Display for DeliveryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeliveryError::Status(code) => write!(f, "HTTP {code}"),
+            DeliveryError::Transport(e) => write!(f, "{e}"),
+        }
     }
 }
 

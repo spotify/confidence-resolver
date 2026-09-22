@@ -126,10 +126,30 @@ pub(crate) async fn consume(batch: MessageBatch<String>, env: Env) -> Result<()>
     queue::consume(batch, env).await
 }
 
+/// Attempts per destination, including the first.
+///
+/// Bounded deliberately rather than generous: this runs in `wait_until`, so
+/// every extra attempt is more time the records exist only in this isolate,
+/// and for the buffer sink it also holds an in-flight slot that other
+/// flushes are waiting on. Three attempts covers a backend blip; riding out
+/// a real outage is not something an in-memory sink can do.
+const DELIVERY_ATTEMPTS: u32 = 3;
+
+/// Backoff before retry *n* (1-based). Fixed rather than exponential-to-the-
+/// sky for the same reason the attempt count is small.
+fn retry_backoff_ms(attempt: u32) -> u64 {
+    match attempt {
+        1 => 250,
+        _ => 1_000,
+    }
+}
+
 /// Walks the configured destinations in order, stopping at the first success.
 ///
-/// Used by the queue consumer, so the queue path keeps main's behaviour
-/// exactly: try each destination in order and stop at the first success.
+/// Each destination gets up to [`DELIVERY_ATTEMPTS`] tries, but only while
+/// the failure looks transient — see [`crate::DeliveryError::is_retryable`].
+/// A `413` or `401` moves straight on to the next destination rather than
+/// failing the same way twice more.
 async fn deliver(req: &WriteFlagLogsRequest) -> bool {
     let Some(client_secret) = crate::CONFIDENCE_CLIENT_SECRET.get() else {
         console_log!("flag log delivery skipped: client secret unavailable");
@@ -138,29 +158,46 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
     let account_id = crate::CDN_STATE_REQUEST.account_id.as_str();
 
     for &destination in crate::LOG_DESTINATIONS.iter() {
-        let started_ms = js_sys::Date::now();
-        let result = crate::deliver_flag_logs(client_secret, account_id, req, destination).await;
-        let elapsed_ms = (js_sys::Date::now() - started_ms) as u64;
-        match result {
-            Ok(()) => {
-                // Timed per destination: a slow first destination and a slow
-                // backend look identical in an aggregate figure, and they
-                // call for completely different fixes.
-                console_log!(
-                    "flag log delivered to {:?} in {}ms ({} assigns, {} flags)",
-                    destination,
-                    elapsed_ms,
-                    req.flag_assigned.len(),
-                    req.flag_resolve_info.len()
-                );
-                return true;
+        for attempt in 1..=DELIVERY_ATTEMPTS {
+            let started_ms = js_sys::Date::now();
+            let result =
+                crate::deliver_flag_logs(client_secret, account_id, req, destination).await;
+            let elapsed_ms = (js_sys::Date::now() - started_ms) as u64;
+            match result {
+                Ok(()) => {
+                    // Timed per destination: a slow first destination and a
+                    // slow backend look identical in an aggregate figure, and
+                    // they call for completely different fixes.
+                    console_log!(
+                        "flag log delivered to {:?} in {}ms on attempt {} ({} assigns, {} flags)",
+                        destination,
+                        elapsed_ms,
+                        attempt,
+                        req.flag_assigned.len(),
+                        req.flag_resolve_info.len()
+                    );
+                    return true;
+                }
+                Err(reason) => {
+                    let retrying = reason.is_retryable() && attempt < DELIVERY_ATTEMPTS;
+                    console_log!(
+                        "flag log delivery to {:?} failed after {}ms (attempt {}/{}): {}{}",
+                        destination,
+                        elapsed_ms,
+                        attempt,
+                        DELIVERY_ATTEMPTS,
+                        reason,
+                        if retrying { "; retrying" } else { "" }
+                    );
+                    if !retrying {
+                        break;
+                    }
+                    worker::Delay::from(std::time::Duration::from_millis(retry_backoff_ms(
+                        attempt,
+                    )))
+                    .await;
+                }
             }
-            Err(reason) => console_log!(
-                "flag log delivery to {:?} failed after {}ms: {}",
-                destination,
-                elapsed_ms,
-                reason
-            ),
         }
     }
     false
@@ -241,24 +278,34 @@ pub(super) fn deliver_all_within_limit(
         if size <= MAX_DELIVERY_BYTES {
             return deliver(&request).await;
         }
-        if count == 1 {
+        // Between the split threshold and the measured ceiling is the
+        // headroom this module reserves. Aggregation has already consumed
+        // the records, so the choice is to spend that headroom or to drop a
+        // batch the backend would in fact have accepted. Spend it, and say
+        // so: a run of these means `PROTO_CHUNK_BYTES` is mis-calibrated for
+        // this account's records.
+        if size < MEASURED_BACKEND_LIMIT {
             console_log!(
-                "flag log: single record of {} bytes exceeds the {} byte limit; dropping",
+                "flag log: aggregate of {} records is {} bytes, over the {} byte split \
+                 threshold but within the {} byte backend limit; delivering on reserved \
+                 headroom",
+                count,
                 size,
-                MAX_DELIVERY_BYTES
+                MAX_DELIVERY_BYTES,
+                MEASURED_BACKEND_LIMIT
             );
-            return true;
+            return deliver(&request).await;
         }
-        // Expanded worse than expected. Rebuilding the halves from the
-        // aggregate is not possible, so report the failure rather than
-        // silently delivering an oversized body the backend will reject.
+        // Past the measured limit the backend answers 413, and the records
+        // are gone into the aggregate so there is nothing left to split.
         console_log!(
-            "flag log: aggregate of {} records is {} bytes, over the {} byte limit",
+            "flag log: aggregate of {} records is {} bytes, past the {} byte backend limit; \
+             dropping",
             count,
             size,
-            MAX_DELIVERY_BYTES
+            MEASURED_BACKEND_LIMIT
         );
-        false
+        count == 1
     })
 }
 
