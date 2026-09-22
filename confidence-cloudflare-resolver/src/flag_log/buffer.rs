@@ -164,6 +164,22 @@ impl Buffer {
     }
 }
 
+/// Holds one in-flight delivery slot for as long as it is alive.
+struct InFlight;
+
+impl InFlight {
+    fn acquire() -> Self {
+        IN_FLIGHT.with(|n| n.set(n.get() + 1));
+        InFlight
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        IN_FLIGHT.with(|n| n.set(n.get().saturating_sub(1)));
+    }
+}
+
 /// Accumulates one log, returning the batch to deliver when a flush is due.
 ///
 /// Runs in the request path, so it does no I/O: the returned batch is
@@ -192,9 +208,13 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
     }
     let records = logs.len();
     let started_ms = js_sys::Date::now();
-    IN_FLIGHT.with(|n| n.set(n.get() + 1));
+    // Released on drop, not after the await: `wait_until` can be cancelled
+    // mid-delivery, and a plain decrement after the await would be skipped,
+    // leaking the slot. Enough leaks and the count sticks at the cap, the
+    // size trigger stops firing, and the isolate only ever flushes on the
+    // hard ceiling.
+    let _slot = InFlight::acquire();
     let delivered = super::deliver_all_within_limit(logs).await;
-    IN_FLIGHT.with(|n| n.set(n.get().saturating_sub(1)));
     console_log!(
         "flag log buffer: flushed {} records in {}ms, delivered={}",
         records,
@@ -359,6 +379,23 @@ mod tests {
         assert_eq!(
             buffer.first_ms, 6_000.0,
             "age must be measured from the new oldest log"
+        );
+    }
+
+    /// A cancelled delivery must not leak its in-flight slot, or the size
+    /// trigger eventually stops firing on this isolate.
+    #[test]
+    fn an_abandoned_delivery_releases_its_slot() {
+        IN_FLIGHT.with(|n| n.set(0));
+        {
+            let _a = InFlight::acquire();
+            let _b = InFlight::acquire();
+            assert_eq!(IN_FLIGHT.with(|n| n.get()), 2);
+        }
+        assert_eq!(
+            IN_FLIGHT.with(|n| n.get()),
+            0,
+            "slots must be released even when the delivery never completes"
         );
     }
 
