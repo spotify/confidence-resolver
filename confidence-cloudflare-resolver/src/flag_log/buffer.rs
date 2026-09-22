@@ -1,11 +1,13 @@
 //! In-isolate buffering, delivered straight to Confidence.
 //!
-//! No queue, no Logpush, no R2 — logs accumulate in isolate memory and are
-//! aggregated and POSTed to the configured destinations. Nothing sits between
-//! the resolver and the backend, so throughput scales with the number of
-//! isolates Cloudflare runs, which scales with the traffic itself. That is
-//! what the other sinks cannot do: the queue bills per message, and a Logpush
-//! job funnels an entire script's records through one isolate at a time.
+//! Logs accumulate in isolate memory and are aggregated and POSTed to the
+//! configured destinations. Nothing sits between the resolver and the
+//! backend, so throughput scales with the number of isolates Cloudflare
+//! runs, which scales with the traffic itself.
+//!
+//! That is what [`super::Sink::Queue`] cannot do: it bills per message and
+//! caps around 5,000 messages a second per queue, so a high rate needs
+//! shards and the cost tracks the record count.
 //!
 //! # Triggers
 //!

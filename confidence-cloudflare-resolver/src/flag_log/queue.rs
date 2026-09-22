@@ -19,7 +19,7 @@ use worker::{console_log, Env, MessageBatch, Queue, Result};
 static QUEUES: OnceLock<Vec<Queue>> = OnceLock::new();
 
 /// Binds every configured shard. Called only when the queue sink is active,
-/// so a Logpush deployment does not warn about a binding it does not use.
+/// so a buffer deployment does not warn about a binding it does not use.
 pub(super) fn init(env: &Env) {
     QUEUES.get_or_init(|| {
         let queues = shards::discover(|name| env.queue(name).ok());
