@@ -80,13 +80,16 @@ fn dedup_telemetry_delta(
 ///
 /// When multiple queue shards are configured, picks one at random. If
 /// the send fails, tries the remaining shards before giving up.
-async fn queue_flag_log(log: Option<WriteFlagLogsRequest>) {
+async fn queue_flag_log(logs: Option<Vec<WriteFlagLogsRequest>>) {
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     }
-    if let Some(log) = log {
-        flag_log::send(log).await;
+    if let Some(logs) = logs {
+        flag_log::send(logs).await;
     }
+    // The buffer sink's idle and age triggers need something still running
+    // after the traffic stops; every other sink makes this a no-op.
+    flag_log::tick().await;
 }
 
 /// Runs `f` with `log` installed as the destination for the `Host` logging
@@ -415,11 +418,6 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
             async move {
                 let path = ctx.param("path").unwrap();
                 match path.as_str() {
-                    // Logpush POSTs batches of this Worker's own trace
-                    // events here; the handler aggregates and delivers them.
-                    "flagLogs:ingest" => {
-                        return flag_log::handle_ingest(req, &ctx.env).await;
-                    }
                     "flags:resolve" => {
                         let body_bytes: Vec<u8> = req.bytes().await?;
                         let mut resolver_request: ResolveFlagsRequest =

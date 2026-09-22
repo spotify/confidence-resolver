@@ -26,8 +26,6 @@ A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-de
   * **Account > Workers Scripts > Edit**
   * **Account > Workers Queues > Edit** (needed for the first deploy)
   * **Account > Workers KV Storage > Edit** (only if using `ENABLE_METRICS` or `ENABLE_STICKY_ASSIGNMENTS`)
-  * **Account > Logs > Edit** (only if using `FLAG_LOG_SINK=logpush`; also requires the Workers Paid plan)
-  * **Account > Logs > Edit** (only if using `FLAG_LOG_SINK=logpush`)
 
   The deployer probes each of these against the resolved account before it
   creates anything, and exits naming the missing scope. Note that a token
@@ -35,9 +33,6 @@ A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-de
   another, so a token scoped to the wrong account fails here too — check the
   account id in the error against the one you expect.
 
-  A `wrangler login` OAuth session is **not** sufficient: wrangler cannot
-  request a Logpush scope at all, so `FLAG_LOG_SINK=logpush` requires a real
-  API token created in the dashboard.
 * Confidence client secret (must be type **BACKEND**)
 
 ## Usage
@@ -82,8 +77,7 @@ The deployer automatically:
 | `FORCE_APPLY`                        | Defaults to `true`: every resolve is treated as `apply=true` and assignments are logged at resolve time. Set to `false` to respect the `apply` value sent by SDKs (deferred-apply flow via `flags:apply`) |
 | `ENABLE_APPLY_DEDUP`                 | Defaults to `true`: apply-event deduplication is enabled — repeated identical assignments within a 120s window are logged once, both at resolve time and across queue consumer batches. Set to `false` to disable |
 | `FLAG_LOGS_QUEUE_COUNT`              | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
-| `FLAG_LOG_SINK`                      | `queue` (default) or `logpush`. Selects how flag logs leave the Worker — see [Flag-log sinks](#flag-log-sinks) |
-| `FLAG_LOGS_INGEST_TOKEN`             | Optional when `FLAG_LOG_SINK=logpush`. Shared secret Logpush presents on every POST to the ingest route. Generated and stored as a worker secret when unset; supply it to pin the value across deploys |
+| `FLAG_LOG_SINK`                      | `queue` (default) or `buffer`. Selects how flag logs leave the Worker — see [Flag-log sinks](#flag-log-sinks) |
 
 ### Flag-log sinks
 
@@ -92,13 +86,54 @@ The deployer automatically:
 Switching sinks is safe in both directions, and the deployer does the work to
 make it so:
 
-* **`queue` → `logpush`.** Queue bindings and the queue consumer are kept
-  under either sink, so messages a previous version already published still
-  get drained after the switch.
-* **`logpush` → `queue`.** Logpush lags by about a minute, so a batch already
-  in flight arrives at the ingest route after the switch. The route stays
-  mounted under either sink and delivers what it receives, so those records
-  land rather than being rejected.
+Queue bindings and the queue consumer are created under either sink, so a
+switch in either direction drains whatever a previous version already
+published. Switching away from `buffer` cannot strand anything, because a
+buffer only ever lives inside a running isolate.
+
+#### `buffer`
+
+```
+resolve → in-isolate buffer → Confidence
+```
+
+Nothing sits between the resolver and the backend. Logs accumulate in isolate
+memory and are aggregated and POSTed directly, so there is nothing for the
+deployer to provision and nothing billed per record.
+
+**Throughput scales with traffic.** Cloudflare runs more isolates as load
+grows and each one delivers its own buffer, so there is no shared component
+to saturate. The queue sink has one: it bills and rate limits per message,
+capping around 5,000 messages a second per queue, so high rates need shards
+and cost scales with the record count.
+
+**Flush triggers**, whichever comes first:
+
+- **size** — 768 KB of encoded protobuf accumulated. This is the trigger that
+  matters under load, and it is what bounds memory.
+- **idle** — 1 second with no new log.
+- **age** — 10 seconds since the oldest log.
+
+Sizing follows from the first. Measured against a heavy flag set at ~9.7 KB
+per record, the budget is a few hundred records, so any isolate above a
+modest request rate flushes on size and never reaches the timers. The timers
+cover the tail, where few records are at risk.
+
+**No added resolve latency.** Hitting the size trigger swaps in a fresh
+buffer and delivers the old one from `waitUntil`, so the request that
+happened to fill the buffer does not pay the round-trip.
+
+**This is the least durable sink, deliberately.** Cloudflare offers no
+shutdown hook, so an isolate evicted while holding a buffer loses it
+silently, and `waitUntil` is not guaranteed to run. The exposure is bounded
+by the size budget rather than by time. A failed delivery is dropped rather
+than retried — holding it would only enlarge the next loss. Apply-dedup also
+only sees one isolate's traffic here, so duplicate exposures that the queue
+consumer would have collapsed are sent.
+
+Measured on an 800k-resolve run, conservation was within a rounding error of
+100%, but that is one account on one day; treat the durability trade as the
+reason to choose `queue` where a hand-off must survive eviction.
 
 #### `queue` (default)
 
@@ -111,98 +146,6 @@ messages before delivery. A publish that fails is dropped — there is no
 in-isolate retry, because anything held between requests is lost when the
 isolate is evicted and Cloudflare provides no shutdown hook to flush it.
 
-#### `logpush`
-
-```
-resolve → console.log → Logpush → /v1/flagLogs:ingest → Confidence
-```
-
-The log is compressed and written to `console.log` with a `FLAGLOG ` prefix,
-and Cloudflare's Logpush POSTs batches of the Worker's own trace events back
-to the Worker, which aggregates and delivers them.
-
-Nothing is retained in isolate memory between requests, and the console write
-happens inline during the response rather than in a post-response hook, so an
-eviction cannot take a log with it. The queue sink publishes from
-`waitUntil`, which Cloudflare does not guarantee to run.
-
-Cost scales differently, which is the main reason to choose it. Queues bill per
-message and charge three operations each, so cost tracks the number of log
-records. Logpush bills per *request* — which you serve anyway — at $0.05 per
-million with the first 10 million included, and batches thousands of records
-into each push.
-
-The deployer provisions it: it sets `logpush = true`, generates an ingest
-token and stores it as a worker secret, passes `CONFIDENCE_ACCOUNT_ID`, and
-creates a `workers_trace_events` Logpush job pointed at the Worker's own
-`/v1/flagLogs:ingest` route.
-
-**How batches get delivered.** Logpush POSTs a gzipped batch of trace events
-to the ingest route; the handler pulls out the flag logs, deduplicates
-applies across the whole batch, aggregates, and delivers. Each POST is an
-ordinary Worker invocation, so the handler side scales without a configured
-concurrency limit — unlike a queue consumer, which caps at 250.
-
-**Throughput is bounded by Logpush, not by the Worker.** Measured, Logpush
-pushes to an HTTP destination **serially**: one POST completes before the
-next begins. At roughly 500 ms per 5 MB batch that is about 2 batches per
-second, or **~17,000 records/sec for a single job**. Records per second is
-therefore a function of batch size, which is why `max_upload_records` is set
-high rather than low.
-
-Beyond that ceiling the options are to shard the resolver across several
-worker scripts, each with its own job — Logpush filters on `ScriptName` — or
-to stop aggregating in Cloudflare and have the ingest side read the logs
-directly. Two Logpush jobs on one script do not help: filters cannot
-partition events, so both would push the same records.
-
-**Deduplication.** Applies are deduplicated in the ingest handler across the
-whole batch. This is the only place cross-isolate duplicates can be caught: a
-batch carries records from many isolates, while the resolver's own dedup
-window only ever sees one isolate's traffic.
-
-**Where logs are sent.** Each log line carries its own destination, taken
-from the resolver state when the line is written, and the first destination
-in a batch is used for the whole batch. The handler therefore needs no
-resolver state — only the account id, which arrives as a variable.
-
-**Payload encoding.** Logs are sent as `base64(gzip(protobuf))`. gzip is what
-matters: `AppliedFlag` entries repeat the targeting key and share
-`flags/…/rules/…/variants/…` path prefixes, so measured against realistic
-data it shrinks a log about 5.5x. base64 keeps the result escape-free so it
-does not inflate again inside the trace event's JSON.
-
-**Size handling.** Cloudflare truncates a trace event's `logs` and
-`exceptions` fields once their combined length reaches 16,384 characters,
-counting exceptions first. That limit is fixed, and splitting across several
-`console.log` calls does not help because it applies per trace event rather
-than per line. The Worker caps a console line at 12,000 characters and
-delivers anything larger inline instead. Measured, a single-flag exposure log
-encodes to ~350 characters and a 57-flag one to ~3,800, so the cap engages
-only for resolves applying a few hundred flags at once.
-
-On the way out, the handler measures each aggregate and splits it to stay
-under the backend's **4 MiB** limit — measured by bisection, with `413`
-above it and no retry recovering.
-
-**Job scoping.** The job is filtered to `ScriptName = <worker>` and
-`EventType = fetch`.
-
-Trade-offs versus the queue:
-
-- **Delivery latency is roughly a minute** and is not tunable. Logpush's
-  upload settings influence batch size, not latency.
-- **A failed delivery is dropped**, loudly, and the handler always answers
-  200. Returning an error would make Logpush retry, and Logpush responds to
-  sustained failure by *disabling the job* — losing one batch is better than
-  silently stopping the pipeline until someone notices. Alert on
-  `flag log ingest: DROPPED`.
-- **Flag logs are billed twice while `[observability]` is enabled.** Every
-  `FLAGLOG` console line is also ingested by Workers Logs, on top of being
-  POSTed to the ingest route.
-
-Set `-e FORCE_DEPLOY=1` when switching sinks so an unchanged resolver state does
-not skip deployment.
 
 ### Scaling flag-log queues
 

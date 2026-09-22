@@ -138,20 +138,26 @@ test('count=1 with prefix: only base queue prefixed', () => {
 
 // --- Flag-log sink tests ---
 
+// Runs the real validation block out of script.sh rather than a copy, so
+// this cannot silently pass while the script says something else.
+const SINK_VALIDATION = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/^case "\$FLAG_LOG_SINK" in[\s\S]*?^esac$/m);
+  assert.ok(match, 'could not find the FLAG_LOG_SINK validation in script.sh');
+  return match[0];
+})();
+
 function runSinkValidation(value) {
   return spawnSync('bash', ['-c', `
 set -euo pipefail
 FLAG_LOG_SINK=${value === undefined ? '${FLAG_LOG_SINK:-queue}' : `"${value}"`}
 FLAG_LOG_SINK=$(printf '%s' "$FLAG_LOG_SINK" | tr '[:upper:]' '[:lower:]')
-if [ "$FLAG_LOG_SINK" != "queue" ] && [ "$FLAG_LOG_SINK" != "logpush" ]; then
-    echo "FLAG_LOG_SINK must be \\"queue\\" or \\"logpush\\", got: $FLAG_LOG_SINK" >&2
-    exit 1
-fi
+${SINK_VALIDATION}
 echo "$FLAG_LOG_SINK"
 `], { encoding: 'utf8', timeout: 5000, env: { ...process.env, FLAG_LOG_SINK: '' } });
 }
 
-for (const value of ['logpush', 'LOGPUSH', 'LogPush', 'queue', 'QUEUE']) {
+for (const value of ['queue', 'QUEUE', 'buffer', 'BUFFER']) {
   test(`accepts sink ${value} and lowercases it`, () => {
     const result = runSinkValidation(value);
     assert.equal(result.status, 0);
@@ -159,7 +165,7 @@ for (const value of ['logpush', 'LOGPUSH', 'LogPush', 'queue', 'QUEUE']) {
   });
 }
 
-for (const value of ['', 'r2', 'logpsuh', 'true', 'queues']) {
+for (const value of ['', 'r2', 'logpush', 'true', 'queues', 'buffered', 'memory']) {
   test(`rejects sink ${JSON.stringify(value)}`, () => {
     const result = runSinkValidation(value);
     assert.equal(result.status, 1);
@@ -173,18 +179,18 @@ test('defaults to queue when unset', () => {
   assert.equal(result.stdout.trim(), 'queue');
 });
 
-test('logpush mode refuses to deploy without R2 credentials', () => {
-  const result = spawnSync('bash', ['-c', `
-set -uo pipefail
-FLAG_LOG_SINK=logpush
-if [ -z "\${R2_ACCESS_KEY_ID:-}" ] || [ -z "\${R2_SECRET_ACCESS_KEY:-}" ]; then
-    echo "FLAG_LOG_SINK=logpush requires R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY" >&2
-    exit 1
-fi
-echo "OK"
-`], { encoding: 'utf8', timeout: 5000, env: { ...process.env, R2_ACCESS_KEY_ID: '', R2_SECRET_ACCESS_KEY: '' } });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /requires R2_ACCESS_KEY_ID/);
+test('buffer mode provisions no transport of its own', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const branch = script.match(/if \[ "\$FLAG_LOG_SINK" = "buffer" \][\s\S]*?^else$/m);
+  assert.ok(branch, 'buffer branch not found');
+  assert.doesNotMatch(branch[0], /logpush|r2\/buckets|curl/i,
+    'buffer mode must not provision transport resources');
+});
+
+test('logpush is gone from the deployer entirely', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  assert.doesNotMatch(script, /logpush/i, 'no logpush leftovers');
+  assert.doesNotMatch(script, /FLAG_LOGS_INGEST_TOKEN/, 'no ingest token leftovers');
 });
 
 // The Logpush job must be scoped to this worker and exclude cron invocations:
@@ -375,38 +381,6 @@ test('KV is only probed when metrics or sticky assignments are enabled', () => {
 
 // --- HTTP ingest destination ---
 
-// Logpush authenticates to an HTTP destination with a `header_` URL
-// parameter; there is no other way to pass credentials.
-test('the logpush job targets the ingest route with a bearer token', () => {
-  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  assert.match(script, /header_Authorization=Bearer%20/);
-  assert.match(script, /flagLogs:ingest/);
-  assert.doesNotMatch(script, /r2:\/\//, 'must no longer target R2');
-});
 
-// Logpush validates a destination by POSTing to it before creating the job,
-// so the route has to exist first — and the secret has to be set or the
-// route rejects the validation POST.
-test('the job is created after deploy, with the token stored first', () => {
-  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  const deployAt = script.indexOf('wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}"');
-  const secretAt = script.indexOf('Storing FLAG_LOGS_INGEST_TOKEN');
-  const jobAt = script.indexOf('ensure_logpush_job "${WORKER_NAME}-flag-logs"');
-  assert.ok(deployAt > 0 && secretAt > deployAt, 'secret is stored after deploy');
-  assert.ok(jobAt > secretAt, 'job is created after the secret exists');
-});
 
-// Measured: Logpush pushes to an HTTP destination serially, so records per
-// second is bounded by how many ride in each batch.
-test('batches are large, because pushes are serial', () => {
-  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  const records = Number(/max_upload_records: (\d+)/.exec(script)[1]);
-  assert.ok(records >= 10000, `batch should be large, was ${records}`);
-});
 
-// The ingest path delivers without loading the resolver state, so the
-// account id has to arrive as a variable.
-test('the account id is passed as a worker var', () => {
-  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  assert.match(script, /CONFIDENCE_ACCOUNT_ID = /);
-});
