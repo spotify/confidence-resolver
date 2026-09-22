@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,14 @@ import (
 // StateProvider is an interface for providing resolver state and account ID
 type StateProvider interface {
 	Provide(ctx context.Context) ([]byte, string, error)
+}
+
+// terminalStateError identifies state/configuration failures that retries cannot fix at startup.
+type terminalStateError struct{ error }
+
+func isTerminalStateError(err error) bool {
+	var terminal *terminalStateError
+	return errors.As(err, &terminal)
 }
 
 // FlagsAdminStateFetcher fetches and updates the resolver state from the CDN
@@ -158,12 +167,20 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 
 	// Check if content was modified
 	if resp.StatusCode == http.StatusNotModified {
+		if f.GetAccountID() == "" {
+			return errors.New("received 304 before valid resolver state")
+		}
 		// Not modified, nothing to update
 		return nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		err := fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 &&
+			resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusRequestTimeout && resp.StatusCode != http.StatusTooManyRequests {
+			return &terminalStateError{err}
+		}
+		return err
 	}
 
 	// Read the new state
@@ -176,13 +193,16 @@ func (f *FlagsAdminStateFetcher) fetchAndUpdateStateIfChanged(ctx context.Contex
 
 	plaintext, err := decryptAesGcm(bytes, f.encryptionKey)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt resolver state: %w", err)
+		return &terminalStateError{fmt.Errorf("failed to decrypt resolver state: %w", err)}
 	}
 	bytes = plaintext
 
 	clientState := &admin.ClientResolverState{}
 	if err := proto.Unmarshal(bytes, clientState); err != nil {
-		return fmt.Errorf("failed to decode resolver state: %w", err)
+		return &terminalStateError{fmt.Errorf("failed to decode resolver state: %w", err)}
+	}
+	if clientState.Account == "" {
+		return &terminalStateError{errors.New("account ID is empty in fetched state")}
 	}
 	f.accountID.Store(clientState.Account)
 	f.rawResolverState.Store(clientState.State)

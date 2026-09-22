@@ -31,6 +31,7 @@ const (
 	defaultStatePollIntervalSeconds = 10
 	defaultLogPollIntervalSeconds   = 15
 	defaultInitializationTimeout    = 30 * time.Second
+	defaultMaxStateAge              = 5 * time.Minute
 	initialStateRetryInterval       = time.Second
 )
 
@@ -40,6 +41,7 @@ type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
 type Option func(*providerOptions)
 
 type providerOptions struct {
+	maxStateAge           time.Duration
 	statePollInterval     time.Duration
 	logPollInterval       time.Duration
 	eventWasmBytes        []byte
@@ -52,6 +54,12 @@ type providerOptions struct {
 	// sets it.
 	disableApplyDedup         bool
 	disableExposureCollection bool
+}
+
+// WithMaxStateAge sets the time since successful validation before reporting STALE.
+// Non-positive values use the five-minute default. Cached state remains usable.
+func WithMaxStateAge(d time.Duration) Option {
+	return func(o *providerOptions) { o.maxStateAge = d }
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -151,6 +159,10 @@ type eventTracking interface {
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
 // for local flag resolution using the Confidence WASM resolver
 type LocalResolverProvider struct {
+	maxStateAge           time.Duration
+	lastValidated         time.Time // guarded by mu
+	stale                 bool      // guarded by mu
+	stateValidated        chan struct{}
 	resolverSupplier      LocalResolverSupplier
 	resolver              lr.LocalResolver
 	stateProvider         StateProvider
@@ -229,8 +241,14 @@ func newLocalResolverProvider(
 	if initialRetryInterval <= 0 {
 		initialRetryInterval = initialStateRetryInterval
 	}
+	maxStateAge := options.maxStateAge
+	if maxStateAge <= 0 {
+		maxStateAge = defaultMaxStateAge
+	}
 
 	provider := &LocalResolverProvider{
+		maxStateAge:               maxStateAge,
+		stateValidated:            make(chan struct{}, 1),
 		resolverSupplier:          resolverSupplier,
 		stateProvider:             stateProvider,
 		flagLogger:                flagLogger,
@@ -903,6 +921,10 @@ func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationCon
 	}
 	for {
 		initialState, accountId, loadErr := p.loadState(startupCtx)
+		if isTerminalStateError(loadErr) && ctx.Err() == nil {
+			cancel()
+			return &openfeature.ProviderInitError{ErrorCode: openfeature.ProviderFatalCode, Message: loadErr.Error()}
+		}
 		if startupCtx.Err() != nil {
 			return finishStartup()
 		}
@@ -934,10 +956,10 @@ func (p *LocalResolverProvider) loadState(ctx context.Context) ([]byte, string, 
 		return nil, "", fmt.Errorf("failed to fetch state: %w", err)
 	}
 	if accountId == "" {
-		return nil, "", errors.New("account ID is empty in fetched state")
+		return nil, "", &terminalStateError{errors.New("account ID is empty in fetched state")}
 	}
 	if err := p.setResolverState(state, accountId); err != nil {
-		return nil, "", fmt.Errorf("failed to install resolver state: %w", err)
+		return nil, "", &terminalStateError{fmt.Errorf("failed to install resolver state: %w", err)}
 	}
 	return state, accountId, nil
 }
@@ -962,7 +984,15 @@ func (p *LocalResolverProvider) transitionToReady(ctx context.Context, reportRec
 	if ctx.Err() != nil {
 		return false
 	}
-	if becameReady := !p.ready.Swap(true); becameReady && reportRecovery {
+	becameReady := !p.ready.Swap(true)
+	p.lastValidated = time.Now()
+	select {
+	case p.stateValidated <- struct{}{}:
+	default:
+	}
+	wasStale := p.stale
+	p.stale = false
+	if (becameReady || wasStale) && reportRecovery {
 		p.logger.Info("Provider recovered and is now ready")
 		p.emitLifecycleEvent(openfeature.ProviderReady, "Provider recovered and is now ready", "")
 	}
@@ -1038,6 +1068,33 @@ func (p *LocalResolverProvider) Shutdown() {
 
 // startScheduledTasks starts the background tasks for state fetching and log polling
 func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, appliedState []byte, appliedAccountId string) {
+	// Independent of HTTP requests: a blocked refresh must not delay STALE.
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		timer := time.NewTimer(p.maxStateAge)
+		defer timer.Stop()
+		for {
+			select {
+			case <-parentCtx.Done():
+				return
+			case <-timer.C:
+			case <-p.stateValidated:
+			}
+			p.mu.Lock()
+			remaining := p.maxStateAge
+			if p.ready.Load() && !p.stale && parentCtx.Err() == nil {
+				remaining = time.Until(p.lastValidated.Add(p.maxStateAge))
+				if remaining <= 0 {
+					p.stale = true
+					p.emitLifecycleEvent(openfeature.ProviderStale, "Resolver state exceeded maximum age", "")
+					remaining = p.maxStateAge
+				}
+			}
+			p.mu.Unlock()
+			timer.Reset(remaining)
+		}
+	}()
 	// Goroutine for state fetching
 	p.wg.Add(1)
 	go func() {
@@ -1062,11 +1119,12 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 				if err != nil {
 					p.logger.Error("State fetch failed", "error", err)
 				} else if accountId == "" {
-					p.logger.Error("AccountID inside fetched state is empty, skipping this state update attempt")
+					err = &terminalStateError{errors.New("account ID is empty in fetched state")}
 				} else if p.ready.Load() && accountId == appliedAccountId && bytes.Equal(state, appliedState) {
 					// Skip the WASM state update if nothing changed (e.g. the fetch
 					// was answered with 304 Not Modified). Re-ingesting identical
 					// state churns the WASM heap for no benefit (#455).
+					p.transitionToReady(parentCtx, true)
 				} else {
 					// Flush logs before state update to reduce WASM heap fragmentation (#455)
 					if p.ready.Load() {
@@ -1075,7 +1133,8 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 						}
 					}
 
-					if err := p.setResolverState(state, accountId); err != nil {
+					if installErr := p.setResolverState(state, accountId); installErr != nil {
+						err = &terminalStateError{fmt.Errorf("failed to install resolver state: %w", installErr)}
 						p.logger.Error("Failed to update state", "error", err)
 					} else {
 						if !p.transitionToReady(parentCtx, true) {
@@ -1084,6 +1143,10 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, a
 						appliedState = state
 						appliedAccountId = accountId
 					}
+				}
+				if !p.ready.Load() && isTerminalStateError(err) {
+					p.emitLifecycleEvent(openfeature.ProviderError, err.Error(), openfeature.ProviderFatalCode)
+					return
 				}
 				stateTimer.Reset(nextInterval())
 			case <-parentCtx.Done():

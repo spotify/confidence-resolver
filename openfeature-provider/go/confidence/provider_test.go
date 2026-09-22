@@ -599,7 +599,7 @@ func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 	}
 }
 
-// TestLocalResolverProvider_Init_EmptyAccountID verifies Init starts retrying when accountID is empty.
+// TestLocalResolverProvider_Init_EmptyAccountID verifies malformed state fails startup.
 func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 	mockStateProvider := &tu.StateProviderMock{
 		State:     []byte("test-state"),
@@ -621,8 +621,9 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Expected recoverable initialization timeout, got: %v", err)
+	var initErr *openfeature.ProviderInitError
+	if !errors.As(err, &initErr) || initErr.ErrorCode != openfeature.ProviderFatalCode {
+		t.Fatalf("Expected fatal initialization error, got: %v", err)
 	}
 	defer provider.Shutdown()
 
@@ -661,8 +662,9 @@ func TestLocalResolverProvider_Init_UpdateStateError(t *testing.T) {
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Expected recoverable initialization timeout, got: %v", err)
+	var initErr *openfeature.ProviderInitError
+	if !errors.As(err, &initErr) || initErr.ErrorCode != openfeature.ProviderFatalCode {
+		t.Fatalf("Expected fatal initialization error, got: %v", err)
 	}
 	provider.Shutdown()
 }

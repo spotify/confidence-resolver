@@ -20,6 +20,7 @@ import (
 const confidenceDomain = "edge-grpc.spotify.com"
 
 type ProviderConfig struct {
+	MaxStateAge                   time.Duration // Zero uses 5 minutes; negative is invalid; STALE still evaluates cached state
 	ClientSecret                  string
 	EncryptionKey                 string // Required: hex-encoded AES-256 key for decrypting CDN state
 	Logger                        *slog.Logger
@@ -69,6 +70,9 @@ type ProviderTestConfig struct {
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
+	if config.MaxStateAge < 0 {
+		return nil, fmt.Errorf("MaxStateAge must be positive or zero to use the default")
+	}
 	if err := validateEncryptionKey(config.EncryptionKey); err != nil {
 		return nil, err
 	}
@@ -130,6 +134,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
 	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection)
 	providerOpts = append(providerOpts,
+		WithMaxStateAge(config.MaxStateAge),
 		WithEventTracking(et.EventEngineWasm),
 		WithUseWasmInterpreter(config.UseWasmInterpreter),
 	)
