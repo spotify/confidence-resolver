@@ -171,22 +171,35 @@ pub(crate) async fn consume(batch: MessageBatch<String>, env: Env) -> Result<()>
 /// a real outage is not something an in-memory sink can do.
 const DELIVERY_ATTEMPTS: u32 = 3;
 
-// KNOWN LIMITATION: a delivery attempt has no time bound.
-//
-// A blackholed destination therefore blocks the fallback, and three slow
-// attempts can outlast the `wait_until` budget that owns the flush. The
-// obvious fix — racing the fetch against a timer — is worse than the
-// problem: `worker::RequestInit` exposes no `signal` field, so an
-// `AbortController` cannot be attached to an outbound fetch, and the losing
-// branch of a `select` only stops *awaiting* the request. The request still
-// completes, so a "timed out" delivery can land at the backend while being
-// reported as lost, and the retry then sends it a second time. Measured: a
-// 6s backend accepted the same log twice while the flush reported it
-// dropped.
-//
-// Bounding this needs either abort support in the worker crate or a
-// destination-side idempotency key. Until then an unbounded wait is the
-// honest behaviour: slow, but neither duplicating nor misreporting.
+/// Budget for all flag-log work started by one invocation.
+///
+/// `wait_until` work is cancelled 30s after the response, so everything an
+/// invocation schedules — every destination, retry, backoff and split chunk
+/// — has to fit inside that. 25s leaves margin for the cancellation itself
+/// and for the metrics write that follows delivery.
+const INVOCATION_BUDGET_MS: f64 = 25_000.0;
+
+/// Never spend more than this share of the remaining budget on one attempt,
+/// so a stalled primary destination cannot consume the fallback's time.
+const ATTEMPT_SHARE: f64 = 0.4;
+
+/// Floor for an attempt. Below this there is no point starting one.
+const MIN_ATTEMPT_MS: f64 = 250.0;
+
+thread_local! {
+    /// When the current invocation's flag-log work must be finished.
+    static DEADLINE_MS: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+}
+
+/// Starts the budget for this invocation. Called once, before any delivery.
+pub(crate) fn begin_invocation() {
+    DEADLINE_MS.with(|d| d.set(js_sys::Date::now() + INVOCATION_BUDGET_MS));
+}
+
+/// Milliseconds left before this invocation must stop.
+fn remaining_ms() -> f64 {
+    DEADLINE_MS.with(|d| (d.get() - js_sys::Date::now()).max(0.0))
+}
 
 /// Backoff before retry *n* (1-based). Fixed rather than exponential-to-the-
 /// sky for the same reason the attempt count is small.
@@ -212,9 +225,23 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
 
     for &destination in crate::LOG_DESTINATIONS.iter() {
         for attempt in 1..=DELIVERY_ATTEMPTS {
+            // Every attempt is bounded by what is left of the invocation's
+            // budget, and takes only a share of it so a stalled primary
+            // still leaves time for the fallback destination.
+            let left = remaining_ms();
+            if left < MIN_ATTEMPT_MS {
+                console_log!(
+                    "flag log: out of budget before attempt {} to {:?}; giving up",
+                    attempt,
+                    destination
+                );
+                return false;
+            }
+            let budget_ms = (left * ATTEMPT_SHARE).max(MIN_ATTEMPT_MS) as u64;
             let started_ms = js_sys::Date::now();
             let result =
-                crate::deliver_flag_logs(client_secret, account_id, req, destination).await;
+                crate::deliver_flag_logs(client_secret, account_id, req, destination, budget_ms)
+                    .await;
             let elapsed_ms = (js_sys::Date::now() - started_ms) as u64;
             match result {
                 Ok(()) => {
@@ -245,10 +272,8 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
                     if !retrying {
                         break;
                     }
-                    worker::Delay::from(std::time::Duration::from_millis(retry_backoff_ms(
-                        attempt,
-                    )))
-                    .await;
+                    let backoff = retry_backoff_ms(attempt).min(remaining_ms() as u64);
+                    worker::Delay::from(std::time::Duration::from_millis(backoff)).await;
                 }
             }
         }
@@ -1155,16 +1180,24 @@ mod delivered_tests {
             Disposition::Partial
         );
 
-        // The queue must NACK a partial: acking would turn a transient
-        // backend failure into permanent loss of durable messages. The
-        // redelivered duplicate is collapsed by apply-dedup; a drop is not
-        // recoverable.
-        fn queue_nacks(d: &Delivered) -> bool {
-            !matches!(ack_decision(d), Disposition::Complete)
+        // Only a fully successful batch may be acked, and only a fully
+        // successful batch may fold its request telemetry into KV — a
+        // nacked batch is redelivered, so counting now would double-count
+        // on the retry.
+        for (outcome, acks, counts_telemetry) in [
+            (Delivered::ok(100), true, true),
+            (Delivered::ok(50).merge(Delivered::lost(50)), false, false),
+            (Delivered::lost(100), false, false),
+        ] {
+            let complete = matches!(ack_decision(&outcome), Disposition::Complete);
+            assert_eq!(complete, acks, "ack policy for {outcome:?}");
+            assert_eq!(
+                outcome.lost == 0,
+                counts_telemetry,
+                "telemetry gate for {outcome:?}"
+            );
+            assert_eq!(complete, outcome.lost == 0, "the two must agree");
         }
-        assert!(queue_nacks(&Delivered::ok(50).merge(Delivered::lost(50))));
-        assert!(queue_nacks(&Delivered::lost(100)));
-        assert!(!queue_nacks(&Delivered::ok(100)));
         assert_eq!(
             ack_decision(&Delivered::lost(50).merge(Delivered::lost(50))),
             Disposition::Failed

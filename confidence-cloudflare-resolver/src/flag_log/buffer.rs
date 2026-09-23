@@ -138,6 +138,10 @@ const HARD_IN_FLIGHT: usize = 8;
 
 const _: () = assert!(MAX_IN_FLIGHT < HARD_IN_FLIGHT);
 
+/// Below this much remaining budget, a standing-down waiter stops draining
+/// rather than starting a delivery it cannot finish.
+const MIN_DRAIN_BUDGET_MS: f64 = 1_000.0;
+
 /// How often the pending waiter re-checks the triggers.
 const POLL_MS: u64 = 250;
 
@@ -253,8 +257,9 @@ impl Buffer {
             .collect()
     }
 
-    /// Everything, for a waiter standing down. Delivery splits it again, so
-    /// handing over a large buffer does not mean a large body.
+    /// Everything at once. Tests only: production drains in bounded chunks
+    /// so the slot cap and chunk bound still apply.
+    #[cfg(test)]
     fn take_all(&mut self) -> Vec<WriteFlagLogsRequest> {
         self.bytes = 0;
         std::mem::take(&mut self.logs)
@@ -427,13 +432,76 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
     }
 }
 
+/// Drains what it can before a waiter stands down.
+///
+/// Respects the same admission rules as every other path: one bounded chunk
+/// at a time, never past [`HARD_IN_FLIGHT`], and never past the
+/// invocation's deadline. `take_all` is deliberately not used — handing a
+/// whole 12 MiB backlog to one delivery bypasses both the slot cap and the
+/// chunk bound that make the memory model hold.
+///
+/// The caller drops its [`Waiter`] *before* calling this, so a request
+/// arriving during the drain can elect a successor for anything that lands
+/// in the fresh buffer.
+async fn drain_before_standing_down(reason: &str) {
+    let mut delivered = 0usize;
+    loop {
+        if super::remaining_ms() < MIN_DRAIN_BUDGET_MS {
+            break;
+        }
+        let batch = BUFFER.with(|cell| {
+            let mut buffer = cell.borrow_mut();
+            if buffer.logs.is_empty() {
+                return None;
+            }
+            let in_flight = IN_FLIGHT.with(|n| n.get());
+            // Same admission as the size trigger: do not start a delivery
+            // the caps would have refused.
+            if in_flight >= MAX_IN_FLIGHT && !buffer.at_ceiling() {
+                return None;
+            }
+            if in_flight >= HARD_IN_FLIGHT {
+                return None;
+            }
+            Some(buffer.take_chunk())
+        });
+        match batch {
+            Some(chunk) if !chunk.is_empty() => {
+                delivered += chunk.len();
+                deliver(chunk).await;
+            }
+            _ => break,
+        }
+    }
+    let (left, bytes) = BUFFER.with(|c| {
+        let b = c.borrow();
+        (b.logs.len(), b.bytes)
+    });
+    if left > 0 {
+        console_log!(
+            "flag log buffer: waiter {} after draining {} records; {} records \
+             ({} bytes) remain with no owner and are at risk",
+            reason,
+            delivered,
+            left,
+            bytes
+        );
+    } else if delivered > 0 {
+        console_log!(
+            "flag log buffer: waiter {} after draining {} records, buffer empty",
+            reason,
+            delivered
+        );
+    }
+}
+
 /// Drains the buffer on the idle and age triggers.
 ///
 /// Called from `wait_until` after every request, and returns immediately
 /// unless it becomes the isolate's single waiter. The size trigger is handled
 /// in [`offer`]; this covers the tail, where traffic stops or trickles.
 pub(super) async fn tick() {
-    let Some(_waiter) = Waiter::claim() else {
+    let Some(waiter) = Waiter::claim() else {
         return;
     };
 
@@ -443,22 +511,11 @@ pub(super) async fn tick() {
         worker::Delay::from(std::time::Duration::from_millis(POLL_MS)).await;
         let now_ms = js_sys::Date::now();
         if now_ms - started_ms >= MAX_WAITER_LIFETIME_MS {
-            // Flush what is left before standing down. Retiring with records
-            // still buffered assumes another request will arrive to elect a
-            // replacement, and if traffic has stopped none will — the records
-            // would sit until the isolate is evicted. Draining costs one more
-            // delivery; not draining loses the buffer.
-            let leftover = BUFFER.with(|c| c.borrow_mut().take_all());
-            let n = leftover.len();
-            console_log!(
-                "flag log buffer: waiter retiring at {}ms to stay inside its request's \
-                 wait_until budget, draining {} records first",
-                (now_ms - started_ms) as u64,
-                n
-            );
-            if n > 0 {
-                deliver(leftover).await;
-            }
+            // Release the role first: a request arriving during the drain
+            // must be able to elect a successor for whatever it buffers,
+            // otherwise its records are stranded the moment we return.
+            drop(waiter);
+            drain_before_standing_down("retired").await;
             return;
         }
         let step = BUFFER.with(|cell| {
@@ -525,20 +582,8 @@ pub(super) async fn tick() {
             Step::Wait => {
                 wait_iters += 1;
                 if wait_iters >= MAX_WAIT_ITERS {
-                    // Backpressure held for the whole window. Standing down
-                    // without draining strands the buffer whenever traffic
-                    // has also stopped, so try one delivery on the way out.
-                    let leftover = BUFFER.with(|c| c.borrow_mut().take_all());
-                    let n = leftover.len();
-                    console_log!(
-                        "flag log buffer: waiter giving up after {}ms of backpressure, \
-                         draining {} records",
-                        wait_iters as u64 * POLL_MS,
-                        n
-                    );
-                    if n > 0 {
-                        deliver(leftover).await;
-                    }
+                    drop(waiter);
+                    drain_before_standing_down("gave up under backpressure").await;
                     return;
                 }
                 continue;
@@ -884,6 +929,55 @@ mod tests {
             buffer.bytes < MAX_BUFFER_BYTES,
             "byte ceiling would not have"
         );
+    }
+
+    /// A standing-down waiter must not bypass the slot cap. The drain
+    /// loop's admission check is the same one `decide` applies, so at
+    /// HARD_IN_FLIGHT it must refuse to start another delivery rather than
+    /// creating a ninth.
+    #[test]
+    fn retirement_respects_the_hard_slot_cap() {
+        // The predicate the drain loop uses, stated once here so a change
+        // to it breaks this test.
+        fn may_start(in_flight: usize, at_ceiling: bool) -> bool {
+            if in_flight >= MAX_IN_FLIGHT && !at_ceiling {
+                return false;
+            }
+            in_flight < HARD_IN_FLIGHT
+        }
+        assert!(may_start(0, false), "idle pipe delivers");
+        assert!(
+            may_start(MAX_IN_FLIGHT, true),
+            "at ceiling, still under hard cap"
+        );
+        assert!(
+            !may_start(MAX_IN_FLIGHT, false),
+            "busy pipe below the ceiling must hold, not drain"
+        );
+        assert!(
+            !may_start(HARD_IN_FLIGHT, true),
+            "at the hard cap retirement must not create slot {}",
+            HARD_IN_FLIGHT + 1
+        );
+        assert!(!may_start(HARD_IN_FLIGHT + 1, true), "nor beyond it");
+    }
+
+    /// The drain takes bounded chunks, so even a full buffer of tiny
+    /// records cannot hand one delivery the whole backlog.
+    #[test]
+    fn retirement_drains_in_bounded_chunks() {
+        let mut buffer = Buffer::new();
+        for _ in 0..(FLUSH_RECORDS * 3) {
+            buffer.push(log_with_assigns(1), 0.0);
+        }
+        let first = buffer.take_chunk();
+        assert!(
+            first.len() <= FLUSH_RECORDS,
+            "a chunk took {} records, past the {} record bound",
+            first.len(),
+            FLUSH_RECORDS
+        );
+        assert!(!buffer.logs.is_empty(), "the rest stays for the next chunk");
     }
 
     /// Aggregation is deferred to flush time; the buffer must hold the logs

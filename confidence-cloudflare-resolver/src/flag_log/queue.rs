@@ -94,10 +94,13 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
         crate::update_kv_snapshot_merged(
             &kv,
             crate::SnapshotPipeline::FlagLogs,
-            // Skipped on a full failure: the queue redelivers the batch and
-            // the deltas would be counted twice. A partial success is acked
-            // below, so its deltas are counted once and kept.
-            if outcome.ok > 0 {
+            // Only on a fully successful batch. Anything else nacks, so
+            // Cloudflare redelivers the whole batch and a retry would add
+            // the same deltas again — 100 requests would report as 200,
+            // with latency and apply-dedup inflated to match. The flush
+            // success/failure counter below is per attempt, which is what
+            // it is meant to count.
+            if outcome.lost == 0 {
                 telemetry.as_ref()
             } else {
                 None

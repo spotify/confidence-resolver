@@ -81,6 +81,9 @@ fn dedup_telemetry_delta(
 /// What "ships" means depends on the active sink — see `flag_log::send`.
 /// Shard selection and failover live in `flag_log::shards`.
 async fn queue_flag_log(emitted: Option<flag_log::Emitted>) {
+    // One budget for everything this invocation schedules: deliveries,
+    // retries, backoff, split chunks and the waiter's final drain.
+    flag_log::begin_invocation();
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     }
@@ -729,13 +732,14 @@ async fn deliver_flag_logs(
     account_id: &str,
     req: &WriteFlagLogsRequest,
     dest: LogDestination,
+    budget_ms: u64,
 ) -> std::result::Result<(), DeliveryError> {
     let url = log_destination_url(&dest);
     let acct = match dest {
         LogDestination::Edge => None,
         _ => Some(account_id),
     };
-    match send_flags_logs(client_secret, req, url, acct).await {
+    match send_flags_logs(client_secret, req, url, acct, budget_ms).await {
         Ok(resp) if resp.status_code() < 400 => Ok(()),
         Ok(resp) => Err(DeliveryError::Status(resp.status_code())),
         Err(e) => Err(DeliveryError::Transport(format!("{:?}", e))),
@@ -1095,6 +1099,7 @@ async fn send_flags_logs(
     message: &WriteFlagLogsRequest,
     destination_url: &str,
     account_id: Option<&str>,
+    budget_ms: u64,
 ) -> Result<Response> {
     let mut init = RequestInit::new();
     let headers = Headers::new();
@@ -1120,7 +1125,29 @@ async fn send_flags_logs(
     }
 
     let request = Request::new_with_init(destination_url, &init)?;
-    Fetch::Request(request).send().await
+    let fetch = Fetch::Request(request);
+
+    // Bounded by `budget_ms`, and genuinely aborted when it expires.
+    //
+    // A `select` alone is not enough: dropping the losing Rust future does
+    // not cancel the underlying fetch, so the request still completes and a
+    // "timed out" delivery can land while being reported lost. The signal
+    // is what actually cancels it.
+    let controller = AbortController::default();
+    let signal = controller.signal();
+    let send = fetch.send_with_signal(&signal);
+    let timer = Delay::from(std::time::Duration::from_millis(budget_ms));
+    futures_util::pin_mut!(send);
+    futures_util::pin_mut!(timer);
+    match futures_util::future::select(send, timer).await {
+        futures_util::future::Either::Left((result, _)) => result,
+        futures_util::future::Either::Right(((), _)) => {
+            controller.abort();
+            Err(worker::Error::RustError(format!(
+                "delivery aborted after {budget_ms}ms"
+            )))
+        }
+    }
 }
 
 const EVENTS_URL: &str = "https://events.confidence.dev/v1/events:publish";
