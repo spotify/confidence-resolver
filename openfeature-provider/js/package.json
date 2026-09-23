@@ -24,6 +24,10 @@
       "types": "./dist/index.fetch.d.ts",
       "default": "./dist/index.fetch.js"
     },
+    "./remote": {
+      "types": "./dist/index.remote.d.ts",
+      "default": "./dist/index.remote.js"
+    },
     "./react-server": {
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
