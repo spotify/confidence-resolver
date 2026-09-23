@@ -793,7 +793,7 @@ mod deliver_limit_tests {
         // Build records with keys full of characters that expand in JSON
         // (backslashes, quotes, control chars).
         let escape_heavy = "\\\"\n\t".repeat(200);
-        let mut logs: Vec<WriteFlagLogsRequest> = (0..10)
+        let logs: Vec<WriteFlagLogsRequest> = (0..10)
             .map(|i| WriteFlagLogsRequest {
                 flag_assigned: (0..20)
                     .map(|j| FlagAssigned {
