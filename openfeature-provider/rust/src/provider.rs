@@ -15,7 +15,7 @@ use open_feature::{
 };
 use reqwest::Client;
 use reqwest_middleware::ClientBuilder;
-use tokio::sync::oneshot;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use confidence_resolver::proto::confidence::flags::resolver::v1::{
@@ -43,6 +43,9 @@ const DEFAULT_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Interval for retrying state fetches while the provider is not ready.
 const STATE_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Timeout for stopping a background task or flushing final logs.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 fn provider_sdk() -> Sdk {
     Sdk {
@@ -168,7 +171,7 @@ pub struct ConfidenceProvider {
     state_fetcher: Arc<StateFetcher>,
     log_manager: Arc<LogManager>,
     materialization_store: Option<Arc<dyn MaterializationStore>>,
-    shutdown_tx: Option<oneshot::Sender<()>>,
+    shutdown_tx: Option<watch::Sender<()>>,
     background_tasks: Vec<JoinHandle<()>>,
     initialize_timeout: Duration,
     state_poll_interval: Duration,
@@ -261,7 +264,7 @@ impl ConfidenceProvider {
         }
 
         // Start background tasks
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let (shutdown_tx, shutdown_rx) = watch::channel(());
         self.shutdown_tx = Some(shutdown_tx);
 
         self.start_background_tasks(shutdown_rx);
@@ -277,18 +280,25 @@ impl ConfidenceProvider {
         }
 
         // Wait for background tasks to complete (with timeout)
-        for task in self.background_tasks.drain(..) {
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), task).await;
+        for mut task in self.background_tasks.drain(..) {
+            if tokio::time::timeout(SHUTDOWN_TIMEOUT, &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
         }
 
-        // Final flush
-        let _ = self
-            .log_manager
-            .flush_all(&RESOLVE_LOGGER, &ASSIGN_LOGGER)
-            .await;
+        // Bound the final flush in case the log endpoint is unavailable.
+        let _ = tokio::time::timeout(
+            SHUTDOWN_TIMEOUT,
+            self.log_manager.flush_all(&RESOLVE_LOGGER, &ASSIGN_LOGGER),
+        )
+        .await;
     }
 
-    fn start_background_tasks(&mut self, shutdown_rx: oneshot::Receiver<()>) {
+    fn start_background_tasks(&mut self, shutdown_rx: watch::Receiver<()>) {
         let state = Arc::clone(&self.state);
         let state_fetcher = Arc::clone(&self.state_fetcher);
         let log_manager = Arc::clone(&self.log_manager);
@@ -299,11 +309,9 @@ impl ConfidenceProvider {
         let disable_exposure_collection = self.disable_exposure_collection;
         let initialize_timeout = self.initialize_timeout;
 
-        // Spawn combined background task
-        let task = tokio::spawn(async move {
-            let mut shutdown_rx = shutdown_rx;
-            let mut flush_interval = tokio::time::interval(flush_interval);
-            let mut assign_interval = tokio::time::interval(assign_flush_interval);
+        // Keep state refresh independent of potentially slow log uploads.
+        let mut state_shutdown_rx = shutdown_rx.clone();
+        let state_task = tokio::spawn(async move {
             let state_refresh = async {
                 loop {
                     tokio::time::sleep(if state.is_initialized() {
@@ -322,29 +330,39 @@ impl ConfidenceProvider {
                     }
                 }
             };
-            tokio::pin!(state_refresh);
-
-            loop {
-                tokio::select! {
-                    _ = &mut shutdown_rx => {
-                        break;
-                    }
-                    _ = &mut state_refresh => break,
-                    _ = flush_interval.tick() => {
-                        if let Err(e) = log_manager.flush_all(&RESOLVE_LOGGER, &ASSIGN_LOGGER).await {
-                            tracing::error!("Failed to flush logs: {}", e);
-                        }
-                    }
-                    _ = assign_interval.tick(), if !disable_exposure_collection => {
-                        if let Err(e) = log_manager.flush_assign(&ASSIGN_LOGGER).await {
-                            tracing::error!("Failed to flush assign logs: {}", e);
-                        }
-                    }
-                }
+            tokio::select! {
+                _ = state_shutdown_rx.changed() => {},
+                _ = state_refresh => {},
             }
         });
 
-        self.background_tasks.push(task);
+        let log_task = tokio::spawn(async move {
+            let mut shutdown_rx = shutdown_rx;
+            let mut flush_interval = tokio::time::interval(flush_interval);
+            let mut assign_interval = tokio::time::interval(assign_flush_interval);
+            let flush_logs = async {
+                loop {
+                    tokio::select! {
+                        _ = flush_interval.tick() => {
+                            if let Err(e) = log_manager.flush_all(&RESOLVE_LOGGER, &ASSIGN_LOGGER).await {
+                                tracing::error!("Failed to flush logs: {}", e);
+                            }
+                        }
+                        _ = assign_interval.tick(), if !disable_exposure_collection => {
+                            if let Err(e) = log_manager.flush_assign(&ASSIGN_LOGGER).await {
+                                tracing::error!("Failed to flush assign logs: {}", e);
+                            }
+                        }
+                    }
+                }
+            };
+            tokio::select! {
+                _ = shutdown_rx.changed() => {},
+                _ = flush_logs => {},
+            }
+        });
+
+        self.background_tasks.extend([state_task, log_task]);
     }
 
     /// Resolve a flag with the given key and evaluation context.
@@ -1739,6 +1757,66 @@ mod tests {
         assert_eq!(provider.status(), ProviderStatus::Ready);
         assert!(Arc::ptr_eq(&last_good, &provider.state.get().unwrap()));
         provider.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn stalled_log_upload_does_not_block_recovery_polling_or_shutdown() {
+        let server = MockServer::start().await;
+        serve_state(
+            &server,
+            ResponseTemplate::new(200).set_body_bytes(
+                include_bytes!("../../../data/resolver_state_encrypted.pb").as_slice(),
+            ),
+        )
+        .await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(30)))
+            .mount(&server)
+            .await;
+        let mut provider = provider_with_gateway(&server, Duration::from_millis(50));
+        provider.state_poll_interval = Duration::from_millis(50);
+        provider.init().await.unwrap();
+        assert_eq!(provider.status(), ProviderStatus::NotReady);
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            // Initial failure, successful retry, then normal polling.
+            while state_requests(&server).await < 3 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("state polling blocked by log upload");
+        assert_eq!(provider.status(), ProviderStatus::Ready);
+        assert_eq!(
+            server
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .filter(|r| r.method == "POST")
+                .count(),
+            1,
+            "the background log upload should still be in flight"
+        );
+
+        let tasks: Vec<_> = provider
+            .background_tasks
+            .iter()
+            .map(JoinHandle::abort_handle)
+            .collect();
+        tokio::time::timeout(
+            SHUTDOWN_TIMEOUT + Duration::from_secs(1),
+            provider.shutdown(),
+        )
+        .await
+        .expect("shutdown blocked by log upload");
+        assert!(tasks.iter().all(|task| task.is_finished()));
     }
 
     #[tokio::test]
