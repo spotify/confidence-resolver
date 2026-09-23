@@ -47,6 +47,9 @@ pub(super) async fn send(log: WriteFlagLogsRequest) {
 /// the messages that were fine. Returning `Err` on a failed delivery is
 /// deliberate: that is what makes the queue redeliver the batch.
 pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Result<()> {
+    // A consumer invocation has its own budget. It never passes through the
+    // fetch handler, so it cannot inherit one from there.
+    let deadline = super::Deadline::starting_now();
     let Ok(messages) = message_batch.messages() else {
         return Ok(());
     };
@@ -87,7 +90,7 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
     // Same splitter the buffer uses: a batch of 100 heavy resolves can
     // aggregate past the backend's 4 MiB limit, and a 413 is not retryable,
     // so without splitting it bounces until the dead-letter queue.
-    let outcome = super::deliver_all_within_limit(logs).await;
+    let outcome = super::deliver_all_within_limit(logs, deadline).await;
     let delivered = outcome.lost == 0;
 
     if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {

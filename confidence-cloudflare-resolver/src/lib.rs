@@ -82,17 +82,18 @@ fn dedup_telemetry_delta(
 /// Shard selection and failover live in `flag_log::shards`.
 async fn queue_flag_log(emitted: Option<flag_log::Emitted>) {
     // One budget for everything this invocation schedules: deliveries,
-    // retries, backoff, split chunks and the waiter's final drain.
-    flag_log::begin_invocation();
+    // retries, backoff, split chunks and the waiter's final drain. Created
+    // here and copied down, so a concurrent invocation cannot move it.
+    let deadline = flag_log::Deadline::starting_now();
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     }
     if let Some(emitted) = emitted {
-        flag_log::send(emitted).await;
+        flag_log::send(emitted, deadline).await;
     }
     // The buffer sink's idle and age triggers need something still running
     // after the traffic stops; every other sink makes this a no-op.
-    flag_log::tick().await;
+    flag_log::tick(deadline).await;
 }
 
 /// Runs `f` with `log` installed as the destination for the `Host` logging

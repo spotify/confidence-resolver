@@ -111,10 +111,10 @@ pub(crate) fn emit_inline(log: WriteFlagLogsRequest) -> Option<Emitted> {
 
 /// Ships one request's flag log. Called from `wait_until`, so it runs after
 /// the response has been returned.
-pub(crate) async fn send(emitted: Emitted) {
+pub(crate) async fn send(emitted: Emitted, deadline: Deadline) {
     match emitted {
         Emitted::One(log) => queue::send(*log).await,
-        Emitted::Batch(logs) => buffer::deliver(logs).await,
+        Emitted::Batch(logs) => buffer::deliver(logs, deadline).await,
     }
 }
 
@@ -123,9 +123,9 @@ pub(crate) async fn send(emitted: Emitted) {
 /// Only the buffer sink needs it: the size trigger fires in the request path,
 /// but the idle and age triggers need something still running once the
 /// traffic stops. A no-op for the sinks that ship each log as it arrives.
-pub(crate) async fn tick() {
+pub(crate) async fn tick(deadline: Deadline) {
     if sink() == Sink::Buffer {
-        buffer::tick().await;
+        buffer::tick(deadline).await;
     }
 }
 
@@ -186,19 +186,52 @@ const ATTEMPT_SHARE: f64 = 0.4;
 /// Floor for an attempt. Below this there is no point starting one.
 const MIN_ATTEMPT_MS: f64 = 250.0;
 
-thread_local! {
-    /// When the current invocation's flag-log work must be finished.
-    static DEADLINE_MS: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+/// When one invocation's flag-log work must be finished.
+///
+/// Passed by value rather than held in a thread-local. A thread-local is
+/// wrong twice over here: a queue-consumer invocation never passes through
+/// the fetch handler that would set it, so it reads as already-expired and
+/// every delivery gives up before trying; and concurrent invocations in one
+/// isolate overwrite each other, so a new request silently moves the
+/// deadline an older in-flight delivery is running against. Copying an
+/// immutable value down the call chain makes each invocation's budget its
+/// own.
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct Deadline {
+    at_ms: f64,
 }
 
-/// Starts the budget for this invocation. Called once, before any delivery.
-pub(crate) fn begin_invocation() {
-    DEADLINE_MS.with(|d| d.set(js_sys::Date::now() + INVOCATION_BUDGET_MS));
+impl Deadline {
+    /// A fresh budget, starting now. One per invocation.
+    pub(crate) fn starting_now() -> Self {
+        Deadline {
+            at_ms: now_ms() + INVOCATION_BUDGET_MS,
+        }
+    }
+
+    /// Milliseconds left, never negative.
+    pub(super) fn remaining_ms(self) -> f64 {
+        self.remaining_from(now_ms())
+    }
+
+    /// The arithmetic, with the clock passed in so it is testable off
+    /// wasm32, where `js_sys::Date::now` aborts.
+    fn remaining_from(self, now: f64) -> f64 {
+        (self.at_ms - now).max(0.0)
+    }
 }
 
-/// Milliseconds left before this invocation must stop.
-fn remaining_ms() -> f64 {
-    DEADLINE_MS.with(|d| (d.get() - js_sys::Date::now()).max(0.0))
+/// Wall clock. `js_sys` aborts on non-wasm targets, so tests drive the
+/// arithmetic through [`Deadline::remaining_from`] instead.
+fn now_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0.0
+    }
 }
 
 /// Backoff before retry *n* (1-based). Fixed rather than exponential-to-the-
@@ -216,7 +249,7 @@ fn retry_backoff_ms(attempt: u32) -> u64 {
 /// the failure looks transient — see [`crate::DeliveryError::is_retryable`].
 /// A `413` or `401` moves straight on to the next destination rather than
 /// failing the same way twice more.
-async fn deliver(req: &WriteFlagLogsRequest) -> bool {
+async fn deliver(req: &WriteFlagLogsRequest, deadline: Deadline) -> bool {
     let Some(client_secret) = crate::CONFIDENCE_CLIENT_SECRET.get() else {
         console_log!("flag log delivery skipped: client secret unavailable");
         return false;
@@ -228,7 +261,7 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
             // Every attempt is bounded by what is left of the invocation's
             // budget, and takes only a share of it so a stalled primary
             // still leaves time for the fallback destination.
-            let left = remaining_ms();
+            let left = deadline.remaining_ms();
             if left < MIN_ATTEMPT_MS {
                 console_log!(
                     "flag log: out of budget before attempt {} to {:?}; giving up",
@@ -272,7 +305,7 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
                     if !retrying {
                         break;
                     }
-                    let backoff = retry_backoff_ms(attempt).min(remaining_ms() as u64);
+                    let backoff = retry_backoff_ms(attempt).min(deadline.remaining_ms() as u64);
                     worker::Delay::from(std::time::Duration::from_millis(backoff)).await;
                 }
             }
@@ -361,6 +394,7 @@ impl Delivered {
 
 pub(super) fn deliver_all_within_limit(
     logs: Vec<WriteFlagLogsRequest>,
+    deadline: Deadline,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Delivered>>> {
     Box::pin(async move {
         if logs.is_empty() {
@@ -374,14 +408,14 @@ pub(super) fn deliver_all_within_limit(
             // Both halves are attempted even if the first fails, and each
             // reports its own record count so a partial failure is not
             // charged as a whole-batch loss.
-            let a = deliver_all_within_limit(head).await;
-            let b = deliver_all_within_limit(tail).await;
+            let a = deliver_all_within_limit(head, deadline).await;
+            let b = deliver_all_within_limit(tail, deadline).await;
             return a.merge(b);
         }
 
         let count = logs.len();
         let request = flag_logger::aggregate_batch(logs);
-        deliver_aggregate(request, count).await
+        deliver_aggregate(request, count, deadline).await
     })
 }
 
@@ -390,6 +424,7 @@ pub(super) fn deliver_all_within_limit(
 fn deliver_aggregate(
     request: WriteFlagLogsRequest,
     count: usize,
+    deadline: Deadline,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Delivered>>> {
     Box::pin(async move {
         // Only the length is needed; the string is dropped immediately so
@@ -398,7 +433,7 @@ fn deliver_aggregate(
         // pressure that peak matters.
         let size = serde_json::to_string(&request).map_or(usize::MAX, |json| json.len());
         if size <= MAX_DELIVERY_BYTES {
-            return if deliver(&request).await {
+            return if deliver(&request, deadline).await {
                 Delivered::ok(count)
             } else {
                 Delivered::lost(count)
@@ -418,7 +453,7 @@ fn deliver_aggregate(
                 MAX_DELIVERY_BYTES,
                 MEASURED_BACKEND_LIMIT
             );
-            return if deliver(&request).await {
+            return if deliver(&request, deadline).await {
                 Delivered::ok(count)
             } else {
                 Delivered::lost(count)
@@ -446,14 +481,14 @@ fn deliver_aggregate(
             // values, apportioning would hand the tail a 0 and make its
             // failure invisible — fall back to the success-bit scheme.
             if count < 2 {
-                let a = deliver_aggregate(head, count).await;
-                let b = deliver_aggregate(tail, count).await;
+                let a = deliver_aggregate(head, count, deadline).await;
+                let b = deliver_aggregate(tail, count, deadline).await;
                 return split_outcome(a.lost == 0, b.lost > 0 || a.lost > 0, count);
             }
             let head_count = count.div_ceil(2);
             let tail_count = count - head_count;
-            let a = deliver_aggregate(head, head_count).await;
-            let b = deliver_aggregate(tail, tail_count).await;
+            let a = deliver_aggregate(head, head_count, deadline).await;
+            let b = deliver_aggregate(tail, tail_count, deadline).await;
             return a.merge(b);
         }
         // One FlagAssigned left, but it can still hold hundreds of applied
@@ -465,7 +500,7 @@ fn deliver_aggregate(
         // recursive version produced 4,810 `memory access out of bounds`
         // errors where the iterative one produced none.
         if request.flag_assigned.len() == 1 && request.flag_assigned[0].flags.len() > 1 {
-            return deliver_by_splitting_flags(request, count).await;
+            return deliver_by_splitting_flags(request, count, deadline).await;
         }
         console_log!(
             "flag log: DROPPED {} records, an indivisible payload of {} bytes is past \
@@ -488,7 +523,11 @@ fn deliver_aggregate(
 /// split. Any partial outcome reports both `ok` and `lost` non-zero, which
 /// is what puts the queue consumer on its partial-ack path instead of
 /// nacking and re-posting the flags that already landed.
-async fn deliver_by_splitting_flags(request: WriteFlagLogsRequest, count: usize) -> Delivered {
+async fn deliver_by_splitting_flags(
+    request: WriteFlagLogsRequest,
+    count: usize,
+    deadline: Deadline,
+) -> Delivered {
     use confidence_resolver::proto::confidence::flags::resolver::v1::events::FlagAssigned;
 
     // Moved out of the request rather than cloned: the flags vector is the
@@ -520,7 +559,7 @@ async fn deliver_by_splitting_flags(request: WriteFlagLogsRequest, count: usize)
         }];
         let size = serde_json::to_string(&piece).map_or(usize::MAX, |json| json.len());
         if size < MEASURED_BACKEND_LIMIT {
-            if deliver(&piece).await {
+            if deliver(&piece, deadline).await {
                 any_ok = true;
             } else {
                 any_lost = true;
@@ -1085,6 +1124,66 @@ mod deliver_limit_tests {
             worst_json,
             MAX_DELIVERY_BYTES
         );
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+
+    /// A fresh deadline must carry the whole budget. The previous design
+    /// read an uninitialised thread-local as already-expired, so a
+    /// queue-consumer invocation — which never passes through the fetch
+    /// handler that set it — gave up before attempting a single delivery.
+    #[test]
+    fn a_fresh_deadline_has_the_whole_budget() {
+        let start = 1_000_000.0;
+        let d = Deadline {
+            at_ms: start + INVOCATION_BUDGET_MS,
+        };
+        assert_eq!(d.remaining_from(start), INVOCATION_BUDGET_MS);
+        assert!(
+            d.remaining_from(start) >= MIN_ATTEMPT_MS,
+            "a new deadline must permit at least one attempt"
+        );
+    }
+
+    /// The bug that broke the default sink: a zero-valued deadline reads as
+    /// expired, so every delivery gives up before trying. Constructing one
+    /// per invocation makes that state unreachable, but assert the shape so
+    /// a regression is loud.
+    #[test]
+    fn a_zero_deadline_permits_no_attempt() {
+        let uninitialised = Deadline { at_ms: 0.0 };
+        assert_eq!(uninitialised.remaining_from(1_000_000.0), 0.0);
+        assert!(uninitialised.remaining_from(1_000_000.0) < MIN_ATTEMPT_MS);
+    }
+
+    /// Deadlines are values, not shared state: copying one down the call
+    /// chain cannot move another invocation's budget.
+    #[test]
+    fn deadlines_are_independent_values() {
+        let first = Deadline { at_ms: 5_000.0 };
+        let second = Deadline { at_ms: 9_000.0 };
+        let first_copy = first;
+        assert_eq!(first_copy.at_ms, 5_000.0);
+        assert_eq!(second.at_ms, 9_000.0, "unaffected by the other");
+        assert_eq!(first.remaining_from(0.0), 5_000.0);
+        assert_eq!(second.remaining_from(0.0), 9_000.0);
+    }
+
+    /// Remaining time never goes negative, and an attempt takes only a
+    /// share so a stalled destination leaves the fallback some budget.
+    #[test]
+    fn an_attempt_never_consumes_the_whole_budget() {
+        let d = Deadline { at_ms: 10_000.0 };
+        let left = d.remaining_from(0.0);
+        let attempt = (left * ATTEMPT_SHARE).max(MIN_ATTEMPT_MS);
+        assert!(
+            attempt < left,
+            "attempt {attempt} must leave time of {left}"
+        );
+        assert_eq!(d.remaining_from(20_000.0), 0.0, "never negative");
     }
 }
 

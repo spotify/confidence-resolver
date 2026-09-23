@@ -389,7 +389,7 @@ pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsReques
 }
 
 /// Delivers one flushed batch, splitting it to fit the backend.
-pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
+pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>, deadline: super::Deadline) {
     if logs.is_empty() {
         return;
     }
@@ -415,7 +415,7 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
     // size trigger stops firing, and the isolate only ever flushes on the
     // hard ceiling.
     let _slot = InFlight::acquire();
-    let outcome = super::deliver_all_within_limit(logs).await;
+    let outcome = super::deliver_all_within_limit(logs, deadline).await;
     let elapsed = (js_sys::Date::now() - started_ms) as u64;
     console_log!(
         "flag log buffer: flushed {} records in {}ms, delivered={} lost={}",
@@ -443,10 +443,10 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
 /// The caller drops its [`Waiter`] *before* calling this, so a request
 /// arriving during the drain can elect a successor for anything that lands
 /// in the fresh buffer.
-async fn drain_before_standing_down(reason: &str) {
+async fn drain_before_standing_down(reason: &str, deadline: super::Deadline) {
     let mut delivered = 0usize;
     loop {
-        if super::remaining_ms() < MIN_DRAIN_BUDGET_MS {
+        if deadline.remaining_ms() < MIN_DRAIN_BUDGET_MS {
             break;
         }
         let batch = BUFFER.with(|cell| {
@@ -468,7 +468,7 @@ async fn drain_before_standing_down(reason: &str) {
         match batch {
             Some(chunk) if !chunk.is_empty() => {
                 delivered += chunk.len();
-                deliver(chunk).await;
+                deliver(chunk, deadline).await;
             }
             _ => break,
         }
@@ -500,7 +500,7 @@ async fn drain_before_standing_down(reason: &str) {
 /// Called from `wait_until` after every request, and returns immediately
 /// unless it becomes the isolate's single waiter. The size trigger is handled
 /// in [`offer`]; this covers the tail, where traffic stops or trickles.
-pub(super) async fn tick() {
+pub(super) async fn tick(deadline: super::Deadline) {
     let Some(waiter) = Waiter::claim() else {
         return;
     };
@@ -515,7 +515,7 @@ pub(super) async fn tick() {
             // must be able to elect a successor for whatever it buffers,
             // otherwise its records are stranded the moment we return.
             drop(waiter);
-            drain_before_standing_down("retired").await;
+            drain_before_standing_down("retired", deadline).await;
             return;
         }
         let step = BUFFER.with(|cell| {
@@ -583,7 +583,7 @@ pub(super) async fn tick() {
                 wait_iters += 1;
                 if wait_iters >= MAX_WAIT_ITERS {
                     drop(waiter);
-                    drain_before_standing_down("gave up under backpressure").await;
+                    drain_before_standing_down("gave up under backpressure", deadline).await;
                     return;
                 }
                 continue;
@@ -593,7 +593,7 @@ pub(super) async fn tick() {
             // returning here would strand the rest of the backlog.
             Step::Deliver(batch) => {
                 wait_iters = 0;
-                deliver(batch).await;
+                deliver(batch, deadline).await;
             }
         }
     }
