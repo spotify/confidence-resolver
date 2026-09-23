@@ -776,14 +776,17 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
         echo "✅ FLAG_LOG_SINK set to \"$FLAG_LOG_SINK\" in wrangler.toml"
     fi
 
-    # Inject max_concurrency into the base flag-logs consumer definition.
+    # Inject max_concurrency into EVERY flag-logs consumer definition — the
+    # base one from the template and every shard the loop above appended.
+    # The events-queue consumer also has max_batch_timeout = 10, but it
+    # appears after a line with queue = "…events-queue" rather than
+    # queue = "…flag-logs-queue…", so we match only flag-logs consumers.
     if [ -n "${CONSUMER_CONCURRENCY_TOML:-}" ]; then
-        # The base consumer is the first [[queues.consumers]] in the template.
-        # Insert max_concurrency after the max_batch_timeout line.
-        sed -i.tmp '0,/^max_batch_timeout = 10/{/^max_batch_timeout = 10/a\
-'"$CONSUMER_CONCURRENCY_TOML"'
-}' wrangler.toml
-        rm -f wrangler.toml.tmp
+        awk -v mc="$CONSUMER_CONCURRENCY_TOML" '
+            /^queue = .*flag-logs-queue/ { in_flag_logs = 1 }
+            { print }
+            in_flag_logs && /^max_batch_timeout/ { print mc; in_flag_logs = 0 }
+        ' wrangler.toml > wrangler.toml.tmp && mv wrangler.toml.tmp wrangler.toml
         echo "✅ FLAG_LOGS_CONSUMER_CONCURRENCY set to $FLAG_LOGS_CONSUMER_CONCURRENCY"
     fi
 fi

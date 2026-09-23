@@ -10,7 +10,7 @@ A Cloudflare Worker that serves the Confidence flag resolver at the edge. Compil
 
 - **Compile-time state** — Resolver state is embedded at build time via `include_bytes!("../../data/resolver_state_current.pb")`. No runtime state fetching. Redeployment required to update.
 - **Optional sticky assignments** — Opt-in via `ENABLE_STICKY_ASSIGNMENTS` (KV-backed).
-- **Queue-based log shipping** — Flag logs are serialized to JSON and sent to a Cloudflare Queue (`flag_logs_queue`), then consumed by a queue handler that aggregates and ships them.
+- **Flag-log shipping** — Two sinks behind one abstraction (`FLAG_LOG_SINK`): `queue` (default) publishes to Cloudflare Queues; `buffer` accumulates in isolate memory and POSTs straight to Confidence. See `src/flag_log/`.
 - **JSON API** — Request/response bodies are JSON (not protobuf), unlike the WASM-based providers.
 - **CORS** — All responses include CORS headers with configurable `ALLOWED_ORIGIN`.
 
