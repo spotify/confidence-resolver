@@ -84,7 +84,7 @@ async fn queue_flag_log(emitted: Option<flag_log::Emitted>) {
     // One budget for everything this invocation schedules: deliveries,
     // retries, backoff, split chunks and the waiter's final drain. Created
     // here and copied down, so a concurrent invocation cannot move it.
-    let deadline = flag_log::Deadline::starting_now();
+    let deadline = flag_log::Deadline::for_http_background();
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     }

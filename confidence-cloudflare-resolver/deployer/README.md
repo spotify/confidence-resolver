@@ -182,9 +182,12 @@ isolate is evicted and Cloudflare provides no shutdown hook to flush it.
 On the consumer side, delivery to Confidence is **retried up to 3 times**
 per destination (250 ms then 1 s) while the failure looks transient — `5xx`,
 `429`, `408`, transport errors. A `413` or `401` moves on immediately. If
-nothing lands the batch is nacked and Cloudflare redelivers it; if a split
-batch partially lands it is acked, because redelivering would re-post the
-half that already succeeded.
+nothing lands the batch is nacked and Cloudflare redelivers it. A split
+batch that only partially lands is also nacked: the consumer cannot ack
+one half on its own, since split pieces carry no message identity, so
+acking would permanently drop the half that failed. Redelivery therefore
+re-posts the half that already succeeded — delivery is at-least-once, and
+nothing downstream collapses those duplicates.
 
 
 ### Scaling flag-log queues

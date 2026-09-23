@@ -173,7 +173,7 @@ pub(crate) async fn consume(batch: MessageBatch<String>, env: Env) -> Result<()>
 /// a real outage is not something an in-memory sink can do.
 const DELIVERY_ATTEMPTS: u32 = 3;
 
-/// Budget for all flag-log work started by one invocation.
+/// Budget for flag-log work started by an HTTP request.
 ///
 /// `wait_until` work is cancelled 30s after the response, so everything an
 /// invocation schedules — every destination, retry, backoff and split chunk
@@ -181,12 +181,42 @@ const DELIVERY_ATTEMPTS: u32 = 3;
 /// and for the metrics write that follows delivery.
 const INVOCATION_BUDGET_MS: f64 = 25_000.0;
 
+/// Budget for a queue-consumer invocation.
+///
+/// Deliberately not [`INVOCATION_BUDGET_MS`]: that number exists because
+/// `wait_until` is killed 30s after a *response*, and a consumer has no
+/// response. Cloudflare allows a queue consumer 15 minutes of wall time.
+///
+/// Sharing the 25s budget made a slow-but-working backend unrecoverable.
+/// Chunks are delivered in sequence against one budget and each attempt
+/// gets [`ATTEMPT_SHARE`] of what is left, so the per-attempt allowance
+/// decays: against a 6s backend the allowance falls under 6s once ~15s
+/// remain, and from then on every attempt is aborted. A batch needing more
+/// than two chunks could never finish, and each redelivery re-sent the
+/// chunks that had already landed — duplicates forever, no progress.
+///
+/// 120s keeps the allowance above 6s for ~17 sequential deliveries, far
+/// more than a 100-message batch splits into, while still bounding a wedged
+/// consumer well inside the platform limit.
+const QUEUE_BUDGET_MS: f64 = 120_000.0;
+
+const _: () = assert!(QUEUE_BUDGET_MS > INVOCATION_BUDGET_MS);
+
 /// Never spend more than this share of the remaining budget on one attempt,
 /// so a stalled primary destination cannot consume the fallback's time.
 const ATTEMPT_SHARE: f64 = 0.4;
 
 /// Floor for an attempt. Below this there is no point starting one.
 const MIN_ATTEMPT_MS: f64 = 250.0;
+
+/// How long one delivery attempt may take, given the budget left.
+///
+/// A share rather than all of it, so a stalled primary destination leaves
+/// the fallback some time. Extracted so the decay this produces over a
+/// sequence of chunk deliveries can be tested without a network.
+fn attempt_budget_ms(remaining_ms: f64) -> f64 {
+    (remaining_ms * ATTEMPT_SHARE).max(MIN_ATTEMPT_MS)
+}
 
 /// When one invocation's flag-log work must be finished.
 ///
@@ -204,10 +234,23 @@ pub(crate) struct Deadline {
 }
 
 impl Deadline {
-    /// A fresh budget, starting now. One per invocation.
-    pub(crate) fn starting_now() -> Self {
+    /// A fresh budget for an HTTP request's background work, bounded by
+    /// the `wait_until` window. See [`INVOCATION_BUDGET_MS`].
+    ///
+    /// Named for its entry point rather than offered as a neutral default:
+    /// the queue consumer once used a generic `starting_now()` and silently
+    /// inherited a budget sized for a window that does not apply to it.
+    pub(crate) fn for_http_background() -> Self {
         Deadline {
             at_ms: now_ms() + INVOCATION_BUDGET_MS,
+        }
+    }
+
+    /// A fresh budget for a queue-consumer invocation, which is not bound
+    /// by the `wait_until` window. See [`QUEUE_BUDGET_MS`].
+    pub(crate) fn for_queue_consumer() -> Self {
+        Deadline {
+            at_ms: now_ms() + QUEUE_BUDGET_MS,
         }
     }
 
@@ -278,7 +321,7 @@ async fn deliver(req: &WriteFlagLogsRequest, deadline: Deadline) -> bool {
                 );
                 return false;
             }
-            let budget_ms = (left * ATTEMPT_SHARE).max(MIN_ATTEMPT_MS) as u64;
+            let budget_ms = attempt_budget_ms(left) as u64;
             let started_ms = js_sys::Date::now();
             let result =
                 crate::deliver_flag_logs(client_secret, account_id, req, destination, budget_ms)
@@ -363,7 +406,13 @@ const MEASURED_BACKEND_LIMIT: usize = 4_193_298;
 const _: () = assert!(MAX_DELIVERY_BYTES < MEASURED_BACKEND_LIMIT);
 const _: () = assert!(MEASURED_BACKEND_LIMIT - MAX_DELIVERY_BYTES >= 500_000);
 
-/// Aggregates and delivers to every configured destination.
+/// Aggregates and delivers one batch, splitting it to fit the backend.
+///
+/// "Delivers" means the destination *walk* in [`deliver`], which tries
+/// each configured destination in order and stops at the first success.
+/// `log_destinations` is a failover list, not a fan-out — the schema is
+/// explicit that the first entry is primary and the second is a fallback
+/// on delivery failure.
 ///
 /// Splits on the encoded size *before* aggregating rather than aggregating
 /// and splitting after. Aggregating first means building a merged copy and a
@@ -529,8 +578,11 @@ fn deliver_aggregate(
 /// Accounting is by success bit, not record count: the record is indivisible
 /// at this level, so "half the flags landed" cannot be expressed as a record
 /// split. Any partial outcome reports both `ok` and `lost` non-zero, which
-/// is what puts the queue consumer on its partial-ack path instead of
-/// nacking and re-posting the flags that already landed.
+/// classifies it as [`Disposition::Partial`] rather than a total failure.
+/// That is a reporting distinction only — the consumer nacks either way,
+/// so the flags that landed are re-posted regardless. What it buys is that
+/// a half-landed delivery is not logged and counted as having landed
+/// nothing.
 async fn deliver_by_splitting_flags(
     request: WriteFlagLogsRequest,
     count: usize,
@@ -626,8 +678,11 @@ fn combine_halves(head: &Delivered, tail: &Delivered, count: usize) -> Delivered
 /// By success bit, not record count: the record is indivisible at this
 /// level, so "half its flags landed" cannot be expressed as a record split.
 /// A mixed outcome therefore sets *both* counters, which is the predicate
-/// the queue consumer's partial-ack path tests — anything else either acks
-/// a half-loss as clean success or nacks and re-posts the flags that landed.
+/// [`ack_decision`] reads to classify a delivery as
+/// [`Disposition::Partial`]. Collapsing it either way would misreport:
+/// all-ok logs a half-loss as clean success, all-lost logs a half-success
+/// as total failure. The ack itself is unaffected — Partial and Failed both
+/// nack.
 ///
 /// Pure so it can be tested without a network: this is where the bug was.
 fn split_outcome(any_ok: bool, any_lost: bool, count: usize) -> Delivered {
@@ -1274,6 +1329,60 @@ mod delivered_tests {
         // The trap: a zero count makes success and failure the same value,
         // which is how a failed tail became invisible.
         assert_eq!(Delivered::ok(0), Delivered::lost(0));
+    }
+
+    /// How many sequential chunk deliveries a budget can actually fund
+    /// against a backend of a given latency.
+    ///
+    /// Chunks are delivered one after another against a single budget and
+    /// each attempt gets `ATTEMPT_SHARE` of what is left, so the allowance
+    /// decays. Once it falls below the backend's latency every remaining
+    /// attempt is aborted, and for the queue that means the batch is
+    /// redelivered forever, re-sending the chunks that already landed.
+    fn chunks_fundable(budget_ms: f64, backend_ms: f64) -> usize {
+        let mut remaining = budget_ms;
+        let mut delivered = 0;
+        while remaining >= MIN_ATTEMPT_MS {
+            if attempt_budget_ms(remaining) < backend_ms {
+                break; // the attempt would be aborted before the backend replies
+            }
+            remaining -= backend_ms;
+            delivered += 1;
+        }
+        delivered
+    }
+
+    /// A queue consumer must not inherit the `wait_until` budget.
+    ///
+    /// The reproduction: ~3 MB of messages split into several chunks
+    /// against a backend that consistently takes 6s. On the 25s budget the
+    /// third chunk onwards can never land, so the batch never completes
+    /// and every redelivery re-sends the two that did.
+    #[test]
+    fn a_queue_batch_can_finish_against_a_slow_backend() {
+        let slow_backend_ms = 6_000.0;
+
+        let http = chunks_fundable(INVOCATION_BUDGET_MS, slow_backend_ms);
+        assert_eq!(
+            http, 2,
+            "the wait_until budget funds only two 6s deliveries — this is \
+             the bug, kept here so the queue figure below has a baseline"
+        );
+
+        let queue = chunks_fundable(QUEUE_BUDGET_MS, slow_backend_ms);
+        assert!(
+            queue >= 8,
+            "a queue batch splits into several chunks; {queue} fundable \
+             deliveries against a 6s backend is not enough to finish one"
+        );
+
+        // The pathological case the buffer's chunking allows: a full
+        // 100-message batch at PROTO_CHUNK_BYTES per chunk.
+        let worst_case_chunks = 5;
+        assert!(
+            chunks_fundable(QUEUE_BUDGET_MS, slow_backend_ms) > worst_case_chunks,
+            "must clear a whole batch, not just most of it"
+        );
     }
 
     /// Every combination of child outcomes for the one-record re-split.

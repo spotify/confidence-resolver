@@ -48,8 +48,10 @@ pub(super) async fn send(log: WriteFlagLogsRequest) {
 /// deliberate: that is what makes the queue redeliver the batch.
 pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Result<()> {
     // A consumer invocation has its own budget. It never passes through the
-    // fetch handler, so it cannot inherit one from there.
-    let deadline = super::Deadline::starting_now();
+    // fetch handler, so it cannot inherit one from there — and it must not
+    // borrow the fetch handler's *size* of budget either: that one is cut
+    // to the `wait_until` window, which does not apply here.
+    let deadline = super::Deadline::for_queue_consumer();
     let Ok(messages) = message_batch.messages() else {
         return Ok(());
     };
