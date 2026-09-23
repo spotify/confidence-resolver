@@ -173,6 +173,8 @@ struct Buffer {
     /// request, which is quadratic in the number of logs buffered.
     logs: Vec<Entry>,
     bytes: usize,
+    /// Sequence to assign the next arrival.
+    next_seq: u64,
     /// Whether a waiter is currently polling the timers on this isolate.
     ///
     /// Released by [`Waiter`]'s `Drop`, so a `wait_until` cancelled mid-poll
@@ -186,6 +188,14 @@ struct Buffer {
 /// One buffered log, with everything the triggers need about it.
 struct Entry {
     log: WriteFlagLogsRequest,
+    /// Monotonic per-isolate arrival order.
+    ///
+    /// A retiring waiter must drain only what it already owned. A saved
+    /// *count* cannot express that: if a size-triggered flush removes some
+    /// of the original records first, the count still says N and the drain
+    /// takes N newer ones instead. A boundary on this sequence identifies
+    /// the same records no matter what else consumed from the buffer.
+    seq: u64,
     /// Cached because `encoded_len` walks the whole message, so recomputing
     /// it while chunking would re-walk the buffer on every flush.
     len: usize,
@@ -201,6 +211,7 @@ impl Buffer {
         Buffer {
             logs: Vec::new(),
             bytes: 0,
+            next_seq: 0,
             waiter_active: false,
         }
     }
@@ -208,10 +219,13 @@ impl Buffer {
     fn push(&mut self, log: WriteFlagLogsRequest, now_ms: f64) {
         let len = log.encoded_len();
         self.bytes = self.bytes.saturating_add(len);
+        let seq = self.next_seq;
+        self.next_seq = self.next_seq.wrapping_add(1);
         self.logs.push(Entry {
             log,
             len,
             at_ms: now_ms,
+            seq,
         });
     }
 
@@ -268,13 +282,17 @@ impl Buffer {
             .collect()
     }
 
-    /// A chunk of at most `max` records, for a retiring waiter draining
-    /// only what it already owned.
-    fn take_chunk_limited(&mut self, max: usize) -> Vec<WriteFlagLogsRequest> {
+    /// A chunk drawn only from records that arrived before `boundary`.
+    ///
+    /// Identifies the same set however the buffer changes underneath: a
+    /// size-triggered flush removing some of them shrinks what this
+    /// returns, rather than letting it reach forward into newer arrivals
+    /// the way a saved count would.
+    fn take_chunk_before(&mut self, boundary: u64) -> Vec<WriteFlagLogsRequest> {
         let mut bytes = 0usize;
         let mut count = 0usize;
         for entry in &self.logs {
-            if count >= max {
+            if entry.seq >= boundary {
                 break;
             }
             if count > 0
@@ -471,10 +489,13 @@ async fn drain_before_standing_down(reason: &str, deadline: super::Deadline) {
     // those in would deliver them on this waiter's nearly-spent deadline,
     // and once it is too spent to fund an attempt they are taken from the
     // buffer and dropped without a fetch ever being made.
-    let mut owed = BUFFER.with(|c| c.borrow().logs.len());
+    // Everything already buffered, identified by arrival order rather than
+    // by a count, so a concurrent size flush cannot shift the boundary onto
+    // newer records.
+    let boundary = BUFFER.with(|c| c.borrow().next_seq);
     let mut delivered = 0usize;
 
-    while owed > 0 {
+    loop {
         // Take nothing unless the remaining budget can fund a real attempt
         // *and* the delivery it starts. Leaving records buffered for a
         // fresh waiter is strictly better than removing them to drop them.
@@ -495,11 +516,10 @@ async fn drain_before_standing_down(reason: &str, deadline: super::Deadline) {
             if in_flight >= HARD_IN_FLIGHT {
                 return None;
             }
-            Some(buffer.take_chunk_limited(owed))
+            Some(buffer.take_chunk_before(boundary))
         });
         match batch {
             Some(chunk) if !chunk.is_empty() => {
-                owed = owed.saturating_sub(chunk.len());
                 delivered += chunk.len();
                 deliver(chunk, deadline).await;
             }
@@ -561,8 +581,17 @@ pub(super) async fn tick(deadline: super::Deadline) {
             if !buffer.time_due(now_ms) {
                 return Step::Wait;
             }
-            // Due. Respect the same in-flight backpressure the size trigger
-            // does, or the timers become a way around it.
+            // Due. But taking a chunk this waiter cannot pay to deliver is
+            // how records are removed from the buffer and dropped without a
+            // fetch: `deliver` refuses an attempt below MIN_ATTEMPT_MS and
+            // the chunk is already gone. The waiter's own deadline depletes
+            // as it runs, so this is reached in ordinary operation, not only
+            // at retirement. Leave the records for a waiter with budget.
+            if deadline.remaining_ms() < MIN_DRAIN_BUDGET_MS {
+                return Step::OutOfBudget;
+            }
+            // Respect the same in-flight backpressure the size trigger does,
+            // or the timers become a way around it.
             let in_flight = IN_FLIGHT.with(|n| n.get());
             match decide(buffer.at_ceiling(), in_flight) {
                 Decision::Hold => Step::Wait,
@@ -579,6 +608,19 @@ pub(super) async fn tick(deadline: super::Deadline) {
         });
         match step {
             Step::Done => return,
+            Step::OutOfBudget => {
+                let (left, bytes) = BUFFER.with(|c| {
+                    let b = c.borrow();
+                    (b.logs.len(), b.bytes)
+                });
+                console_log!(
+                    "flag log buffer: waiter out of budget with {} records ({} bytes) \
+                     buffered; leaving them for a waiter with a fresh deadline",
+                    left,
+                    bytes
+                );
+                return;
+            }
             Step::Shed(batch) => {
                 // Keep shedding down to FLUSH_BYTES, not just under
                 // MAX_BUFFER_BYTES. Discarding one chunk already takes
@@ -643,6 +685,9 @@ enum Step {
     Deliver(Vec<WriteFlagLogsRequest>),
     /// Discard this chunk: too many deliveries are stuck to start another.
     Shed(Vec<WriteFlagLogsRequest>),
+    /// Not enough budget left to deliver anything. Stand down without
+    /// taking records a later waiter can still deliver.
+    OutOfBudget,
 }
 
 #[cfg(test)]
@@ -1024,8 +1069,7 @@ mod tests {
         for _ in 0..5 {
             buffer.push(log_with_assigns(1), 0.0);
         }
-        let owed = buffer.logs.len();
-        assert_eq!(owed, 5);
+        let boundary = buffer.next_seq;
 
         // A newer request lands during the drain.
         for _ in 0..3 {
@@ -1033,33 +1077,75 @@ mod tests {
         }
         assert_eq!(buffer.logs.len(), 8);
 
-        // Draining the owed count must leave the three newcomers behind.
         let mut drained = 0;
-        let mut remaining = owed;
-        while remaining > 0 {
-            let chunk = buffer.take_chunk_limited(remaining);
+        loop {
+            let chunk = buffer.take_chunk_before(boundary);
             if chunk.is_empty() {
                 break;
             }
-            remaining -= chunk.len();
             drained += chunk.len();
         }
-        assert_eq!(drained, owed, "drained exactly what was owed");
+        assert_eq!(drained, 5, "drained exactly the owned records");
         assert_eq!(
             buffer.logs.len(),
             3,
-            "later arrivals must stay for a waiter with its own budget"
+            "later arrivals stay for a waiter with its own budget"
         );
     }
 
-    /// The limit never makes the chunk larger than the ordinary bound.
+    /// The boundary must survive another task consuming the owned records
+    /// first. A saved *count* could not: with the originals already gone it
+    /// would still say five and take five newer records instead.
     #[test]
-    fn a_limited_chunk_still_respects_the_flush_bound() {
+    fn the_boundary_survives_a_concurrent_flush() {
+        let mut buffer = Buffer::new();
+        for _ in 0..5 {
+            buffer.push(log_with_assigns(1), 0.0);
+        }
+        let boundary = buffer.next_seq;
+
+        // A size-triggered flush takes all five owned records...
+        let flushed = buffer.take_chunk_before(boundary);
+        assert_eq!(flushed.len(), 5);
+
+        // ...and five newer ones arrive.
+        for _ in 0..5 {
+            buffer.push(log_with_assigns(1), 100.0);
+        }
+        assert_eq!(buffer.logs.len(), 5);
+
+        // The retiring drain must now find nothing of its own.
+        assert!(
+            buffer.take_chunk_before(boundary).is_empty(),
+            "the boundary must not reach forward into newer arrivals"
+        );
+        assert_eq!(buffer.logs.len(), 5, "newer records untouched");
+    }
+
+    /// Sequence numbers are assigned in arrival order and never reused, so
+    /// a boundary always names the same set.
+    #[test]
+    fn sequence_numbers_are_monotonic() {
+        let mut buffer = Buffer::new();
+        for _ in 0..4 {
+            buffer.push(log_with_assigns(1), 0.0);
+        }
+        let seqs: Vec<u64> = buffer.logs.iter().map(|e| e.seq).collect();
+        assert_eq!(seqs, vec![0, 1, 2, 3]);
+        let _ = buffer.take_chunk_before(2);
+        buffer.push(log_with_assigns(1), 1.0);
+        let after: Vec<u64> = buffer.logs.iter().map(|e| e.seq).collect();
+        assert_eq!(after, vec![2, 3, 4], "draining does not reuse sequences");
+    }
+
+    /// A limited chunk still respects the ordinary flush bound.
+    #[test]
+    fn a_bounded_chunk_still_respects_the_flush_bound() {
         let mut buffer = Buffer::new();
         for _ in 0..(FLUSH_RECORDS * 2) {
             buffer.push(log_with_assigns(1), 0.0);
         }
-        let chunk = buffer.take_chunk_limited(usize::MAX);
+        let chunk = buffer.take_chunk_before(u64::MAX);
         assert!(
             chunk.len() <= FLUSH_RECORDS,
             "took {} records, past the {} bound",
