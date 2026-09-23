@@ -134,7 +134,7 @@ in-memory sink can do, and a batch that exhausts its attempts is dropped.
 
 **Under a stalled backend the buffer absorbs, then sheds.** While deliveries
 are in flight the buffer keeps accumulating rather than starting more, up to
-24 MB of encoded protobuf. A buffered record costs about its own size; a
+12 MiB of encoded protobuf. A buffered record costs about its own size; a
 delivery in flight costs roughly 2.6x that, so memory is spent on the buffer
 rather than on concurrency, and the backlog is drained in delivery-sized
 pieces. Only once 8 deliveries are stuck *and* the buffer is full is a chunk

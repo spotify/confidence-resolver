@@ -130,19 +130,33 @@ pub(crate) async fn tick() {
 }
 
 /// Updates the KV telemetry snapshot after a buffer delivery.
+///
+/// Takes a pre-merged [`TelemetrySnapshot`] rather than a single
+/// `TelemetryData`, because a buffer flush carries deltas from many
+/// requests that must all be accumulated — taking only the last one
+/// would undercount by the batch size.
 pub(super) async fn update_metrics(
-    telemetry: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
+    snapshot: &confidence_resolver::telemetry::TelemetrySnapshot,
     delivered: bool,
 ) {
     if let Some(Some(kv)) = METRICS_KV.get() {
-        crate::update_kv_snapshot(
-            kv,
-            crate::SnapshotPipeline::FlagLogs,
-            crate::request_telemetry_to_accumulate(telemetry, delivered),
-            Some(delivered),
-            None,
-        )
-        .await;
+        let key = crate::SnapshotPipeline::FlagLogs.key();
+        let mut cumulative = match kv.get(key).text().await {
+            Ok(Some(text)) => {
+                serde_json::from_str::<confidence_resolver::telemetry::TelemetrySnapshot>(&text)
+                    .unwrap_or_default()
+            }
+            _ => confidence_resolver::telemetry::TelemetrySnapshot::default(),
+        };
+        cumulative = crate::merge_snapshots(cumulative, snapshot, crate::GaugeSource::Live);
+        if delivered {
+            cumulative.flush.succeeded = cumulative.flush.succeeded.wrapping_add(1);
+        } else {
+            cumulative.flush.failed = cumulative.flush.failed.wrapping_add(1);
+        }
+        if let Ok(builder) = kv.put(key, serde_json::to_string(&cumulative).unwrap_or_default()) {
+            let _ = builder.execute().await;
+        }
     }
 }
 
@@ -326,17 +340,38 @@ pub(super) fn deliver_all_within_limit(
             );
             return deliver(&request).await;
         }
-        // Past the measured limit the backend answers 413, and the records
-        // are gone into the aggregate so there is nothing left to split.
+        // JSON expansion was worse than the protobuf split predicted.
+        // The aggregate has consumed the records, but we can still split
+        // the JSON body itself by re-serializing halves of the aggregate's
+        // flag_assigned — which is the field that grows without bound.
+        if count > 1 {
+            console_log!(
+                "flag log: aggregate of {} records is {} bytes (JSON), re-splitting",
+                count,
+                size
+            );
+            // Rebuild two halves from the aggregate. flag_resolve_info and
+            // telemetry_data go with the first half only (they're already
+            // merged and safe to deliver once); flag_assigned is halved.
+            let mid = request.flag_assigned.len() / 2;
+            let mut request = request;
+            let second = WriteFlagLogsRequest {
+                flag_assigned: request.flag_assigned.split_off(mid),
+                ..Default::default()
+            };
+            // client_resolve_info is a union of schemas — safe in either half.
+            let a = deliver(&request).await;
+            let b = deliver(&second).await;
+            return a && b;
+        }
+        // A single record that exceeds the backend limit even after
+        // aggregation — nothing left to split.
         console_log!(
-            "flag log: DROPPED {} records, aggregate of {} bytes is past the {} byte \
+            "flag log: DROPPED 1 record, aggregate of {} bytes is past the {} byte \
              backend limit",
-            count,
             size,
             MEASURED_BACKEND_LIMIT
         );
-        // Report as a failure so buffer::deliver logs DROPPED and the KV
-        // metrics count it as failed. The drop is already logged above.
         false
     })
 }

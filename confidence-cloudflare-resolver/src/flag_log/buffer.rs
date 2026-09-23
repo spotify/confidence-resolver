@@ -70,7 +70,12 @@ const FLUSH_BYTES: usize = super::PROTO_CHUNK_BYTES;
 /// JSON runs 1.64x the encoded size). Memory is therefore far better spent
 /// here than on concurrency, and every byte of it is outage the sink rides
 /// out without losing anything.
-const MAX_BUFFER_BYTES: usize = 24 * 1024 * 1024;
+/// Real memory is roughly 2× `encoded_len` for string-heavy records
+/// (struct padding + heap allocations for each `String`). At 12 MiB
+/// encoded that is ~24 MiB of actual heap, plus up to 8 in-flight
+/// deliveries at ~3 MiB each ≈ 48 MiB total — comfortable within
+/// the 128 MiB isolate limit.
+const MAX_BUFFER_BYTES: usize = 12 * 1024 * 1024;
 
 const _: () = assert!(FLUSH_BYTES < MAX_BUFFER_BYTES);
 
@@ -330,10 +335,20 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
         return;
     }
     let records = logs.len();
-    // Merge telemetry from the batch before delivery consumes the records.
-    // Only the last log's telemetry is a meaningful snapshot; earlier ones
-    // are stale readings from the same isolate.
-    let telemetry = logs.last().and_then(|l| l.telemetry_data.clone());
+    // Merge telemetry from every record: each carries a per-request delta
+    // (latency histogram, resolve-rate counters, dedup counters), not a
+    // snapshot. Taking only the last one would undercount by a factor of
+    // the batch size.
+    let telemetry = {
+        use confidence_resolver::telemetry::TelemetrySnapshot;
+        let mut snap = TelemetrySnapshot::default();
+        for log in &logs {
+            if let Some(td) = &log.telemetry_data {
+                snap.accumulate_delta(td);
+            }
+        }
+        snap
+    };
     let started_ms = js_sys::Date::now();
     // Released on drop, not after the await: `wait_until` can be cancelled
     // mid-delivery, and a plain decrement after the await would be skipped,
@@ -349,7 +364,7 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
         elapsed,
         delivered
     );
-    super::update_metrics(telemetry.as_ref(), delivered).await;
+    super::update_metrics(&telemetry, delivered).await;
     if !delivered {
         // Already retried by `deliver_all_within_limit`; this is the batch
         // having exhausted its attempts. Dropped rather than restored: a
