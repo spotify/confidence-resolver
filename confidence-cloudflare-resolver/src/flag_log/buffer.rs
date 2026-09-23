@@ -330,6 +330,10 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
         return;
     }
     let records = logs.len();
+    // Merge telemetry from the batch before delivery consumes the records.
+    // Only the last log's telemetry is a meaningful snapshot; earlier ones
+    // are stale readings from the same isolate.
+    let telemetry = logs.last().and_then(|l| l.telemetry_data.clone());
     let started_ms = js_sys::Date::now();
     // Released on drop, not after the await: `wait_until` can be cancelled
     // mid-delivery, and a plain decrement after the await would be skipped,
@@ -338,12 +342,14 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
     // hard ceiling.
     let _slot = InFlight::acquire();
     let delivered = super::deliver_all_within_limit(logs).await;
+    let elapsed = (js_sys::Date::now() - started_ms) as u64;
     console_log!(
         "flag log buffer: flushed {} records in {}ms, delivered={}",
         records,
-        (js_sys::Date::now() - started_ms) as u64,
+        elapsed,
         delivered
     );
+    super::update_metrics(telemetry.as_ref(), delivered).await;
     if !delivered {
         // Already retried by `deliver_all_within_limit`; this is the batch
         // having exhausted its attempts. Dropped rather than restored: a

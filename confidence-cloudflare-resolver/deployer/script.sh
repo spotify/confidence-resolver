@@ -227,9 +227,9 @@ fi
 TMP_HEADER=$(mktemp)
 HTTP_STATUS=$(curl -sS -w "%{http_code}" -D "$TMP_HEADER" -o "$RESPONSE_FILE" ${EXTRA_HEADER[@]+"${EXTRA_HEADER[@]}"} "$CONFIDENCE_RESOLVER_STATE_URL")
 
-if [ "$HTTP_STATUS" = "304" ]; then
+if [ "$HTTP_STATUS" = "304" ] && [ -z "${FORCE_DEPLOY:-}" ]; then
     echo "✅ Resolver state not modified (HTTP 304). Skipping the deployment"
-    # No changes; keep previous ETag
+    echo "   Set FORCE_DEPLOY=1 to deploy anyway (e.g. to change FLAG_LOG_SINK)."
     rm -f "$TMP_HEADER"
     exit 0
 elif [ "$HTTP_STATUS" = "200" ]; then
@@ -392,6 +392,7 @@ if [ -n "$FLAG_LOGS_CONSUMER_CONCURRENCY" ]; then
         echo "❌ FLAG_LOGS_CONSUMER_CONCURRENCY must be between 1 and 250" >&2
         exit 1
     fi
+    CONSUMER_CONCURRENCY_TOML="max_concurrency = $FLAG_LOGS_CONSUMER_CONCURRENCY"
 fi
 
 # Fails fast if CLOUDFLARE_API_TOKEN cannot do what this deploy needs.
@@ -773,6 +774,17 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     fi
     if [ -n "$FLAG_LOG_SINK" ]; then
         echo "✅ FLAG_LOG_SINK set to \"$FLAG_LOG_SINK\" in wrangler.toml"
+    fi
+
+    # Inject max_concurrency into the base flag-logs consumer definition.
+    if [ -n "${CONSUMER_CONCURRENCY_TOML:-}" ]; then
+        # The base consumer is the first [[queues.consumers]] in the template.
+        # Insert max_concurrency after the max_batch_timeout line.
+        sed -i.tmp '0,/^max_batch_timeout = 10/{/^max_batch_timeout = 10/a\
+'"$CONSUMER_CONCURRENCY_TOML"'
+}' wrangler.toml
+        rm -f wrangler.toml.tmp
+        echo "✅ FLAG_LOGS_CONSUMER_CONCURRENCY set to $FLAG_LOGS_CONSUMER_CONCURRENCY"
     fi
 fi
 

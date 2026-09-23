@@ -63,6 +63,7 @@ impl Sink {
 }
 
 static SINK: OnceLock<Sink> = OnceLock::new();
+static METRICS_KV: OnceLock<Option<worker::kv::KvStore>> = OnceLock::new();
 
 /// Resolves the sink and binds whatever it needs. Call once per entry point,
 /// before [`send`].
@@ -75,6 +76,8 @@ pub(crate) fn init(env: &Env) {
     if sink == Sink::Queue {
         queue::init(env);
     }
+
+    METRICS_KV.get_or_init(|| env.kv("CONFIDENCE_METRICS_KV").ok());
 }
 
 fn sink() -> Sink {
@@ -123,6 +126,23 @@ pub(crate) async fn send(emitted: Emitted) {
 pub(crate) async fn tick() {
     if sink() == Sink::Buffer {
         buffer::tick().await;
+    }
+}
+
+/// Updates the KV telemetry snapshot after a buffer delivery.
+pub(super) async fn update_metrics(
+    telemetry: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
+    delivered: bool,
+) {
+    if let Some(Some(kv)) = METRICS_KV.get() {
+        crate::update_kv_snapshot(
+            kv,
+            crate::SnapshotPipeline::FlagLogs,
+            crate::request_telemetry_to_accumulate(telemetry, delivered),
+            Some(delivered),
+            None,
+        )
+        .await;
     }
 }
 
