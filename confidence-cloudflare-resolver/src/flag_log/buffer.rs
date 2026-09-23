@@ -708,4 +708,41 @@ mod tests {
             "aggregate_batch concatenates assignments"
         );
     }
+
+    /// The buffer ceiling must stay well under the 128 MiB isolate limit
+    /// once real heap overhead is accounted for. encoded_len measures
+    /// protobuf wire bytes; actual Rust heap is roughly 2× for records
+    /// with many String fields. This test would have caught the original
+    /// 24 MiB cap: 24 MiB encoded ≈ 48 MiB heap, plus 8 in-flight
+    /// deliveries, exceeded 128 MiB.
+    #[test]
+    fn buffer_ceiling_fits_in_isolate_memory() {
+        // Worst case: full buffer + HARD_IN_FLIGHT deliveries, each at
+        // FLUSH_BYTES of proto expanding ~2.6× in flight (proto + aggregate + JSON).
+        //
+        // heap_ratio is the multiplier from encoded_len to actual Rust heap.
+        // 2× was measured for 58-flag records; small records with few strings
+        // can be 5×+ (struct padding dominates). Use the pessimistic end:
+        // we cannot control what customers' records look like.
+        let heap_ratio = 3.0_f64;
+        let in_flight_ratio = 2.6_f64;
+        let buffer_heap = MAX_BUFFER_BYTES as f64 * heap_ratio;
+        let in_flight_heap = HARD_IN_FLIGHT as f64 * FLUSH_BYTES as f64 * in_flight_ratio;
+        let total = buffer_heap + in_flight_heap;
+        let isolate_limit = 128.0 * 1024.0 * 1024.0;
+        // Leave at least 40 MiB for the resolver state, request handling, etc.
+        // The resolver state is ~250 KB, but the WASM module, the request
+        // being served, the dedup map, queue bindings, and the Rust
+        // allocator all consume memory. 50 MiB is conservative enough
+        // that the old 24 MiB cap would have failed this check.
+        let headroom = 50.0 * 1024.0 * 1024.0;
+        assert!(
+            total < isolate_limit - headroom,
+            "estimated peak {:.1} MiB exceeds safe limit of {:.1} MiB              (isolate={:.0} MiB - headroom={:.0} MiB)",
+            total / 1e6,
+            (isolate_limit - headroom) / 1e6,
+            isolate_limit / 1e6,
+            headroom / 1e6
+        );
+    }
 }
