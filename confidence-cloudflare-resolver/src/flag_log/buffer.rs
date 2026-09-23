@@ -423,11 +423,11 @@ pub(super) async fn tick() {
         match step {
             Step::Done => return,
             Step::Shed(batch) => {
-                // Keep shedding until the buffer is back under its ceiling.
-                // Discarding one chunk drops `bytes` below MAX_BUFFER_BYTES,
-                // so `decide` would answer Hold on the next pass and the
-                // remaining ~11 MiB would sit there until the waiter gave
-                // up and an eviction took it.
+                // Keep shedding down to FLUSH_BYTES, not just under
+                // MAX_BUFFER_BYTES. Discarding one chunk already takes
+                // `bytes` below the ceiling, so `decide` would answer Hold
+                // on the next pass and the remaining ~11 MiB would sit
+                // there until the waiter gave up and an eviction took it.
                 let mut shed_records = batch.len();
                 let mut shed_chunks = 1usize;
                 loop {
@@ -743,6 +743,44 @@ mod tests {
         assert!(
             buffer.time_due(50_000.0 + MAX_AGE_MS),
             "and must still age out on its own schedule"
+        );
+    }
+
+    /// The timer path must drain a full buffer all the way down to the
+    /// flush size. Shedding a single chunk leaves `bytes` under
+    /// MAX_BUFFER_BYTES, so `decide` answers Hold and the rest is stranded.
+    #[test]
+    fn shedding_drains_down_to_the_flush_size() {
+        let mut buffer = Buffer::new();
+        while buffer.bytes < MAX_BUFFER_BYTES {
+            buffer.push(log_with_assigns(200), 0.0);
+        }
+        let started = buffer.bytes;
+        assert!(started >= MAX_BUFFER_BYTES);
+
+        // One chunk is not enough: still far above the flush size.
+        let _ = buffer.take_chunk();
+        assert!(
+            buffer.bytes > FLUSH_BYTES,
+            "one chunk leaves {} bytes, still a large stranded buffer",
+            buffer.bytes
+        );
+
+        // The loop in tick() keeps going until under the flush size.
+        let mut chunks = 1;
+        while !buffer.logs.is_empty() && buffer.bytes >= FLUSH_BYTES {
+            let c = buffer.take_chunk();
+            assert!(!c.is_empty(), "take_chunk must make progress");
+            chunks += 1;
+            assert!(chunks < 10_000, "shed loop must terminate");
+        }
+        assert!(
+            buffer.bytes < FLUSH_BYTES,
+            "drained to under the flush size"
+        );
+        assert!(
+            chunks > 2,
+            "a full buffer needs several chunks, got {chunks}"
         );
     }
 

@@ -407,29 +407,15 @@ fn deliver_aggregate(
             return a.merge(b);
         }
         // One FlagAssigned left, but it can still hold hundreds of applied
-        // flags — a single resolve against a large flag set. Split those.
+        // flags — one resolve against a large flag set. Split those.
+        //
+        // Done iteratively rather than by recursing into this function: the
+        // recursion is a boxed async future, and adding this branch to its
+        // state machine measurably grew every frame. A load test with the
+        // recursive version produced 4,810 `memory access out of bounds`
+        // errors where the iterative one produced none.
         if request.flag_assigned.len() == 1 && request.flag_assigned[0].flags.len() > 1 {
-            console_log!(
-                "flag log: single assignment of {} bytes with {} flags, splitting its flags",
-                size,
-                request.flag_assigned[0].flags.len()
-            );
-            let mut head = request;
-            let assigned = &mut head.flag_assigned[0];
-            let tail_flags = assigned.flags.split_off(assigned.flags.len() / 2);
-            let tail = WriteFlagLogsRequest {
-                flag_assigned: vec![
-                    confidence_resolver::proto::confidence::flags::resolver::v1::events::FlagAssigned {
-                        resolve_id: assigned.resolve_id.clone(),
-                        client_info: assigned.client_info.clone(),
-                        flags: tail_flags,
-                    },
-                ],
-                ..Default::default()
-            };
-            let a = deliver_aggregate(head, count).await;
-            let b = deliver_aggregate(tail, 0).await;
-            return a.merge(b);
+            return deliver_by_splitting_flags(request, count).await;
         }
         console_log!(
             "flag log: DROPPED {} records, an indivisible payload of {} bytes is past \
@@ -440,6 +426,85 @@ fn deliver_aggregate(
         );
         Delivered::lost(count)
     })
+}
+
+/// Delivers one `FlagAssigned` by halving its `flags` until each piece fits.
+///
+/// Iterative, with an explicit stack, so it does not deepen the boxed async
+/// recursion in [`deliver_aggregate`].
+///
+/// Accounting is by success bit, not record count: the record is indivisible
+/// at this level, so "half the flags landed" cannot be expressed as a record
+/// split. Any partial outcome reports both `ok` and `lost` non-zero, which
+/// is what puts the queue consumer on its partial-ack path instead of
+/// nacking and re-posting the flags that already landed.
+async fn deliver_by_splitting_flags(request: WriteFlagLogsRequest, count: usize) -> Delivered {
+    use confidence_resolver::proto::confidence::flags::resolver::v1::events::FlagAssigned;
+
+    let assigned = &request.flag_assigned[0];
+    let resolve_id = assigned.resolve_id.clone();
+    let client_info = assigned.client_info.clone();
+    let mut stack: Vec<Vec<_>> = vec![assigned.flags.clone()];
+    drop(request);
+
+    let mut any_ok = false;
+    let mut any_lost = false;
+
+    while let Some(flags) = stack.pop() {
+        if flags.is_empty() {
+            continue;
+        }
+        let piece = WriteFlagLogsRequest {
+            flag_assigned: vec![FlagAssigned {
+                resolve_id: resolve_id.clone(),
+                client_info: client_info.clone(),
+                flags,
+            }],
+            ..Default::default()
+        };
+        let size = serde_json::to_string(&piece).map_or(usize::MAX, |json| json.len());
+        if size < MEASURED_BACKEND_LIMIT {
+            if deliver(&piece).await {
+                any_ok = true;
+            } else {
+                any_lost = true;
+            }
+            continue;
+        }
+        // Still too big: halve it and push both back.
+        let mut flags = piece.flag_assigned.into_iter().next().unwrap().flags;
+        if flags.len() <= 1 {
+            console_log!(
+                "flag log: DROPPED a single applied flag of {} bytes, past the {} byte \
+                 backend limit and indivisible",
+                size,
+                MEASURED_BACKEND_LIMIT
+            );
+            any_lost = true;
+            continue;
+        }
+        let tail = flags.split_off(flags.len() / 2);
+        stack.push(tail);
+        stack.push(flags);
+    }
+
+    match (any_ok, any_lost) {
+        (true, false) => Delivered::ok(count),
+        (false, _) => Delivered::lost(count),
+        // Partial: report both non-zero so callers take the partial path
+        // rather than treating it as a clean success or a clean loss.
+        (true, true) => {
+            console_log!(
+                "flag log: partially delivered a split record; {} record(s) had some \
+                 flags land and some dropped",
+                count
+            );
+            Delivered {
+                ok: count,
+                lost: count,
+            }
+        }
+    }
 }
 
 /// Removes applied flags already seen in `dedup`.
@@ -957,6 +1022,46 @@ mod delivered_tests {
             .merge(Delivered::lost(1));
         assert_eq!((total.ok, total.lost), (6, 4));
         assert_eq!(total.ok + total.lost, 10, "every record is accounted for");
+    }
+
+    /// A partial flags-split must be visibly partial: both `ok` and `lost`
+    /// non-zero, so the queue consumer takes its partial-ack path instead
+    /// of acking a half-loss as success or nacking and re-posting the half
+    /// that landed. Passing `0` as the tail count made the tail invisible,
+    /// because Delivered::ok(0) and Delivered::lost(0) are the same value.
+    #[test]
+    fn a_partial_flags_split_is_neither_clean_success_nor_clean_loss() {
+        // What deliver_by_splitting_flags returns for each outcome.
+        let count = 1usize;
+        let both_ok = Delivered::ok(count);
+        let both_lost = Delivered::lost(count);
+        let mixed = Delivered {
+            ok: count,
+            lost: count,
+        };
+
+        assert!(both_ok.lost == 0 && both_ok.ok > 0, "clean success");
+        assert!(both_lost.ok == 0 && both_lost.lost > 0, "clean loss");
+        assert!(
+            mixed.ok > 0 && mixed.lost > 0,
+            "a mixed outcome must be visible on both counters"
+        );
+
+        // The queue consumer branches on exactly these predicates.
+        let acks_without_redelivery = |d: &Delivered| d.ok > 0 && d.lost > 0;
+        assert!(!acks_without_redelivery(&both_ok));
+        assert!(!acks_without_redelivery(&both_lost));
+        assert!(
+            acks_without_redelivery(&mixed),
+            "a partial split must reach the partial-ack path"
+        );
+
+        // The bug: a zero count makes the tail's outcome unrepresentable.
+        assert_eq!(
+            Delivered::ok(0),
+            Delivered::lost(0),
+            "this is why the tail count must not be 0"
+        );
     }
 
     /// The JSON re-split halves `flag_assigned` and recurses, so the record

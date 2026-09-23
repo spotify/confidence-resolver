@@ -138,8 +138,10 @@ are in flight the buffer keeps accumulating rather than starting more, up to
 12 MiB of encoded protobuf. A buffered record costs about 2x its encoded
 size in heap; a delivery in flight costs more still, so memory is spent on the buffer
 rather than on concurrency, and the backlog is drained in delivery-sized
-pieces. Only once 8 deliveries are stuck *and* the buffer is full is a chunk
-discarded, loudly (`SHED`).
+pieces. Only once 8 deliveries are stuck *and* the buffer is full does it start
+discarding, loudly (`SHED`). The size trigger sheds one chunk at a time;
+the idle/age timers drain all the way back down to the flush size, so a
+stalled backend plus a traffic drop-off cannot strand the full 12 MiB.
 
 Discarding is the last resort rather than the first, because the alternative
 at that point is running the isolate out of memory — which loses the whole
