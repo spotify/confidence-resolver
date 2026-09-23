@@ -98,14 +98,16 @@ fn sink() -> Sink {
 pub(crate) enum Emitted {
     /// Ship this single log (queue mode).
     One(Box<WriteFlagLogsRequest>),
-    /// Deliver this flushed batch (buffer mode).
-    Batch(Vec<WriteFlagLogsRequest>),
+    /// Deliver this flushed batch (buffer mode), holding the delivery
+    /// slot reserved when it was removed from the buffer. Dropping this
+    /// without delivering releases the slot.
+    Batch(Vec<WriteFlagLogsRequest>, buffer::InFlight),
 }
 
 pub(crate) fn emit_inline(log: WriteFlagLogsRequest) -> Option<Emitted> {
     match sink() {
         Sink::Queue => Some(Emitted::One(Box::new(log))),
-        Sink::Buffer => buffer::offer(log).map(Emitted::Batch),
+        Sink::Buffer => buffer::offer(log).map(|(logs, slot)| Emitted::Batch(logs, slot)),
     }
 }
 
@@ -114,7 +116,7 @@ pub(crate) fn emit_inline(log: WriteFlagLogsRequest) -> Option<Emitted> {
 pub(crate) async fn send(emitted: Emitted, deadline: Deadline) {
     match emitted {
         Emitted::One(log) => queue::send(*log).await,
-        Emitted::Batch(logs) => buffer::deliver(logs, deadline).await,
+        Emitted::Batch(logs, slot) => buffer::deliver(logs, slot, deadline).await,
     }
 }
 

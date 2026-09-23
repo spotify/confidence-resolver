@@ -353,7 +353,16 @@ impl Drop for Waiter {
 }
 
 /// Holds one in-flight delivery slot for as long as it is alive.
-struct InFlight;
+///
+/// Acquired in the same synchronous block that decides to remove a chunk,
+/// never later. A chunk that has left the buffer no longer counts against
+/// `MAX_BUFFER_BYTES`, so if it does not immediately count against
+/// `IN_FLIGHT` it is bounded by neither: `offer` hands its batch to
+/// `wait_until`, and every request task already runnable in the same tick
+/// would admit against the same stale count before any of their delivery
+/// futures got polled. Measured: 13 concurrent deliveries against a
+/// `HARD_IN_FLIGHT` of 8.
+pub(crate) struct InFlight;
 
 impl InFlight {
     fn acquire() -> Self {
@@ -394,8 +403,16 @@ fn decide(at_ceiling: bool, in_flight: usize) -> Decision {
 ///
 /// Runs in the request path, so it does no I/O: the returned batch is
 /// delivered from `wait_until` by [`super::send`].
-pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsRequest>> {
-    let now_ms = js_sys::Date::now();
+pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<(Vec<WriteFlagLogsRequest>, InFlight)> {
+    offer_at(log, js_sys::Date::now())
+}
+
+/// Takes `now_ms` so the admission path can be tested off wasm32, where
+/// `js_sys::Date::now()` aborts.
+fn offer_at(
+    log: WriteFlagLogsRequest,
+    now_ms: f64,
+) -> Option<(Vec<WriteFlagLogsRequest>, InFlight)> {
     BUFFER.with(|cell| {
         let mut buffer = cell.borrow_mut();
         buffer.push(log, now_ms);
@@ -407,10 +424,11 @@ pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsReques
         if decision == Decision::Hold {
             return None;
         }
-        let batch = buffer.take_chunk();
         if decision == Decision::Shed {
             // Starting another delivery here is how the isolate runs out of
-            // memory instead of just losing a batch.
+            // memory instead of just losing a batch. No slot is reserved:
+            // shedding discards, it does not deliver.
+            let batch = buffer.take_chunk();
             console_log!(
                 "flag log buffer: SHED {} records, {} deliveries already in flight",
                 batch.len(),
@@ -418,12 +436,25 @@ pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsReques
             );
             return None;
         }
-        Some(batch)
+        // Reserved before the chunk leaves the buffer, and travelling with
+        // it: the caller detaches this batch into `wait_until`, and until
+        // the slot is held the batch counts against no bound at all.
+        let slot = InFlight::acquire();
+        Some((buffer.take_chunk(), slot))
     })
 }
 
 /// Delivers one flushed batch, splitting it to fit the backend.
-pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>, deadline: super::Deadline) {
+///
+/// Takes the [`InFlight`] slot its caller reserved when it decided to remove
+/// the chunk, and holds it until the delivery finishes. Acquiring one here
+/// instead would leave the batch uncounted for as long as this future sits
+/// unpolled in `wait_until`.
+pub(super) async fn deliver(
+    logs: Vec<WriteFlagLogsRequest>,
+    slot: InFlight,
+    deadline: super::Deadline,
+) {
     if logs.is_empty() {
         return;
     }
@@ -447,8 +478,9 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>, deadline: super::De
     // mid-delivery, and a plain decrement after the await would be skipped,
     // leaking the slot. Enough leaks and the count sticks at the cap, the
     // size trigger stops firing, and the isolate only ever flushes on the
-    // hard ceiling.
-    let _slot = InFlight::acquire();
+    // hard ceiling. Dropping this future before it is ever polled releases
+    // the slot the same way.
+    let _slot = slot;
     let outcome = super::deliver_all_within_limit(logs, deadline).await;
     let elapsed = (js_sys::Date::now() - started_ms) as u64;
     console_log!(
@@ -510,12 +542,13 @@ async fn drain_before_standing_down(reason: &str, deadline: super::Deadline) {
             if in_flight >= HARD_IN_FLIGHT {
                 return None;
             }
-            Some(buffer.take_chunk_before(boundary))
+            let slot = InFlight::acquire();
+            Some((buffer.take_chunk_before(boundary), slot))
         });
         match batch {
-            Some(chunk) if !chunk.is_empty() => {
+            Some((chunk, slot)) if !chunk.is_empty() => {
                 delivered += chunk.len();
-                deliver(chunk, deadline).await;
+                deliver(chunk, slot, deadline).await;
             }
             _ => break,
         }
@@ -603,7 +636,12 @@ pub(super) async fn tick(deadline: super::Deadline) {
                 // One chunk at a time, not the whole buffer: a backlog can
                 // be MAX_BUFFER_BYTES and handing that to a single delivery
                 // is the memory spike `take_chunk` exists to avoid.
-                Decision::Deliver => Step::Deliver(buffer.take_chunk()),
+                Decision::Deliver => {
+                    // Reserve before the chunk leaves the buffer, so a
+                    // concurrent `offer` sees this delivery immediately.
+                    let slot = InFlight::acquire();
+                    Step::Deliver(buffer.take_chunk(), slot)
+                }
             }
         });
         match step {
@@ -654,7 +692,7 @@ pub(super) async fn tick(deadline: super::Deadline) {
             // Keep the waiter for the next chunk: once traffic has stopped
             // there may be no further request to elect a replacement, so
             // returning here would strand the rest of the backlog.
-            Step::Deliver(batch) => deliver(batch, deadline).await,
+            Step::Deliver(batch, slot) => deliver(batch, slot, deadline).await,
         }
     }
 }
@@ -665,8 +703,9 @@ enum Step {
     Done,
     /// Not due yet, or the pipe is busy.
     Wait,
-    /// Deliver this chunk, then look again.
-    Deliver(Vec<WriteFlagLogsRequest>),
+    /// Deliver this chunk, then look again. Carries the slot reserved
+    /// when the chunk was removed.
+    Deliver(Vec<WriteFlagLogsRequest>, InFlight),
     /// Discard this chunk: too many deliveries are stuck to start another.
     Shed(Vec<WriteFlagLogsRequest>),
 }
@@ -846,6 +885,118 @@ mod tests {
         assert!(buffer.bytes > FLUSH_BYTES, "one oversized log");
         assert_eq!(buffer.take_chunk().len(), 1);
         assert!(buffer.logs.is_empty());
+    }
+
+    /// Admission must reserve the slot in the same synchronous step that
+    /// removes the chunk.
+    ///
+    /// The bug: `offer` returned its chunk and left the increment to
+    /// `deliver`, which only runs when its `wait_until` future is first
+    /// polled. Every request task already runnable in the same executor
+    /// tick therefore admitted against the same stale count — measured at
+    /// 13 concurrent deliveries against a `HARD_IN_FLIGHT` of 8. A chunk
+    /// that has left the buffer no longer counts against `MAX_BUFFER_BYTES`
+    /// either, so in that window it was bounded by nothing at all.
+    #[test]
+    fn admission_reserves_before_the_chunk_leaves_the_buffer() {
+        for (at_ceiling, cap) in [(true, HARD_IN_FLIGHT), (false, MAX_IN_FLIGHT)] {
+            IN_FLIGHT.with(|n| n.set(0));
+            // 96 request tasks decide and detach, and not one delivery
+            // future is polled: nothing here is ever dropped.
+            let mut detached = Vec::new();
+            let mut refused = 0usize;
+            for _ in 0..96 {
+                let in_flight = IN_FLIGHT.with(|n| n.get());
+                match decide(at_ceiling, in_flight) {
+                    Decision::Deliver => detached.push(InFlight::acquire()),
+                    Decision::Hold | Decision::Shed => refused += 1,
+                }
+            }
+            assert_eq!(
+                detached.len(),
+                cap,
+                "admissions must stop at the cap while every delivery is \
+                 still unpolled (at_ceiling={at_ceiling})"
+            );
+            assert_eq!(refused, 96 - cap);
+            assert_eq!(
+                IN_FLIGHT.with(|n| n.get()),
+                cap,
+                "and be visible to the next offer"
+            );
+
+            // Dropping a batch that was never delivered — `wait_until`
+            // cancelled before its first poll — must give the slots back.
+            drop(detached);
+            assert_eq!(
+                IN_FLIGHT.with(|n| n.get()),
+                0,
+                "an unpolled admitted batch releases its slot on drop"
+            );
+        }
+    }
+
+    /// The same invariant driven through the real `offer` path, with the
+    /// batches held undelivered exactly as `wait_until` holds them.
+    ///
+    /// Sized to stay below `MAX_BUFFER_BYTES` so admission is refused by
+    /// `Hold` rather than `Shed`: the shed branch logs, and `console_log!`
+    /// aborts off wasm32. At ~52 KB a record that is ~15 records per flush
+    /// and 238 records before the ceiling.
+    #[test]
+    fn offer_stops_admitting_while_every_detached_batch_is_still_unpolled() {
+        const OFFERS: usize = 200;
+        IN_FLIGHT.with(|n| n.set(0));
+        BUFFER.with(|c| *c.borrow_mut() = Buffer::new());
+
+        // Nothing is awaited: each detached batch stays parked, standing in
+        // for a `wait_until` future that has not been polled yet. A fixed
+        // count rather than a "until the buffer fills" loop, so that late
+        // reservation fails this test instead of spinning in it — with the
+        // slots uncounted the buffer never accumulates.
+        let mut parked = Vec::new();
+        for i in 0..OFFERS {
+            if let Some(batch) = offer_at(log_with_assigns(400), i as f64) {
+                parked.push(batch);
+            }
+        }
+
+        assert_eq!(
+            parked.len(),
+            MAX_IN_FLIGHT,
+            "offer admitted {} concurrent deliveries against a soft cap of {} \
+             while not one of them had been polled",
+            parked.len(),
+            MAX_IN_FLIGHT
+        );
+        assert_eq!(
+            IN_FLIGHT.with(|n| n.get()),
+            parked.len(),
+            "every detached batch must already be counted"
+        );
+        assert!(
+            BUFFER.with(|c| c.borrow().bytes) < MAX_BUFFER_BYTES,
+            "sized to refuse by Hold, not Shed"
+        );
+
+        // Records refused admission stay buffered rather than being removed
+        // and dropped on the floor.
+        let buffered = BUFFER.with(|c| c.borrow().logs.len());
+        let detached: usize = parked.iter().map(|(logs, _)| logs.len()).sum();
+        assert_eq!(buffered + detached, OFFERS, "no record may be lost");
+
+        // Freeing one slot lets exactly one more flush in, no more.
+        parked.pop();
+        for i in 0..20 {
+            if let Some(batch) = offer_at(log_with_assigns(400), (OFFERS + i) as f64) {
+                parked.push(batch);
+            }
+        }
+        assert_eq!(parked.len(), MAX_IN_FLIGHT, "back at the cap, not past it");
+
+        drop(parked);
+        assert_eq!(IN_FLIGHT.with(|n| n.get()), 0);
+        BUFFER.with(|c| *c.borrow_mut() = Buffer::new());
     }
 
     /// A cancelled delivery must not leak its in-flight slot, or the size
