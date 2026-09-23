@@ -491,7 +491,7 @@ fn deliver_aggregate(
             if count < 2 {
                 let a = deliver_aggregate(head, count, deadline).await;
                 let b = deliver_aggregate(tail, count, deadline).await;
-                return split_outcome(a.lost == 0, b.lost > 0 || a.lost > 0, count);
+                return combine_halves(&a, &b, count);
             }
             let head_count = count.div_ceil(2);
             let tail_count = count - head_count;
@@ -603,6 +603,24 @@ async fn deliver_by_splitting_flags(
     split_outcome(any_ok, any_lost, count)
 }
 
+/// Combines the two halves of a one-record JSON re-split.
+///
+/// The halves share a record count that cannot be apportioned (0 or 1), so
+/// the outcome rides on success bits rather than counts. Both halves are
+/// asked, and each is asked about its *own* success: an earlier version
+/// tested only `head.lost == 0`, which reported a total loss both when the
+/// tail alone landed and when the head itself landed only partially.
+///
+/// Shared with its test rather than restated there — a test that rebuilds
+/// the predicate passes while production does the opposite.
+fn combine_halves(head: &Delivered, tail: &Delivered, count: usize) -> Delivered {
+    split_outcome(
+        head.ok > 0 || tail.ok > 0,
+        head.lost > 0 || tail.lost > 0,
+        count,
+    )
+}
+
 /// Combines the per-piece outcomes of a flags split into one [`Delivered`].
 ///
 /// By success bit, not record count: the record is indivisible at this
@@ -630,9 +648,11 @@ fn split_outcome(any_ok: bool, any_lost: bool, count: usize) -> Delivered {
 pub(super) enum Disposition {
     /// Everything landed; ack.
     Complete,
-    /// Some landed and some did not. Ack anyway: nacking redelivers the
-    /// whole batch and re-posts what already succeeded, and split pieces
-    /// cannot be nacked independently.
+    /// Some landed and some did not. Nack: the consumer cannot ack the
+    /// half that landed on its own, because split pieces have no message
+    /// identity, so acking would permanently drop the half that did not.
+    /// Redelivery therefore re-posts what already succeeded — at-least-once,
+    /// and nothing downstream collapses those duplicates.
     Partial,
     /// Nothing landed, so redelivery duplicates nothing; nack.
     Failed,
@@ -1254,6 +1274,66 @@ mod delivered_tests {
         // The trap: a zero count makes success and failure the same value,
         // which is how a failed tail became invisible.
         assert_eq!(Delivered::ok(0), Delivered::lost(0));
+    }
+
+    /// Every combination of child outcomes for the one-record re-split.
+    ///
+    /// A half is delivered by a recursive call, so it can come back
+    /// complete, partial (`{ok, lost}` both set) or failed — nine pairs in
+    /// all. The old predicate asked only `head.lost == 0`, which is wrong
+    /// for two whole rows: a landed tail behind a failed head, and a head
+    /// that itself landed only partially.
+    #[test]
+    fn a_one_record_split_reports_success_from_either_half() {
+        let complete = || Delivered { ok: 1, lost: 0 };
+        let partial = || Delivered { ok: 1, lost: 1 };
+        let failed = || Delivered { ok: 0, lost: 1 };
+
+        let cases = [
+            ("complete", complete as fn() -> Delivered),
+            ("partial", partial),
+            ("failed", failed),
+        ];
+
+        for (head_name, head) in cases {
+            for (tail_name, tail) in cases {
+                let (h, t) = (head(), tail());
+                // What the halves actually achieved, independent of how
+                // the combining predicate happens to be written.
+                let any_landed = h.ok > 0 || t.ok > 0;
+                let any_dropped = h.lost > 0 || t.lost > 0;
+
+                let got = combine_halves(&h, &t, 1);
+                let case = format!("head={head_name} tail={tail_name}");
+
+                assert_eq!(
+                    got.ok > 0,
+                    any_landed,
+                    "{case}: a half landed but the outcome hides it, got {got:?}"
+                );
+                assert_eq!(
+                    got.lost > 0,
+                    any_dropped,
+                    "{case}: a half was dropped but the outcome hides it, got {got:?}"
+                );
+
+                // The consumer must see a mixed result as Partial: Failed
+                // claims redelivery duplicates nothing, and here it would.
+                let expected = match (any_landed, any_dropped) {
+                    (true, true) => Disposition::Partial,
+                    (true, false) => Disposition::Complete,
+                    (false, _) => Disposition::Failed,
+                };
+                assert_eq!(ack_decision(&got), expected, "{case}");
+            }
+        }
+
+        // Zero records: `Delivered::ok(0) == Delivered::lost(0)`, so both
+        // bits are false and the result is the empty outcome.
+        assert_eq!(
+            combine_halves(&Delivered::ok(0), &Delivered::lost(0), 0),
+            Delivered { ok: 0, lost: 0 }
+        );
     }
 
     /// The queue consumer branches on `ok`/`lost` to choose ack vs nack.
