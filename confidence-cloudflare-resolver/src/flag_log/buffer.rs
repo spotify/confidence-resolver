@@ -253,6 +253,16 @@ impl Buffer {
             .collect()
     }
 
+    /// Everything, for a waiter standing down. Delivery splits it again, so
+    /// handing over a large buffer does not mean a large body.
+    fn take_all(&mut self) -> Vec<WriteFlagLogsRequest> {
+        self.bytes = 0;
+        std::mem::take(&mut self.logs)
+            .into_iter()
+            .map(|e| e.log)
+            .collect()
+    }
+
     /// Splits off roughly [`FLUSH_BYTES`] worth, leaving the rest buffered.
     ///
     /// Used once the buffer has run past its flush size, so a backlog is
@@ -433,17 +443,22 @@ pub(super) async fn tick() {
         worker::Delay::from(std::time::Duration::from_millis(POLL_MS)).await;
         let now_ms = js_sys::Date::now();
         if now_ms - started_ms >= MAX_WAITER_LIFETIME_MS {
-            let (records, bytes) = BUFFER.with(|c| {
-                let b = c.borrow();
-                (b.logs.len(), b.bytes)
-            });
+            // Flush what is left before standing down. Retiring with records
+            // still buffered assumes another request will arrive to elect a
+            // replacement, and if traffic has stopped none will — the records
+            // would sit until the isolate is evicted. Draining costs one more
+            // delivery; not draining loses the buffer.
+            let leftover = BUFFER.with(|c| c.borrow_mut().take_all());
+            let n = leftover.len();
             console_log!(
                 "flag log buffer: waiter retiring at {}ms to stay inside its request's \
-                 wait_until budget; {} records ({} bytes) left for the next waiter",
+                 wait_until budget, draining {} records first",
                 (now_ms - started_ms) as u64,
-                records,
-                bytes
+                n
             );
+            if n > 0 {
+                deliver(leftover).await;
+            }
             return;
         }
         let step = BUFFER.with(|cell| {
@@ -510,19 +525,20 @@ pub(super) async fn tick() {
             Step::Wait => {
                 wait_iters += 1;
                 if wait_iters >= MAX_WAIT_ITERS {
-                    // Say how much is being left behind: the next eviction
-                    // takes it, and an operator needs that in the logs.
-                    let (records, bytes) = BUFFER.with(|c| {
-                        let b = c.borrow();
-                        (b.logs.len(), b.bytes)
-                    });
+                    // Backpressure held for the whole window. Standing down
+                    // without draining strands the buffer whenever traffic
+                    // has also stopped, so try one delivery on the way out.
+                    let leftover = BUFFER.with(|c| c.borrow_mut().take_all());
+                    let n = leftover.len();
                     console_log!(
                         "flag log buffer: waiter giving up after {}ms of backpressure, \
-                         {} records ({} bytes) left buffered and at risk",
+                         draining {} records",
                         wait_iters as u64 * POLL_MS,
-                        records,
-                        bytes
+                        n
                     );
+                    if n > 0 {
+                        deliver(leftover).await;
+                    }
                     return;
                 }
                 continue;

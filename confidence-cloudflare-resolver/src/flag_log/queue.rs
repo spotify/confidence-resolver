@@ -108,20 +108,29 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
     }
 
     match super::ack_decision(&outcome) {
+        // A partial nacks, like a total failure. Cloudflare redelivers the
+        // whole batch and the chunk that already landed is posted again,
+        // which apply-dedup collapses. Acking instead would turn a
+        // transient backend failure into permanent loss of durable queue
+        // messages — the one guarantee this sink exists to provide. A
+        // duplicate is recoverable; a drop is not.
+        //
+        // Per-message ack would avoid the duplicate outright, but the
+        // splitter divides the aggregated batch rather than the message
+        // list, so message identity is not carried through. That is the
+        // right fix and is not attempted here.
         super::Disposition::Partial => {
-            // Partial success. Nacking would redeliver the whole batch and
-            // re-post the half that already landed, so ack and report the loss
-            // instead: a duplicate exposure is worse than a counted drop, and
-            // the split halves cannot be nacked independently.
-            // Deliberately not "N of M": a flags split reports the same
-            // record on both counters, so ok + lost is not a record total.
             console_log!(
-                "flag log: DROPPED {} record(s) after a partial split delivery, {} \
-                 landed; acking to avoid re-posting them",
-                outcome.lost,
-                outcome.ok
+                "flag log: partial delivery, {} landed and {} did not; nacking so the \
+                 batch is redelivered (duplicates are deduped, drops are not)",
+                outcome.ok,
+                outcome.lost
             );
-            Ok(())
+            Err(worker::Error::RustError(format!(
+                "flag log delivery partial: {} of {} records failed",
+                outcome.lost,
+                outcome.ok + outcome.lost
+            )))
         }
         super::Disposition::Failed => Err(worker::Error::RustError(format!(
             "flag log delivery failed for all {} records",

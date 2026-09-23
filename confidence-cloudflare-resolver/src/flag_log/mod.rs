@@ -171,13 +171,22 @@ pub(crate) async fn consume(batch: MessageBatch<String>, env: Env) -> Result<()>
 /// a real outage is not something an in-memory sink can do.
 const DELIVERY_ATTEMPTS: u32 = 3;
 
-/// Ceiling on one delivery attempt.
-///
-/// Every fetch would otherwise await indefinitely, so a blackholed primary
-/// destination never falls through to the secondary, and three attempts
-/// against a slow-failing one can outlast the whole `wait_until` budget
-/// that owns the flush. Bounding the attempt keeps the fallback reachable.
-const ATTEMPT_TIMEOUT_MS: u64 = 5_000;
+// KNOWN LIMITATION: a delivery attempt has no time bound.
+//
+// A blackholed destination therefore blocks the fallback, and three slow
+// attempts can outlast the `wait_until` budget that owns the flush. The
+// obvious fix — racing the fetch against a timer — is worse than the
+// problem: `worker::RequestInit` exposes no `signal` field, so an
+// `AbortController` cannot be attached to an outbound fetch, and the losing
+// branch of a `select` only stops *awaiting* the request. The request still
+// completes, so a "timed out" delivery can land at the backend while being
+// reported as lost, and the retry then sends it a second time. Measured: a
+// 6s backend accepted the same log twice while the flush reported it
+// dropped.
+//
+// Bounding this needs either abort support in the worker crate or a
+// destination-side idempotency key. Until then an unbounded wait is the
+// honest behaviour: slow, but neither duplicating nor misreporting.
 
 /// Backoff before retry *n* (1-based). Fixed rather than exponential-to-the-
 /// sky for the same reason the attempt count is small.
@@ -204,20 +213,8 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
     for &destination in crate::LOG_DESTINATIONS.iter() {
         for attempt in 1..=DELIVERY_ATTEMPTS {
             let started_ms = js_sys::Date::now();
-            let result = {
-                use futures_util::future::{select, Either};
-                let deliver = crate::deliver_flag_logs(client_secret, account_id, req, destination);
-                let timeout =
-                    worker::Delay::from(std::time::Duration::from_millis(ATTEMPT_TIMEOUT_MS));
-                futures_util::pin_mut!(deliver);
-                futures_util::pin_mut!(timeout);
-                match select(deliver, timeout).await {
-                    Either::Left((result, _)) => result,
-                    Either::Right(((), _)) => Err(crate::DeliveryError::Transport(format!(
-                        "attempt exceeded {ATTEMPT_TIMEOUT_MS}ms"
-                    ))),
-                }
-            };
+            let result =
+                crate::deliver_flag_logs(client_secret, account_id, req, destination).await;
             let elapsed_ms = (js_sys::Date::now() - started_ms) as u64;
             match result {
                 Ok(()) => {
