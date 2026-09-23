@@ -441,11 +441,14 @@ fn deliver_aggregate(
 async fn deliver_by_splitting_flags(request: WriteFlagLogsRequest, count: usize) -> Delivered {
     use confidence_resolver::proto::confidence::flags::resolver::v1::events::FlagAssigned;
 
-    let assigned = &request.flag_assigned[0];
-    let resolve_id = assigned.resolve_id.clone();
-    let client_info = assigned.client_info.clone();
-    let mut stack: Vec<Vec<_>> = vec![assigned.flags.clone()];
-    drop(request);
+    // Moved out of the request rather than cloned: the flags vector is the
+    // large part, and holding two copies is exactly the spike this path
+    // exists to avoid.
+    let mut request = request;
+    let assigned = request.flag_assigned.remove(0);
+    let resolve_id = assigned.resolve_id;
+    let client_info = assigned.client_info;
+    let mut stack: Vec<Vec<_>> = vec![assigned.flags];
 
     let mut any_ok = false;
     let mut any_lost = false;
@@ -488,22 +491,35 @@ async fn deliver_by_splitting_flags(request: WriteFlagLogsRequest, count: usize)
         stack.push(flags);
     }
 
+    if any_ok && any_lost {
+        console_log!(
+            "flag log: partially delivered a split record; {} record(s) had some \
+             flags land and some dropped",
+            count
+        );
+    }
+    split_outcome(any_ok, any_lost, count)
+}
+
+/// Combines the per-piece outcomes of a flags split into one [`Delivered`].
+///
+/// By success bit, not record count: the record is indivisible at this
+/// level, so "half its flags landed" cannot be expressed as a record split.
+/// A mixed outcome therefore sets *both* counters, which is the predicate
+/// the queue consumer's partial-ack path tests — anything else either acks
+/// a half-loss as clean success or nacks and re-posts the flags that landed.
+///
+/// Pure so it can be tested without a network: this is where the bug was.
+fn split_outcome(any_ok: bool, any_lost: bool, count: usize) -> Delivered {
     match (any_ok, any_lost) {
         (true, false) => Delivered::ok(count),
+        (true, true) => Delivered {
+            ok: count,
+            lost: count,
+        },
+        // Nothing landed. The empty-stack case lands here too, which is
+        // right: an empty split delivered nothing.
         (false, _) => Delivered::lost(count),
-        // Partial: report both non-zero so callers take the partial path
-        // rather than treating it as a clean success or a clean loss.
-        (true, true) => {
-            console_log!(
-                "flag log: partially delivered a split record; {} record(s) had some \
-                 flags land and some dropped",
-                count
-            );
-            Delivered {
-                ok: count,
-                lost: count,
-            }
-        }
     }
 }
 
@@ -1024,43 +1040,73 @@ mod delivered_tests {
         assert_eq!(total.ok + total.lost, 10, "every record is accounted for");
     }
 
-    /// A partial flags-split must be visibly partial: both `ok` and `lost`
-    /// non-zero, so the queue consumer takes its partial-ack path instead
-    /// of acking a half-loss as success or nacking and re-posting the half
-    /// that landed. Passing `0` as the tail count made the tail invisible,
-    /// because Delivered::ok(0) and Delivered::lost(0) are the same value.
+    /// Exercises `split_outcome` itself, not hand-built `Delivered` values:
+    /// this is the function whose zero-count version made a failed tail
+    /// invisible.
     #[test]
-    fn a_partial_flags_split_is_neither_clean_success_nor_clean_loss() {
-        // What deliver_by_splitting_flags returns for each outcome.
+    fn split_outcome_reports_a_partial_split_on_both_counters() {
         let count = 1usize;
-        let both_ok = Delivered::ok(count);
-        let both_lost = Delivered::lost(count);
-        let mixed = Delivered {
-            ok: count,
-            lost: count,
-        };
 
-        assert!(both_ok.lost == 0 && both_ok.ok > 0, "clean success");
-        assert!(both_lost.ok == 0 && both_lost.lost > 0, "clean loss");
+        let both_ok = split_outcome(true, false, count);
+        assert_eq!(both_ok, Delivered { ok: 1, lost: 0 }, "every piece landed");
+
+        let both_lost = split_outcome(false, true, count);
+        assert_eq!(both_lost, Delivered { ok: 0, lost: 1 }, "no piece landed");
+
+        let mixed = split_outcome(true, true, count);
         assert!(
             mixed.ok > 0 && mixed.lost > 0,
-            "a mixed outcome must be visible on both counters"
+            "a mixed outcome must show on both counters, got {mixed:?}"
         );
 
-        // The queue consumer branches on exactly these predicates.
-        let acks_without_redelivery = |d: &Delivered| d.ok > 0 && d.lost > 0;
-        assert!(!acks_without_redelivery(&both_ok));
-        assert!(!acks_without_redelivery(&both_lost));
-        assert!(
-            acks_without_redelivery(&mixed),
-            "a partial split must reach the partial-ack path"
-        );
-
-        // The bug: a zero count makes the tail's outcome unrepresentable.
+        // An empty split delivered nothing, so it counts as lost.
         assert_eq!(
-            Delivered::ok(0),
-            Delivered::lost(0),
-            "this is why the tail count must not be 0"
+            split_outcome(false, false, count),
+            Delivered { ok: 0, lost: 1 }
+        );
+
+        // The trap: a zero count makes success and failure the same value,
+        // which is how a failed tail became invisible.
+        assert_eq!(Delivered::ok(0), Delivered::lost(0));
+    }
+
+    /// The queue consumer branches on `ok`/`lost` to choose ack vs nack.
+    /// Each branch is asserted against the outcomes `split_outcome` and the
+    /// record splitter actually produce.
+    #[test]
+    fn queue_acks_a_partial_split_and_nacks_a_total_failure() {
+        // Mirrors the predicates in queue::consume.
+        fn decision(d: &Delivered) -> &'static str {
+            if d.ok > 0 && d.lost > 0 {
+                "ack-partial"
+            } else if d.lost > 0 {
+                "nack"
+            } else {
+                "ack"
+            }
+        }
+
+        assert_eq!(decision(&split_outcome(true, false, 1)), "ack");
+        assert_eq!(
+            decision(&split_outcome(true, true, 1)),
+            "ack-partial",
+            "nacking here would re-post the flags that already landed"
+        );
+        assert_eq!(
+            decision(&split_outcome(false, true, 1)),
+            "nack",
+            "nothing landed, so redelivery duplicates nothing"
+        );
+
+        // Record-level splits behave the same way.
+        assert_eq!(decision(&Delivered::ok(50).merge(Delivered::ok(50))), "ack");
+        assert_eq!(
+            decision(&Delivered::ok(50).merge(Delivered::lost(50))),
+            "ack-partial"
+        );
+        assert_eq!(
+            decision(&Delivered::lost(50).merge(Delivered::lost(50))),
+            "nack"
         );
     }
 

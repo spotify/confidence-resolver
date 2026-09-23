@@ -112,11 +112,12 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
         // re-post the half that already landed, so ack and report the loss
         // instead: a duplicate exposure is worse than a counted drop, and
         // the split halves cannot be nacked independently.
+        // Deliberately not "N of M": a flags split reports the same record
+        // on both counters, so ok + lost is not a record total.
         console_log!(
-            "flag log: DROPPED {} of {} records after a partial split delivery; \
-             acking to avoid re-posting the {} that landed",
+            "flag log: DROPPED {} record(s) after a partial split delivery, {} landed; \
+             acking to avoid re-posting them",
             outcome.lost,
-            outcome.ok + outcome.lost,
             outcome.ok
         );
         return Ok(());
