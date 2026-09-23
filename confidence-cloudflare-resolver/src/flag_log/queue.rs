@@ -107,28 +107,26 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
         .await;
     }
 
-    if outcome.ok > 0 && outcome.lost > 0 {
-        // Partial success. Nacking would redeliver the whole batch and
-        // re-post the half that already landed, so ack and report the loss
-        // instead: a duplicate exposure is worse than a counted drop, and
-        // the split halves cannot be nacked independently.
-        // Deliberately not "N of M": a flags split reports the same record
-        // on both counters, so ok + lost is not a record total.
-        console_log!(
-            "flag log: DROPPED {} record(s) after a partial split delivery, {} landed; \
-             acking to avoid re-posting them",
-            outcome.lost,
-            outcome.ok
-        );
-        return Ok(());
-    }
-
-    if !delivered {
-        // Nothing landed, so redelivering duplicates nothing.
-        return Err(worker::Error::RustError(format!(
+    match super::ack_decision(&outcome) {
+        super::Disposition::Partial => {
+            // Partial success. Nacking would redeliver the whole batch and
+            // re-post the half that already landed, so ack and report the loss
+            // instead: a duplicate exposure is worse than a counted drop, and
+            // the split halves cannot be nacked independently.
+            // Deliberately not "N of M": a flags split reports the same
+            // record on both counters, so ok + lost is not a record total.
+            console_log!(
+                "flag log: DROPPED {} record(s) after a partial split delivery, {} \
+                 landed; acking to avoid re-posting them",
+                outcome.lost,
+                outcome.ok
+            );
+            Ok(())
+        }
+        super::Disposition::Failed => Err(worker::Error::RustError(format!(
             "flag log delivery failed for all {} records",
             outcome.lost
-        )));
+        ))),
+        super::Disposition::Complete => Ok(()),
     }
-    Ok(())
 }

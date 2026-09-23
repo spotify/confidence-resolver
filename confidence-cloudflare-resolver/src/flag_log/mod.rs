@@ -523,6 +523,30 @@ fn split_outcome(any_ok: bool, any_lost: bool, count: usize) -> Delivered {
     }
 }
 
+/// What a queue consumer should do with a delivery outcome.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Disposition {
+    /// Everything landed; ack.
+    Complete,
+    /// Some landed and some did not. Ack anyway: nacking redelivers the
+    /// whole batch and re-posts what already succeeded, and split pieces
+    /// cannot be nacked independently.
+    Partial,
+    /// Nothing landed, so redelivery duplicates nothing; nack.
+    Failed,
+}
+
+/// Shared by [`queue::consume`] and its tests so the two cannot drift.
+pub(super) fn ack_decision(outcome: &Delivered) -> Disposition {
+    if outcome.ok > 0 && outcome.lost > 0 {
+        Disposition::Partial
+    } else if outcome.lost > 0 {
+        Disposition::Failed
+    } else {
+        Disposition::Complete
+    }
+}
+
 /// Removes applied flags already seen in `dedup`.
 ///
 /// The map is taken by reference so one window can span several batches,
@@ -1075,38 +1099,34 @@ mod delivered_tests {
     /// record splitter actually produce.
     #[test]
     fn queue_acks_a_partial_split_and_nacks_a_total_failure() {
-        // Mirrors the predicates in queue::consume.
-        fn decision(d: &Delivered) -> &'static str {
-            if d.ok > 0 && d.lost > 0 {
-                "ack-partial"
-            } else if d.lost > 0 {
-                "nack"
-            } else {
-                "ack"
-            }
-        }
-
-        assert_eq!(decision(&split_outcome(true, false, 1)), "ack");
+        // The same function queue::consume branches on, not a copy.
         assert_eq!(
-            decision(&split_outcome(true, true, 1)),
-            "ack-partial",
+            ack_decision(&split_outcome(true, false, 1)),
+            Disposition::Complete
+        );
+        assert_eq!(
+            ack_decision(&split_outcome(true, true, 1)),
+            Disposition::Partial,
             "nacking here would re-post the flags that already landed"
         );
         assert_eq!(
-            decision(&split_outcome(false, true, 1)),
-            "nack",
+            ack_decision(&split_outcome(false, true, 1)),
+            Disposition::Failed,
             "nothing landed, so redelivery duplicates nothing"
         );
 
         // Record-level splits behave the same way.
-        assert_eq!(decision(&Delivered::ok(50).merge(Delivered::ok(50))), "ack");
         assert_eq!(
-            decision(&Delivered::ok(50).merge(Delivered::lost(50))),
-            "ack-partial"
+            ack_decision(&Delivered::ok(50).merge(Delivered::ok(50))),
+            Disposition::Complete
         );
         assert_eq!(
-            decision(&Delivered::lost(50).merge(Delivered::lost(50))),
-            "nack"
+            ack_decision(&Delivered::ok(50).merge(Delivered::lost(50))),
+            Disposition::Partial
+        );
+        assert_eq!(
+            ack_decision(&Delivered::lost(50).merge(Delivered::lost(50))),
+            Disposition::Failed
         );
     }
 
