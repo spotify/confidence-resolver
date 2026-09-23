@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.24.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.23.0...openfeature-provider-js-v0.24.0) (2026-09-23)
+
+
+### Features
+
+* **deps-dev:** bump next from 16.2.12 to 16.3.3 in /openfeature-provider/js ([#595](https://github.com/spotify/confidence-resolver/issues/595)) ([6755ada](https://github.com/spotify/confidence-resolver/commit/6755ada04610e99dd29c986236c8731b12f37f5f))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.7.0 to 0.7.1
+
 ## [0.23.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.22.0...openfeature-provider-js-v0.23.0) (2026-09-15)
 
 
