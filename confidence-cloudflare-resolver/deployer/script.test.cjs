@@ -287,3 +287,46 @@ test('the script probes KV for sticky assignments as well as metrics', () => {
     'KV probe must also fire for sticky assignments',
   );
 });
+
+// --- max_concurrency placement ---
+
+// A producer block carries the same queue = "…flag-logs-queue" line but has
+// no max_batch_timeout, so matching on the queue name alone leaks the cap
+// into whichever consumer comes next — in practice the events consumer.
+test('max_concurrency lands on every flag-logs consumer and no other', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const awkMatch = script.match(/awk -v mc="\$CONSUMER_CONCURRENCY_TOML" '([\s\S]*?)'\s*wrangler\.toml/);
+  assert.ok(awkMatch, 'max_concurrency awk not found in script.sh');
+
+  const directory = mkdtempSync(join(tmpdir(), 'mc-test-'));
+  try {
+    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
+    // Append a second flag-log shard, consumer + producer, as the deployer does.
+    const extra = [
+      '', '[[queues.consumers]]', 'queue = "flag-logs-queue-2"',
+      'max_batch_size = 100', 'max_batch_timeout = 10', '',
+      '[[queues.producers]]', 'queue = "flag-logs-queue-2"',
+      'binding = "flag_logs_queue_2"', '',
+    ].join('\n');
+    writeFileSync(join(directory, 'wrangler.toml'),
+      readFileSync(join(directory, 'wrangler.toml'), 'utf8') + extra);
+
+    const r = spawnSync('bash', ['-c',
+      `awk -v mc="max_concurrency = 7" '${awkMatch[1]}' wrangler.toml > out.toml`,
+    ], { cwd: directory, encoding: 'utf8', timeout: 5000 });
+    assert.equal(r.status, 0, r.stderr);
+
+    const out = readFileSync(join(directory, 'out.toml'), 'utf8');
+    const blocks = out.match(/\[\[queues\.consumers\]\]\n(?:[^[]*)/g) || [];
+    assert.ok(blocks.length >= 3, `expected 3 consumers, got ${blocks.length}`);
+    for (const b of blocks) {
+      const queue = /queue = "([^"]+)"/.exec(b)[1];
+      const capped = b.includes('max_concurrency');
+      const shouldBeCapped = queue.includes('flag-logs');
+      assert.equal(capped, shouldBeCapped,
+        `consumer ${queue}: capped=${capped}, expected ${shouldBeCapped}`);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

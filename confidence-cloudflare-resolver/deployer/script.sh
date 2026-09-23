@@ -775,16 +775,22 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
         echo "✅ FLAG_LOG_SINK set to \"$FLAG_LOG_SINK\" in wrangler.toml"
     fi
 
-    # Inject max_concurrency into EVERY flag-logs consumer definition — the
-    # base one from the template and every shard the loop above appended.
-    # The events-queue consumer also has max_batch_timeout = 10, but it
-    # appears after a line with queue = "…events-queue" rather than
-    # queue = "…flag-logs-queue…", so we match only flag-logs consumers.
+    # Inject max_concurrency into every flag-logs *consumer* — the base one
+    # from the template and every shard appended above.
+    #
+    # Tracking the table header matters: a producer block carries the same
+    # queue = "…flag-logs-queue" line but has no max_batch_timeout, so
+    # matching on the queue name alone leaves the flag set and the next
+    # max_batch_timeout it finds belongs to the events consumer.
     if [ -n "${CONSUMER_CONCURRENCY_TOML:-}" ]; then
         awk -v mc="$CONSUMER_CONCURRENCY_TOML" '
-            /^queue = .*flag-logs-queue/ { in_flag_logs = 1 }
+            /^\[\[queues\.consumers\]\]/ { in_consumer = 1; is_flag_logs = 0 }
+            /^\[\[/ && !/^\[\[queues\.consumers\]\]/ { in_consumer = 0; is_flag_logs = 0 }
+            in_consumer && /^queue = .*flag-logs-queue/ { is_flag_logs = 1 }
             { print }
-            in_flag_logs && /^max_batch_timeout/ { print mc; in_flag_logs = 0 }
+            in_consumer && is_flag_logs && /^max_batch_timeout/ {
+                print mc; is_flag_logs = 0; in_consumer = 0
+            }
         ' wrangler.toml > wrangler.toml.tmp && mv wrangler.toml.tmp wrangler.toml
         echo "✅ FLAG_LOGS_CONSUMER_CONCURRENCY set to $FLAG_LOGS_CONSUMER_CONCURRENCY"
     fi

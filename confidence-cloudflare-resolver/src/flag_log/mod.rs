@@ -398,8 +398,16 @@ fn deliver_aggregate(
                 flag_assigned: tail_assigned,
                 ..Default::default()
             };
-            // Record counts are apportioned by assignment share; the exact
-            // split does not matter for alerting, only the total.
+            // Records and assignments are different units: one record can
+            // carry many assignments, so halving assignments does not halve
+            // records. When the count cannot be split into two positive
+            // values, apportioning would hand the tail a 0 and make its
+            // failure invisible — fall back to the success-bit scheme.
+            if count < 2 {
+                let a = deliver_aggregate(head, count).await;
+                let b = deliver_aggregate(tail, count).await;
+                return split_outcome(a.lost == 0, b.lost > 0 || a.lost > 0, count);
+            }
             let head_count = count.div_ceil(2);
             let tail_count = count - head_count;
             let a = deliver_aggregate(head, head_count).await;
@@ -449,6 +457,11 @@ async fn deliver_by_splitting_flags(request: WriteFlagLogsRequest, count: usize)
     let resolve_id = assigned.resolve_id;
     let client_info = assigned.client_info;
     let mut stack: Vec<Vec<_>> = vec![assigned.flags];
+    // Everything that is not the assignment — telemetry, resolve info,
+    // client info — rides on the first piece only. Rebuilding each piece
+    // from Default would silently discard all of it while still reporting
+    // the delivery as a success.
+    let mut carry = Some(request);
 
     let mut any_ok = false;
     let mut any_lost = false;
@@ -457,14 +470,12 @@ async fn deliver_by_splitting_flags(request: WriteFlagLogsRequest, count: usize)
         if flags.is_empty() {
             continue;
         }
-        let piece = WriteFlagLogsRequest {
-            flag_assigned: vec![FlagAssigned {
-                resolve_id: resolve_id.clone(),
-                client_info: client_info.clone(),
-                flags,
-            }],
-            ..Default::default()
-        };
+        let mut piece = carry.take().unwrap_or_default();
+        piece.flag_assigned = vec![FlagAssigned {
+            resolve_id: resolve_id.clone(),
+            client_info: client_info.clone(),
+            flags,
+        }];
         let size = serde_json::to_string(&piece).map_or(usize::MAX, |json| json.len());
         if size < MEASURED_BACKEND_LIMIT {
             if deliver(&piece).await {
@@ -474,8 +485,10 @@ async fn deliver_by_splitting_flags(request: WriteFlagLogsRequest, count: usize)
             }
             continue;
         }
-        // Still too big: halve it and push both back.
-        let mut flags = piece.flag_assigned.into_iter().next().unwrap().flags;
+        // Still too big: halve it and push both back. Put the carried
+        // fields back so they travel with whichever piece goes first.
+        let mut flags = piece.flag_assigned.drain(..).next().unwrap().flags;
+        carry = Some(piece);
         if flags.len() <= 1 {
             console_log!(
                 "flag log: DROPPED a single applied flag of {} bytes, past the {} byte \
