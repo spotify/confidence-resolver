@@ -110,8 +110,9 @@ and cost scales with the record count.
 
 **Flush triggers**, whichever comes first:
 
-- **size** — 768 KB of encoded protobuf accumulated. This is the trigger that
-  matters under load, and it is what bounds memory.
+- **size** — 768 KiB of encoded protobuf accumulated. This is the trigger
+  that fires under load, and it is what bounds the *steady-state* exposure.
+  Memory is bounded separately, by the 12 MiB absorb ceiling below.
 - **idle** — 1 second with no new log.
 - **age** — 10 seconds since the oldest log.
 
@@ -134,8 +135,8 @@ in-memory sink can do, and a batch that exhausts its attempts is dropped.
 
 **Under a stalled backend the buffer absorbs, then sheds.** While deliveries
 are in flight the buffer keeps accumulating rather than starting more, up to
-12 MiB of encoded protobuf. A buffered record costs about its own size; a
-delivery in flight costs roughly 2.6x that, so memory is spent on the buffer
+12 MiB of encoded protobuf. A buffered record costs about 2x its encoded
+size in heap; a delivery in flight costs more still, so memory is spent on the buffer
 rather than on concurrency, and the backlog is drained in delivery-sized
 pieces. Only once 8 deliveries are stuck *and* the buffer is full is a chunk
 discarded, loudly (`SHED`).
@@ -175,6 +176,13 @@ Each log is published to a queue shard; the consumer aggregates up to 100
 messages before delivery. A publish that fails is dropped — there is no
 in-isolate retry, because anything held between requests is lost when the
 isolate is evicted and Cloudflare provides no shutdown hook to flush it.
+
+On the consumer side, delivery to Confidence is **retried up to 3 times**
+per destination (250 ms then 1 s) while the failure looks transient — `5xx`,
+`429`, `408`, transport errors. A `413` or `401` moves on immediately. If
+nothing lands the batch is nacked and Cloudflare redelivers it; if a split
+batch partially lands it is acked, because redelivering would re-post the
+half that already succeeded.
 
 
 ### Scaling flag-log queues

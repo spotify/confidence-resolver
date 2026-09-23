@@ -423,10 +423,34 @@ pub(super) async fn tick() {
         match step {
             Step::Done => return,
             Step::Shed(batch) => {
+                // Keep shedding until the buffer is back under its ceiling.
+                // Discarding one chunk drops `bytes` below MAX_BUFFER_BYTES,
+                // so `decide` would answer Hold on the next pass and the
+                // remaining ~11 MiB would sit there until the waiter gave
+                // up and an eviction took it.
+                let mut shed_records = batch.len();
+                let mut shed_chunks = 1usize;
+                loop {
+                    let more = BUFFER.with(|cell| {
+                        let mut buffer = cell.borrow_mut();
+                        if buffer.logs.is_empty() || buffer.bytes < FLUSH_BYTES {
+                            return None;
+                        }
+                        Some(buffer.take_chunk())
+                    });
+                    match more {
+                        Some(chunk) => {
+                            shed_records += chunk.len();
+                            shed_chunks += 1;
+                        }
+                        None => break,
+                    }
+                }
                 console_log!(
-                    "flag log buffer: SHED {} records from the timer path, \
-                     {} deliveries stuck",
-                    batch.len(),
+                    "flag log buffer: SHED {} records in {} chunks from the timer \
+                     path, {} deliveries stuck",
+                    shed_records,
+                    shed_chunks,
                     IN_FLIGHT.with(|n| n.get())
                 );
                 wait_iters = 0;

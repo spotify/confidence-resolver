@@ -10,9 +10,7 @@
 //! shutdown hook to flush it. Once a publish succeeds the queue redelivers to
 //! the consumer until it acks.
 use super::{dedup_batch_flag_applies, dedup_enabled, shards};
-use confidence_resolver::{
-    flag_logger, proto::confidence::flags::resolver::v1::WriteFlagLogsRequest,
-};
+use confidence_resolver::proto::confidence::flags::resolver::v1::WriteFlagLogsRequest;
 use std::sync::OnceLock;
 use worker::{console_log, Env, MessageBatch, Queue, Result};
 
@@ -69,8 +67,23 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
         dedup_batch_flag_applies(&mut logs, (js_sys::Date::now() / 1000.0) as i64);
     }
 
-    // Telemetry is read before the splitter consumes the records.
-    let telemetry = flag_logger::aggregate_batch(logs.clone()).telemetry_data;
+    // Telemetry is merged from the records directly rather than by
+    // aggregating a clone of the whole batch just to read one field.
+    let telemetry = {
+        let mut snap = confidence_resolver::telemetry::TelemetrySnapshot::default();
+        let mut any = false;
+        for log in &logs {
+            if let Some(td) = &log.telemetry_data {
+                snap.accumulate_delta(td);
+                any = true;
+            }
+        }
+        if any {
+            Some(snap)
+        } else {
+            None
+        }
+    };
     // Same splitter the buffer uses: a batch of 100 heavy resolves can
     // aggregate past the backend's 4 MiB limit, and a 413 is not retryable,
     // so without splitting it bounces until the dead-letter queue.
@@ -78,21 +91,42 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
     let delivered = outcome.lost == 0;
 
     if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-        crate::update_kv_snapshot(
+        crate::update_kv_snapshot_merged(
             &kv,
             crate::SnapshotPipeline::FlagLogs,
-            crate::request_telemetry_to_accumulate(telemetry.as_ref(), delivered),
+            // Skipped on a full failure: the queue redelivers the batch and
+            // the deltas would be counted twice. A partial success is acked
+            // below, so its deltas are counted once and kept.
+            if outcome.ok > 0 {
+                telemetry.as_ref()
+            } else {
+                None
+            },
             Some(delivered),
-            None,
         )
         .await;
     }
 
-    if !delivered {
-        return Err(worker::Error::RustError(format!(
-            "flag log delivery failed for {} of {} records",
+    if outcome.ok > 0 && outcome.lost > 0 {
+        // Partial success. Nacking would redeliver the whole batch and
+        // re-post the half that already landed, so ack and report the loss
+        // instead: a duplicate exposure is worse than a counted drop, and
+        // the split halves cannot be nacked independently.
+        console_log!(
+            "flag log: DROPPED {} of {} records after a partial split delivery; \
+             acking to avoid re-posting the {} that landed",
             outcome.lost,
-            outcome.ok + outcome.lost
+            outcome.ok + outcome.lost,
+            outcome.ok
+        );
+        return Ok(());
+    }
+
+    if !delivered {
+        // Nothing landed, so redelivering duplicates nothing.
+        return Err(worker::Error::RustError(format!(
+            "flag log delivery failed for all {} records",
+            outcome.lost
         )));
     }
     Ok(())

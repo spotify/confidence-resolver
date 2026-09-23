@@ -146,23 +146,13 @@ pub(super) async fn update_metrics(
     delivered: bool,
 ) {
     if let Some(Some(kv)) = METRICS_KV.get() {
-        let key = crate::SnapshotPipeline::FlagLogs.key();
-        let mut cumulative = match kv.get(key).text().await {
-            Ok(Some(text)) => {
-                serde_json::from_str::<confidence_resolver::telemetry::TelemetrySnapshot>(&text)
-                    .unwrap_or_default()
-            }
-            _ => confidence_resolver::telemetry::TelemetrySnapshot::default(),
-        };
-        cumulative = crate::merge_snapshots(cumulative, snapshot, crate::GaugeSource::Live);
-        if delivered {
-            cumulative.flush.succeeded = cumulative.flush.succeeded.wrapping_add(1);
-        } else {
-            cumulative.flush.failed = cumulative.flush.failed.wrapping_add(1);
-        }
-        if let Ok(builder) = kv.put(key, serde_json::to_string(&cumulative).unwrap_or_default()) {
-            let _ = builder.execute().await;
-        }
+        crate::update_kv_snapshot_merged(
+            kv,
+            crate::SnapshotPipeline::FlagLogs,
+            Some(snapshot),
+            Some(delivered),
+        )
+        .await;
     }
 }
 
@@ -416,9 +406,34 @@ fn deliver_aggregate(
             let b = deliver_aggregate(tail, tail_count).await;
             return a.merge(b);
         }
+        // One FlagAssigned left, but it can still hold hundreds of applied
+        // flags — a single resolve against a large flag set. Split those.
+        if request.flag_assigned.len() == 1 && request.flag_assigned[0].flags.len() > 1 {
+            console_log!(
+                "flag log: single assignment of {} bytes with {} flags, splitting its flags",
+                size,
+                request.flag_assigned[0].flags.len()
+            );
+            let mut head = request;
+            let assigned = &mut head.flag_assigned[0];
+            let tail_flags = assigned.flags.split_off(assigned.flags.len() / 2);
+            let tail = WriteFlagLogsRequest {
+                flag_assigned: vec![
+                    confidence_resolver::proto::confidence::flags::resolver::v1::events::FlagAssigned {
+                        resolve_id: assigned.resolve_id.clone(),
+                        client_info: assigned.client_info.clone(),
+                        flags: tail_flags,
+                    },
+                ],
+                ..Default::default()
+            };
+            let a = deliver_aggregate(head, count).await;
+            let b = deliver_aggregate(tail, 0).await;
+            return a.merge(b);
+        }
         console_log!(
-            "flag log: DROPPED {} records, a single assignment of {} bytes is past the \
-             {} byte backend limit and cannot be split",
+            "flag log: DROPPED {} records, an indivisible payload of {} bytes is past \
+             the {} byte backend limit",
             count,
             size,
             MEASURED_BACKEND_LIMIT

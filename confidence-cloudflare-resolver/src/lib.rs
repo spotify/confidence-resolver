@@ -1008,6 +1008,35 @@ async fn render_metrics(kv: &kv::KvStore) -> String {
 ///
 /// `event_result` is `(published, rejected, succeeded)`, where `published` is
 /// already net of the events the service refused.
+/// Accumulates a pre-merged [`TelemetrySnapshot`] into the KV snapshot.
+///
+/// The delta-based [`update_kv_snapshot`] takes a single `TelemetryData`;
+/// callers that batch many requests must merge first, or they undercount by
+/// the batch size.
+async fn update_kv_snapshot_merged(
+    kv: &kv::KvStore,
+    pipeline: SnapshotPipeline,
+    snapshot: Option<&TelemetrySnapshot>,
+    flush_result: Option<bool>,
+) {
+    let key = pipeline.key();
+    let mut cumulative = match kv.get(key).text().await {
+        Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
+        _ => TelemetrySnapshot::default(),
+    };
+    if let Some(snap) = snapshot {
+        cumulative = merge_snapshots(cumulative, snap, GaugeSource::Live);
+    }
+    match flush_result {
+        Some(true) => cumulative.flush.succeeded = cumulative.flush.succeeded.wrapping_add(1),
+        Some(false) => cumulative.flush.failed = cumulative.flush.failed.wrapping_add(1),
+        None => {}
+    }
+    if let Ok(builder) = kv.put(key, serde_json::to_string(&cumulative).unwrap_or_default()) {
+        let _ = builder.execute().await;
+    }
+}
+
 async fn update_kv_snapshot(
     kv: &kv::KvStore,
     pipeline: SnapshotPipeline,
