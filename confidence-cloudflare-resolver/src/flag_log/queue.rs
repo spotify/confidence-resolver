@@ -115,11 +115,17 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
 
     match super::ack_decision(&outcome) {
         // A partial nacks, like a total failure. Cloudflare redelivers the
-        // whole batch and the chunk that already landed is posted again,
-        // which apply-dedup collapses. Acking instead would turn a
-        // transient backend failure into permanent loss of durable queue
-        // messages — the one guarantee this sink exists to provide. A
-        // duplicate is recoverable; a drop is not.
+        // whole batch, so the chunk that already landed is posted again:
+        // delivery here is at-least-once, not exactly-once. Apply-dedup
+        // does *not* prevent that — `dedup_batch_flag_applies` builds a
+        // fresh map per invocation, so it collapses duplicates within one
+        // batch and knows nothing about what a previous invocation already
+        // delivered. Suppressing these would need an idempotency guarantee
+        // established somewhere the retry can see, which does not exist.
+        //
+        // Acking instead would turn a transient backend failure into
+        // permanent loss of durable queue messages — the one guarantee this
+        // sink exists to provide. A duplicate is recoverable; a drop is not.
         //
         // Per-message ack would avoid the duplicate outright, but the
         // splitter divides the aggregated batch rather than the message
@@ -128,9 +134,11 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
         super::Disposition::Partial => {
             console_log!(
                 "flag log: partial delivery, {} landed and {} did not; nacking so the \
-                 batch is redelivered (duplicates are deduped, drops are not)",
+                 batch is redelivered (the {} that landed will be delivered twice; \
+                 a drop would not be recoverable)",
                 outcome.ok,
-                outcome.lost
+                outcome.lost,
+                outcome.ok
             );
             Err(worker::Error::RustError(format!(
                 "flag log delivery partial: {} of {} records failed",
