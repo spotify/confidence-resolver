@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.18.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.17.0...confidence-cloudflare-resolver-v0.18.0) (2026-09-23)
+
+
+### Features
+
+* **cloudflare:** deduplicate flag apply logs in queue consumer ([#614](https://github.com/spotify/confidence-resolver/issues/614)) ([1010399](https://github.com/spotify/confidence-resolver/commit/1010399c9772bb8ee6cd55fb35260e80046625c9))
+* **cloudflare:** select flag-log sink with FLAG_LOG_SINK (queue or buffer) ([#624](https://github.com/spotify/confidence-resolver/issues/624)) ([516c197](https://github.com/spotify/confidence-resolver/commit/516c1973153911ea174a0e0509ac14009fade8c5))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.25.0 to 0.26.0
+
 ## [0.17.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.16.1...confidence-cloudflare-resolver-v0.17.0) (2026-09-18)
 
 
