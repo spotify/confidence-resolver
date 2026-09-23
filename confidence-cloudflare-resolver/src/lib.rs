@@ -856,26 +856,6 @@ impl SnapshotPipeline {
     }
 }
 
-/// A request's own telemetry deltas are accumulated only when delivery
-/// succeeded.
-///
-/// A failed batch makes the consumer return `Err`, which tells Cloudflare
-/// Queues to redeliver it. Folding the deltas in on a failed attempt would
-/// therefore count them again on every retry, multiplying apply-dedup, latency,
-/// resolve rates and provider-init by the attempt count. The flush
-/// success/failure counter is still recorded per attempt — that one is meant to
-/// count attempts.
-fn request_telemetry_to_accumulate(
-    telemetry: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
-    delivered: bool,
-) -> Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData> {
-    if delivered {
-        telemetry
-    } else {
-        None
-    }
-}
-
 /// Sums two cumulative snapshots.
 ///
 /// Lives here rather than on `TelemetrySnapshot` because only the Cloudflare
@@ -1387,27 +1367,6 @@ mod snapshot_merge_tests {
     /// A failed batch is redelivered by Queues, so its telemetry must not be
     /// accumulated on the failing attempt — otherwise a fail-then-succeed
     /// sequence counts those deltas once per attempt.
-    #[test]
-    fn request_telemetry_is_accumulated_only_on_successful_delivery() {
-        use confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData;
-
-        let td = TelemetryData {
-            memory_bytes: 4096,
-            ..Default::default()
-        };
-
-        assert!(
-            request_telemetry_to_accumulate(Some(&td), true).is_some(),
-            "a delivered batch must have its telemetry accumulated"
-        );
-        assert!(
-            request_telemetry_to_accumulate(Some(&td), false).is_none(),
-            "a failed batch is retried, so accumulating now double-counts it"
-        );
-        // No telemetry on the request is simply nothing to accumulate.
-        assert!(request_telemetry_to_accumulate(None, true).is_none());
-    }
-
     /// provider_init_rate is keyed by label set, so a shared label set must
     /// accumulate across pipelines while distinct ones stay separate. Without
     /// a provider_init_rate arm in merge_snapshots this reads as zero for
