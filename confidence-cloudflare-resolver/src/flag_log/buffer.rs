@@ -268,6 +268,28 @@ impl Buffer {
             .collect()
     }
 
+    /// A chunk of at most `max` records, for a retiring waiter draining
+    /// only what it already owned.
+    fn take_chunk_limited(&mut self, max: usize) -> Vec<WriteFlagLogsRequest> {
+        let mut bytes = 0usize;
+        let mut count = 0usize;
+        for entry in &self.logs {
+            if count >= max {
+                break;
+            }
+            if count > 0
+                && (bytes.saturating_add(entry.len) > FLUSH_BYTES || count >= FLUSH_RECORDS)
+            {
+                break;
+            }
+            bytes = bytes.saturating_add(entry.len);
+            count += 1;
+        }
+        let taken: Vec<_> = self.logs.drain(..count).map(|e| e.log).collect();
+        self.bytes = self.bytes.saturating_sub(bytes);
+        taken
+    }
+
     /// Splits off roughly [`FLUSH_BYTES`] worth, leaving the rest buffered.
     ///
     /// Used once the buffer has run past its flush size, so a backlog is
@@ -444,8 +466,18 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>, deadline: super::De
 /// arriving during the drain can elect a successor for anything that lands
 /// in the fresh buffer.
 async fn drain_before_standing_down(reason: &str, deadline: super::Deadline) {
+    // Only the records this waiter already owned. Anything arriving during
+    // the drain belongs to a newer invocation with its own budget: pulling
+    // those in would deliver them on this waiter's nearly-spent deadline,
+    // and once it is too spent to fund an attempt they are taken from the
+    // buffer and dropped without a fetch ever being made.
+    let mut owed = BUFFER.with(|c| c.borrow().logs.len());
     let mut delivered = 0usize;
-    loop {
+
+    while owed > 0 {
+        // Take nothing unless the remaining budget can fund a real attempt
+        // *and* the delivery it starts. Leaving records buffered for a
+        // fresh waiter is strictly better than removing them to drop them.
         if deadline.remaining_ms() < MIN_DRAIN_BUDGET_MS {
             break;
         }
@@ -463,16 +495,18 @@ async fn drain_before_standing_down(reason: &str, deadline: super::Deadline) {
             if in_flight >= HARD_IN_FLIGHT {
                 return None;
             }
-            Some(buffer.take_chunk())
+            Some(buffer.take_chunk_limited(owed))
         });
         match batch {
             Some(chunk) if !chunk.is_empty() => {
+                owed = owed.saturating_sub(chunk.len());
                 delivered += chunk.len();
                 deliver(chunk, deadline).await;
             }
             _ => break,
         }
     }
+
     let (left, bytes) = BUFFER.with(|c| {
         let b = c.borrow();
         (b.logs.len(), b.bytes)
@@ -480,7 +514,7 @@ async fn drain_before_standing_down(reason: &str, deadline: super::Deadline) {
     if left > 0 {
         console_log!(
             "flag log buffer: waiter {} after draining {} records; {} records \
-             ({} bytes) remain with no owner and are at risk",
+             ({} bytes) left buffered for the next waiter",
             reason,
             delivered,
             left,
@@ -978,6 +1012,60 @@ mod tests {
             FLUSH_RECORDS
         );
         assert!(!buffer.logs.is_empty(), "the rest stays for the next chunk");
+    }
+
+    /// A retiring waiter must drain only the records it already owned.
+    /// Records arriving mid-drain belong to a newer invocation with its own
+    /// budget; consuming them on a nearly-spent deadline means they are
+    /// removed from the buffer and dropped without a fetch.
+    #[test]
+    fn a_retiring_drain_does_not_consume_later_arrivals() {
+        let mut buffer = Buffer::new();
+        for _ in 0..5 {
+            buffer.push(log_with_assigns(1), 0.0);
+        }
+        let owed = buffer.logs.len();
+        assert_eq!(owed, 5);
+
+        // A newer request lands during the drain.
+        for _ in 0..3 {
+            buffer.push(log_with_assigns(1), 100.0);
+        }
+        assert_eq!(buffer.logs.len(), 8);
+
+        // Draining the owed count must leave the three newcomers behind.
+        let mut drained = 0;
+        let mut remaining = owed;
+        while remaining > 0 {
+            let chunk = buffer.take_chunk_limited(remaining);
+            if chunk.is_empty() {
+                break;
+            }
+            remaining -= chunk.len();
+            drained += chunk.len();
+        }
+        assert_eq!(drained, owed, "drained exactly what was owed");
+        assert_eq!(
+            buffer.logs.len(),
+            3,
+            "later arrivals must stay for a waiter with its own budget"
+        );
+    }
+
+    /// The limit never makes the chunk larger than the ordinary bound.
+    #[test]
+    fn a_limited_chunk_still_respects_the_flush_bound() {
+        let mut buffer = Buffer::new();
+        for _ in 0..(FLUSH_RECORDS * 2) {
+            buffer.push(log_with_assigns(1), 0.0);
+        }
+        let chunk = buffer.take_chunk_limited(usize::MAX);
+        assert!(
+            chunk.len() <= FLUSH_RECORDS,
+            "took {} records, past the {} bound",
+            chunk.len(),
+            FLUSH_RECORDS
+        );
     }
 
     /// Aggregation is deferred to flush time; the buffer must hold the logs
