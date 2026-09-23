@@ -142,23 +142,17 @@ const _: () = assert!(MAX_IN_FLIGHT < HARD_IN_FLIGHT);
 /// rather than starting a delivery it cannot finish.
 const MIN_DRAIN_BUDGET_MS: f64 = 1_000.0;
 
+/// Remaining budget at which a waiter stands down and drains its tail.
+///
+/// Comfortably above [`MIN_DRAIN_BUDGET_MS`] so the drain has real time to
+/// place records rather than discovering it is already too late. Measured
+/// delivery is a few hundred ms, so this is several deliveries' worth.
+const RETIRE_AT_REMAINING_MS: f64 = 6_000.0;
+
+const _: () = assert!(RETIRE_AT_REMAINING_MS > MIN_DRAIN_BUDGET_MS);
+
 /// How often the pending waiter re-checks the triggers.
 const POLL_MS: u64 = 250;
-
-/// After this many consecutive Hold/Shed iterations the waiter gives up, so
-/// it does not pin a `wait_until` slot forever while the backend is stalled.
-/// The next request will elect a new waiter that checks again.
-const MAX_WAIT_ITERS: usize = 40; // 40 * 250ms = 10s
-
-/// Absolute lifetime of a waiter, regardless of how much work it does.
-///
-/// `wait_iters` resets after every flush, so a steady trickle could keep one
-/// waiter alive indefinitely — but it runs on the `wait_until` budget of the
-/// *request that elected it*, which Cloudflare caps at 30s after the
-/// response. Past that the runtime cancels it, stranding records belonging
-/// to newer requests. Retiring early and letting a fresher request elect a
-/// replacement keeps the waiter inside the budget that owns it.
-const MAX_WAITER_LIFETIME_MS: f64 = 20_000.0;
 
 thread_local! {
     static BUFFER: RefCell<Buffer> = const { RefCell::new(Buffer::new()) };
@@ -559,19 +553,28 @@ pub(super) async fn tick(deadline: super::Deadline) {
         return;
     };
 
-    let mut wait_iters = 0usize;
-    let started_ms = js_sys::Date::now();
     loop {
         worker::Delay::from(std::time::Duration::from_millis(POLL_MS)).await;
         let now_ms = js_sys::Date::now();
-        if now_ms - started_ms >= MAX_WAITER_LIFETIME_MS {
-            // Release the role first: a request arriving during the drain
-            // must be able to elect a successor for whatever it buffers,
-            // otherwise its records are stranded the moment we return.
+
+        // Budget first, before the idle/age check. Deferring it meant a
+        // waiter with no budget kept polling while not-yet-due, then
+        // discovered it was out of budget with under a second left — too
+        // little for the drain to place anything, so the tail was stranded
+        // with no owner. Standing down at RETIRE_AT_REMAINING_MS leaves
+        // real time to deliver it.
+        if deadline.remaining_ms() < RETIRE_AT_REMAINING_MS {
+            let has_records = BUFFER.with(|c| !c.borrow().logs.is_empty());
+            if !has_records {
+                return;
+            }
+            // Release the role before draining, so a request arriving
+            // during it can elect a successor for what it buffers.
             drop(waiter);
-            drain_before_standing_down("retired", deadline).await;
+            drain_before_standing_down("standing down on budget", deadline).await;
             return;
         }
+
         let step = BUFFER.with(|cell| {
             let mut buffer = cell.borrow_mut();
             if buffer.logs.is_empty() {
@@ -587,9 +590,6 @@ pub(super) async fn tick(deadline: super::Deadline) {
             // the chunk is already gone. The waiter's own deadline depletes
             // as it runs, so this is reached in ordinary operation, not only
             // at retirement. Leave the records for a waiter with budget.
-            if deadline.remaining_ms() < MIN_DRAIN_BUDGET_MS {
-                return Step::OutOfBudget;
-            }
             // Respect the same in-flight backpressure the size trigger does,
             // or the timers become a way around it.
             let in_flight = IN_FLIGHT.with(|n| n.get());
@@ -608,19 +608,6 @@ pub(super) async fn tick(deadline: super::Deadline) {
         });
         match step {
             Step::Done => return,
-            Step::OutOfBudget => {
-                let (left, bytes) = BUFFER.with(|c| {
-                    let b = c.borrow();
-                    (b.logs.len(), b.bytes)
-                });
-                console_log!(
-                    "flag log buffer: waiter out of budget with {} records ({} bytes) \
-                     buffered; leaving them for a waiter with a fresh deadline",
-                    left,
-                    bytes
-                );
-                return;
-            }
             Step::Shed(batch) => {
                 // Keep shedding down to FLUSH_BYTES, not just under
                 // MAX_BUFFER_BYTES. Discarding one chunk already takes
@@ -652,25 +639,22 @@ pub(super) async fn tick(deadline: super::Deadline) {
                     shed_chunks,
                     IN_FLIGHT.with(|n| n.get())
                 );
-                wait_iters = 0;
                 continue;
             }
             Step::Wait => {
-                wait_iters += 1;
-                if wait_iters >= MAX_WAIT_ITERS {
-                    drop(waiter);
-                    drain_before_standing_down("gave up under backpressure", deadline).await;
-                    return;
-                }
+                // Deliberately no give-up here. Waiting is the correct
+                // response to "not due yet" and to "pipe busy" alike, and
+                // standing down early strands records that become
+                // deliverable the moment the backend recovers — measured:
+                // 30 records left with no waiter, which a single later
+                // request then flushed successfully. The deadline is the
+                // only thing that ends a waiter.
                 continue;
             }
             // Keep the waiter for the next chunk: once traffic has stopped
             // there may be no further request to elect a replacement, so
             // returning here would strand the rest of the backlog.
-            Step::Deliver(batch) => {
-                wait_iters = 0;
-                deliver(batch, deadline).await;
-            }
+            Step::Deliver(batch) => deliver(batch, deadline).await,
         }
     }
 }
@@ -685,9 +669,6 @@ enum Step {
     Deliver(Vec<WriteFlagLogsRequest>),
     /// Discard this chunk: too many deliveries are stuck to start another.
     Shed(Vec<WriteFlagLogsRequest>),
-    /// Not enough budget left to deliver anything. Stand down without
-    /// taking records a later waiter can still deliver.
-    OutOfBudget,
 }
 
 #[cfg(test)]
@@ -1057,6 +1038,60 @@ mod tests {
             FLUSH_RECORDS
         );
         assert!(!buffer.logs.is_empty(), "the rest stays for the next chunk");
+    }
+
+    /// A waiter must stand down while it can still deliver, not once it is
+    /// too late. Checking the budget only after the idle/age check meant it
+    /// discovered the shortfall with under a second left, so the drain
+    /// placed nothing and the tail was stranded with no owner: 30 records
+    /// that a single later request then flushed successfully.
+    #[test]
+    fn a_waiter_retires_with_time_left_to_drain() {
+        assert!(
+            RETIRE_AT_REMAINING_MS > MIN_DRAIN_BUDGET_MS,
+            "retiring at {RETIRE_AT_REMAINING_MS}ms must leave more than the \
+             {MIN_DRAIN_BUDGET_MS}ms the drain needs"
+        );
+        // The margin has to be worth something: several deliveries, not one
+        // that barely starts.
+        let margin = RETIRE_AT_REMAINING_MS - MIN_DRAIN_BUDGET_MS;
+        assert!(
+            margin >= 4_000.0,
+            "only {margin}ms of usable drain time after standing down"
+        );
+
+        // Standing down happens strictly before the drain refuses to start.
+        let at_retirement = super::super::Deadline::for_test(RETIRE_AT_REMAINING_MS);
+        assert!(
+            at_retirement.remaining_from(0.0) >= MIN_DRAIN_BUDGET_MS,
+            "the drain must be able to run at the moment we stand down"
+        );
+    }
+
+    /// A waiter must not stand down while it still has budget and the
+    /// records are deliverable. Two clocks meant the shorter one retired it
+    /// early: 30 records were left with no waiter after a backend recovered,
+    /// and a single later request then flushed all of them successfully.
+    /// The deadline is now the only thing that ends a waiter.
+    #[test]
+    fn only_the_deadline_ends_a_waiter() {
+        // With budget remaining, a busy pipe is a reason to wait, never a
+        // reason to stand down.
+        assert_eq!(decide(false, MAX_IN_FLIGHT), Decision::Hold);
+        assert_eq!(decide(false, HARD_IN_FLIGHT), Decision::Hold);
+
+        // The budget check is what ends it, and it is expressed purely in
+        // terms of the deadline — there is no second clock to disagree.
+        let ample = super::super::Deadline::for_test(MIN_DRAIN_BUDGET_MS * 10.0);
+        let spent = super::super::Deadline::for_test(MIN_DRAIN_BUDGET_MS / 2.0);
+        assert!(
+            ample.remaining_from(0.0) >= MIN_DRAIN_BUDGET_MS,
+            "keeps going"
+        );
+        assert!(
+            spent.remaining_from(0.0) < MIN_DRAIN_BUDGET_MS,
+            "stands down"
+        );
     }
 
     /// A retiring waiter must drain only the records it already owned.

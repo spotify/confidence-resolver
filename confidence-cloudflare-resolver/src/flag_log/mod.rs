@@ -214,9 +214,15 @@ impl Deadline {
         self.remaining_from(now_ms())
     }
 
+    /// A deadline `budget_ms` from time zero. Tests only.
+    #[cfg(test)]
+    pub(super) fn for_test(budget_ms: f64) -> Self {
+        Deadline { at_ms: budget_ms }
+    }
+
     /// The arithmetic, with the clock passed in so it is testable off
     /// wasm32, where `js_sys::Date::now` aborts.
-    fn remaining_from(self, now: f64) -> f64 {
+    pub(super) fn remaining_from(self, now: f64) -> f64 {
         (self.at_ms - now).max(0.0)
     }
 }
