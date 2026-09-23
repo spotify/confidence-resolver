@@ -42,7 +42,7 @@ pub(super) async fn send(log: WriteFlagLogsRequest) {
     }
 }
 
-/// Aggregates one queue batch and delivers it.
+/// Aggregates one queue batch and delivers it, splitting to fit the backend.
 ///
 /// A message that fails to parse is skipped instead of panicking the whole
 /// batch, since a panic would retry and eventually drop all of it — including
@@ -69,14 +69,19 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
         dedup_batch_flag_applies(&mut logs, (js_sys::Date::now() / 1000.0) as i64);
     }
 
-    let request = flag_logger::aggregate_batch(logs);
-    let delivered = super::deliver(&request).await;
+    // Telemetry is read before the splitter consumes the records.
+    let telemetry = flag_logger::aggregate_batch(logs.clone()).telemetry_data;
+    // Same splitter the buffer uses: a batch of 100 heavy resolves can
+    // aggregate past the backend's 4 MiB limit, and a 413 is not retryable,
+    // so without splitting it bounces until the dead-letter queue.
+    let outcome = super::deliver_all_within_limit(logs).await;
+    let delivered = outcome.lost == 0;
 
     if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
         crate::update_kv_snapshot(
             &kv,
             crate::SnapshotPipeline::FlagLogs,
-            crate::request_telemetry_to_accumulate(request.telemetry_data.as_ref(), delivered),
+            crate::request_telemetry_to_accumulate(telemetry.as_ref(), delivered),
             Some(delivered),
             None,
         )
@@ -84,9 +89,11 @@ pub(super) async fn consume(message_batch: MessageBatch<String>, env: Env) -> Re
     }
 
     if !delivered {
-        return Err(worker::Error::RustError(
-            "flag log delivery failed on all destinations".to_string(),
-        ));
+        return Err(worker::Error::RustError(format!(
+            "flag log delivery failed for {} of {} records",
+            outcome.lost,
+            outcome.ok + outcome.lost
+        )));
     }
     Ok(())
 }

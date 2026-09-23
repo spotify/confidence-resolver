@@ -270,7 +270,20 @@ test('a token with no access to the account fails every probe', () => {
   assert.equal((r.stderr.match(/PROBE_FAIL/g) || []).length, 2);
 });
 
-test('KV is only probed when metrics or sticky assignments are enabled', () => {
+test('KV is only probed when metrics are enabled', () => {
   assert.doesNotMatch(runPreflight('queue', {}).stdout, /Workers KV/);
   assert.match(runPreflight('queue', {}, { metrics: '1' }).stdout, /PROBE_OK Workers KV/);
+});
+
+// The real script probes KV for sticky assignments too; the harness above
+// only models ENABLE_METRICS, so assert the script itself covers both.
+test('the script probes KV for sticky assignments as well as metrics', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const guard = script.match(/if \[ -n "\$\{ENABLE_METRICS:-\}" \][^\n]*\n/);
+  assert.ok(guard, 'KV probe guard not found');
+  assert.match(
+    guard[0],
+    /ENABLE_STICKY_ASSIGNMENTS/,
+    'KV probe must also fire for sticky assignments',
+  );
 });

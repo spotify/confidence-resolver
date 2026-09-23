@@ -106,4 +106,4 @@ The `deployer/` directory contains a deployment script and Dockerfile for automa
 2. **Optional materializations** — Sticky assignments via KV (opt-in)
 3. **JSON, not protobuf** — API uses JSON request/response bodies
 4. **Edge deployment** — Runs on Cloudflare's edge network, not in application processes
-5. **Queue logging** — Uses Cloudflare Queues instead of gRPC for log transport
+5. **Flag-log transport** — Cloudflare Queues by default, or an in-isolate buffer POSTing straight to Confidence (`FLAG_LOG_SINK=buffer`), instead of gRPC

@@ -146,8 +146,14 @@ buffer *and* fails live resolves, not just one batch.
 
 **This is the least durable sink, deliberately.** Cloudflare offers no
 shutdown hook, so an isolate evicted while holding a buffer loses it
-silently, and `waitUntil` is not guaranteed to run. The exposure is bounded
-by the size budget rather than by time. Apply-dedup also only sees one
+silently, and `waitUntil` is not guaranteed to run.
+
+**How much an eviction can take.** In steady state the buffer flushes every
+768 KiB, so that is the usual exposure. Under backpressure it is much
+larger: while deliveries are stuck the buffer absorbs up to **12 MiB of
+encoded protobuf** before shedding, and all of it is lost if the isolate
+goes away before the backend recovers. Size the risk against 12 MiB, not
+768 KiB. Apply-dedup also only sees one
 isolate's traffic here, so duplicate exposures that the queue consumer would
 have collapsed are sent.
 

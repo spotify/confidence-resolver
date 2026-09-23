@@ -36,8 +36,15 @@
 //!
 //! This is the least durable sink, deliberately. Cloudflare offers no
 //! shutdown hook, so an isolate evicted while holding a buffer loses it
-//! silently, and `wait_until` is not guaranteed to run. The exposure is
-//! bounded by [`FLUSH_BYTES`] rather than by time.
+//! silently, and `wait_until` is not guaranteed to run.
+//!
+//! **How much an eviction can take.** In steady state the buffer flushes at
+//! [`FLUSH_BYTES`] (768 KiB encoded), so that is the usual exposure. Under
+//! backpressure it is far larger: while deliveries are stuck the buffer
+//! keeps absorbing up to [`MAX_BUFFER_BYTES`] (12 MiB encoded, which
+//! measured about 6x that in wasm heap), and every byte of it is lost if
+//! the isolate goes away before the backend recovers. Size the risk against
+//! `MAX_BUFFER_BYTES`, not `FLUSH_BYTES`.
 //!
 //! A delivery that fails transiently is retried by [`super::deliver`], but a
 //! batch that exhausts its attempts is dropped rather than held: holding it
@@ -58,8 +65,9 @@ use worker::console_log;
 /// isolate with `memory access out of bounds` under load. Matching the
 /// delivery budget keeps the common case to a single aggregate.
 ///
-/// It also bounds what an eviction can take: this is the exposure, and it is
-/// bounded by bytes rather than by the flush timers.
+/// In steady state this is also what an eviction can take. Under
+/// backpressure the buffer absorbs up to [`MAX_BUFFER_BYTES`] instead, so
+/// that is the worst-case exposure rather than this.
 const FLUSH_BYTES: usize = super::PROTO_CHUNK_BYTES;
 
 /// How much encoded protobuf the buffer may hold before records are shed.
@@ -356,22 +364,20 @@ pub(super) async fn deliver(logs: Vec<WriteFlagLogsRequest>) {
     // size trigger stops firing, and the isolate only ever flushes on the
     // hard ceiling.
     let _slot = InFlight::acquire();
-    let delivered = super::deliver_all_within_limit(logs).await;
+    let outcome = super::deliver_all_within_limit(logs).await;
     let elapsed = (js_sys::Date::now() - started_ms) as u64;
     console_log!(
-        "flag log buffer: flushed {} records in {}ms, delivered={}",
+        "flag log buffer: flushed {} records in {}ms, delivered={} lost={}",
         records,
         elapsed,
-        delivered
+        outcome.ok,
+        outcome.lost
     );
-    super::update_metrics(&telemetry, delivered).await;
-    if !delivered {
-        // Already retried by `deliver_all_within_limit`; this is the batch
-        // having exhausted its attempts. Dropped rather than restored: a
-        // failed batch put back would be re-sent alongside the next one,
-        // enlarging the batch that fails and the loss when the isolate goes
-        // away.
-        console_log!("flag log buffer: DROPPED {} records", records);
+    super::update_metrics(&telemetry, outcome.lost == 0).await;
+    if outcome.lost > 0 {
+        // Counts only what was actually lost: a split batch where one half
+        // landed must not be reported as a whole-batch loss.
+        console_log!("flag log buffer: DROPPED {} records", outcome.lost);
     }
 }
 
@@ -403,9 +409,11 @@ pub(super) async fn tick() {
             let in_flight = IN_FLIGHT.with(|n| n.get());
             match decide(buffer.bytes, in_flight) {
                 Decision::Hold => Step::Wait,
-                // Shedding is the size trigger's job; here the buffer is
-                // draining rather than filling, so waiting is right.
-                Decision::Shed => Step::Wait,
+                // Shed here too. Leaving it to the size trigger strands the
+                // buffer when traffic stops: no further `offer` arrives, the
+                // waiter gives up, and the whole MAX_BUFFER_BYTES is lost to
+                // the next eviction with no marker in the logs.
+                Decision::Shed => Step::Shed(buffer.take_chunk()),
                 // One chunk at a time, not the whole buffer: a backlog can
                 // be MAX_BUFFER_BYTES and handing that to a single delivery
                 // is the memory spike `take_chunk` exists to avoid.
@@ -414,12 +422,31 @@ pub(super) async fn tick() {
         });
         match step {
             Step::Done => return,
+            Step::Shed(batch) => {
+                console_log!(
+                    "flag log buffer: SHED {} records from the timer path, \
+                     {} deliveries stuck",
+                    batch.len(),
+                    IN_FLIGHT.with(|n| n.get())
+                );
+                wait_iters = 0;
+                continue;
+            }
             Step::Wait => {
                 wait_iters += 1;
                 if wait_iters >= MAX_WAIT_ITERS {
+                    // Say how much is being left behind: the next eviction
+                    // takes it, and an operator needs that in the logs.
+                    let (records, bytes) = BUFFER.with(|c| {
+                        let b = c.borrow();
+                        (b.logs.len(), b.bytes)
+                    });
                     console_log!(
-                        "flag log buffer: waiter giving up after {}ms of backpressure",
-                        wait_iters as u64 * POLL_MS
+                        "flag log buffer: waiter giving up after {}ms of backpressure, \
+                         {} records ({} bytes) left buffered and at risk",
+                        wait_iters as u64 * POLL_MS,
+                        records,
+                        bytes
                     );
                     return;
                 }
@@ -444,6 +471,8 @@ enum Step {
     Wait,
     /// Deliver this chunk, then look again.
     Deliver(Vec<WriteFlagLogsRequest>),
+    /// Discard this chunk: too many deliveries are stuck to start another.
+    Shed(Vec<WriteFlagLogsRequest>),
 }
 
 #[cfg(test)]

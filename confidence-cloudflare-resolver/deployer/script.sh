@@ -375,16 +375,15 @@ case "$FLAG_LOG_SINK" in
         ;;
 esac
 
-# Optional ceiling on concurrent object-draining consumers.
+# ---------------------------------------------------------------------------
+# Optional ceiling on concurrent flag-log queue consumers (1-250).
 #
-# Left unset by default, which is what makes the drain scale automatically:
-# Cloudflare autoscales consumer invocations against queue backlog, and
-# setting max_concurrency *caps* that rather than requesting it. Measured,
-# one consumer delivers roughly 200 records/sec, so the platform reaching its
-# 250 ceiling carries about 50K resolves/sec.
-#
-# Set this only to throttle — for instance to protect a backend that cannot
-# absorb the full rate.
+# Cloudflare autoscales queue consumers on its own; setting max_concurrency
+# *caps* that rather than requesting it. Leave unset unless the backend needs
+# protecting from a burst: each consumer aggregates up to max_batch_size (100)
+# messages into one delivery, so 250 concurrent consumers is up to 250
+# in-flight requests to Confidence.
+# ---------------------------------------------------------------------------
 FLAG_LOGS_CONSUMER_CONCURRENCY=${FLAG_LOGS_CONSUMER_CONCURRENCY:-}
 if [ -n "$FLAG_LOGS_CONSUMER_CONCURRENCY" ]; then
     if [[ ! "$FLAG_LOGS_CONSUMER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] \

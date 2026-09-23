@@ -75,11 +75,11 @@ fn dedup_telemetry_delta(
     })
 }
 
-/// Queues one request's flag log and sweeps the apply-dedup map. Called via
+/// Ships one request's flag log and sweeps the apply-dedup map. Called via
 /// `Context::wait_until`, so both run after the response has been returned.
 ///
-/// When multiple queue shards are configured, picks one at random. If
-/// the send fails, tries the remaining shards before giving up.
+/// What "ships" means depends on the active sink — see `flag_log::send`.
+/// Shard selection and failover live in `flag_log::shards`.
 async fn queue_flag_log(emitted: Option<flag_log::Emitted>) {
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
@@ -586,9 +586,17 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             let td = log.telemetry_data.get_or_insert_with(Default::default);
                             td.apply_dedup = Some(dedup_delta);
                         }
-                        if log != WriteFlagLogsRequest::default() {
-                            event_ctx.wait_until(queue_flag_log(flag_log::emit_inline(log)));
-                        }
+                        // Always go through queue_flag_log, even with no log
+                        // to ship: it also sweeps apply-dedup and runs the
+                        // buffer's timer tick. An apply-only traffic pattern
+                        // would otherwise never drain the buffer once the
+                        // waiter gave up.
+                        let emitted = if log != WriteFlagLogsRequest::default() {
+                            flag_log::emit_inline(log)
+                        } else {
+                            None
+                        };
+                        event_ctx.wait_until(queue_flag_log(emitted));
                         resp
                     }
                     "telemetry:upload" => Response::ok("")?.with_cors_headers(&allowed_origin),

@@ -135,6 +135,12 @@ pub(crate) async fn tick() {
 /// `TelemetryData`, because a buffer flush carries deltas from many
 /// requests that must all be accumulated — taking only the last one
 /// would undercount by the batch size.
+///
+/// NOTE: unlike the queue consumer, this accumulates the deltas whether or
+/// not delivery succeeded. That is deliberate and the two must not be
+/// unified without thought: the queue skips them on failure because the
+/// batch is redelivered and would be counted twice, while the buffer never
+/// redelivers, so skipping them would simply lose the measurements.
 pub(super) async fn update_metrics(
     snapshot: &confidence_resolver::telemetry::TelemetrySnapshot,
     delivered: bool,
@@ -297,37 +303,79 @@ const _: () = assert!(MEASURED_BACKEND_LIMIT - MAX_DELIVERY_BYTES >= 500_000);
 /// The JSON size is still checked, because `encoded_len` is a protobuf
 /// measure and the body is JSON; the halving below is the backstop for a
 /// batch whose expansion is worse than [`PROTO_CHUNK_BYTES`] assumes.
+/// Outcome of a (possibly split) delivery.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct Delivered {
+    /// Records that reached a destination.
+    pub(super) ok: usize,
+    /// Records that were dropped after exhausting every option.
+    pub(super) lost: usize,
+}
+
+impl Delivered {
+    fn ok(n: usize) -> Self {
+        Delivered { ok: n, lost: 0 }
+    }
+    fn lost(n: usize) -> Self {
+        Delivered { ok: 0, lost: n }
+    }
+    fn merge(self, other: Delivered) -> Self {
+        Delivered {
+            ok: self.ok + other.ok,
+            lost: self.lost + other.lost,
+        }
+    }
+}
+
 pub(super) fn deliver_all_within_limit(
     logs: Vec<WriteFlagLogsRequest>,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool>>> {
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Delivered>>> {
     Box::pin(async move {
         if logs.is_empty() {
-            return true;
+            return Delivered::default();
         }
 
         let encoded: usize = logs.iter().map(prost::Message::encoded_len).sum();
         if encoded > PROTO_CHUNK_BYTES && logs.len() > 1 {
             let mut head = logs;
             let tail = head.split_off(head.len() / 2);
-            // Both halves must be attempted even if the first fails: `&&` would
-            // short-circuit and silently drop the tail.
+            // Both halves are attempted even if the first fails, and each
+            // reports its own record count so a partial failure is not
+            // charged as a whole-batch loss.
             let a = deliver_all_within_limit(head).await;
             let b = deliver_all_within_limit(tail).await;
-            return a && b;
+            return a.merge(b);
         }
 
         let count = logs.len();
         let request = flag_logger::aggregate_batch(logs);
+        deliver_aggregate(request, count).await
+    })
+}
+
+/// Delivers one already-aggregated request, splitting on the *JSON* size
+/// when protobuf-based chunking under-predicted the expansion.
+fn deliver_aggregate(
+    request: WriteFlagLogsRequest,
+    count: usize,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Delivered>>> {
+    Box::pin(async move {
+        // Only the length is needed; the string is dropped immediately so
+        // the sizing pass does not hold a second copy of the body while the
+        // delivery below builds its own. On the flush path under memory
+        // pressure that peak matters.
         let size = serde_json::to_string(&request).map_or(usize::MAX, |json| json.len());
         if size <= MAX_DELIVERY_BYTES {
-            return deliver(&request).await;
+            return if deliver(&request).await {
+                Delivered::ok(count)
+            } else {
+                Delivered::lost(count)
+            };
         }
         // Between the split threshold and the measured ceiling is the
-        // headroom this module reserves. Aggregation has already consumed
-        // the records, so the choice is to spend that headroom or to drop a
-        // batch the backend would in fact have accepted. Spend it, and say
-        // so: a run of these means `PROTO_CHUNK_BYTES` is mis-calibrated for
-        // this account's records.
+        // headroom this module reserves. Spend it rather than dropping a
+        // batch the backend would in fact have accepted; a run of these
+        // means `PROTO_CHUNK_BYTES` is mis-calibrated for this account.
         if size < MEASURED_BACKEND_LIMIT {
             console_log!(
                 "flag log: aggregate of {} records is {} bytes, over the {} byte split \
@@ -338,41 +386,44 @@ pub(super) fn deliver_all_within_limit(
                 MAX_DELIVERY_BYTES,
                 MEASURED_BACKEND_LIMIT
             );
-            return deliver(&request).await;
+            return if deliver(&request).await {
+                Delivered::ok(count)
+            } else {
+                Delivered::lost(count)
+            };
         }
-        // JSON expansion was worse than the protobuf split predicted.
-        // The aggregate has consumed the records, but we can still split
-        // the JSON body itself by re-serializing halves of the aggregate's
-        // flag_assigned — which is the field that grows without bound.
-        if count > 1 {
+        // JSON expanded worse than the protobuf split predicted. Halve the
+        // assignments and recurse, so a half that is *still* too big is
+        // split again rather than 413-ing. Recursion terminates because
+        // each step halves, and a single assignment cannot be split.
+        if request.flag_assigned.len() > 1 {
             console_log!(
                 "flag log: aggregate of {} records is {} bytes (JSON), re-splitting",
                 count,
                 size
             );
-            // Rebuild two halves from the aggregate. flag_resolve_info and
-            // telemetry_data go with the first half only (they're already
-            // merged and safe to deliver once); flag_assigned is halved.
-            let mid = request.flag_assigned.len() / 2;
-            let mut request = request;
-            let second = WriteFlagLogsRequest {
-                flag_assigned: request.flag_assigned.split_off(mid),
+            let mut head = request;
+            let tail_assigned = head.flag_assigned.split_off(head.flag_assigned.len() / 2);
+            let tail = WriteFlagLogsRequest {
+                flag_assigned: tail_assigned,
                 ..Default::default()
             };
-            // client_resolve_info is a union of schemas — safe in either half.
-            let a = deliver(&request).await;
-            let b = deliver(&second).await;
-            return a && b;
+            // Record counts are apportioned by assignment share; the exact
+            // split does not matter for alerting, only the total.
+            let head_count = count.div_ceil(2);
+            let tail_count = count - head_count;
+            let a = deliver_aggregate(head, head_count).await;
+            let b = deliver_aggregate(tail, tail_count).await;
+            return a.merge(b);
         }
-        // A single record that exceeds the backend limit even after
-        // aggregation — nothing left to split.
         console_log!(
-            "flag log: DROPPED 1 record, aggregate of {} bytes is past the {} byte \
-             backend limit",
+            "flag log: DROPPED {} records, a single assignment of {} bytes is past the \
+             {} byte backend limit and cannot be split",
+            count,
             size,
             MEASURED_BACKEND_LIMIT
         );
-        false
+        Delivered::lost(count)
     })
 }
 
@@ -859,5 +910,52 @@ mod deliver_limit_tests {
             worst_json,
             MAX_DELIVERY_BYTES
         );
+    }
+}
+
+#[cfg(test)]
+mod delivered_tests {
+    use super::*;
+
+    /// A split batch where one half lands must not be charged as a whole-
+    /// batch loss: `DROPPED` is what operators alert on.
+    #[test]
+    fn partial_failure_counts_only_the_lost_half() {
+        let a = Delivered::ok(50);
+        let b = Delivered::lost(50);
+        let merged = a.merge(b);
+        assert_eq!(merged.ok, 50, "the half that landed is counted");
+        assert_eq!(merged.lost, 50, "only the failed half is counted lost");
+    }
+
+    #[test]
+    fn a_whole_batch_success_reports_no_loss() {
+        let m = Delivered::ok(10).merge(Delivered::ok(7));
+        assert_eq!((m.ok, m.lost), (17, 0));
+    }
+
+    #[test]
+    fn merging_is_associative_over_several_splits() {
+        let total = Delivered::ok(4)
+            .merge(Delivered::lost(3))
+            .merge(Delivered::ok(2))
+            .merge(Delivered::lost(1));
+        assert_eq!((total.ok, total.lost), (6, 4));
+        assert_eq!(total.ok + total.lost, 10, "every record is accounted for");
+    }
+
+    /// The JSON re-split halves `flag_assigned` and recurses, so the record
+    /// counts it apportions must still sum to the original.
+    #[test]
+    fn re_split_apportions_every_record() {
+        for count in [1usize, 2, 3, 99, 100, 1253] {
+            let head = count.div_ceil(2);
+            let tail = count - head;
+            assert_eq!(head + tail, count, "count {count} must be conserved");
+            if count > 1 {
+                assert!(head > 0 && tail > 0, "count {count} must split non-empty");
+                assert!(head < count && tail < count, "count {count} must shrink");
+            }
+        }
     }
 }
