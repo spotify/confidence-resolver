@@ -70,6 +70,10 @@ use worker::console_log;
 /// that is the worst-case exposure rather than this.
 const FLUSH_BYTES: usize = super::PROTO_CHUNK_BYTES;
 
+/// Records per flush, the count-based counterpart to [`FLUSH_BYTES`].
+/// Keeps a flush of many tiny records bounded in memory, not just in bytes.
+const FLUSH_RECORDS: usize = MAX_BUFFER_RECORDS / 16;
+
 /// How much encoded protobuf the buffer may hold before records are shed.
 ///
 /// Deliberately much larger than [`FLUSH_BYTES`]: a buffered record costs
@@ -84,6 +88,21 @@ const FLUSH_BYTES: usize = super::PROTO_CHUNK_BYTES;
 /// deliveries at ~3 MiB each ≈ 48 MiB total — comfortable within
 /// the 128 MiB isolate limit.
 const MAX_BUFFER_BYTES: usize = 12 * 1024 * 1024;
+
+/// Records the buffer may hold, whichever ceiling is hit first.
+///
+/// `encoded_len` is a wire measure and says nothing about what a record
+/// costs in memory. Every entry is an inline `Entry` — measured at 336
+/// bytes — regardless of how little it encodes to. A telemetry-only apply
+/// log encodes to ~14 bytes, so the byte ceiling alone would admit ~900k of
+/// them: **287 MiB of inline entries**, well past the 128 MiB isolate,
+/// before any heap content, in-flight delivery or resolver state.
+///
+/// 20k entries is ~6.7 MiB of inline `Entry` plus their heap content. For
+/// the string-heavy records the byte ceiling binds first (12 MiB at ~9.7 KB
+/// each is ~1,300 records), so this only takes over for small ones — which
+/// is exactly where the byte ceiling fails.
+const MAX_BUFFER_RECORDS: usize = 20_000;
 
 const _: () = assert!(FLUSH_BYTES < MAX_BUFFER_BYTES);
 
@@ -125,7 +144,17 @@ const POLL_MS: u64 = 250;
 /// After this many consecutive Hold/Shed iterations the waiter gives up, so
 /// it does not pin a `wait_until` slot forever while the backend is stalled.
 /// The next request will elect a new waiter that checks again.
-const MAX_WAIT_ITERS: usize = 120; // 120 * 250ms = 30s
+const MAX_WAIT_ITERS: usize = 40; // 40 * 250ms = 10s
+
+/// Absolute lifetime of a waiter, regardless of how much work it does.
+///
+/// `wait_iters` resets after every flush, so a steady trickle could keep one
+/// waiter alive indefinitely — but it runs on the `wait_until` budget of the
+/// *request that elected it*, which Cloudflare caps at 30s after the
+/// response. Past that the runtime cancels it, stranding records belonging
+/// to newer requests. Retiring early and letting a fresher request elect a
+/// replacement keeps the waiter inside the budget that owns it.
+const MAX_WAITER_LIFETIME_MS: f64 = 20_000.0;
 
 thread_local! {
     static BUFFER: RefCell<Buffer> = const { RefCell::new(Buffer::new()) };
@@ -194,7 +223,12 @@ impl Buffer {
 
     /// Whether the accumulated size alone calls for a flush.
     fn size_due(&self) -> bool {
-        self.bytes >= FLUSH_BYTES
+        self.bytes >= FLUSH_BYTES || self.logs.len() >= FLUSH_RECORDS
+    }
+
+    /// Whether the buffer has hit either absorb ceiling.
+    fn at_ceiling(&self) -> bool {
+        self.bytes >= MAX_BUFFER_BYTES || self.logs.len() >= MAX_BUFFER_RECORDS
     }
 
     /// Whether either timer has expired. Size is checked separately because
@@ -232,7 +266,9 @@ impl Buffer {
         let mut bytes = 0usize;
         let mut count = 0usize;
         for entry in &self.logs {
-            if count > 0 && bytes.saturating_add(entry.len) > FLUSH_BYTES {
+            if count > 0
+                && (bytes.saturating_add(entry.len) > FLUSH_BYTES || count >= FLUSH_RECORDS)
+            {
                 break;
             }
             bytes = bytes.saturating_add(entry.len);
@@ -295,11 +331,11 @@ enum Decision {
 }
 
 /// Pure so it can be tested off wasm32, where `console_log!` aborts.
-fn decide(bytes: usize, in_flight: usize) -> Decision {
-    if in_flight >= HARD_IN_FLIGHT && bytes >= MAX_BUFFER_BYTES {
+fn decide(at_ceiling: bool, in_flight: usize) -> Decision {
+    if in_flight >= HARD_IN_FLIGHT && at_ceiling {
         return Decision::Shed;
     }
-    if in_flight >= MAX_IN_FLIGHT && bytes < MAX_BUFFER_BYTES {
+    if in_flight >= MAX_IN_FLIGHT && !at_ceiling {
         return Decision::Hold;
     }
     Decision::Deliver
@@ -318,7 +354,7 @@ pub(super) fn offer(log: WriteFlagLogsRequest) -> Option<Vec<WriteFlagLogsReques
             return None;
         }
         let in_flight = IN_FLIGHT.with(|n| n.get());
-        let decision = decide(buffer.bytes, in_flight);
+        let decision = decide(buffer.at_ceiling(), in_flight);
         if decision == Decision::Hold {
             return None;
         }
@@ -392,9 +428,24 @@ pub(super) async fn tick() {
     };
 
     let mut wait_iters = 0usize;
+    let started_ms = js_sys::Date::now();
     loop {
         worker::Delay::from(std::time::Duration::from_millis(POLL_MS)).await;
         let now_ms = js_sys::Date::now();
+        if now_ms - started_ms >= MAX_WAITER_LIFETIME_MS {
+            let (records, bytes) = BUFFER.with(|c| {
+                let b = c.borrow();
+                (b.logs.len(), b.bytes)
+            });
+            console_log!(
+                "flag log buffer: waiter retiring at {}ms to stay inside its request's \
+                 wait_until budget; {} records ({} bytes) left for the next waiter",
+                (now_ms - started_ms) as u64,
+                records,
+                bytes
+            );
+            return;
+        }
         let step = BUFFER.with(|cell| {
             let mut buffer = cell.borrow_mut();
             if buffer.logs.is_empty() {
@@ -407,7 +458,7 @@ pub(super) async fn tick() {
             // Due. Respect the same in-flight backpressure the size trigger
             // does, or the timers become a way around it.
             let in_flight = IN_FLIGHT.with(|n| n.get());
-            match decide(buffer.bytes, in_flight) {
+            match decide(buffer.at_ceiling(), in_flight) {
                 Decision::Hold => Step::Wait,
                 // Shed here too. Leaving it to the size trigger strands the
                 // buffer when traffic stops: no further `offer` arrives, the
@@ -433,7 +484,7 @@ pub(super) async fn tick() {
                 loop {
                     let more = BUFFER.with(|cell| {
                         let mut buffer = cell.borrow_mut();
-                        if buffer.logs.is_empty() || buffer.bytes < FLUSH_BYTES {
+                        if buffer.logs.is_empty() || !buffer.size_due() {
                             return None;
                         }
                         Some(buffer.take_chunk())
@@ -607,28 +658,26 @@ mod tests {
 
     #[test]
     fn a_busy_pipe_holds_rather_than_piling_up() {
-        assert_eq!(decide(FLUSH_BYTES, 0), Decision::Deliver);
-        assert_eq!(decide(FLUSH_BYTES, MAX_IN_FLIGHT - 1), Decision::Deliver);
-        assert_eq!(decide(FLUSH_BYTES, MAX_IN_FLIGHT), Decision::Hold);
+        // not at ceiling
+        assert_eq!(decide(false, 0), Decision::Deliver);
+        assert_eq!(decide(false, MAX_IN_FLIGHT - 1), Decision::Deliver);
+        assert_eq!(decide(false, MAX_IN_FLIGHT), Decision::Hold);
     }
 
     /// Holding stops at the buffer ceiling: growing without bound is worse
     /// than one more concurrent delivery.
     #[test]
     fn the_buffer_ceiling_overrides_the_soft_cap() {
-        assert_eq!(decide(MAX_BUFFER_BYTES, MAX_IN_FLIGHT), Decision::Deliver);
-        assert_eq!(
-            decide(MAX_BUFFER_BYTES, HARD_IN_FLIGHT - 1),
-            Decision::Deliver
-        );
+        assert_eq!(decide(true, MAX_IN_FLIGHT), Decision::Deliver);
+        assert_eq!(decide(true, HARD_IN_FLIGHT - 1), Decision::Deliver);
     }
 
     /// ...but not past the hard ceiling, where memory is the bigger risk.
     #[test]
     fn the_hard_ceiling_sheds() {
-        assert_eq!(decide(MAX_BUFFER_BYTES, HARD_IN_FLIGHT), Decision::Shed);
+        assert_eq!(decide(true, HARD_IN_FLIGHT), Decision::Shed);
         // Still below the buffer ceiling, so there is no need to shed yet.
-        assert_eq!(decide(FLUSH_BYTES, HARD_IN_FLIGHT), Decision::Hold);
+        assert_eq!(decide(false, HARD_IN_FLIGHT), Decision::Hold);
     }
 
     /// A backlog must drain in delivery-sized pieces, so one delivery never
@@ -781,6 +830,43 @@ mod tests {
         assert!(
             chunks > 2,
             "a full buffer needs several chunks, got {chunks}"
+        );
+    }
+
+    /// `encoded_len` is a wire measure, not a memory one. A buffer of tiny
+    /// records must hit the count ceiling long before the byte ceiling
+    /// would admit enough of them to exhaust the isolate.
+    #[test]
+    fn the_record_ceiling_bounds_memory_for_tiny_records() {
+        let entry = std::mem::size_of::<Entry>();
+        // What the byte ceiling alone would allow for a ~14 byte record.
+        let by_bytes = MAX_BUFFER_BYTES / 14;
+        let unbounded = by_bytes * entry;
+        assert!(
+            unbounded > 128 * 1024 * 1024,
+            "the premise: {} tiny records would be {} MiB of inline entries",
+            by_bytes,
+            unbounded / (1024 * 1024)
+        );
+        // With the count ceiling the inline cost is bounded regardless.
+        let bounded = MAX_BUFFER_RECORDS * entry;
+        assert!(
+            bounded < 32 * 1024 * 1024,
+            "MAX_BUFFER_RECORDS={} at {}B each is {} MiB of inline entries",
+            MAX_BUFFER_RECORDS,
+            entry,
+            bounded / (1024 * 1024)
+        );
+        // And the count ceiling actually engages: a buffer of empty records
+        // reaches it while the byte total is still negligible.
+        let mut buffer = Buffer::new();
+        for _ in 0..MAX_BUFFER_RECORDS {
+            buffer.push(WriteFlagLogsRequest::default(), 0.0);
+        }
+        assert!(buffer.at_ceiling(), "count ceiling must fire");
+        assert!(
+            buffer.bytes < MAX_BUFFER_BYTES,
+            "byte ceiling would not have"
         );
     }
 

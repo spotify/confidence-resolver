@@ -171,6 +171,14 @@ pub(crate) async fn consume(batch: MessageBatch<String>, env: Env) -> Result<()>
 /// a real outage is not something an in-memory sink can do.
 const DELIVERY_ATTEMPTS: u32 = 3;
 
+/// Ceiling on one delivery attempt.
+///
+/// Every fetch would otherwise await indefinitely, so a blackholed primary
+/// destination never falls through to the secondary, and three attempts
+/// against a slow-failing one can outlast the whole `wait_until` budget
+/// that owns the flush. Bounding the attempt keeps the fallback reachable.
+const ATTEMPT_TIMEOUT_MS: u64 = 5_000;
+
 /// Backoff before retry *n* (1-based). Fixed rather than exponential-to-the-
 /// sky for the same reason the attempt count is small.
 fn retry_backoff_ms(attempt: u32) -> u64 {
@@ -196,8 +204,20 @@ async fn deliver(req: &WriteFlagLogsRequest) -> bool {
     for &destination in crate::LOG_DESTINATIONS.iter() {
         for attempt in 1..=DELIVERY_ATTEMPTS {
             let started_ms = js_sys::Date::now();
-            let result =
-                crate::deliver_flag_logs(client_secret, account_id, req, destination).await;
+            let result = {
+                use futures_util::future::{select, Either};
+                let deliver = crate::deliver_flag_logs(client_secret, account_id, req, destination);
+                let timeout =
+                    worker::Delay::from(std::time::Duration::from_millis(ATTEMPT_TIMEOUT_MS));
+                futures_util::pin_mut!(deliver);
+                futures_util::pin_mut!(timeout);
+                match select(deliver, timeout).await {
+                    Either::Left((result, _)) => result,
+                    Either::Right(((), _)) => Err(crate::DeliveryError::Transport(format!(
+                        "attempt exceeded {ATTEMPT_TIMEOUT_MS}ms"
+                    ))),
+                }
+            };
             let elapsed_ms = (js_sys::Date::now() - started_ms) as u64;
             match result {
                 Ok(()) => {
@@ -1120,7 +1140,7 @@ mod delivered_tests {
         assert_eq!(
             ack_decision(&split_outcome(true, true, 1)),
             Disposition::Partial,
-            "nacking here would re-post the flags that already landed"
+            "a partial must be distinguishable from both clean outcomes"
         );
         assert_eq!(
             ack_decision(&split_outcome(false, true, 1)),
@@ -1137,6 +1157,17 @@ mod delivered_tests {
             ack_decision(&Delivered::ok(50).merge(Delivered::lost(50))),
             Disposition::Partial
         );
+
+        // The queue must NACK a partial: acking would turn a transient
+        // backend failure into permanent loss of durable messages. The
+        // redelivered duplicate is collapsed by apply-dedup; a drop is not
+        // recoverable.
+        fn queue_nacks(d: &Delivered) -> bool {
+            !matches!(ack_decision(d), Disposition::Complete)
+        }
+        assert!(queue_nacks(&Delivered::ok(50).merge(Delivered::lost(50))));
+        assert!(queue_nacks(&Delivered::lost(100)));
+        assert!(!queue_nacks(&Delivered::ok(100)));
         assert_eq!(
             ack_decision(&Delivered::lost(50).merge(Delivered::lost(50))),
             Disposition::Failed
