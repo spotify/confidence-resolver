@@ -335,13 +335,9 @@ pub(super) fn deliver_all_within_limit(
             size,
             MEASURED_BACKEND_LIMIT
         );
-        // A single record over the limit reports success even though it was
-        // dropped, because the only caller that acts on `false` is the queue
-        // consumer, and failing there redelivers a record that will be over
-        // the limit every time until it dead-letters. The loss is reported
-        // above rather than through the return value, so alerting still sees
-        // it. Anything splittable reports the failure honestly.
-        count == 1
+        // Report as a failure so buffer::deliver logs DROPPED and the KV
+        // metrics count it as failed. The drop is already logged above.
+        false
     })
 }
 
