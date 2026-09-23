@@ -26,6 +26,13 @@ A pre-built image is also available at `ghcr.io/spotify/confidence-cloudflare-de
   * **Account > Workers Scripts > Edit**
   * **Account > Workers Queues > Edit** (needed for the first deploy)
   * **Account > Workers KV Storage > Edit** (only if using `ENABLE_METRICS` or `ENABLE_STICKY_ASSIGNMENTS`)
+
+  The deployer probes each of these against the resolved account before it
+  creates anything, and exits naming the missing scope. Note that a token
+  valid for one account returns an indistinguishable authentication error for
+  another, so a token scoped to the wrong account fails here too — check the
+  account id in the error against the one you expect.
+
 * Confidence client secret (must be type **BACKEND**)
 
 ## Usage
@@ -70,6 +77,118 @@ The deployer automatically:
 | `FORCE_APPLY`                        | Defaults to `true`: every resolve is treated as `apply=true` and assignments are logged at resolve time. Set to `false` to respect the `apply` value sent by SDKs (deferred-apply flow via `flags:apply`) |
 | `ENABLE_APPLY_DEDUP`                 | Defaults to `true`: apply-event deduplication is enabled — repeated identical assignments within a 120s window are logged once, both at resolve time and across queue consumer batches. Set to `false` to disable |
 | `FLAG_LOGS_QUEUE_COUNT`              | Number of flag-log queues (default `1`, positive integer up to `9999`). Messages are randomly distributed across them; all use the same consumer Worker. |
+| `FLAG_LOGS_CONSUMER_CONCURRENCY`   | Caps the max concurrent consumers per flag-log queue shard (1–250). Unset by default, which lets Cloudflare autoscale. Setting it *caps* autoscaling rather than requesting a minimum |
+| `FLAG_LOG_SINK`                      | `queue` (default) or `buffer`. Selects how flag logs leave the Worker — see [Flag-log sinks](#flag-log-sinks) |
+
+### Flag-log sinks
+
+`FLAG_LOG_SINK` selects how flag logs get from the Worker to Confidence.
+
+Switching sinks is safe in both directions, and the deployer does the work to
+make it so:
+
+Queue bindings and the queue consumer are created under either sink, so a
+switch in either direction drains whatever a previous version already
+published. Switching away from `buffer` cannot strand anything, because a
+buffer only ever lives inside a running isolate.
+
+#### `buffer`
+
+```
+resolve → in-isolate buffer → Confidence
+```
+
+Nothing sits between the resolver and the backend. Logs accumulate in isolate
+memory and are aggregated and POSTed directly, so there is nothing for the
+deployer to provision and nothing billed per record.
+
+**Throughput scales with traffic.** Cloudflare runs more isolates as load
+grows and each one delivers its own buffer, so there is no shared component
+to saturate. The queue sink has one: it bills and rate limits per message,
+capping around 5,000 messages a second per queue, so high rates need shards
+and cost scales with the record count.
+
+**Flush triggers**, whichever comes first:
+
+- **size** — 768 KiB of encoded protobuf accumulated. This is the trigger
+  that fires under load, and it is what bounds the *steady-state* exposure.
+  Memory is bounded separately, by the 12 MiB absorb ceiling below.
+- **idle** — 1 second with no new log.
+- **age** — 10 seconds since the oldest log.
+
+Sizing follows from the first. Measured against a heavy flag set at ~9.7 KB
+per record, the budget is a few hundred records, so any isolate above a
+modest request rate flushes on size and never reaches the timers. The timers
+cover the tail, where few records are at risk.
+
+**No added resolve latency.** Hitting the size trigger swaps in a fresh
+buffer and delivers the old one from `waitUntil`, so the request that
+happened to fill the buffer does not pay the round-trip.
+
+**Failed deliveries are retried, up to 3 attempts** per destination with a
+250 ms then 1 s backoff, and only while the failure looks transient — `5xx`,
+`429`, `408` and transport errors. A `413` or `401` moves straight on rather
+than failing identically twice more. Retrying runs inside `waitUntil`, so
+every attempt is more time the records exist only in this isolate; that is
+why the budget is small. Riding out a real outage is not something an
+in-memory sink can do, and a batch that exhausts its attempts is dropped.
+
+**Under a stalled backend the buffer absorbs, then sheds.** While deliveries
+are in flight the buffer keeps accumulating rather than starting more, up to
+12 MiB of encoded protobuf. A buffered record costs about 2x its encoded
+size in heap; a delivery in flight costs more still, so memory is spent on the buffer
+rather than on concurrency, and the backlog is drained in delivery-sized
+pieces. Only once 8 deliveries are stuck *and* the buffer is full does it start
+discarding, loudly (`SHED`). The size trigger sheds one chunk at a time;
+the idle/age timers drain all the way back down to the flush size, so a
+stalled backend plus a traffic drop-off cannot strand the full 12 MiB.
+
+Discarding is the last resort rather than the first, because the alternative
+at that point is running the isolate out of memory — which loses the whole
+buffer *and* fails live resolves, not just one batch.
+
+**This is the least durable sink, deliberately.** Cloudflare offers no
+shutdown hook, so an isolate evicted while holding a buffer loses it
+silently, and `waitUntil` is not guaranteed to run.
+
+**How much an eviction can take.** In steady state the buffer flushes every
+768 KiB, so that is the usual exposure. Under backpressure it is much
+larger: while deliveries are stuck the buffer absorbs up to **12 MiB of
+encoded protobuf** before shedding, and all of it is lost if the isolate
+goes away before the backend recovers. Size the risk against 12 MiB, not
+768 KiB. Apply-dedup also only sees one
+isolate's traffic here, so duplicate exposures that the queue consumer would
+have collapsed are sent.
+
+Alert on `DROPPED` and `SHED` in the worker's logs. Between them they cover
+every case where a record does not reach Confidence, except an isolate
+evicted while holding a buffer, which by its nature leaves no log.
+
+Measured on an 800k-resolve run, conservation was within a rounding error of
+100%, but that is one account on one day; treat the durability trade as the
+reason to choose `queue` where a hand-off must survive eviction.
+
+#### `queue` (default)
+
+```
+resolve → flag-logs-queue → queue consumer → Confidence
+```
+
+Each log is published to a queue shard; the consumer aggregates up to 100
+messages before delivery. A publish that fails is dropped — there is no
+in-isolate retry, because anything held between requests is lost when the
+isolate is evicted and Cloudflare provides no shutdown hook to flush it.
+
+On the consumer side, delivery to Confidence is **retried up to 3 times**
+per destination (250 ms then 1 s) while the failure looks transient — `5xx`,
+`429`, `408`, transport errors. A `413` or `401` moves on immediately. If
+nothing lands the batch is nacked and Cloudflare redelivers it. A split
+batch that only partially lands is also nacked: the consumer cannot ack
+one half on its own, since split pieces carry no message identity, so
+acking would permanently drop the half that failed. Redelivery therefore
+re-posts the half that already succeeded — delivery is at-least-once, and
+nothing downstream collapses those duplicates.
+
 
 ### Scaling flag-log queues
 

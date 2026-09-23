@@ -227,9 +227,9 @@ fi
 TMP_HEADER=$(mktemp)
 HTTP_STATUS=$(curl -sS -w "%{http_code}" -D "$TMP_HEADER" -o "$RESPONSE_FILE" ${EXTRA_HEADER[@]+"${EXTRA_HEADER[@]}"} "$CONFIDENCE_RESOLVER_STATE_URL")
 
-if [ "$HTTP_STATUS" = "304" ]; then
+if [ "$HTTP_STATUS" = "304" ] && [ -z "${FORCE_DEPLOY:-}" ]; then
     echo "✅ Resolver state not modified (HTTP 304). Skipping the deployment"
-    # No changes; keep previous ETag
+    echo "   Set FORCE_DEPLOY=1 to deploy anyway (e.g. to change FLAG_LOG_SINK)."
     rm -f "$TMP_HEADER"
     exit 0
 elif [ "$HTTP_STATUS" = "200" ]; then
@@ -350,6 +350,103 @@ echo "🏁 Starting CloudFlare deployment"
 echo "☁️ CloudFlare API token: ${CLOUDFLARE_API_TOKEN:0:5}.."
 echo "☁️ CloudFlare account ID: $CLOUDFLARE_ACCOUNT_ID"
 
+# ---------------------------------------------------------------------------
+# Flag-log sink: "queue" (default) or "buffer".
+#
+# queue  — flag logs publish to the flag-logs queue shards created above and
+#          the worker's queue consumer batches them. Durable once published,
+#          billed per message, and each queue caps around 5k messages/sec.
+# buffer — flag logs accumulate in isolate memory and are aggregated and
+#          POSTed straight to Confidence. Nothing to provision, nothing
+#          billed per record, and throughput scales with the isolate count.
+#          There is no durable hand-off: an evicted isolate loses its buffer.
+#
+# Queue bindings are created under either sink, so switching FLAG_LOG_SINK
+# back to "queue" is an immediate rollback that also drains whatever is still
+# queued.
+# ---------------------------------------------------------------------------
+FLAG_LOG_SINK=${FLAG_LOG_SINK:-queue}
+FLAG_LOG_SINK=$(printf '%s' "$FLAG_LOG_SINK" | tr '[:upper:]' '[:lower:]')
+case "$FLAG_LOG_SINK" in
+    queue | buffer) ;;
+    *)
+        echo "❌ FLAG_LOG_SINK must be \"queue\" or \"buffer\", got: $FLAG_LOG_SINK" >&2
+        exit 1
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Optional ceiling on concurrent flag-log queue consumers (1-250).
+#
+# Cloudflare autoscales queue consumers on its own; setting max_concurrency
+# *caps* that rather than requesting it. Leave unset unless the backend needs
+# protecting from a burst: each consumer aggregates up to max_batch_size (100)
+# messages into one delivery, so 250 concurrent consumers is up to 250
+# in-flight requests to Confidence.
+# ---------------------------------------------------------------------------
+FLAG_LOGS_CONSUMER_CONCURRENCY=${FLAG_LOGS_CONSUMER_CONCURRENCY:-}
+if [ -n "$FLAG_LOGS_CONSUMER_CONCURRENCY" ]; then
+    if [[ ! "$FLAG_LOGS_CONSUMER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] \
+        || [ "$FLAG_LOGS_CONSUMER_CONCURRENCY" -gt 250 ]; then
+        echo "❌ FLAG_LOGS_CONSUMER_CONCURRENCY must be between 1 and 250" >&2
+        exit 1
+    fi
+    CONSUMER_CONCURRENCY_TOML="max_concurrency = $FLAG_LOGS_CONSUMER_CONCURRENCY"
+fi
+
+# Fails fast if CLOUDFLARE_API_TOKEN cannot do what this deploy needs.
+#
+# Every capability is probed with a cheap read against the same endpoint the
+# deploy will later write to, and against the resolved account. A permission
+# gap then surfaces here, naming the scope to add, instead of half-way through
+# after some resources already exist.
+#
+# Probing the account explicitly matters: a token valid for one account
+# returns an indistinguishable authentication error for another, so "the
+# account has this feature" and "this token can see it" are different
+# questions and only the
+# second one is answered here.
+preflight_api_permissions() {
+    local missing=0
+    local base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+    local label perm url code
+
+    echo "🔐 Verifying API token permissions on account ${CLOUDFLARE_ACCOUNT_ID}..."
+
+    check_perm() {
+        label="$1"; perm="$2"; url="$3"
+        code=$(curl -sS -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "$url")
+        if [ "$code" = "200" ]; then
+            echo "   ✅ ${label}"
+        else
+            echo "   ❌ ${label} (HTTP ${code}) — token needs: ${perm}" >&2
+            missing=1
+        fi
+    }
+
+    check_perm "Workers Scripts" "Account > Workers Scripts > Edit" "${base}/workers/scripts"
+    check_perm "Workers Queues"  "Account > Workers Queues > Edit"  "${base}/queues"
+
+    if [ -n "${ENABLE_METRICS:-}" ] || [ -n "${ENABLE_STICKY_ASSIGNMENTS:-}" ]; then
+        check_perm "Workers KV" "Account > Workers KV Storage > Edit" \
+            "${base}/storage/kv/namespaces"
+    fi
+
+    if [ "$missing" -ne 0 ]; then
+        {
+            echo ""
+            echo "❌ CLOUDFLARE_API_TOKEN lacks permissions required for this deploy."
+            echo "   Create or edit a token at https://dash.cloudflare.com/profile/api-tokens"
+            echo "   and make sure it is scoped to account ${CLOUDFLARE_ACCOUNT_ID}."
+        } >&2
+        exit 1
+    fi
+    echo "✅ API token has every permission this deploy needs"
+}
+
+preflight_api_permissions
+
 
 if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
     # Remove existing account_id line if present
@@ -456,6 +553,22 @@ else
     EVENTS_QUEUE_NAME="events-queue"
 fi
 ensure_queue "$EVENTS_QUEUE_NAME" || exit 1
+
+
+
+
+
+
+if [ "$FLAG_LOG_SINK" = "buffer" ]; then
+    # Nothing to provision. Logs accumulate in isolate memory and are POSTed
+    # straight to Confidence, so there is no queue to create and nothing
+    # billed per record. Queue bindings are still created above, so switching
+    # back to "queue" is an immediate rollback.
+    echo "✅ Flag-log sink: buffer (in-isolate, delivered direct)"
+else
+    echo "✅ Flag-log sink: queue"
+fi
+
 
 # Create KV namespace for /metrics endpoint if it doesn't exist
 if [ -n "$WORKER_NAME_PREFIX" ]; then
@@ -616,8 +729,8 @@ if [ -n "$ENABLE_APPLY_DEDUP" ]; then
     fi
 fi
 
-# Update [vars] table with ALLOWED_ORIGIN, RESOLVER_STATE_ETAG and RESOLVER_VERSION, without duplicating the table
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ]; then
+# Update [vars] without duplicating the table.
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
@@ -626,7 +739,8 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^FORCE_APPLY *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^ENABLE_APPLY_DEDUP *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" '
+    sed -i.tmp '/^FLAG_LOG_SINK *= *.*$/d' wrangler.toml || true
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -637,6 +751,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
                 if (force_apply != "") print "FORCE_APPLY = \"" force_apply "\""
                 if (enable_apply_dedup != "") print "ENABLE_APPLY_DEDUP = \"" enable_apply_dedup "\""
+                if (flag_log_sink != "") print "FLAG_LOG_SINK = \"" flag_log_sink "\""
                 inserted=1
             }
         }
@@ -655,6 +770,29 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     fi
     if [ -n "$FORCE_APPLY" ]; then
         echo "✅ FORCE_APPLY set to \"$FORCE_APPLY\" in wrangler.toml"
+    fi
+    if [ -n "$FLAG_LOG_SINK" ]; then
+        echo "✅ FLAG_LOG_SINK set to \"$FLAG_LOG_SINK\" in wrangler.toml"
+    fi
+
+    # Inject max_concurrency into every flag-logs *consumer* — the base one
+    # from the template and every shard appended above.
+    #
+    # Tracking the table header matters: a producer block carries the same
+    # queue = "…flag-logs-queue" line but has no max_batch_timeout, so
+    # matching on the queue name alone leaves the flag set and the next
+    # max_batch_timeout it finds belongs to the events consumer.
+    if [ -n "${CONSUMER_CONCURRENCY_TOML:-}" ]; then
+        awk -v mc="$CONSUMER_CONCURRENCY_TOML" '
+            /^\[\[queues\.consumers\]\]/ { in_consumer = 1; is_flag_logs = 0 }
+            /^\[\[/ && !/^\[\[queues\.consumers\]\]/ { in_consumer = 0; is_flag_logs = 0 }
+            in_consumer && /^queue = .*flag-logs-queue/ { is_flag_logs = 1 }
+            { print }
+            in_consumer && is_flag_logs && /^max_batch_timeout/ {
+                print mc; is_flag_logs = 0; in_consumer = 0
+            }
+        ' wrangler.toml > wrangler.toml.tmp && mv wrangler.toml.tmp wrangler.toml
+        echo "✅ FLAG_LOGS_CONSUMER_CONCURRENCY set to $FLAG_LOGS_CONSUMER_CONCURRENCY"
     fi
 fi
 

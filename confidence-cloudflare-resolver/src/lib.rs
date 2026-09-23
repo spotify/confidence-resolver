@@ -1,11 +1,9 @@
-mod flag_log_queues;
+mod flag_log;
 mod materialization;
 
 use confidence_resolver::{
-    apply_dedup::{
-        compute_applied_flag_dedup_hash, AppliedFlagRef, ApplyDedup, ApplyDedupSnapshot,
-    },
-    assign_logger, flag_logger,
+    apply_dedup::{ApplyDedup, ApplyDedupSnapshot},
+    assign_logger,
     proto::{confidence, google::Struct},
     resolve_logger,
     telemetry::{self, TelemetrySnapshot},
@@ -77,23 +75,25 @@ fn dedup_telemetry_delta(
     })
 }
 
-/// Queues one request's flag log and sweeps the apply-dedup map. Called via
+/// Ships one request's flag log and sweeps the apply-dedup map. Called via
 /// `Context::wait_until`, so both run after the response has been returned.
 ///
-/// When multiple queue shards are configured, picks one at random. If
-/// the send fails, tries the remaining shards before giving up.
-async fn queue_flag_log(log: WriteFlagLogsRequest) {
+/// What "ships" means depends on the active sink — see `flag_log::send`.
+/// Shard selection and failover live in `flag_log::shards`.
+async fn queue_flag_log(emitted: Option<flag_log::Emitted>) {
+    // One budget for everything this invocation schedules: deliveries,
+    // retries, backoff, split chunks and the waiter's final drain. Created
+    // here and copied down, so a concurrent invocation cannot move it.
+    let deadline = flag_log::Deadline::for_http_background();
     if APPLY_DEDUP_ENABLED.with(|c| c.get()) {
         APPLY_DEDUP.with(|d| d.borrow_mut().sweep((js_sys::Date::now() / 1000.0) as i64));
     }
-    match serde_json::to_string(&log) {
-        Ok(json) => {
-            if let Some(queues) = FLAGS_LOGS_QUEUES.get() {
-                flag_log_queues::send_to_any(queues, &json, js_sys::Math::random()).await;
-            }
-        }
-        Err(e) => console_log!("flag log serialize failed: {:?}", e),
+    if let Some(emitted) = emitted {
+        flag_log::send(emitted, deadline).await;
     }
+    // The buffer sink's idle and age triggers need something still running
+    // after the traffic stops; every other sink makes this a no-op.
+    flag_log::tick(deadline).await;
 }
 
 /// Runs `f` with `log` installed as the destination for the `Host` logging
@@ -128,8 +128,6 @@ fn seed_resolver_rng() {
 
 /// Prometheus exposition format content type (version 0.0.4).
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
-
-static FLAGS_LOGS_QUEUES: OnceLock<Vec<Queue>> = OnceLock::new();
 
 static EVENTS_QUEUE: OnceLock<Queue> = OnceLock::new();
 
@@ -308,13 +306,7 @@ async fn resolve_with_sticky(
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
-    FLAGS_LOGS_QUEUES.get_or_init(|| {
-        let queues = flag_log_queues::discover(|name| env.queue(name).ok());
-        if queues.is_empty() {
-            console_log!("flag_logs_queue binding is missing; logging disabled");
-        }
-        queues
-    });
+    flag_log::init(&env);
 
     match env.queue("events_queue") {
         Ok(queue) => {
@@ -552,7 +544,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                         td.sdk = Some(sdk_info());
                         td.apply_dedup = dedup_telemetry_delta();
                         log.telemetry_data = Some(td);
-                        event_ctx.wait_until(queue_flag_log(log));
+                        event_ctx.wait_until(queue_flag_log(flag_log::emit_inline(log)));
 
                         resp
                     }
@@ -598,9 +590,17 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             let td = log.telemetry_data.get_or_insert_with(Default::default);
                             td.apply_dedup = Some(dedup_delta);
                         }
-                        if log != WriteFlagLogsRequest::default() {
-                            event_ctx.wait_until(queue_flag_log(log));
-                        }
+                        // Always go through queue_flag_log, even with no log
+                        // to ship: it also sweeps apply-dedup and runs the
+                        // buffer's timer tick. An apply-only traffic pattern
+                        // would otherwise never drain the buffer once the
+                        // waiter gave up.
+                        let emitted = if log != WriteFlagLogsRequest::default() {
+                            flag_log::emit_inline(log)
+                        } else {
+                            None
+                        };
+                        event_ctx.wait_until(queue_flag_log(emitted));
                         resp
                     }
                     "telemetry:upload" => Response::ok("")?.with_cors_headers(&allowed_origin),
@@ -717,114 +717,13 @@ pub async fn consume_queue(
 ) -> Result<()> {
     set_client_secret(&env);
     seed_resolver_rng();
+    flag_log::init(&env);
 
     let queue_name = message_batch.queue();
     if queue_name.ends_with("events-queue") {
         return consume_events_queue(message_batch, env).await;
     }
-
-    consume_flag_logs(message_batch, env).await
-}
-
-/// Deduplicates applied flags across a batch of log messages. Different
-/// isolates may each log the same user+flag assignment within the batch
-/// window; this removes the duplicates before the network request.
-fn dedup_batch_flag_applies(logs: &mut [WriteFlagLogsRequest], now_seconds: i64) {
-    let mut dedup = ApplyDedup::new(120, 100_000);
-    for log in logs.iter_mut() {
-        for fa in &mut log.flag_assigned {
-            fa.flags.retain(|applied| {
-                let hash = compute_applied_flag_dedup_hash(&AppliedFlagRef::from(applied));
-                dedup.check_hash(hash, now_seconds)
-            });
-        }
-        log.flag_assigned.retain(|fa| !fa.flags.is_empty());
-    }
-}
-
-async fn consume_flag_logs(message_batch: MessageBatch<String>, env: Env) -> Result<()> {
-    if let Ok(messages) = message_batch.messages() {
-        // A message that fails to parse is skipped instead of panicking the
-        // whole batch (a panic would retry and eventually drop all of it).
-        let mut logs: Vec<WriteFlagLogsRequest> = messages
-            .iter()
-            .map(|m| m.body().clone())
-            .filter_map(
-                |s| match serde_json::from_str::<WriteFlagLogsRequest>(s.as_str()) {
-                    Ok(log) => Some(log),
-                    Err(e) => {
-                        console_log!("flag log message parse failed, skipping: {:?}", e);
-                        None
-                    }
-                },
-            )
-            .collect();
-
-        let enable_dedup = env
-            .var("ENABLE_APPLY_DEDUP")
-            .map(|var| !var.to_string().trim().eq_ignore_ascii_case("false"))
-            .unwrap_or(true);
-        if enable_dedup {
-            dedup_batch_flag_applies(&mut logs, (js_sys::Date::now() / 1000.0) as i64);
-        }
-
-        let req = flag_logger::aggregate_batch(logs);
-
-        let client_secret = CONFIDENCE_CLIENT_SECRET.get().unwrap().as_str();
-        let account_id = CDN_STATE_REQUEST.account_id.as_str();
-        let destinations = &*LOG_DESTINATIONS;
-
-        let (primary, fallback) = if destinations.len() >= 2 {
-            (destinations[0], Some(destinations[1]))
-        } else {
-            (destinations[0], None)
-        };
-
-        let delivered = if let Err(reason) =
-            deliver_flag_logs(client_secret, account_id, &req, primary).await
-        {
-            console_log!(
-                "flag log delivery to {:?} failed ({}), trying fallback",
-                primary,
-                reason
-            );
-            match fallback {
-                Some(fb) => match deliver_flag_logs(client_secret, account_id, &req, fb).await {
-                    Ok(()) => true,
-                    Err(fb_reason) => {
-                        console_log!(
-                            "fallback flag log delivery to {:?} also failed: {}",
-                            fb,
-                            fb_reason
-                        );
-                        false
-                    }
-                },
-                None => false,
-            }
-        } else {
-            true
-        };
-
-        if let Ok(kv) = env.kv("CONFIDENCE_METRICS_KV") {
-            update_kv_snapshot(
-                &kv,
-                SnapshotPipeline::FlagLogs,
-                request_telemetry_to_accumulate(req.telemetry_data.as_ref(), delivered),
-                Some(delivered),
-                None,
-            )
-            .await;
-        }
-
-        if !delivered {
-            return Err(worker::Error::RustError(
-                "flag log delivery failed on all destinations".to_string(),
-            ));
-        }
-    }
-
-    Ok(())
+    flag_log::consume(message_batch, env).await
 }
 
 /// Attempt delivery to one destination. Any transport error or non-2xx/3xx
@@ -834,16 +733,82 @@ async fn deliver_flag_logs(
     account_id: &str,
     req: &WriteFlagLogsRequest,
     dest: LogDestination,
-) -> std::result::Result<(), String> {
+    budget_ms: u64,
+) -> std::result::Result<(), DeliveryError> {
     let url = log_destination_url(&dest);
     let acct = match dest {
         LogDestination::Edge => None,
         _ => Some(account_id),
     };
-    match send_flags_logs(client_secret, req, url, acct).await {
+    match send_flags_logs(client_secret, req, url, acct, budget_ms).await {
         Ok(resp) if resp.status_code() < 400 => Ok(()),
-        Ok(resp) => Err(format!("HTTP {}", resp.status_code())),
-        Err(e) => Err(format!("{:?}", e)),
+        Ok(resp) => Err(DeliveryError::Status(resp.status_code())),
+        Err(e) => Err(DeliveryError::Transport(format!("{:?}", e))),
+    }
+}
+
+/// Why a flag-log delivery failed, kept structured so callers can tell a
+/// failure worth retrying from one that will fail identically forever.
+#[derive(Debug)]
+pub(crate) enum DeliveryError {
+    /// The backend answered, with this status.
+    Status(u16),
+    /// The request never produced a response.
+    Transport(String),
+}
+
+impl DeliveryError {
+    /// Whether retrying the identical body could plausibly succeed.
+    ///
+    /// Retrying a `413` or a `401` just burns the retry budget and delays
+    /// every later flush behind it: an oversized body stays oversized and a
+    /// bad secret stays bad. `429` and `408` are explicitly retryable, and
+    /// so is anything `5xx` — those are the backend saying "not now" rather
+    /// than "not ever". A request that never got a response is retried too,
+    /// which risks a duplicate if it actually landed; apply-dedup upstream
+    /// makes that the cheaper error.
+    pub(crate) fn is_retryable(&self) -> bool {
+        match self {
+            DeliveryError::Status(code) => *code >= 500 || *code == 429 || *code == 408,
+            DeliveryError::Transport(_) => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod delivery_error_tests {
+    use super::DeliveryError;
+
+    /// Retrying these just burns the budget and delays every later flush:
+    /// an oversized body stays oversized, a bad secret stays bad.
+    #[test]
+    fn permanent_failures_are_not_retried() {
+        for code in [400, 401, 403, 404, 413, 422] {
+            assert!(
+                !DeliveryError::Status(code).is_retryable(),
+                "HTTP {code} must not be retried"
+            );
+        }
+    }
+
+    #[test]
+    fn transient_failures_are_retried() {
+        for code in [408, 429, 500, 502, 503, 504] {
+            assert!(
+                DeliveryError::Status(code).is_retryable(),
+                "HTTP {code} must be retried"
+            );
+        }
+        assert!(DeliveryError::Transport("socket hang up".into()).is_retryable());
+    }
+}
+
+impl std::fmt::Display for DeliveryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeliveryError::Status(code) => write!(f, "HTTP {code}"),
+            DeliveryError::Transport(e) => write!(f, "{e}"),
+        }
     }
 }
 
@@ -893,26 +858,6 @@ impl SnapshotPipeline {
             SnapshotPipeline::FlagLogs => SNAPSHOT_KEY_FLAG_LOGS,
             SnapshotPipeline::Events => SNAPSHOT_KEY_EVENTS,
         }
-    }
-}
-
-/// A request's own telemetry deltas are accumulated only when delivery
-/// succeeded.
-///
-/// A failed batch makes the consumer return `Err`, which tells Cloudflare
-/// Queues to redeliver it. Folding the deltas in on a failed attempt would
-/// therefore count them again on every retry, multiplying apply-dedup, latency,
-/// resolve rates and provider-init by the attempt count. The flush
-/// success/failure counter is still recorded per attempt — that one is meant to
-/// count attempts.
-fn request_telemetry_to_accumulate(
-    telemetry: Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData>,
-    delivered: bool,
-) -> Option<&confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData> {
-    if delivered {
-        telemetry
-    } else {
-        None
     }
 }
 
@@ -1048,6 +993,35 @@ async fn render_metrics(kv: &kv::KvStore) -> String {
 ///
 /// `event_result` is `(published, rejected, succeeded)`, where `published` is
 /// already net of the events the service refused.
+/// Accumulates a pre-merged [`TelemetrySnapshot`] into the KV snapshot.
+///
+/// The delta-based [`update_kv_snapshot`] takes a single `TelemetryData`;
+/// callers that batch many requests must merge first, or they undercount by
+/// the batch size.
+async fn update_kv_snapshot_merged(
+    kv: &kv::KvStore,
+    pipeline: SnapshotPipeline,
+    snapshot: Option<&TelemetrySnapshot>,
+    flush_result: Option<bool>,
+) {
+    let key = pipeline.key();
+    let mut cumulative = match kv.get(key).text().await {
+        Ok(Some(text)) => serde_json::from_str::<TelemetrySnapshot>(&text).unwrap_or_default(),
+        _ => TelemetrySnapshot::default(),
+    };
+    if let Some(snap) = snapshot {
+        cumulative = merge_snapshots(cumulative, snap, GaugeSource::Live);
+    }
+    match flush_result {
+        Some(true) => cumulative.flush.succeeded = cumulative.flush.succeeded.wrapping_add(1),
+        Some(false) => cumulative.flush.failed = cumulative.flush.failed.wrapping_add(1),
+        None => {}
+    }
+    if let Ok(builder) = kv.put(key, serde_json::to_string(&cumulative).unwrap_or_default()) {
+        let _ = builder.execute().await;
+    }
+}
+
 async fn update_kv_snapshot(
     kv: &kv::KvStore,
     pipeline: SnapshotPipeline,
@@ -1126,6 +1100,7 @@ async fn send_flags_logs(
     message: &WriteFlagLogsRequest,
     destination_url: &str,
     account_id: Option<&str>,
+    budget_ms: u64,
 ) -> Result<Response> {
     let mut init = RequestInit::new();
     let headers = Headers::new();
@@ -1151,7 +1126,29 @@ async fn send_flags_logs(
     }
 
     let request = Request::new_with_init(destination_url, &init)?;
-    Fetch::Request(request).send().await
+    let fetch = Fetch::Request(request);
+
+    // Bounded by `budget_ms`, and genuinely aborted when it expires.
+    //
+    // A `select` alone is not enough: dropping the losing Rust future does
+    // not cancel the underlying fetch, so the request still completes and a
+    // "timed out" delivery can land while being reported lost. The signal
+    // is what actually cancels it.
+    let controller = AbortController::default();
+    let signal = controller.signal();
+    let send = fetch.send_with_signal(&signal);
+    let timer = Delay::from(std::time::Duration::from_millis(budget_ms));
+    futures_util::pin_mut!(send);
+    futures_util::pin_mut!(timer);
+    match futures_util::future::select(send, timer).await {
+        futures_util::future::Either::Left((result, _)) => result,
+        futures_util::future::Either::Right(((), _)) => {
+            controller.abort();
+            Err(worker::Error::RustError(format!(
+                "delivery aborted after {budget_ms}ms"
+            )))
+        }
+    }
 }
 
 const EVENTS_URL: &str = "https://events.confidence.dev/v1/events:publish";
@@ -1398,27 +1395,6 @@ mod snapshot_merge_tests {
     /// A failed batch is redelivered by Queues, so its telemetry must not be
     /// accumulated on the failing attempt — otherwise a fail-then-succeed
     /// sequence counts those deltas once per attempt.
-    #[test]
-    fn request_telemetry_is_accumulated_only_on_successful_delivery() {
-        use confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData;
-
-        let td = TelemetryData {
-            memory_bytes: 4096,
-            ..Default::default()
-        };
-
-        assert!(
-            request_telemetry_to_accumulate(Some(&td), true).is_some(),
-            "a delivered batch must have its telemetry accumulated"
-        );
-        assert!(
-            request_telemetry_to_accumulate(Some(&td), false).is_none(),
-            "a failed batch is retried, so accumulating now double-counts it"
-        );
-        // No telemetry on the request is simply nothing to accumulate.
-        assert!(request_telemetry_to_accumulate(None, true).is_none());
-    }
-
     /// provider_init_rate is keyed by label set, so a shared label set must
     /// accumulate across pipelines while distinct ones stay separate. Without
     /// a provider_init_rate arm in merge_snapshots this reads as zero for
@@ -1914,282 +1890,5 @@ mod tests {
         assert_eq!(events[0]["payload"]["count"], 42.0);
         assert_eq!(events[0]["payload"]["tags"][0], "a");
         assert_eq!(events[0]["payload"]["tags"][1], "b");
-    }
-}
-
-#[cfg(test)]
-mod dedup_batch_tests {
-    use super::*;
-    use confidence_resolver::proto::confidence::flags::resolver::v1::events::flag_assigned::{
-        applied_flag::Assignment, AppliedFlag, AssignmentInfo, DefaultAssignment,
-    };
-    use confidence_resolver::proto::confidence::flags::resolver::v1::events::FlagAssigned;
-
-    fn applied(flag: &str, user: &str, variant: &str) -> AppliedFlag {
-        AppliedFlag {
-            flag: flag.to_string(),
-            targeting_key: user.to_string(),
-            assignment: Some(Assignment::AssignmentInfo(AssignmentInfo {
-                variant: variant.to_string(),
-                segment: String::new(),
-            })),
-            ..Default::default()
-        }
-    }
-
-    fn assigned_event(resolve_id: &str, flags: Vec<AppliedFlag>) -> FlagAssigned {
-        FlagAssigned {
-            resolve_id: resolve_id.to_string(),
-            client_info: None,
-            flags,
-        }
-    }
-
-    fn log_with_assigns(assigns: Vec<FlagAssigned>) -> WriteFlagLogsRequest {
-        WriteFlagLogsRequest {
-            flag_assigned: assigns,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn no_duplicates_all_preserved() {
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event(
-                "r1",
-                vec![
-                    applied("flags/a", "user-1", "on"),
-                    applied("flags/b", "user-1", "off"),
-                ],
-            )]),
-            log_with_assigns(vec![assigned_event(
-                "r2",
-                vec![applied("flags/c", "user-2", "on")],
-            )]),
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
-        assert_eq!(logs[1].flag_assigned[0].flags.len(), 1);
-    }
-
-    #[test]
-    fn exact_duplicate_across_messages_removed() {
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event(
-                "r1",
-                vec![applied("flags/a", "user-1", "on")],
-            )]),
-            log_with_assigns(vec![assigned_event(
-                "r2",
-                vec![applied("flags/a", "user-1", "on")],
-            )]),
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned.len(), 1);
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-        assert!(logs[1].flag_assigned.is_empty());
-    }
-
-    #[test]
-    fn duplicate_within_same_flag_assigned_removed() {
-        let mut logs = vec![log_with_assigns(vec![assigned_event(
-            "r1",
-            vec![
-                applied("flags/a", "user-1", "on"),
-                applied("flags/a", "user-1", "on"),
-            ],
-        )])];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-    }
-
-    #[test]
-    fn partial_dedup_keeps_unique_flags() {
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event(
-                "r1",
-                vec![applied("flags/a", "user-1", "on")],
-            )]),
-            log_with_assigns(vec![assigned_event(
-                "r2",
-                vec![
-                    applied("flags/a", "user-1", "on"),
-                    applied("flags/b", "user-1", "off"),
-                ],
-            )]),
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-        assert_eq!(logs[1].flag_assigned[0].flags.len(), 1);
-        assert_eq!(logs[1].flag_assigned[0].flags[0].flag, "flags/b");
-    }
-
-    #[test]
-    fn same_flag_different_users_not_deduped() {
-        let mut logs = vec![log_with_assigns(vec![assigned_event(
-            "r1",
-            vec![
-                applied("flags/a", "user-1", "on"),
-                applied("flags/a", "user-2", "on"),
-            ],
-        )])];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
-    }
-
-    #[test]
-    fn same_flag_same_user_different_variant_not_deduped() {
-        let mut logs = vec![log_with_assigns(vec![assigned_event(
-            "r1",
-            vec![
-                applied("flags/a", "user-1", "on"),
-                applied("flags/a", "user-1", "off"),
-            ],
-        )])];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 2);
-    }
-
-    #[test]
-    fn empty_batch_is_noop() {
-        let mut logs: Vec<WriteFlagLogsRequest> = vec![];
-        dedup_batch_flag_applies(&mut logs, 1000);
-        assert!(logs.is_empty());
-    }
-
-    #[test]
-    fn logs_without_flag_assigned_unchanged() {
-        use confidence_resolver::proto::confidence::flags::admin::v1::FlagResolveInfo;
-
-        let mut logs = vec![WriteFlagLogsRequest {
-            flag_resolve_info: vec![FlagResolveInfo {
-                flag: "flags/a".to_string(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_resolve_info.len(), 1);
-        assert!(logs[0].flag_assigned.is_empty());
-    }
-
-    #[test]
-    fn default_assignment_deduped_correctly() {
-        let da = AppliedFlag {
-            flag: "flags/archived".to_string(),
-            targeting_key: "user-1".to_string(),
-            assignment: Some(Assignment::DefaultAssignment(DefaultAssignment {
-                reason: 3, // FLAG_ARCHIVED
-            })),
-            ..Default::default()
-        };
-
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event("r1", vec![da.clone()])]),
-            log_with_assigns(vec![assigned_event("r2", vec![da])]),
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-        assert!(logs[1].flag_assigned.is_empty());
-    }
-
-    #[test]
-    fn flag_resolve_info_untouched_by_dedup() {
-        use confidence_resolver::proto::confidence::flags::admin::v1::{
-            flag_resolve_info::VariantResolveInfo, FlagResolveInfo,
-        };
-
-        let mut logs = vec![WriteFlagLogsRequest {
-            flag_assigned: vec![
-                assigned_event("r1", vec![applied("flags/a", "user-1", "on")]),
-                assigned_event("r2", vec![applied("flags/a", "user-1", "on")]),
-            ],
-            flag_resolve_info: vec![FlagResolveInfo {
-                flag: "flags/a".to_string(),
-                variant_resolve_info: vec![VariantResolveInfo {
-                    variant: "on".to_string(),
-                    count: 42,
-                }],
-                ..Default::default()
-            }],
-            ..Default::default()
-        }];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert_eq!(logs[0].flag_resolve_info.len(), 1);
-        assert_eq!(
-            logs[0].flag_resolve_info[0].variant_resolve_info[0].count,
-            42
-        );
-        assert_eq!(logs[0].flag_assigned[0].flags.len(), 1);
-    }
-
-    #[test]
-    fn telemetry_data_preserved_even_when_all_assigns_deduped() {
-        use confidence_resolver::proto::confidence::flags::resolver::v1::TelemetryData;
-
-        let mut logs = vec![
-            log_with_assigns(vec![assigned_event(
-                "r1",
-                vec![applied("flags/a", "user-1", "on")],
-            )]),
-            WriteFlagLogsRequest {
-                flag_assigned: vec![assigned_event(
-                    "r2",
-                    vec![applied("flags/a", "user-1", "on")],
-                )],
-                telemetry_data: Some(TelemetryData {
-                    memory_bytes: 4096,
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-        ];
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        assert!(logs[1].flag_assigned.is_empty());
-        assert_eq!(logs[1].telemetry_data.as_ref().unwrap().memory_bytes, 4096);
-    }
-
-    #[test]
-    fn many_duplicates_across_many_messages() {
-        let mut logs: Vec<WriteFlagLogsRequest> = (0..50)
-            .map(|i| {
-                log_with_assigns(vec![assigned_event(
-                    &format!("r{}", i),
-                    vec![applied("flags/a", "user-1", "on")],
-                )])
-            })
-            .collect();
-
-        dedup_batch_flag_applies(&mut logs, 1000);
-
-        let total_flags: usize = logs
-            .iter()
-            .flat_map(|l| &l.flag_assigned)
-            .map(|fa| fa.flags.len())
-            .sum();
-        assert_eq!(
-            total_flags, 1,
-            "50 identical applies should yield 1 survivor"
-        );
     }
 }

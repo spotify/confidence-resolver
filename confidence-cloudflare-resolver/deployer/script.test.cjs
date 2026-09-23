@@ -135,3 +135,198 @@ test('count=1 with prefix: only base queue prefixed', () => {
   const { consumers } = extractQueues(config);
   assert.deepEqual(consumers, ['customer-flag-logs-queue', 'customer-events-queue']);
 });
+
+// --- Flag-log sink tests ---
+
+// Runs the real validation block out of script.sh rather than a copy, so
+// this cannot silently pass while the script says something else.
+const SINK_VALIDATION = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/^case "\$FLAG_LOG_SINK" in[\s\S]*?^esac$/m);
+  assert.ok(match, 'could not find the FLAG_LOG_SINK validation in script.sh');
+  return match[0];
+})();
+
+function runSinkValidation(value) {
+  return spawnSync('bash', ['-c', `
+set -euo pipefail
+FLAG_LOG_SINK=${value === undefined ? '${FLAG_LOG_SINK:-queue}' : `"${value}"`}
+FLAG_LOG_SINK=$(printf '%s' "$FLAG_LOG_SINK" | tr '[:upper:]' '[:lower:]')
+${SINK_VALIDATION}
+echo "$FLAG_LOG_SINK"
+`], { encoding: 'utf8', timeout: 5000, env: { ...process.env, FLAG_LOG_SINK: '' } });
+}
+
+for (const value of ['queue', 'QUEUE', 'buffer', 'BUFFER']) {
+  test(`accepts sink ${value} and lowercases it`, () => {
+    const result = runSinkValidation(value);
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), value.toLowerCase());
+  });
+}
+
+for (const value of ['', 'r2', 'logpush', 'true', 'queues', 'buffered', 'memory']) {
+  test(`rejects sink ${JSON.stringify(value)}`, () => {
+    const result = runSinkValidation(value);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /FLAG_LOG_SINK must be/);
+  });
+}
+
+test('defaults to queue when unset', () => {
+  const result = runSinkValidation(undefined);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout.trim(), 'queue');
+});
+
+test('buffer mode provisions no transport of its own', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const branch = script.match(/if \[ "\$FLAG_LOG_SINK" = "buffer" \][\s\S]*?^else$/m);
+  assert.ok(branch, 'buffer branch not found');
+  assert.doesNotMatch(branch[0], /logpush|r2\/buckets|curl/i,
+    'buffer mode must not provision transport resources');
+});
+
+test('logpush is gone from the deployer entirely', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  assert.doesNotMatch(script, /logpush/i, 'no logpush leftovers');
+  assert.doesNotMatch(script, /FLAG_LOGS_INGEST_TOKEN/, 'no ingest token leftovers');
+});
+
+// --- API token preflight tests ---
+
+// Replicates the preflight probe loop with a stubbed `curl`, so the tests
+// cover the branching and messaging without reaching the network. `codes`
+// maps an endpoint fragment to the HTTP status the stub should return.
+function runPreflight(sink, codes, extra = {}) {
+  const directory = mkdtempSync(join(tmpdir(), 'preflight-test-'));
+  try {
+    const cases = Object.entries(codes)
+      .map(([frag, code]) => `  *${frag}*) echo -n "${code}";;`)
+      .join('\n');
+    writeFileSync(join(directory, 'curl'), `#!/bin/bash
+for a in "$@"; do case "$a" in https://*) url="$a";; esac; done
+case "$url" in
+${cases}
+  *) echo -n "200";;
+esac
+`, { mode: 0o755 });
+
+    const result = spawnSync('bash', ['-c', `
+set -uo pipefail
+export PATH="${directory}:$PATH"
+CLOUDFLARE_ACCOUNT_ID=acct123
+CLOUDFLARE_API_TOKEN=tok
+FLAG_LOG_SINK=${sink}
+ENABLE_METRICS="${extra.metrics || ''}"
+ENABLE_STICKY_ASSIGNMENTS=""
+missing=0
+base="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
+check_perm() {
+    label="$1"; perm="$2"; url="$3"
+    code=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$url")
+    if [ "$code" = "200" ]; then echo "PROBE_OK ${'${label}'}"; else
+        echo "PROBE_FAIL ${'${label}'} needs: ${'${perm}'}" >&2; missing=1; fi
+}
+check_perm "Workers Scripts" "Account > Workers Scripts > Edit" "$base/workers/scripts"
+check_perm "Workers Queues"  "Account > Workers Queues > Edit"  "$base/queues"
+if [ -n "$ENABLE_METRICS" ]; then
+    check_perm "Workers KV" "Account > Workers KV Storage > Edit" "$base/storage/kv/namespaces"
+fi
+[ "$missing" -ne 0 ] && exit 1
+exit 0
+`], { encoding: 'utf8', timeout: 5000 });
+    return result;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('preflight passes when every probe returns 200', () => {
+  const r = runPreflight('queue', {});
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 2);
+});
+
+// Neither sink needs anything beyond scripts and queues: the buffer
+// provisions no transport at all, and queue bindings exist under both.
+test('buffer mode probes nothing extra', () => {
+  const r = runPreflight('buffer', {});
+  assert.equal(r.status, 0);
+  assert.equal((r.stdout.match(/PROBE_OK/g) || []).length, 2);
+});
+
+test('a 403 fails the deploy and names the scope', () => {
+  const r = runPreflight('queue', { 'workers/scripts': 403 });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /PROBE_FAIL Workers Scripts needs: Account > Workers Scripts > Edit/);
+});
+
+// A token valid for one account returns an indistinguishable auth error for
+// another, so a wrong-account token must fail here rather than part-way in.
+test('a token with no access to the account fails every probe', () => {
+  const r = runPreflight('queue', { 'workers/scripts': 403, queues: 403 });
+  assert.equal(r.status, 1);
+  assert.equal((r.stderr.match(/PROBE_FAIL/g) || []).length, 2);
+});
+
+test('KV is only probed when metrics are enabled', () => {
+  assert.doesNotMatch(runPreflight('queue', {}).stdout, /Workers KV/);
+  assert.match(runPreflight('queue', {}, { metrics: '1' }).stdout, /PROBE_OK Workers KV/);
+});
+
+// The real script probes KV for sticky assignments too; the harness above
+// only models ENABLE_METRICS, so assert the script itself covers both.
+test('the script probes KV for sticky assignments as well as metrics', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const guard = script.match(/if \[ -n "\$\{ENABLE_METRICS:-\}" \][^\n]*\n/);
+  assert.ok(guard, 'KV probe guard not found');
+  assert.match(
+    guard[0],
+    /ENABLE_STICKY_ASSIGNMENTS/,
+    'KV probe must also fire for sticky assignments',
+  );
+});
+
+// --- max_concurrency placement ---
+
+// A producer block carries the same queue = "…flag-logs-queue" line but has
+// no max_batch_timeout, so matching on the queue name alone leaks the cap
+// into whichever consumer comes next — in practice the events consumer.
+test('max_concurrency lands on every flag-logs consumer and no other', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const awkMatch = script.match(/awk -v mc="\$CONSUMER_CONCURRENCY_TOML" '([\s\S]*?)'\s*wrangler\.toml/);
+  assert.ok(awkMatch, 'max_concurrency awk not found in script.sh');
+
+  const directory = mkdtempSync(join(tmpdir(), 'mc-test-'));
+  try {
+    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
+    // Append a second flag-log shard, consumer + producer, as the deployer does.
+    const extra = [
+      '', '[[queues.consumers]]', 'queue = "flag-logs-queue-2"',
+      'max_batch_size = 100', 'max_batch_timeout = 10', '',
+      '[[queues.producers]]', 'queue = "flag-logs-queue-2"',
+      'binding = "flag_logs_queue_2"', '',
+    ].join('\n');
+    writeFileSync(join(directory, 'wrangler.toml'),
+      readFileSync(join(directory, 'wrangler.toml'), 'utf8') + extra);
+
+    const r = spawnSync('bash', ['-c',
+      `awk -v mc="max_concurrency = 7" '${awkMatch[1]}' wrangler.toml > out.toml`,
+    ], { cwd: directory, encoding: 'utf8', timeout: 5000 });
+    assert.equal(r.status, 0, r.stderr);
+
+    const out = readFileSync(join(directory, 'out.toml'), 'utf8');
+    const blocks = out.match(/\[\[queues\.consumers\]\]\n(?:[^[]*)/g) || [];
+    assert.ok(blocks.length >= 3, `expected 3 consumers, got ${blocks.length}`);
+    for (const b of blocks) {
+      const queue = /queue = "([^"]+)"/.exec(b)[1];
+      const capped = b.includes('max_concurrency');
+      const shouldBeCapped = queue.includes('flag-logs');
+      assert.equal(capped, shouldBeCapped,
+        `consumer ${queue}: capped=${capped}, expected ${shouldBeCapped}`);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
