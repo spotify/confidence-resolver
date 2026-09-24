@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use prost::Message;
-use rand::Rng;
+use rand::RngExt;
 use reqwest::StatusCode;
 use reqwest_middleware::ClientWithMiddleware;
 use tokio::sync::RwLock;
