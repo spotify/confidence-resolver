@@ -9,6 +9,10 @@ pub enum Error {
     #[error("failed to fetch state: {0}")]
     StateFetch(String),
 
+    /// CDN rejected the state request.
+    #[error("CDN returned status {0}")]
+    StateHttp(u16),
+
     /// Failed to parse state protobuf.
     #[error("failed to parse state: {0}")]
     StateParse(String),
@@ -50,6 +54,15 @@ pub enum Error {
     Materialization(String),
 }
 
+impl Error {
+    pub(crate) fn is_retryable_state_error(&self) -> bool {
+        matches!(
+            self,
+            Self::Http(_) | Self::StateFetch(_) | Self::StateHttp(404 | 408 | 429 | 500..=599)
+        )
+    }
+}
+
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::Http(e.to_string())
@@ -64,3 +77,21 @@ impl From<reqwest_middleware::Error> for Error {
 
 /// Result type alias for the provider.
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn state_retry_classification() {
+        for status in [404, 408, 429, 500, 502, 503, 599] {
+            assert!(Error::StateHttp(status).is_retryable_state_error());
+        }
+        for status in [400, 401, 403, 410] {
+            assert!(!Error::StateHttp(status).is_retryable_state_error());
+        }
+        assert!(Error::Http("connection failed".into()).is_retryable_state_error());
+        assert!(Error::StateFetch("timeout".into()).is_retryable_state_error());
+        assert!(!Error::StateParse("invalid state".into()).is_retryable_state_error());
+    }
+}

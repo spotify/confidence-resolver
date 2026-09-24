@@ -1,6 +1,8 @@
 //! State management for fetching and updating resolver state from CDN.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as SyncRwLock};
+
+use open_feature::provider::ProviderStatus;
 
 use arc_swap::ArcSwapOption;
 use bytes::Bytes;
@@ -118,10 +120,7 @@ impl StateFetcher {
 
         // Check for successful response
         if !response.status().is_success() {
-            return Err(Error::StateFetch(format!(
-                "CDN returned status {}",
-                response.status()
-            )));
+            return Err(Error::StateHttp(response.status().as_u16()));
         }
 
         let new_etag = response
@@ -178,6 +177,7 @@ pub struct SharedState {
     state: ArcSwapOption<ResolverState>,
     pub account_id: Arc<RwLock<Option<String>>>,
     pub log_destinations: Arc<RwLock<Vec<LogDestination>>>,
+    pub(crate) terminal_error: SyncRwLock<Option<String>>,
 }
 
 impl SharedState {
@@ -187,6 +187,7 @@ impl SharedState {
             state: ArcSwapOption::empty(),
             account_id: Arc::new(RwLock::new(None)),
             log_destinations: Arc::new(RwLock::new(vec![LogDestination::Edge])),
+            terminal_error: SyncRwLock::new(None),
         }
     }
 
@@ -222,6 +223,16 @@ impl SharedState {
     /// Check if state is initialized.
     pub fn is_initialized(&self) -> bool {
         self.state.load().is_some()
+    }
+
+    pub(crate) fn status(&self) -> ProviderStatus {
+        if self.is_initialized() {
+            ProviderStatus::Ready
+        } else if self.terminal_error.read().unwrap().is_some() {
+            ProviderStatus::Error
+        } else {
+            ProviderStatus::NotReady
+        }
     }
 }
 

@@ -115,6 +115,32 @@ let context = EvaluationContext::default()
 
 ## Error Handling
 
+### Initialization and recovery (OpenFeature Rust 0.3)
+
+`set_provider(...).await` and `set_named_provider(...).await` wait for one bounded
+initial state fetch, but return `()` even when it fails. Registration completing
+is **not a readiness guarantee**. The SDK has no standard lifecycle events or
+`FATAL` status, and does not propagate initialization errors. Before state is
+available, evaluations return `Err` with `ProviderNotReady`; consumers supply
+their fallback with `unwrap_or`, as in the examples below.
+
+Network failures, timeouts, HTTP 408/429/5xx, and HTTP 404 retry in the background.
+404 remains retryable because state may still be provisioning. HTTP 401/403 and
+other nonretryable HTTP responses, invalid encryption, decoding errors, and
+rejected resolver state stop startup retries. The equivalent of a fatal startup
+failure is `ProviderStatus::Error`, with the cause logged and returned by subsequent
+evaluations. The provider's direct `init()` method also returns the terminal error;
+the SDK's registration API cannot. Malformed encryption keys fail in `new()` before
+any requests. Correct the credentials/configuration and register a new provider
+after a terminal failure.
+
+Once good state exists, **every** refresh failure preserves it and polling continues,
+including authentication or malformed-state failures. The provider remains `READY`
+and continues evaluating cached flags until a successful refresh replaces the state.
+HTTP 304 retains the existing state.
+The SDK does not expose provider status through its client or API; `status()` is
+the provider trait accessor.
+
 The provider uses a **default value fallback** pattern - when evaluation fails, it returns an error that you must handle with `.unwrap_or()` to apply your default value.
 
 **See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
@@ -157,11 +183,12 @@ match details {
 The `ProviderOptions` struct contains all configuration options for the provider:
 
 ```rust
+use std::time::Duration;
 use spotify_confidence_openfeature_provider_local::ProviderOptions;
 
 let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
-    .with_initialize_timeout(10_000)      // Max ms to wait for initial state fetch
-    .with_state_poll_interval(30_000)     // Interval in ms for polling state updates
+    .with_initialize_timeout(Duration::from_secs(10)) // Timeout for each state fetch
+    .with_state_poll_interval(Duration::from_secs(30)) // Interval between state updates
     .with_confidence_materialization_store(); // Enable remote materialization
 ```
 
@@ -172,10 +199,10 @@ let options = ProviderOptions::new("your-client-secret", "your-encryption-key")
 
 #### Optional Fields
 
-- `initialize_timeout_ms`: Max milliseconds to wait for initial state fetch (default: 30,000)
-- `state_poll_interval_ms`: Interval in milliseconds for polling state updates (default: 30,000)
-- `flush_interval_ms`: Interval in milliseconds for flushing logs (default: 10,000)
-- `assign_flush_interval_ms`: Interval in milliseconds for flushing assign logs (default: 100)
+- `initialize_timeout`: Timeout for each initial and background state fetch (default: 30 seconds)
+- `state_poll_interval`: Interval between state updates after initialization (default: 30 seconds). Retryable startup failures are retried 1 second after each attempt until the provider is ready or encounters a terminal error.
+- `flush_interval`: Interval for flushing logs (default: 15 seconds)
+- `assign_flush_interval`: Interval for flushing assign logs (default: 100 milliseconds)
 - `materialization_store`: Storage for sticky variant assignments and materialized segments
 
 ## Flag Evaluation
