@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.27.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.27.0...openfeature-provider/go/v0.27.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **go:** recover from startup state failures ([#607](https://github.com/spotify/confidence-resolver/issues/607)) ([c0fe03b](https://github.com/spotify/confidence-resolver/commit/c0fe03b4186b46a4640eae0d31fab8c4cc2be7b4))
+* **resolver:** evaluate null equality correctly ([#628](https://github.com/spotify/confidence-resolver/issues/628)) ([7b09771](https://github.com/spotify/confidence-resolver/commit/7b09771238c9ba6b2f60504122a5ad8b0b1e3763))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.7.1 to 0.7.2
+
 ## [0.27.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.26.0...openfeature-provider/go/v0.27.0) (2026-09-23)
 
 
