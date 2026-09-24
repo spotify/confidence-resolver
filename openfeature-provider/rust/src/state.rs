@@ -158,8 +158,9 @@ impl StateFetcher {
 
         let cipher = Aes256Gcm::new_from_slice(key_bytes)
             .map_err(|e| Error::StateParse(format!("Invalid encryption key: {}", e)))?;
-        let nonce = Nonce::from_slice(&data[..12]);
-        cipher.decrypt(nonce, &data[12..]).map_err(|_| {
+        let nonce = Nonce::try_from(&data[..12])
+            .map_err(|_| Error::StateParse("Invalid nonce length".to_string()))?;
+        cipher.decrypt(&nonce, &data[12..]).map_err(|_| {
             Error::StateParse(
                 "Failed to decrypt resolver state: invalid key or corrupted data".to_string(),
             )
