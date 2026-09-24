@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { assess, deploymentDecision, runProbe, validateDeployArgs } from './memory-preflight.mjs';
+import { assess, deploymentDecision, flagLogSink, runProbe, validateDeployArgs } from './memory-preflight.mjs';
 
 const MIB = 1024 * 1024;
 const sample = (baselineMiB) => ({
   wasmBytes: (baselineMiB - 2) * MIB,
   jsHeapCapacityBytes: 2 * MIB, jsHeapUsedBytes: MIB,
+});
+
+test('sink advisory follows Worker configuration and CLI overrides', () => {
+  assert.equal(flagLogSink(), 'queue');
+  assert.equal(flagLogSink({ FLAG_LOG_SINK: ' BUFFER ' }), 'buffer');
+  assert.equal(flagLogSink({ FLAG_LOG_SINK: 'unknown' }), 'queue');
+  assert.equal(flagLogSink({}, ['--var', 'FLAG_LOG_SINK:buffer']), 'buffer');
+  assert.equal(flagLogSink({ FLAG_LOG_SINK: 'buffer' }, ['--var=FLAG_LOG_SINK:queue']), 'queue');
+  assert.equal(flagLogSink({}, ['--var', 'FLAG_LOG_SINK:buffer', '--var=FLAG_LOG_SINK:queue']), 'queue');
+  assert.equal(assess({ ...sample(70), flagLogSink: 'buffer' }).flagLogSink, 'buffer');
 });
 
 test('alternate artifacts cannot receive a misleading pass', () => {
@@ -97,15 +107,19 @@ test('skip defaults to false and only true bypasses the preflight', () => {
   }
 });
 
-test('built Worker initializes and reports memory', {
+test('built Worker initializes and reports memory with the selected sink advisory', {
   skip: !process.env.MEMORY_PREFLIGHT_TEST_WORKER_DIR,
 }, () => {
-  const result = spawnSync(process.execPath, [new URL('./memory-preflight.mjs', import.meta.url).pathname,
-    process.env.MEMORY_PREFLIGHT_TEST_WORKER_DIR], {
-    env: { ...process.env, FORCE_DEPLOY: '', SKIP_PREFLIGHT_TEST: 'false' }, encoding: 'utf8',
-  });
-  const report = JSON.parse(result.stdout);
-  assert.ok(report.wasmBytes > 0, result.stderr);
-  assert.equal(report.status, assess(report).status);
-  assert.equal(result.status, deploymentDecision(report, '').exitCode);
+  for (const sink of ['queue', 'buffer']) {
+    const result = spawnSync(process.execPath, [new URL('./memory-preflight.mjs', import.meta.url).pathname,
+      process.env.MEMORY_PREFLIGHT_TEST_WORKER_DIR, '--var', `FLAG_LOG_SINK:${sink}`], {
+      env: { ...process.env, FORCE_DEPLOY: '', SKIP_PREFLIGHT_TEST: 'false' }, encoding: 'utf8',
+    });
+    const report = JSON.parse(result.stdout);
+    assert.ok(report.wasmBytes > 0, result.stderr);
+    assert.equal(report.status, assess(report).status);
+    assert.equal(result.status, deploymentDecision(report, '').exitCode);
+    assert.equal(report.flagLogSink, sink);
+    assert.equal(result.stderr.includes('FLAG_LOG_SINK=buffer:'), sink === 'buffer');
+  }
 });

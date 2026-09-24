@@ -18,6 +18,7 @@ export function assess(measurement) {
   const baselineBytes = wasmBytes + jsHeapCapacityBytes;
   return {
     wasmBytes, jsHeapCapacityBytes, jsHeapUsedBytes, baselineBytes,
+    flagLogSink: flagLogSink({ FLAG_LOG_SINK: measurement.flagLogSink }),
     warnBytes: config.warnBytes, abortBytes: config.abortBytes,
     status: baselineBytes >= config.abortBytes ? 'abort_deployment'
       : baselineBytes >= config.warnBytes ? 'warning' : 'pass',
@@ -27,6 +28,18 @@ export function assess(measurement) {
 export function deploymentDecision(report, forceDeploy) {
   const forced = report.status === 'abort_deployment' && Boolean(forceDeploy);
   return { ...report, forced, exitCode: report.status === 'abort_deployment' && !forced ? 1 : 0 };
+}
+
+// Match the Worker's sink selection, including Wrangler CLI variable overrides.
+// Return only the enum, never configuration values that may contain secrets.
+export function flagLogSink(vars = {}, args = []) {
+  let raw = vars.FLAG_LOG_SINK;
+  for (let i = 0; i < args.length; i++) {
+    const value = args[i] === '--var' ? args[++i]
+      : args[i].startsWith('--var=') ? args[i].slice(6) : undefined;
+    if (value?.startsWith('FLAG_LOG_SINK:')) raw = value.slice('FLAG_LOG_SINK:'.length);
+  }
+  return typeof raw === 'string' && raw.trim().toLowerCase() === 'buffer' ? 'buffer' : 'queue';
 }
 
 // Extra entrypoints/configs/environments or build transforms would deploy a
@@ -142,7 +155,8 @@ export async function measure(root) {
       });
       ws.send(JSON.stringify({ id: 1, method: 'Runtime.getHeapUsage' }));
     });
-    return { wasmBytes, jsHeapCapacityBytes: heap.totalSize, jsHeapUsedBytes: heap.usedSize };
+    return { wasmBytes, jsHeapCapacityBytes: heap.totalSize, jsHeapUsedBytes: heap.usedSize,
+      flagLogSink: flagLogSink(config.vars) };
   } finally {
     ws?.close();
     await mf.dispose();
@@ -159,6 +173,7 @@ async function main() {
   try {
     validateDeployArgs(process.argv.slice(3));
     report = assess(await runProbe(resolve(process.argv[2] ?? '.'), config.timeoutMs));
+    report.flagLogSink = flagLogSink({ FLAG_LOG_SINK: report.flagLogSink }, process.argv.slice(3));
   } catch (error) {
     // Never emit exception text from parsing customer data or runtime diagnostics.
     const reason = ['measurement_timeout', 'invalid_measurement', 'unsupported_deploy_arguments']
@@ -178,6 +193,9 @@ async function main() {
     console.error('!!! MEMORY PREFLIGHT WARNING: state-loaded baseline exceeds the warning budget. !!!');
   }
   console.error('Baseline only: request allocations and runtime overhead are additional; this is not exact Cloudflare quota accounting.');
+  if (report.flagLogSink === 'buffer') {
+    console.error('!!! FLAG_LOG_SINK=buffer: queued logs and in-flight deliveries are NOT measured by this preflight. A passing state baseline does not establish sufficient memory under load or backend backpressure. !!!');
+  }
   process.exitCode = decision.exitCode;
 }
 
