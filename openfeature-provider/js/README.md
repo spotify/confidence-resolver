@@ -157,10 +157,12 @@ if (details.errorCode) {
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
 - `encryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
-- `initializeTimeout` (number, optional): Max ms to wait for initial state fetch. Defaults to 30_000.
+- `initializeTimeout` (number, optional): Total retry budget in ms for initial state loading. Defaults to 30_000. Initialization returns early on success. Transient failures exhaust this budget with a recoverable `PROVIDER_NOT_READY` error and `ERROR` status; background retries continue until valid state is available, then the provider emits `PROVIDER_READY`. Catch the initialization error if the application should start using flag defaults during an outage. HTTP 4xx (except 404/408/429), decryption/decoding failures, and rejected resolver state fail startup promptly with `PROVIDER_FATAL` and stop retries; correct the configuration and create a new provider.
 - `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
 - `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
 - `fetch` (optional): Custom `fetch` implementation. Required for Node < 18; for Node 18+ you can omit.
+
+Network errors, timeouts, HTTP 408/429/5xx, and HTTP 404 are retried. A 404 may mean the client is still being provisioned, so background recovery has no provisioning deadline. Once state has been accepted, **all** refresh failures preserve the last accepted state, including authentication and invalid-payload errors. The provider stays `READY` and continues evaluating cached flags while retrying refreshes.
 
 The provider periodically:
 

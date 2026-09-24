@@ -224,9 +224,9 @@ export class WasmResolver implements LocalResolver {
   }
 
   setResolverState(request: SetResolverStateRequest): void {
-    this.currentState = request;
     try {
       this.delegate.setResolverState(request);
+      this.currentState = request;
     } catch (error: unknown) {
       if (error instanceof WebAssembly.RuntimeError) {
         this.reloadInstance(error);

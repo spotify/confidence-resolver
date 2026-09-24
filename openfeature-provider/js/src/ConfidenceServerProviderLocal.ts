@@ -4,6 +4,7 @@ import type {
   Provider,
   ProviderMetadata,
   ProviderStatus,
+  ServerProviderEvents,
   TrackingEventDetails,
 } from '@openfeature/server-sdk';
 import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
@@ -11,7 +12,16 @@ import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidenc
 import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
 import { VERSION } from './version';
 import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
-import { castStringToEnum, hexToBytes, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from './util';
+import {
+  abortablePromise,
+  abortableSleep,
+  castStringToEnum,
+  hexToBytes,
+  scheduleWithFixedInterval,
+  timeoutSignal,
+  TimeUnit,
+} from './util';
+import { ProviderEvents } from './ProviderEvents';
 import type { LocalResolver } from './LocalResolver';
 import { sha256Hex } from './hash';
 import { getLogger } from './logger';
@@ -39,8 +49,13 @@ const logger = getLogger('provider');
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
 export const DEFAULT_STATE_INTERVAL = 30_000;
 export const DEFAULT_FLUSH_INTERVAL = 15_000;
+export const NOT_READY_STATE_INTERVAL = 1_000;
 /** Upper bound on flush calls during shutdown drain, so a failing publish cannot spin forever. */
 const MAX_DRAIN_BATCHES = 100;
+
+class NonRetryableStateError extends Error {
+  readonly code = ErrorCode.PROVIDER_FATAL;
+}
 
 /**
  * Configuration for {@link ConfidenceServerProviderLocal.getPrometheusMetrics}.
@@ -85,10 +100,12 @@ export class ConfidenceServerProviderLocal implements Provider {
   };
   /** Current status of the provider. Can be READY, NOT_READY, ERROR, STALE and FATAL. */
   status: ProviderStatus = castStringToEnum<ProviderStatus>('NOT_READY');
+  readonly events: ProviderEvents = new ProviderEvents(this.metadata.name);
 
   private readonly main = new AbortController();
   private readonly fetch: Fetch;
   private readonly stateUpdateInterval: number;
+  private hasResolverState = false;
   private readonly flushInterval: number;
   private readonly materializationStore: MaterializationStore | null;
   private readonly initLabels: Record<string, string>;
@@ -135,11 +152,12 @@ export class ConfidenceServerProviderLocal implements Provider {
       [
         withRouter({
           'https://confidence-resolver-state-cdn.spotifycdn.com/*': [
-            withRetry({
-              maxAttempts: Infinity,
-              baseInterval: 500,
-              maxInterval: this.stateUpdateInterval,
-            }),
+            next => (url, init) =>
+              withRetry({
+                maxAttempts: Infinity,
+                baseInterval: 500,
+                maxInterval: this.hasResolverState ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL,
+              })(next)(url, init),
             withStallTimeout(1 * TimeUnit.SECOND),
           ],
           'https://resolver.confidence.dev/*': [
@@ -215,23 +233,75 @@ export class ConfidenceServerProviderLocal implements Provider {
     ]);
     try {
       this.resolverInstance = await this.resolverOrPromise;
-      // TODO set schedulers irrespective of failure
-      // TODO if 403 here,
-      await this.updateState(initialUpdateSignal);
-      scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
       this.eventTracker = await this.eventTrackerOrPromise;
-      scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      // TODO Better with fixed delay so we don't do a double fetch when we're behind. Alt, skip if in progress
-      scheduleWithFixedInterval(signal => this.updateState(signal), this.stateUpdateInterval, { signal });
-      this.status = castStringToEnum<ProviderStatus>('READY');
-    } catch (e: unknown) {
+    } catch (error) {
       this.status = castStringToEnum<ProviderStatus>('ERROR');
-      // TODO should we swallow this?
-      throw e;
+      throw error;
     }
+
+    let initializationError: Error | undefined;
+    try {
+      // Network retries happen inside fetch; retry provisioning responses within the same budget.
+      while (true) {
+        initialUpdateSignal.throwIfAborted();
+        try {
+          await abortablePromise(this.updateState(initialUpdateSignal), initialUpdateSignal);
+          initialUpdateSignal.throwIfAborted();
+          this.status = castStringToEnum<ProviderStatus>('READY');
+          break;
+        } catch (error) {
+          initialUpdateSignal.throwIfAborted();
+          if (error instanceof NonRetryableStateError) throw error;
+          logger.warn('Initial state load failed, retrying:', error);
+          await abortableSleep(NOT_READY_STATE_INTERVAL, initialUpdateSignal);
+        }
+      }
+    } catch (cause) {
+      if (cause instanceof NonRetryableStateError) {
+        this.status = castStringToEnum<ProviderStatus>('FATAL');
+        throw cause;
+      }
+      this.status = castStringToEnum<ProviderStatus>('ERROR');
+      initializationError = Object.assign(
+        new Error(signal.aborted ? 'Provider closed during initialization' : 'Timed out waiting for initial state'),
+        { code: ErrorCode.PROVIDER_NOT_READY, cause },
+      );
+      logger.warn('Initial state unavailable:', initializationError);
+    }
+
+    if (!signal.aborted) {
+      scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
+      scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
+      const stopStateUpdates = scheduleWithFixedInterval(
+        async signal => {
+          try {
+            await this.updateState(signal);
+          } catch (error) {
+            if (!signal?.aborted && !this.hasResolverState && error instanceof NonRetryableStateError) {
+              this.status = castStringToEnum<ProviderStatus>('FATAL');
+              this.events.emit(castStringToEnum<ServerProviderEvents>('PROVIDER_ERROR'), {
+                errorCode: castStringToEnum('PROVIDER_FATAL'),
+                message: error.message,
+              });
+              stopStateUpdates();
+            }
+            throw error;
+          }
+          signal?.throwIfAborted();
+          if (this.status !== 'READY') {
+            this.status = castStringToEnum<ProviderStatus>('READY');
+            this.events.emit(castStringToEnum<ServerProviderEvents>('PROVIDER_READY'));
+          }
+        },
+        () => (this.hasResolverState ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL),
+        { signal },
+      );
+    }
+    if (initializationError) throw initializationError;
   }
 
   async onClose(): Promise<void> {
+    this.main.abort();
     const signal = timeoutSignal(3000);
     try {
       // Drain events BEFORE the final log flush. Event delivery outcomes are
@@ -344,6 +414,7 @@ export class ConfidenceServerProviderLocal implements Provider {
   }
 
   async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
+    if (!this.hasResolverState) return FlagBundle.error(ErrorCode.PROVIDER_NOT_READY, 'Provider is not ready');
     const startMs = performance.now();
     let reason = ResolveReason.RESOLVE_REASON_BUNDLE;
     try {
@@ -385,6 +456,15 @@ export class ConfidenceServerProviderLocal implements Provider {
     defaultValue: T,
     context: EvaluationContext,
   ): Promise<ResolutionDetails<T>> {
+    if (!this.hasResolverState) {
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: ErrorCode.PROVIDER_NOT_READY,
+        errorMessage: 'Provider is not ready',
+        shouldApply: false,
+      };
+    }
     const startMs = performance.now();
     try {
       const [flagName] = flagKey.split('.', 1);
@@ -486,9 +566,14 @@ export class ConfidenceServerProviderLocal implements Provider {
     }
     const resp = await this.fetch(cdnUrl, { headers, signal });
     if (resp.status === 304) {
+      if (!this.hasResolverState) throw new Error('Received 304 before initial resolver state');
+      signal?.throwIfAborted();
       return;
     }
     if (!resp.ok) {
+      if (resp.status >= 400 && resp.status < 500 && ![404, 408, 429].includes(resp.status)) {
+        throw new NonRetryableStateError(`Failed to fetch state: ${resp.status} ${resp.statusText}`);
+      }
       throw new Error(`Failed to fetch state: ${resp.status} ${resp.statusText}`);
     }
 
@@ -501,19 +586,27 @@ export class ConfidenceServerProviderLocal implements Provider {
       // best-effort: don't block state update if flush fails
     }
 
-    const plaintext = await decryptAesGcm(bytes, hexToBytes(encryptionKey));
-    const clientState = ClientResolverState.decode(plaintext);
+    let clientState: ClientResolverState;
+    try {
+      const plaintext = await decryptAesGcm(bytes, hexToBytes(encryptionKey));
+      signal?.throwIfAborted();
+      clientState = ClientResolverState.decode(plaintext);
+      this.resolver.setResolverState(
+        SetResolverStateRequest.create({
+          state: clientState.state,
+          accountId: clientState.account,
+          sdk,
+          enableApplyDedup: this.options.enableApplyDedup ?? true,
+          disableExposureCollection: this.options.disableExposureCollection === true,
+        }),
+      );
+    } catch (cause) {
+      signal?.throwIfAborted();
+      throw new NonRetryableStateError(`Invalid resolver state: ${String(cause)}`, { cause });
+    }
+    this.hasResolverState = true;
     this.logDestinations = clientState.logDestinations;
     this.accountId = clientState.account;
-    this.resolver.setResolverState(
-      SetResolverStateRequest.create({
-        state: clientState.state,
-        accountId: clientState.account,
-        sdk,
-        enableApplyDedup: this.options.enableApplyDedup ?? true,
-        disableExposureCollection: this.options.disableExposureCollection === true,
-      }),
-    );
     this.stateEtag = resp.headers.get('etag');
   }
 
