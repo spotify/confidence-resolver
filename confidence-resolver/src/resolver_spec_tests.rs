@@ -809,6 +809,9 @@ spec_test!(combined_neither);
 // Materialization: duplicate variant assignments
 spec_test!(mat_same_variant_two_assignments_returns_correct_assignment_id);
 
+// Assignment origin
+spec_test!(assignment_origin_is_matched_rule_name);
+
 // Additional targeting rules (starts-with / ends-with variants)
 spec_test!(targeting_starts_with_workspace_plan);
 spec_test!(targeting_ends_with_spotify_email);
