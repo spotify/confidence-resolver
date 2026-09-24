@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.1](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.26.0...confidence_resolver-v0.26.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **resolver:** evaluate null equality correctly ([#628](https://github.com/spotify/confidence-resolver/issues/628)) ([7b09771](https://github.com/spotify/confidence-resolver/commit/7b09771238c9ba6b2f60504122a5ad8b0b1e3763))
+
 ## [0.26.0](https://github.com/spotify/confidence-resolver/compare/confidence_resolver-v0.25.0...confidence_resolver-v0.26.0) (2026-09-23)
 
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.12.1...openfeature-provider/rust-v0.12.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **rust:** recover from startup state failures ([#606](https://github.com/spotify/confidence-resolver/issues/606)) ([6ff91b2](https://github.com/spotify/confidence-resolver/commit/6ff91b296d95086a1a30f4a8ab51c3362683c59c))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * confidence_resolver bumped from 0.26.0 to 0.26.1
+
 ## [0.12.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.12.0...openfeature-provider/rust-v0.12.1) (2026-09-23)
 
 

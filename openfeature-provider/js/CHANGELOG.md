@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.24.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.24.0...openfeature-provider-js-v0.24.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **js:** recover from startup CDN failures ([#608](https://github.com/spotify/confidence-resolver/issues/608)) ([0dd0be5](https://github.com/spotify/confidence-resolver/commit/0dd0be526a41dc9e94d1c73d11636210223f9596))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.7.1 to 0.7.2
+
 ## [0.24.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.23.0...openfeature-provider-js-v0.24.0) (2026-09-23)
 
 
