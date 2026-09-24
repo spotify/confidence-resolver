@@ -3,8 +3,10 @@ package confidence
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
 	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
@@ -567,7 +569,7 @@ func TestLocalResolverProvider_Init_NilFlagLogger(t *testing.T) {
 	}
 }
 
-// TestLocalResolverProvider_Init_StateProviderError verifies Init fails when stateProvider.Provide returns error
+// TestLocalResolverProvider_Init_StateProviderError verifies Init starts retrying when stateProvider.Provide returns an error.
 func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 	mockStateProvider := &tu.StateProviderMock{
 		State:     []byte("cached-state"),
@@ -583,19 +585,21 @@ func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
+		WithInitializationTimeout(time.Millisecond),
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when stateProvider.Provide fails")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Expected recoverable initialization timeout, got: %v", err)
 	}
-	// Should wrap the original error
-	if err.Error() != "failed to fetch initial state: context deadline exceeded" {
-		t.Errorf("Expected wrapped error message, got: %v", err)
+	defer provider.Shutdown()
+
+	if provider.ready.Load() {
+		t.Fatal("Expected provider to remain not ready")
 	}
 }
 
-// TestLocalResolverProvider_Init_EmptyAccountID verifies Init fails when accountID is empty
+// TestLocalResolverProvider_Init_EmptyAccountID verifies malformed state fails startup.
 func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 	mockStateProvider := &tu.StateProviderMock{
 		State:     []byte("test-state"),
@@ -613,14 +617,18 @@ func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
+		WithInitializationTimeout(time.Millisecond),
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when accountID is empty")
+	var initErr *openfeature.ProviderInitError
+	if !errors.As(err, &initErr) || initErr.ErrorCode != openfeature.ProviderFatalCode {
+		t.Fatalf("Expected fatal initialization error, got: %v", err)
 	}
-	if err.Error() != "AccountID is empty in the initial state" {
-		t.Errorf("Expected specific error message, got: %v", err)
+	defer provider.Shutdown()
+
+	if provider.ready.Load() {
+		t.Fatal("Expected provider to remain not ready")
 	}
 }
 
@@ -650,15 +658,15 @@ func TestLocalResolverProvider_Init_UpdateStateError(t *testing.T) {
 		mockFlagLogger,
 		"secret",
 		nil,
+		WithInitializationTimeout(time.Millisecond),
 	)
 
 	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when UpdateStateAndFlushLogs fails")
+	var initErr *openfeature.ProviderInitError
+	if !errors.As(err, &initErr) || initErr.ErrorCode != openfeature.ProviderFatalCode {
+		t.Fatalf("Expected fatal initialization error, got: %v", err)
 	}
-	if err.Error() != "failed to initialize resolver: context deadline exceeded" {
-		t.Errorf("Expected wrapped error message, got: %v", err)
-	}
+	provider.Shutdown()
 }
 
 // TestLocalResolverProvider_Init_Success verifies successful Init
