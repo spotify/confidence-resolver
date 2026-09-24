@@ -3,6 +3,86 @@
     "name": "accounts/test-account"
   },
   "flags": {
+    "flags/null-or-before": {
+      "name": "flags/null-or-before",
+      "state": "ACTIVE",
+      "clients": [
+        "clients/test-client"
+      ],
+      "variants": [
+        {
+          "name": "on",
+          "value": {
+            "enabled": true
+          }
+        }
+      ],
+      "rules": [
+        {
+          "name": "flags/null-or-before/rules/rule1",
+          "segment": "segments/null-or-before",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": {
+                  "variant": "on"
+                },
+                "bucketRanges": [
+                  {
+                    "lower": 0,
+                    "upper": 1000
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "flags/nested-null": {
+      "name": "flags/nested-null",
+      "state": "ACTIVE",
+      "clients": [
+        "clients/test-client"
+      ],
+      "variants": [
+        {
+          "name": "on",
+          "value": {
+            "enabled": true
+          }
+        }
+      ],
+      "rules": [
+        {
+          "name": "flags/nested-null/rules/rule1",
+          "segment": "segments/nested-null",
+          "enabled": true,
+          "targetingKeySelector": "targeting_key",
+          "assignmentSpec": {
+            "bucketCount": 1000,
+            "assignments": [
+              {
+                "assignmentId": "a1",
+                "variant": {
+                  "variant": "on"
+                },
+                "bucketRanges": [
+                  {
+                    "lower": 0,
+                    "upper": 1000
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "flags/simple-flag": {
       "name": "flags/simple-flag",
       "state": "ACTIVE",
@@ -2535,6 +2615,63 @@
     }
   },
   "segments": {
+    "segments/null-or-before": {
+      "name": "segments/null-or-before",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "last_interaction_at",
+              "eqRule": {
+                "value": {}
+              }
+            }
+          },
+          "c2": {
+            "attribute": {
+              "attributeName": "last_interaction_at",
+              "rangeRule": {
+                "endExclusive": {
+                  "timestampValue": "2026-01-01T00:00:00Z"
+                }
+              }
+            }
+          }
+        },
+        "expression": {
+          "or": {
+            "operands": [
+              {
+                "ref": "c1"
+              },
+              {
+                "ref": "c2"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "segments/nested-null": {
+      "name": "segments/nested-null",
+      "state": "OK",
+      "targeting": {
+        "criteria": {
+          "c1": {
+            "attribute": {
+              "attributeName": "interaction.last_seen",
+              "eqRule": {
+                "value": {}
+              }
+            }
+          }
+        },
+        "expression": {
+          "ref": "c1"
+        }
+      }
+    },
     "segments/country-se": {
       "name": "segments/country-se",
       "state": "OK",
@@ -3492,6 +3629,8 @@
     }
   },
   "bitsets": {
+    "segments/null-or-before": "ALL",
+    "segments/nested-null": "ALL",
     "segments/country-se": "ALL",
     "segments/country-set": "ALL",
     "segments/age-range": "ALL",
