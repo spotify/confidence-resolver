@@ -158,8 +158,9 @@ impl StateFetcher {
 
         let cipher = Aes256Gcm::new_from_slice(key_bytes)
             .map_err(|e| Error::StateParse(format!("Invalid encryption key: {}", e)))?;
-        let nonce = Nonce::from_slice(&data[..12]);
-        cipher.decrypt(nonce, &data[12..]).map_err(|_| {
+        let nonce = Nonce::try_from(&data[..12])
+            .map_err(|_| Error::StateParse("Invalid nonce length".to_string()))?;
+        cipher.decrypt(&nonce, &data[12..]).map_err(|_| {
             Error::StateParse(
                 "Failed to decrypt resolver state: invalid key or corrupted data".to_string(),
             )
@@ -445,9 +446,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_rejects_wrong_key() {
-        use aes_gcm::{aead::OsRng, Aes256Gcm, KeyInit};
         let encrypted = std::fs::read(data_dir().join("resolver_state_encrypted.pb")).unwrap();
-        let wrong_key = Aes256Gcm::generate_key(OsRng).to_vec();
+        let wrong_key = vec![0x42u8; 32];
         let result = StateFetcher::decrypt(&encrypted, &wrong_key);
         assert!(result.is_err());
     }
