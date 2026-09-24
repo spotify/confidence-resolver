@@ -35,11 +35,13 @@ $(BUILD_STAMP): pom.xml $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM) $(SRC)
 
 build: $(BUILD_STAMP)
 
+# Test/e2e run the surefire/failsafe goals directly (not the full lifecycle) so
+# proto codegen + WASM AOT compilation only happen once, in `make build`.
 test: $(BUILD_STAMP)
-	mvn -q test -Dtest='!**/*E2ETest'
+	mvn -q surefire:test -Dtest='!**/*E2ETest'
 
 test-e2e: $(BUILD_STAMP)
-	mvn -q verify -Dsurefire.skip=true
+	mvn -q failsafe:integration-test failsafe:verify -Dsurefire.skip=true
 	
 clean:
 	mvn -q clean
