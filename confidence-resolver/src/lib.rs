@@ -1472,6 +1472,11 @@ impl<'a, H: Host> AccountResolver<'a, H> {
                 criterion::Criterion::Attribute(attribute_criterion) => {
                     let attribute_value =
                         self.get_attribute_value(&attribute_criterion.attribute_name);
+                    if let Some(matches) =
+                        value::evaluate_null_equality(attribute_criterion, attribute_value)
+                    {
+                        return Ok(Some(matches));
+                    }
                     let is_collection_rule = matches!(
                         &attribute_criterion.rule,
                         Some(criterion::attribute_criterion::Rule::AnyRule(_))

@@ -1,5 +1,261 @@
 [
   {
+    "name": "null_or_before_missing",
+    "resolveRequest": {
+      "flags": [
+        "flags/null-or-before"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/null-or-before",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "null_or_before_null",
+    "resolveRequest": {
+      "flags": [
+        "flags/null-or-before"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "last_interaction_at": null
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/null-or-before",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "null_or_before_old",
+    "resolveRequest": {
+      "flags": [
+        "flags/null-or-before"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "last_interaction_at": "2025-12-01T00:00:00Z"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/null-or-before",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "null_or_before_boundary",
+    "resolveRequest": {
+      "flags": [
+        "flags/null-or-before"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "last_interaction_at": "2026-01-01T00:00:00Z"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/null-or-before",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "null_or_before_new",
+    "resolveRequest": {
+      "flags": [
+        "flags/null-or-before"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "last_interaction_at": "2026-02-01T00:00:00Z"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/null-or-before",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "null_or_before_empty_string",
+    "resolveRequest": {
+      "flags": [
+        "flags/null-or-before"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "last_interaction_at": ""
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/null-or-before",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_nested_missing",
+    "resolveRequest": {
+      "flags": [
+        "flags/nested-null"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "interaction": {}
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/nested-null",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_nested_explicit",
+    "resolveRequest": {
+      "flags": [
+        "flags/nested-null"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "interaction": {
+          "last_seen": null
+        }
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/nested-null",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_nested_present",
+    "resolveRequest": {
+      "flags": [
+        "flags/nested-null"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "interaction": {
+          "last_seen": "2026-02-01"
+        }
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/nested-null",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
     "name": "no_flags_for_client",
     "resolveRequest": {
       "flags": [
@@ -2969,18 +3225,6 @@
           }
         ],
         "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [
-          {
-            "flag": "flags/is-null-flag",
-            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
-            "variant": "",
-            "value": null,
-            "shouldApply": false
-          }
-        ],
-        "expectError": null
       }
     }
   },
@@ -3006,18 +3250,6 @@
               "enabled": true
             },
             "shouldApply": true
-          }
-        ],
-        "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [
-          {
-            "flag": "flags/is-null-flag",
-            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
-            "variant": "",
-            "value": null,
-            "shouldApply": false
           }
         ],
         "expectError": null
@@ -3100,20 +3332,6 @@
             "variant": "",
             "value": null,
             "shouldApply": false
-          }
-        ],
-        "expectError": null
-      },
-      "rust": {
-        "resolvedFlags": [
-          {
-            "flag": "flags/is-not-null-flag",
-            "reason": "RESOLVE_REASON_MATCH",
-            "variant": "on",
-            "value": {
-              "enabled": true
-            },
-            "shouldApply": true
           }
         ],
         "expectError": null
@@ -4751,6 +4969,503 @@
         "resolvedFlags": [
           {
             "flag": "flags/simple-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_empty_string",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": ""
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_empty_string",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": ""
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_literal_null",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": "null"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_literal_null",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": "null"
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_false",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": false
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_false",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": false
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_zero",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": 0
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_zero",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": 0
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_null_list",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": [
+          null,
+          "hello"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_null_list",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": [
+          null,
+          "hello"
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_empty_list",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": []
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_empty_list",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": []
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_non_null_list",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": [
+          "hello",
+          false,
+          0
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_non_null_list",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": [
+          "hello",
+          false,
+          0
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_null_nested_null_list",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": [
+          [
+            null
+          ]
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-null-flag",
+            "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
+            "variant": "",
+            "value": null,
+            "shouldApply": false
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_nested_null_list",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": [
+          [
+            null
+          ]
+        ]
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
+            "reason": "RESOLVE_REASON_MATCH",
+            "variant": "on",
+            "value": {
+              "enabled": true
+            },
+            "shouldApply": true
+          }
+        ],
+        "expectError": null
+      }
+    }
+  },
+  {
+    "name": "is_not_null_explicit_regression",
+    "resolveRequest": {
+      "flags": [
+        "flags/is-not-null-flag"
+      ],
+      "evaluationContext": {
+        "targeting_key": "user1",
+        "null-attribute": null
+      },
+      "clientSecret": "test-secret"
+    },
+    "expectedResult": {
+      "general": {
+        "resolvedFlags": [
+          {
+            "flag": "flags/is-not-null-flag",
             "reason": "RESOLVE_REASON_NO_SEGMENT_MATCH",
             "variant": "",
             "value": null,

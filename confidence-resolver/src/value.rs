@@ -17,6 +17,31 @@ use crate::proto::confidence::flags::types::v1::targeting::criterion;
 static STRING_VALUE_TYPE: targeting::value::Value =
     targeting::value::Value::StringValue(String::new());
 
+/// Null equality is encoded as an EqRule containing an empty targeting Value.
+/// Inspect the original context before conversion replaces nulls with a string sentinel.
+pub fn evaluate_null_equality(
+    attribute_criterion: &criterion::AttributeCriterion,
+    attribute_value: &Value,
+) -> Option<bool> {
+    if !matches!(
+        &attribute_criterion.rule,
+        Some(criterion::attribute_criterion::Rule::EqRule(
+            targeting::EqRule {
+                value: Some(targeting::Value { value: None }),
+            }
+        ))
+    ) {
+        return None;
+    }
+
+    let is_null = |value: &Value| matches!(&value.kind, None | Some(Kind::NullValue(_)));
+    Some(match &attribute_value.kind {
+        // Equality matches any top-level list element; nested lists are not flattened.
+        Some(Kind::ListValue(list)) => list.values.iter().any(is_null),
+        _ => is_null(attribute_value),
+    })
+}
+
 pub fn convert_to_targeting_value(
     attribute_value: &Value,
     expected_type: Option<&targeting::value::Value>,

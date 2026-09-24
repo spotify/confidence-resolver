@@ -709,6 +709,32 @@ spec_test!(is_null_implicit);
 spec_test!(is_null_non_null_value);
 spec_test!(is_not_null_with_value);
 spec_test!(is_not_null_missing);
+spec_test!(null_or_before_missing);
+spec_test!(null_or_before_null);
+spec_test!(null_or_before_old);
+spec_test!(null_or_before_boundary);
+spec_test!(null_or_before_new);
+spec_test!(null_or_before_empty_string);
+spec_test!(is_null_nested_missing);
+spec_test!(is_null_nested_explicit);
+spec_test!(is_null_nested_present);
+spec_test!(is_null_empty_string);
+spec_test!(is_not_null_empty_string);
+spec_test!(is_null_literal_null);
+spec_test!(is_not_null_literal_null);
+spec_test!(is_null_false);
+spec_test!(is_not_null_false);
+spec_test!(is_null_zero);
+spec_test!(is_not_null_zero);
+spec_test!(is_null_null_list);
+spec_test!(is_not_null_null_list);
+spec_test!(is_null_empty_list);
+spec_test!(is_not_null_empty_list);
+spec_test!(is_null_non_null_list);
+spec_test!(is_not_null_non_null_list);
+spec_test!(is_null_nested_null_list);
+spec_test!(is_not_null_nested_null_list);
+spec_test!(is_not_null_explicit_regression);
 
 // NOT any rule
 spec_test!(not_any_no_overlap);
@@ -782,6 +808,9 @@ spec_test!(combined_neither);
 
 // Materialization: duplicate variant assignments
 spec_test!(mat_same_variant_two_assignments_returns_correct_assignment_id);
+
+// Assignment origin
+spec_test!(assignment_origin_is_matched_rule_name);
 
 // Additional targeting rules (starts-with / ends-with variants)
 spec_test!(targeting_starts_with_workspace_plan);
