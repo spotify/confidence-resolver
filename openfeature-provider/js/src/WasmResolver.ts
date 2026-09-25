@@ -186,7 +186,10 @@ export class WasmResolver implements LocalResolver {
   private currentState?: SetResolverStateRequest;
   private bufferedLogs: Uint8Array[] = [];
 
-  constructor(private readonly module: WebAssembly.Module, private delegateFactory = DEFAULT_DELEGATE_FACTORY) {
+  constructor(
+    private readonly module: WebAssembly.Module,
+    private delegateFactory = DEFAULT_DELEGATE_FACTORY,
+  ) {
     this.delegate = delegateFactory(module);
   }
 

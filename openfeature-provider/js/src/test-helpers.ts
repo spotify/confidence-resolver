@@ -76,7 +76,10 @@ class RequestHandler {
 }
 
 class RequestDispatcher<T extends RequestHandler> extends RequestHandler {
-  constructor(private readonly keyFn: (req: Request) => string, private readonly dispatchMap: Record<string, T>) {
+  constructor(
+    private readonly keyFn: (req: Request) => string,
+    private readonly dispatchMap: Record<string, T>,
+  ) {
     super(req => {
       const key = this.keyFn(req);
       const handler = this.dispatchMap[key] ?? this.dispatchMap['*'];

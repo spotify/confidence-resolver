@@ -178,15 +178,13 @@ export function readResultsToMaterializationRecords(
 
 /** Convert MaterializationRecord[] from a Resolved response to MaterializationStore.WriteOp[] */
 export function materializationRecordsToWriteOps(records: MaterializationRecord[]): MaterializationStore.WriteOp[] {
-  return records.map(
-    (record): MaterializationStore.WriteOp => ({
-      op: 'variant',
-      unit: record.unit,
-      materialization: record.materialization,
-      rule: record.rule,
-      variant: record.variant,
-    }),
-  );
+  return records.map((record): MaterializationStore.WriteOp => ({
+    op: 'variant',
+    unit: record.unit,
+    materialization: record.materialization,
+    rule: record.rule,
+    variant: record.variant,
+  }));
 }
 
 // --- Conversions between MaterializationStore types and backend proto (internal_api) ---

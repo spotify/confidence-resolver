@@ -6,7 +6,7 @@ export interface LogFn {
 
 export type LoggerBackend = (namespace: string) => LogFn;
 
-type Debug = typeof import('debug')['default'];
+type Debug = (typeof import('debug'))['default'];
 
 const debugBackend = loadDebug();
 

@@ -27,12 +27,11 @@ describe('useFlag', () => {
 
   const wrapper =
     (bundle: FlagBundle) =>
-    ({ children }: { children: React.ReactNode }) =>
-      (
-        <ConfidenceClientProvider bundle={bundle} apply={mockApply}>
-          {children}
-        </ConfidenceClientProvider>
-      );
+    ({ children }: { children: React.ReactNode }) => (
+      <ConfidenceClientProvider bundle={bundle} apply={mockApply}>
+        {children}
+      </ConfidenceClientProvider>
+    );
 
   describe('without provider', () => {
     it('returns default value when no provider is present', () => {
@@ -392,12 +391,11 @@ describe('useFlagDetails', () => {
 
   const wrapper =
     (bundle: FlagBundle) =>
-    ({ children }: { children: React.ReactNode }) =>
-      (
-        <ConfidenceClientProvider bundle={bundle} apply={mockApply}>
-          {children}
-        </ConfidenceClientProvider>
-      );
+    ({ children }: { children: React.ReactNode }) => (
+      <ConfidenceClientProvider bundle={bundle} apply={mockApply}>
+        {children}
+      </ConfidenceClientProvider>
+    );
 
   describe('auto exposure (default, expose: true)', () => {
     it('returns value, details, and undefined expose', () => {
