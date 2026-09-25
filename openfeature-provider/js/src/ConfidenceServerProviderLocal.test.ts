@@ -1158,10 +1158,10 @@ describe('mandatory encryption', () => {
         failure === 'wrong-key'
           ? wrongKey
           : failure === 'tampered'
-          ? tampered
-          : failure === 'truncated'
-          ? encrypted.slice(0, 5)
-          : plaintext;
+            ? tampered
+            : failure === 'truncated'
+              ? encrypted.slice(0, 5)
+              : plaintext;
       let calls = 0;
       const etags: Array<string | null> = [];
       net.cdn.state.handler = req => {

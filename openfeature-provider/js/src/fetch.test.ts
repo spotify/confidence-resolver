@@ -141,8 +141,8 @@ describe('fetch middlewares', () => {
         calls.push({
           auth:
             init?.headers instanceof Headers
-              ? init.headers.get('Authorization') ?? undefined
-              : new Headers(init?.headers as any).get('Authorization') ?? undefined,
+              ? (init.headers.get('Authorization') ?? undefined)
+              : (new Headers(init?.headers as any).get('Authorization') ?? undefined),
         });
         const r = new Response(null, { status: nextStatus });
         nextStatus = 200;
