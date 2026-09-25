@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.27.1...openfeature-provider/go/v0.28.0) (2026-09-25)
+
+
+### Features
+
+* **deps:** bump the cargo-minor-and-patch group across 1 directory with 19 updates ([#561](https://github.com/spotify/confidence-resolver/issues/561)) ([6c6470c](https://github.com/spotify/confidence-resolver/commit/6c6470cf8583956d77eb7f7bce299971fdffbd13))
+
 ## [0.27.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.27.0...openfeature-provider/go/v0.27.1) (2026-09-24)
 
 

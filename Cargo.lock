@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "openfeature-provider-go"
-version = "0.27.1"
+version = "0.28.0"
 dependencies = [
  "rust-guest",
 ]
@@ -2280,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "spotify-confidence-openfeature-provider-local"
-version = "0.12.2"
+version = "0.13.0"
 dependencies = [
  "aes-gcm",
  "arc-swap",
