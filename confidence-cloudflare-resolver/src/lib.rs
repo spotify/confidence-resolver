@@ -153,12 +153,9 @@ static LOG_DESTINATIONS: Lazy<Vec<LogDestination>> = Lazy::new(|| {
 
 static RESOLVER_STATE: Lazy<ResolverState> = Lazy::new(|| {
     let cdn_request = &*CDN_STATE_REQUEST;
-    ResolverState::from_proto(
-        cdn_request.state.to_vec().try_into().unwrap(),
-        &cdn_request.account_id,
-        None,
-    )
-    .unwrap()
+    let state = confidence::flags::admin::v1::ResolverState::decode(cdn_request.state.clone())
+        .expect("Failed to decode ResolverState from CDN state");
+    ResolverState::from_proto(state, &cdn_request.account_id, None).unwrap()
 });
 
 trait ResponseExt {
