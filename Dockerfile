@@ -348,7 +348,8 @@ RUN apk add --no-cache protobuf-dev protoc make
 WORKDIR /app
 
 # Enable Corepack for Yarn
-RUN corepack enable
+# Node 25+ no longer bundles corepack, so install it explicitly
+RUN npm install -g corepack && corepack enable
 
 # Copy package files for dependency caching
 COPY \
