@@ -4,7 +4,7 @@
   "description": "Spotify Confidence Open Feature provider",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=18.17.0"
   },
   "files": [
     "dist",
