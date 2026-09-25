@@ -306,6 +306,16 @@ RUN make lint
 # ==============================================================================
 # CloudFlare Deployer - Runtime image for deploying to CloudFlare Workers
 # ==============================================================================
+# workerd requires glibc; keep its loader/libraries isolated from the Alpine Rust
+# toolchain instead of replacing the deployer's libc or changing its build host.
+FROM debian:bookworm-slim AS cloudflare-workerd-runtime
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 libatomic1 \
+    && mkdir /workerd-runtime \
+    && for lib in ld-linux-*.so.* libc.so.6 libm.so.6 libpthread.so.0 libdl.so.2 librt.so.1 libstdc++.so.6 libgcc_s.so.1 libatomic.so.1; do \
+         cp -L /lib/*-linux-gnu/$lib /workerd-runtime/; \
+       done \
+    && rm -rf /var/lib/apt/lists/*
+
 FROM confidence-cloudflare-resolver.build AS confidence-cloudflare-resolver.deployer
 
 # Install Node.js, npm, jq, git, and bash for deployment
@@ -313,6 +323,15 @@ RUN apk add --no-cache nodejs npm jq git bash
 
 # Install Wrangler CLI
 RUN npm install -g wrangler@latest
+
+# Pinned local runtime and parser for the state-memory deployment gate.
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    cd deployer && npm ci --omit=dev --no-audit --no-fund
+COPY --from=cloudflare-workerd-runtime /workerd-runtime /opt/workerd-runtime
+RUN chmod +x deployer/workerd-alpine.sh
+ENV MINIFLARE_WORKERD_PATH=/workspace/confidence-cloudflare-resolver/deployer/workerd-alpine.sh
+RUN "$MINIFLARE_WORKERD_PATH" --version
+RUN cd deployer && npm test
 
 # Install worker-build (Rust WASM build tool used by Wrangler)
 ARG WORKER_BUILD_VERSION="0.1.11"
