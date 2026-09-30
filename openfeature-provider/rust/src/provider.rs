@@ -1734,8 +1734,13 @@ mod tests {
 
         let last_good = provider.state.get().unwrap();
         serve_state(&server, ResponseTemplate::new(503)).await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(state_requests(&server).await > 0);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while state_requests(&server).await == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("provider did not poll after recovery");
         assert_eq!(provider.status(), ProviderStatus::Ready);
         assert!(Arc::ptr_eq(&last_good, &provider.state.get().unwrap()));
         provider.shutdown().await;
