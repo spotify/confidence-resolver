@@ -322,7 +322,7 @@ FROM confidence-cloudflare-resolver.build AS confidence-cloudflare-resolver.depl
 RUN apk add --no-cache nodejs npm jq git bash
 
 # Install Wrangler CLI
-RUN npm install -g wrangler@latest
+RUN npm install -g wrangler@4.120.0
 
 # Pinned local runtime and parser for the state-memory deployment gate.
 RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
