@@ -47,7 +47,7 @@ export function flagLogSink(vars = {}, args = []) {
 // FORCE_DEPLOY can explicitly override this signal too.
 export function validateDeployArgs(args) {
   const values = new Set(['--tag', '--message', '--name', '--var', '--route']);
-  const flags = new Set(['--keep-vars', '--dry-run', '--logpush', '--upload-source-maps', '--no-bundle', '--no-build']);
+  const flags = new Set(['--keep-vars', '--dry-run', '--logpush', '--upload-source-maps', '--no-bundle']);
   for (let i = 0; i < args.length; i++) {
     const [name] = args[i].split('=', 1);
     if (values.has(name)) {
@@ -102,14 +102,20 @@ export async function runProbe(root, timeoutMs) {
   }
 }
 
+export function validateWorkerConfig(root, config) {
+  if (resolve(root, config.main ?? '') !== join(root, 'build/worker/shim.mjs')) {
+    throw new Error('unsupported_worker_entrypoint');
+  }
+  // --no-bundle skips Wrangler bundling, but still executes custom build hooks.
+  if (config.build?.command) throw new Error('unsupported_custom_build');
+}
+
 export async function measure(root) {
   const { Miniflare, Log, LogLevel } = await import('miniflare');
   const { parse } = await import('smol-toml');
   const config = parse(await readFile(join(root, 'wrangler.toml'), 'utf8'));
   const workerDir = join(root, 'build/worker');
-  if (resolve(root, config.main ?? '') !== join(workerDir, 'shim.mjs')) {
-    throw new Error('unsupported_worker_entrypoint');
-  }
+  validateWorkerConfig(root, config);
   const mf = new Miniflare({
     host: '127.0.0.1', port: 0, inspectorPort: 0,
     modulesRoot: root,

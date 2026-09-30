@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { assess, deploymentDecision, flagLogSink, runProbe, validateDeployArgs } from './memory-preflight.mjs';
+import { assess, deploymentDecision, flagLogSink, runProbe, validateDeployArgs, validateWorkerConfig } from './memory-preflight.mjs';
 
 const MIB = 1024 * 1024;
+test('custom builds cannot replace the measured artifact during deploy', () => {
+  const config = { main: 'build/worker/shim.mjs' };
+  validateWorkerConfig('/fixture', config);
+  assert.throws(() => validateWorkerConfig('/fixture', { ...config, build: { command: 'make build' } }), /unsupported_custom_build/);
+  assert.throws(() => validateWorkerConfig('/fixture', { main: 'other.js' }), /unsupported_worker_entrypoint/);
+});
 const sample = (baselineMiB) => ({
   wasmBytes: (baselineMiB - 2) * MIB,
   jsHeapCapacityBytes: 2 * MIB, jsHeapUsedBytes: MIB,
@@ -21,8 +27,9 @@ test('sink advisory follows Worker configuration and CLI overrides', () => {
 
 test('alternate artifacts cannot receive a misleading pass', () => {
   validateDeployArgs(['--tag', 'release', '--message=update', '--keep-vars']);
+  validateDeployArgs(['--no-bundle']);
   for (const args of [['other.js'], ['--config', 'other.toml'], ['--env=staging'],
-    ['--compatibility-date=2026-01-01'], ['--define', 'X=Y'], ['--tag']]) {
+    ['--compatibility-date=2026-01-01'], ['--define', 'X=Y'], ['--tag'], ['--no-build']]) {
     assert.throws(() => validateDeployArgs(args), /unsupported_deploy_arguments/);
   }
 });

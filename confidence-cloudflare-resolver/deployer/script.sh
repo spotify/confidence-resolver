@@ -866,7 +866,7 @@ fi
 
 # only deploy if NO_DEPLOY is not set
 if test -z "$NO_DEPLOY"; then
-     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --no-build
+     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --no-bundle
 
      # Store encryption key as a Cloudflare Worker secret (persists across deploys)
      if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then
