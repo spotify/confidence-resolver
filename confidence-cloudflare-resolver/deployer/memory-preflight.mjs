@@ -42,24 +42,6 @@ export function flagLogSink(vars = {}, args = []) {
   return typeof raw === 'string' && raw.trim().toLowerCase() === 'buffer' ? 'buffer' : 'queue';
 }
 
-// Extra entrypoints/configs/environments or build transforms would deploy a
-// different artifact than the one measured. Unknown arguments fail closed;
-// FORCE_DEPLOY can explicitly override this signal too.
-export function validateDeployArgs(args) {
-  const values = new Set(['--tag', '--message', '--name', '--var', '--route']);
-  const flags = new Set(['--keep-vars', '--dry-run', '--logpush', '--upload-source-maps', '--no-bundle']);
-  for (let i = 0; i < args.length; i++) {
-    const [name] = args[i].split('=', 1);
-    if (values.has(name)) {
-      if (!args[i].includes('=') && (++i >= args.length || args[i].startsWith('--'))) {
-        throw new Error('unsupported_deploy_arguments');
-      }
-    } else if (!flags.has(args[i])) {
-      throw new Error('unsupported_deploy_arguments');
-    }
-  }
-}
-
 // Run in a separate process group: a stuck/OOMing runtime must not hang deployment.
 export async function runProbe(root, timeoutMs) {
   const directory = await mkdtemp(join(tmpdir(), 'resolver-memory-'));
@@ -175,17 +157,23 @@ async function main() {
     console.error('!!! SKIP_PREFLIGHT_TEST=true: memory preflight skipped. Runtime memory has not been checked. !!!');
     return;
   }
+  const deployArgs = process.argv.slice(3);
+  if (deployArgs.length > 0) {
+    // Wrangler owns argument validation. Do not log values: they may be secrets.
+    console.error('Memory preflight measures the generated Worker only. Extra Wrangler arguments are forwarded unchanged; entrypoint, configuration or code overrides may invalidate this measurement.');
+  }
   let report;
   try {
-    validateDeployArgs(process.argv.slice(3));
     report = assess(await runProbe(resolve(process.argv[2] ?? '.'), config.timeoutMs));
-    report.flagLogSink = flagLogSink({ FLAG_LOG_SINK: report.flagLogSink }, process.argv.slice(3));
+    report.flagLogSink = flagLogSink({ FLAG_LOG_SINK: report.flagLogSink }, deployArgs);
   } catch (error) {
     // Never emit exception text from parsing customer data or runtime diagnostics.
-    const reason = ['measurement_timeout', 'invalid_measurement', 'unsupported_deploy_arguments']
+    const reason = ['measurement_timeout', 'invalid_measurement']
       .includes(error.message) ? error.message : 'measurement_failed';
     report = { status: 'abort_deployment', reason };
   }
+  report.measurementScope = 'generated_worker';
+  report.hasDeployArgs = deployArgs.length > 0;
   const decision = deploymentDecision(report, process.env.FORCE_DEPLOY);
   console.log(JSON.stringify(decision));
   if (report.baselineBytes !== undefined) {
