@@ -356,6 +356,14 @@ RUN chmod +x confidence-cloudflare-resolver/deployer/script.sh
 # Default command runs the deployer script
 CMD ["./confidence-cloudflare-resolver/deployer/script.sh"]
 
+# Exercise the deployer's pinned workerd against a built Worker in CI.
+FROM confidence-cloudflare-resolver.deployer AS confidence-cloudflare-resolver.memory-preflight-test
+COPY data/resolver_state_current.pb /workspace/data/resolver_state_current.pb
+WORKDIR /workspace/confidence-cloudflare-resolver
+RUN node deployer/memory-preflight-fixture.mjs \
+    && RUSTFLAGS='--cfg getrandom_backend="wasm_js"' worker-build --release \
+    && MEMORY_PREFLIGHT_TEST_WORKER_DIR="$PWD" npm test --prefix deployer
+
 # ==============================================================================
 # OpenFeature Provider (TypeScript) - Build and test
 # ==============================================================================

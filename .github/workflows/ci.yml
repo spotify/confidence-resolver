@@ -58,3 +58,15 @@ jobs:
           secret-files: |
             confidence_client_secret=/tmp/confidence_client_secret.txt
             confidence_client_encryption_key=/tmp/confidence_client_encryption_key.txt
+
+      - name: Test Cloudflare deployer memory preflight
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          target: confidence-cloudflare-resolver.memory-preflight-test
+          platforms: linux/arm64
+          push: false
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+            type=registry,ref=ghcr.io/${{ github.repository }}/cache:memory-preflight
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref=ghcr.io/{0}/cache:memory-preflight,mode=max', github.repository) || '' }}
