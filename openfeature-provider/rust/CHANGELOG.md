@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.12.2...openfeature-provider/rust-v0.13.0) (2026-10-01)
+
+
+### Features
+
+* **cloudflare:** check state memory before deployment ([#618](https://github.com/spotify/confidence-resolver/issues/618)) ([623b8d5](https://github.com/spotify/confidence-resolver/commit/623b8d5e82a0759e908a85c3b9047662ba9185fe))
+* **deps:** bump aes-gcm from 0.10.3 to 0.11.1 ([#564](https://github.com/spotify/confidence-resolver/issues/564)) ([42f8a24](https://github.com/spotify/confidence-resolver/commit/42f8a24c03219529f1ec0e93f6dbe0867a1f7216))
+* **deps:** bump rand from 0.9.3 to 0.10.2 ([#565](https://github.com/spotify/confidence-resolver/issues/565)) ([93e8094](https://github.com/spotify/confidence-resolver/commit/93e8094d081e9e77e89eceda1859b7591389cfd9))
+
 ## [0.12.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/rust-v0.12.1...openfeature-provider/rust-v0.12.2) (2026-09-24)
 
 
