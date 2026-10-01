@@ -17,4 +17,4 @@ bytes = { version = "1.4.0", default-features = false }
 arc-swap = "1.7.1"
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14"

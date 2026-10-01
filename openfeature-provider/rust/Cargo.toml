@@ -58,7 +58,7 @@ rand = "0.10"
 chrono = { version = "0.4", features = ["clock"] }
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
