@@ -68,7 +68,7 @@
     "@types/node": "^24.0.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitest/coverage-v8": "^4.1.7",
+    "@vitest/coverage-v8": "^5.0.2",
     "debug": "^4.4.3",
     "dotenv": "^17.2.2",
     "happy-dom": "^20.3.4",
