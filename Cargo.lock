@@ -319,7 +319,7 @@ name = "confidence-cloudflare-resolver"
 version = "0.18.1"
 dependencies = [
  "arc-swap",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "confidence_resolver",
  "futures-util",
@@ -350,7 +350,7 @@ name = "confidence_resolver"
 version = "0.26.1"
 dependencies = [
  "arc-swap",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bitvec",
  "bytes",
  "chrono",
