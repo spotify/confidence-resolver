@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -94,6 +95,7 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   private final AccountStateProvider stateProvider;
   private final AtomicReference<ProviderState> state =
       new AtomicReference<>(ProviderState.NOT_READY);
+  private final AtomicBoolean closed = new AtomicBoolean();
   private volatile boolean initialized = false;
   private volatile byte[] lastStateBytes = null;
   @VisibleForTesting boolean forcedFetcherShutdown = false;
@@ -492,6 +494,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
 
   @Override
   public void shutdown() {
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
     state.set(ProviderState.NOT_READY);
     log.debug("Shutting down scheduled executors");
     flagsFetcherExecutor.shutdown();

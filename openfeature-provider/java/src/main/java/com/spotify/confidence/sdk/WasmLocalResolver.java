@@ -246,6 +246,9 @@ class WasmLocalResolver implements LocalResolver {
   public void close() {
     lock.lock();
     try {
+      if (closed) {
+        return;
+      }
       final var voidRequest = Messages.Void.getDefaultInstance();
 
       // Drain all pending assign logs (bounded flush may require multiple calls)
