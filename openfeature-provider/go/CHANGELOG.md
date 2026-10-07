@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.28.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.27.1...openfeature-provider/go/v0.28.0) (2026-10-07)
+
+
+### Features
+
+* **deps:** bump google.golang.org/grpc from 1.82.1 to 1.83.2 in /openfeature-provider/go/demo ([#592](https://github.com/spotify/confidence-resolver/issues/592)) ([efcfc3c](https://github.com/spotify/confidence-resolver/commit/efcfc3c4634eab53b082f928c2bfeed36471277b))
+* **deps:** bump google.golang.org/grpc from 1.83.1 to 1.83.2 in /openfeature-provider/go/bench ([#588](https://github.com/spotify/confidence-resolver/issues/588)) ([416b65d](https://github.com/spotify/confidence-resolver/commit/416b65dd3e57a5978d8f7f4fb1ee9e25ea31e16f))
+* **deps:** bump the cargo-minor-and-patch group across 1 directory with 19 updates ([#561](https://github.com/spotify/confidence-resolver/issues/561)) ([6c6470c](https://github.com/spotify/confidence-resolver/commit/6c6470cf8583956d77eb7f7bce299971fdffbd13))
+
 ## [0.27.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.27.0...openfeature-provider/go/v0.27.1) (2026-09-24)
 
 
