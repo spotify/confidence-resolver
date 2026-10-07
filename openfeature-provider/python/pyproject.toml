@@ -41,7 +41,7 @@ dev = [
     "pytest-httpx>=0.30.0",
     # grpcio-tools >=1.63,<1.72 emits protobuf 5 gencode, compatible with
     # protobuf 5 and 6 runtimes. Pin exactly for reproducible output.
-    "grpcio-tools==1.70.0",
+    "grpcio-tools==1.84.0",
     "mypy>=1.10.0",
     "ruff>=0.8.0",
 ]
