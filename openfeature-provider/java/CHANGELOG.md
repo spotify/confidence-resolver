@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.23.2...openfeature-provider-java-v0.23.3) (2026-10-07)
+
+
+### Bug Fixes
+
+* **java:** make provider shutdown idempotent ([#651](https://github.com/spotify/confidence-resolver/issues/651)) ([4e1a5f1](https://github.com/spotify/confidence-resolver/commit/4e1a5f1f4f4c31a328361108c715a2d9dab6a444))
+
 ## [0.23.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.23.1...openfeature-provider-java-v0.23.2) (2026-09-24)
 
 

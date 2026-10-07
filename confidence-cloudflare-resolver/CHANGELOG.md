@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.18.1...confidence-cloudflare-resolver-v0.19.0) (2026-10-07)
+
+
+### Features
+
+* **cloudflare:** check state memory before deployment ([#618](https://github.com/spotify/confidence-resolver/issues/618)) ([623b8d5](https://github.com/spotify/confidence-resolver/commit/623b8d5e82a0759e908a85c3b9047662ba9185fe))
+
 ## [0.18.1](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.18.0...confidence-cloudflare-resolver-v0.18.1) (2026-09-24)
 
 
