@@ -93,12 +93,13 @@ export function validateWorkerConfig(root, config) {
 }
 
 export async function measure(root) {
-  const { Miniflare, Log, LogLevel } = await import('miniflare');
+  const { Miniflare, Log, LogLevel, convertV4MiniflareOptions } = await import('miniflare');
   const { parse } = await import('smol-toml');
   const config = parse(await readFile(join(root, 'wrangler.toml'), 'utf8'));
   const workerDir = join(root, 'build/worker');
   validateWorkerConfig(root, config);
-  const mf = new Miniflare({
+  // Miniflare 5 removed the v4 top-level option shape; convert it explicitly.
+  const mf = new Miniflare(convertV4MiniflareOptions({
     host: '127.0.0.1', port: 0, inspectorPort: 0,
     modulesRoot: root,
     compatibilityDate: config.compatibility_date,
@@ -116,7 +117,7 @@ export async function measure(root) {
         contents: await readFile(join(workerDir, 'index.wasm')) },
     ],
     outboundService: () => new Response(null, { status: 403 }),
-  });
+  }));
   let ws;
   try {
     await mf.ready;
