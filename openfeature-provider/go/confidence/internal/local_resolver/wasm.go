@@ -36,6 +36,8 @@ type LogSink func(logs *resolverv1.WriteFlagLogsRequest)
 
 func NoOpLogSink(logs *resolverv1.WriteFlagLogsRequest) {}
 
+type wasmResolverContextKey struct{}
+
 type WasmResolver struct {
 	instance   api.Module
 	logSink    LogSink
@@ -138,7 +140,8 @@ func (r *WasmResolver) call(fnName string, request proto.Message, response proto
 		}
 		reqPtr = r.transfer(mustMarshal(wsmMsgReq))
 	}
-	ctx := context.Background()
+	// Wazero passes the guest call context into host callbacks.
+	ctx := context.WithValue(context.Background(), wasmResolverContextKey{}, r)
 	fn := r.exportedFunction(fnName)
 	resPtr, err := fn.Call(ctx, uint64(reqPtr))
 	if err != nil {
@@ -168,24 +171,24 @@ type WasmResolverFactory struct {
 
 var _ LocalResolverFactory = (*WasmResolverFactory)(nil)
 
-func consumeRequest(inst api.Module, ptr uint32) []byte {
+func consumeRequest(ctx context.Context, inst api.Module, ptr uint32) []byte {
 	if ptr == 0 {
 		return nil
 	}
-	data := consume(inst, ptr)
+	data := consume(ctx, inst, ptr)
 	req := &wasm.Request{}
 	mustUnmarshal(data, req)
 	return req.GetData()
 }
 
-func transferResponseSuccess(inst api.Module, data []byte) uint32 {
+func transferResponseSuccess(ctx context.Context, inst api.Module, data []byte) uint32 {
 	resp := &wasm.Response{Result: &wasm.Response_Data{Data: data}}
-	return transfer(inst, mustMarshal(resp))
+	return transfer(ctx, inst, mustMarshal(resp))
 }
 
-func transferResponseError(inst api.Module, errMsg string) uint32 {
+func transferResponseError(ctx context.Context, inst api.Module, errMsg string) uint32 {
 	resp := &wasm.Response{Result: &wasm.Response_Error{Error: errMsg}}
-	return transfer(inst, mustMarshal(resp))
+	return transfer(ctx, inst, mustMarshal(resp))
 }
 
 func NewWasmResolverFactory(logSink LogSink, useInterpreter bool) LocalResolverFactory {
@@ -199,8 +202,8 @@ func NewWasmResolverFactory(logSink LogSink, useInterpreter bool) LocalResolverF
 	_, err := runtime.NewHostModuleBuilder("wasm_msg").
 		NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, mod api.Module, ptr uint32) uint32 {
-			consumeRequest(mod, ptr)
-			return transferResponseSuccess(mod, mustMarshal(timestamppb.Now()))
+			consumeRequest(ctx, mod, ptr)
+			return transferResponseSuccess(ctx, mod, mustMarshal(timestamppb.Now()))
 		}).
 		Export("wasm_msg_host_current_time").
 		Instantiate(ctx)
@@ -240,10 +243,6 @@ func (wrf *WasmResolverFactory) Close(ctx context.Context) error {
 	return wrf.runtime.Close(ctx)
 }
 
-// readAndFree and allocAndWrite are the low-level WASM memory primitives.
-// They accept the alloc/free function handle as a parameter so callers can
-// choose between a cached handle (WasmResolver methods, hot path) and a
-// direct ExportedFunction lookup (host callbacks, cold path).
 func readAndFree(inst api.Module, addr uint32, freeFn api.Function) []byte {
 	memory := inst.Memory()
 
@@ -293,13 +292,19 @@ func (r *WasmResolver) transfer(data []byte) uint32 {
 	return allocAndWrite(r.instance, data, r.exportedFunction("wasm_msg_alloc"))
 }
 
-// Free-function versions look up the handle each time (cold path — host callbacks only).
-func consume(inst api.Module, addr uint32) []byte {
-	return readAndFree(inst, addr, inst.ExportedFunction("wasm_msg_free"))
+func hostExportedFunction(ctx context.Context, inst api.Module, name string) api.Function {
+	if r, ok := ctx.Value(wasmResolverContextKey{}).(*WasmResolver); ok && r.instance == inst {
+		return r.exportedFunction(name)
+	}
+	return inst.ExportedFunction(name)
 }
 
-func transfer(inst api.Module, data []byte) uint32 {
-	return allocAndWrite(inst, data, inst.ExportedFunction("wasm_msg_alloc"))
+func consume(ctx context.Context, inst api.Module, addr uint32) []byte {
+	return readAndFree(inst, addr, hostExportedFunction(ctx, inst, "wasm_msg_free"))
+}
+
+func transfer(ctx context.Context, inst api.Module, data []byte) uint32 {
+	return allocAndWrite(inst, data, hostExportedFunction(ctx, inst, "wasm_msg_alloc"))
 }
 
 // mustMarshal is a helper function that panics on marshal errors
