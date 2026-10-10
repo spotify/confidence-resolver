@@ -420,7 +420,9 @@ func evaluate[T any](
 		delete(evalCtx, "_confidence_skip_apply")
 	}
 
-	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, apply)
+	applyTime, _ := ctx.Value(applyTimeContextKey{}).(time.Time)
+	applyAtTime := apply && !applyTime.IsZero()
+	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, apply && !applyAtTime)
 	if err != nil {
 		var matErr *MaterializationNotSupportedError
 		if errors.As(err, &matErr) {
@@ -476,6 +478,9 @@ func evaluate[T any](
 
 	if resolvedFlag.Variant == "" {
 		registerResolve(resolvedFlag.Reason)
+		if applyAtTime {
+			p.applyResolvedAtTime(ctx, response.ResolveToken, resolvedFlag, applyTime)
+		}
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -512,6 +517,9 @@ func evaluate[T any](
 	}
 
 	registerResolve(resolvedFlag.Reason)
+	if applyAtTime {
+		p.applyResolvedAtTime(ctx, response.ResolveToken, resolvedFlag, applyTime)
+	}
 	return openfeature.GenericResolutionDetail[T]{
 		Value: result,
 		ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
