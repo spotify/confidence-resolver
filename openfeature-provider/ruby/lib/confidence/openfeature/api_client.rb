@@ -27,10 +27,26 @@ module Confidence
     EVENTS_URI = "https://events.confidence.dev/v1"
 
     class APIClient
-      def initialize(client_secret:, region: Region::EU, events_uri: EVENTS_URI)
+      TIMEOUT_ERRORS = [Net::OpenTimeout, Net::ReadTimeout].tap do |errs|
+        errs << Net::WriteTimeout if defined?(Net::WriteTimeout)
+      end.freeze
+
+      attr_reader :open_timeout, :read_timeout, :write_timeout
+
+      def initialize(
+        client_secret:,
+        region: Region::EU,
+        events_uri: EVENTS_URI,
+        open_timeout: nil,
+        read_timeout: nil,
+        write_timeout: nil
+      )
         @client_secret = client_secret
         @uri = URI.parse(region.uri)
         @events_uri = URI.parse(events_uri)
+        @open_timeout = validate_timeout!("open_timeout", open_timeout)
+        @read_timeout = validate_timeout!("read_timeout", read_timeout)
+        @write_timeout = validate_timeout!("write_timeout", write_timeout)
       end
 
       def resolve_one(flag:, context: {}, apply: true)
@@ -120,7 +136,22 @@ module Confidence
       def build_agent(uri)
         agent = Net::HTTP.new(uri.host, uri.port)
         agent.use_ssl = uri.scheme == "https"
+        agent.open_timeout = @open_timeout unless @open_timeout.nil?
+        agent.read_timeout = @read_timeout unless @read_timeout.nil?
+        if !@write_timeout.nil? && agent.respond_to?(:write_timeout=)
+          agent.write_timeout = @write_timeout
+        end
         agent
+      end
+
+      def validate_timeout!(name, value)
+        return nil if value.nil?
+
+        unless value.is_a?(Numeric) && value > 0
+          raise ArgumentError.new("#{name} must be a positive number, got #{value.inspect}")
+        end
+
+        value.to_f
       end
 
       # getutc rather than utc: the latter mutates its receiver, which would
@@ -163,7 +194,11 @@ module Confidence
         headers = {"Content-Type" => "application/json"}
         request = Net::HTTP::Post.new(path, headers)
         request.body = JSON.dump(body)
-        response = build_agent(uri).request(request)
+        response = begin
+          build_agent(uri).request(request)
+        rescue *TIMEOUT_ERRORS => ex
+          raise APIError.new("#{label} timed out: #{ex.message}")
+        end
 
         code = response.code.to_i
         if code != 200
