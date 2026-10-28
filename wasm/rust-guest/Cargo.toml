@@ -13,7 +13,7 @@ confidence_resolver = { path = "../../confidence-resolver", version = "0.26.1", 
 prost = { version = "0.13", default-features = false }
 prost-types = { version = "0.13", default-features = false }
 # TODO re-export Bytes
-bytes = { version = "1.4.0", default-features = false }
+bytes = { version = "1.9", default-features = false }
 arc-swap = "1.7.1"
 
 [build-dependencies]

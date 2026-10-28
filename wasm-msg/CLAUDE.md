@@ -28,7 +28,7 @@ Every guest↔host call goes through protobuf envelope types (defined in `proto/
 Flow for a guest function call:
 1. Host serializes `Request{data: <inner request bytes>}` into WASM memory via `wasm_msg_alloc`
 2. Host calls `wasm_msg_guest_<name>(ptr) -> ptr`
-3. Guest reads `Request`, decodes inner type, runs handler, returns `Response` via `transfer_response`
+3. Guest takes ownership of the buffer as `Bytes`, decodes `Request` and the inner type as views into it (no copies; a `bytes` field generated as `Bytes` stays a view), runs handler, returns `Response` via `transfer_response`. The request buffer is freed when the last view drops, so a handler that keeps a decoded `Bytes` keeps the whole buffer.
 4. Host reads `Response`, extracts data or error, frees memory
 
 ## Macros
@@ -64,9 +64,9 @@ Host imports use the WASM import module `"wasm_msg"`.
 
 ```bash
 make lint   # cargo fmt --check + cargo clippy --lib --release -- -D warnings
-make test   # no tests yet (all resolver logic tested in confidence-resolver)
+make test   # cargo test --release --lib (message round-trips and the zero-copy invariant; resolver logic is tested in confidence-resolver)
 ```
 
 ## Proto Generation
 
-`build.rs` uses `tonic-build` to compile `proto/messages.proto` (unusual — `tonic-build` is used here even though this isn't a gRPC crate).
+`build.rs` uses `tonic-build` to compile `proto/messages.proto` (unusual — `tonic-build` is used here even though this isn't a gRPC crate), with `bytes` fields generated as `bytes::Bytes` so decoding from a `Bytes` buffer does not copy them.
