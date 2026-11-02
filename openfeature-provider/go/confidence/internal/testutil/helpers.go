@@ -64,39 +64,35 @@ func (m *StateProviderMock) Provide(_ context.Context) ([]byte, string, error) {
 	return m.State, m.AccountID, m.Err
 }
 
-func LoadTestResolverState(t *testing.T) []byte {
-	dataPath := filepath.Join(repoRoot, "data", "resolver_state_current.pb")
+// requireDataFile reads a test fixture from data/ at the repo root and fails
+// the test when it is missing: a silently skipped test is a false green.
+// Docker test stages must `COPY data/ /data/` for these to resolve, because
+// repoRoot (five directories up from this file) is / inside the flattened
+// go test stage.
+func requireDataFile(t *testing.T, relPath string) []byte {
+	t.Helper()
+	dataPath := filepath.Join(repoRoot, relPath)
 	data, err := os.ReadFile(dataPath)
 	if err != nil {
-		t.Skipf("Skipping test - could not load test resolver state: %v", err)
+		t.Fatalf("test fixture %s could not be loaded: %v", dataPath, err)
 	}
 	return data
+}
+
+func LoadTestResolverState(t *testing.T) []byte {
+	return requireDataFile(t, "data/resolver_state_current.pb")
 }
 
 func LoadTestAccountID(t *testing.T) string {
-	dataPath := filepath.Join(repoRoot, "data", "account_id")
-	data, err := os.ReadFile(dataPath)
-	if err != nil {
-		t.Skipf("Skipping test - could not load test account ID: %v", err)
-	}
-	return strings.TrimSpace(string(data))
+	return strings.TrimSpace(string(requireDataFile(t, "data/account_id")))
 }
 
 func LoadTestEncryptedState(t *testing.T) []byte {
-	dataPath := filepath.Join(repoRoot, "data", "resolver_state_encrypted.pb")
-	data, err := os.ReadFile(dataPath)
-	if err != nil {
-		t.Skipf("Skipping test - could not load encrypted test state: %v", err)
-	}
-	return data
+	return requireDataFile(t, "data/resolver_state_encrypted.pb")
 }
 
 func LoadTestEncryptionKey(t *testing.T) []byte {
-	dataPath := filepath.Join(repoRoot, "data", "encryption_key_test.hex")
-	hexKey, err := os.ReadFile(dataPath)
-	if err != nil {
-		t.Skipf("Skipping test - could not load test encryption key: %v", err)
-	}
+	hexKey := requireDataFile(t, "data/encryption_key_test.hex")
 	key, err := hex.DecodeString(strings.TrimSpace(string(hexKey)))
 	if err != nil {
 		t.Fatalf("Invalid hex encryption key: %v", err)
