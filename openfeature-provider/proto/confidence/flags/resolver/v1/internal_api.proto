@@ -201,6 +201,12 @@ message FlagResolveInfo {
    string flag = 1;
    // Information about how variants were resolved.
    repeated VariantResolveInfo variant_resolve_info = 2;
+   // Information about how rules were resolved.
+   //
+   // Must be declared so decode→encode round-trips in host SDKs preserve it
+   // (ts-proto/protobuf-js drop unknown fields): the WASM resolver writes it
+   // and the backend derives per-treatment resolve counts from it.
+   repeated RuleResolveInfo rule_resolve_info = 3;
 
    // Information about how a variant was resolved.
    message VariantResolveInfo {
@@ -208,6 +214,24 @@ message FlagResolveInfo {
      string variant = 1;
      // Number of times the variant was resolved in this period
      int64 count = 3;
+   }
+
+   // Information about how a rule was resolved.
+   message RuleResolveInfo {
+     // The rule that was resolved
+     string rule = 1;
+     // Number of times the rule was resolved in this period
+     int64 count = 2;
+     // Resolve counts on each assignment
+     repeated AssignmentResolveInfo assignment_resolve_info = 3;
+   }
+
+   // Information about the assignment that was resolved.
+   message AssignmentResolveInfo {
+     // The assignment id of the resolved value, otherwise not set.
+     string assignment_id = 1;
+     // Number of times the assignment id was resolved in this period.
+     int64 count = 2;
    }
 }
 
