@@ -474,10 +474,10 @@ COPY --from=openfeature-provider-js.pack /app/package.tgz /package.tgz
 # ==============================================================================
 # OpenFeature Provider (Go) - Build and test
 # ==============================================================================
-# Debian-based (not alpine): the wasmtime Go bindings use cgo against a
-# glibc-built static library; alpine's musl cannot link it and lacks a C
-# compiler by default. The debian image ships both.
-FROM golang:1.25 AS openfeature-provider-go-base
+FROM golang:1.25-alpine AS openfeature-provider-go-base
+
+# Install make (needed for Makefile targets)
+RUN apk add --no-cache make
 
 WORKDIR /app
 

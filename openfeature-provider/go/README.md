@@ -28,10 +28,13 @@ and published as a small encrypted artifact per credential.
   instantiating it.
 - Loading a module *is* loading its flags: there is no state to install and
   no protobuf state to parse at runtime.
-- The module runs on [wasmtime](https://wasmtime.dev/) (via its Go bindings)
-  with the WebAssembly threads proposal: one shared memory holds the flag
+- The module runs on [wazero](https://wazero.io/) (pure Go, no cgo) with the
+  WebAssembly threads proposal enabled: one shared memory holds the flag
   data, initialized once, and all evaluation entry is serialized through one
-  instance.
+  instance. The shared memory is provided by the host and backed by a lazily
+  committed reservation, so the module's declared memory ceiling (the
+  compiler's default is 4 GiB) costs virtual address space, not physical
+  memory.
 - Evaluation itself (splitting `my-flag.path.to.field` into flag and value
   path, walking the path, checking the resolved value against your default,
   merging defaults into nulls, and mapping errors) is performed by the
@@ -56,8 +59,11 @@ go mod tidy
 
 - Go 1.25+
 - OpenFeature Go SDK 1.16.0+
-- A platform supported by the wasmtime Go bindings' prebuilt libraries
-  (linux/amd64, linux/arm64, macOS/amd64, macOS/arm64, windows/amd64)
+- Any platform wazero supports (pure Go, no cgo; cross-compile with the
+  standard Go toolchain)
+- On platforms without a memory-reservation primitive, module memory is
+  capped at 64 MiB instead of the declared ceiling (see the allocator
+  comments in `internal/compiled_module`)
 
 ## Getting Your Credentials
 
@@ -220,7 +226,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `InitializationTimeout` (time.Duration): Total startup retry budget before initialization returns a recoverable timeout error (default: 30 seconds)
 - `ModuleBaseURL` (string): Module CDN base URL override (default: the production host). Intended for testing.
 - `IngestionBaseURL` (string): Flag-log ingestion API base URL override (default: the regionless `https://ingestion.confidence.dev`; the regional eu/us hosts can be set explicitly). Intended for testing.
-- `UseWasmInterpreter` (bool): Run the (optional) event engine in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). The flag resolver itself always runs on wasmtime. See [WASM interpreter mode](#wasm-interpreter-mode).
+- `UseWasmInterpreter` (bool): Run the WASM engines (the module host and the optional event engine) in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode).
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
 
   - `nil` (default): Falls back to default values for flags requiring materializations
@@ -266,7 +272,7 @@ it, so `false` does **not** disable dedup — use `DisableApplyDedup`.
 
 ## WASM interpreter mode
 
-`UseWasmInterpreter` applies to the optional [event engine](#event-tracking), which runs on [wazero](https://wazero.io/)'s JIT compiler by default. On **linux/arm64**, CPU profiling (`SIGPROF`) or goroutine preemption (`SIGURG`) can arrive while a thread is executing that JIT code; Go cannot attribute the signal to a goroutine in that state and may exit the process silently. Setting `UseWasmInterpreter: true` switches the event engine to wazero's interpreter, which runs as ordinary Go code on a normal goroutine stack. The flag resolver itself is unaffected: it runs on wasmtime regardless of this setting.
+`UseWasmInterpreter` applies to the [module host](#how-it-works) and the optional [event engine](#event-tracking), both of which run on [wazero](https://wazero.io/)'s JIT compiler by default. On **linux/arm64**, CPU profiling (`SIGPROF`) or goroutine preemption (`SIGURG`) can arrive while a thread is executing that JIT code; Go cannot attribute the signal to a goroutine in that state and may exit the process silently. Setting `UseWasmInterpreter: true` switches both engines to wazero's interpreter, which runs as ordinary Go code on a normal goroutine stack.
 
 ### When to enable interpreter mode
 
@@ -702,5 +708,7 @@ CDN. What changes for you:
 - Flag logs are delivered to the Confidence ingestion API using the
   compiler-signed log token that ships inside the module wrapper, instead of
   the previous per-account log destinations.
-- The provider now depends on the wasmtime Go bindings (cgo). If you build
-  for a platform outside linux/macOS/windows on amd64/arm64, file an issue.
+- The provider is pure Go (wazero, no cgo) and cross-compiles with the
+  standard Go toolchain. On platforms without a memory-reservation
+  primitive, module memory is capped at 64 MiB instead of the declared
+  ceiling.

@@ -1,8 +1,8 @@
 package compiled_module
 
 import (
+	"context"
 	"errors"
-	"fmt"
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/flagswasm"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
@@ -14,7 +14,7 @@ import (
 // against it; Close frees the module-allocated block.
 type Envelope struct {
 	host   *Host
-	packed int64
+	packed uint64
 	closed bool
 }
 
@@ -63,11 +63,11 @@ func (h *Host) StartResolve(request *resolver.ResolveFlagsRequest) (*ResolveResu
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err := h.resolveProcessStart.Call(h.store, reqSlice)
+	res, err := h.resolveProcessStart.Call(context.Background(), reqSlice)
 	if err != nil {
 		return nil, nil, err
 	}
-	resolved, suspended, envelope, err := h.decodeProcessResponse(res.(int64))
+	resolved, suspended, envelope, err := h.decodeProcessResponse(res[0])
 	if err != nil {
 		return nil, nil, err
 	}
@@ -94,13 +94,13 @@ func (h *Host) ResumeResolve(s *Suspended, materializations *flagswasm.Materiali
 	h.mu.Lock()
 	matSlice, err := h.writeSlice(mustMarshal(materializations))
 	if err == nil {
-		var res interface{}
-		res, err = h.resolveProcessResume.Call(h.store, int32(int(id)), matSlice)
+		var res []uint64
+		res, err = h.resolveProcessResume.Call(context.Background(), uint64(id), matSlice)
 		if err == nil {
 			var resolved *flagswasm.ResolveProcessResponse_Resolved
 			var suspended *Suspended
 			var envelope *Envelope
-			resolved, suspended, envelope, err = h.decodeProcessResponse(res.(int64))
+			resolved, suspended, envelope, err = h.decodeProcessResponse(res[0])
 			if err == nil && suspended != nil {
 				// A second suspension is a module defect: discard the new
 				// handle and fail the resolve.
@@ -147,7 +147,7 @@ func (h *Host) discardLocked(processID uint32) {
 	if processID == 0 {
 		return
 	}
-	_, _ = h.resolveProcessDiscard.Call(h.store, int32(int(processID)))
+	_, _ = h.resolveProcessDiscard.Call(context.Background(), uint64(processID))
 }
 
 // Evaluate performs OpenFeature's evaluation step for one flag against a
@@ -166,11 +166,11 @@ func (h *Host) Evaluate(envelope *Envelope, request *flagswasm.EvaluateRequest) 
 	if err != nil {
 		return nil, err
 	}
-	res, err := h.evaluate.Call(h.store, envelope.packed, reqSlice)
+	res, err := h.evaluate.Call(context.Background(), envelope.packed, reqSlice)
 	if err != nil {
 		return nil, err
 	}
-	detailsBytes, err := h.readAndFreeSlice(res.(int64))
+	detailsBytes, err := h.readAndFreeSlice(res[0])
 	if err != nil {
 		return nil, err
 	}
@@ -191,22 +191,18 @@ func (h *Host) ApplyFlags(request *resolver.ApplyFlagsRequest) (ApplyStatus, err
 	if err != nil {
 		return ApplyInvalid, err
 	}
-	res, err := h.applyFlags.Call(h.store, reqSlice)
+	res, err := h.applyFlags.Call(context.Background(), reqSlice)
 	if err != nil {
 		return ApplyInvalid, err
 	}
-	status, ok := res.(int32)
-	if !ok {
-		return ApplyInvalid, fmt.Errorf("apply_flags returned unexpected result %T", res)
-	}
-	return ApplyStatus(status), nil
+	return ApplyStatus(int32(res[0])), nil
 }
 
 // FlushLogs asks the module to deliver buffered logs through write_logs.
 func (h *Host) FlushLogs() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, err := h.flushLogs.Call(h.store)
+	_, err := h.flushLogs.Call(context.Background())
 	return err
 }
 
@@ -222,11 +218,11 @@ func (h *Host) MetricsSnapshot(openmetrics bool) (string, error) {
 	if openmetrics {
 		format = 1
 	}
-	res, err := h.metricsSnapshot.Call(h.store, format)
+	res, err := h.metricsSnapshot.Call(context.Background(), uint64(format))
 	if err != nil {
 		return "", err
 	}
-	text, err := h.readAndFreeSlice(res.(int64))
+	text, err := h.readAndFreeSlice(res[0])
 	if err != nil {
 		return "", err
 	}
@@ -241,14 +237,11 @@ func (h *Host) AllocatedBytes() (uint32, bool) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	res, err := h.allocatedBytes.Call(h.store)
+	res, err := h.allocatedBytes.Call(context.Background())
 	if err != nil {
 		return 0, true
 	}
-	if v, ok := res.(int32); ok && v >= 0 {
-		return uint32(v), true
-	}
-	return 0, true
+	return uint32(res[0]), true
 }
 
 // ObserveResolveLatency reports one resolve's latency (from the start of the
@@ -260,7 +253,7 @@ func (h *Host) ObserveResolveLatency(clientIndex int32, micros int64) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, _ = h.observeLatency.Call(h.store, clientIndex, micros)
+	_, _ = h.observeLatency.Call(context.Background(), uint64(uint32(clientIndex)), uint64(micros))
 }
 
 // decodeProcessResponse decodes the ResolveProcessResponse slice returned by
@@ -268,7 +261,7 @@ func (h *Host) ObserveResolveLatency(clientIndex int32, micros int64) {
 // returned on success. The envelope block is freed on the suspended and error
 // paths; on the resolved path ownership passes to the caller.
 // Entry mutex must be held.
-func (h *Host) decodeProcessResponse(packed int64) (
+func (h *Host) decodeProcessResponse(packed uint64) (
 	*flagswasm.ResolveProcessResponse_Resolved,
 	*Suspended,
 	*Envelope,
@@ -311,10 +304,10 @@ func (h *Host) decodeProcessResponse(packed int64) (
 
 // freePacked frees a module-allocated block by packed slice. Entry mutex must
 // be held.
-func (h *Host) freePacked(packed int64) {
+func (h *Host) freePacked(packed uint64) {
 	ptr, length := unpackSlice(packed)
 	if length > 0 {
-		_, _ = h.frees.Call(h.store, int32(int(ptr)))
+		_, _ = h.frees.Call(context.Background(), uint64(ptr))
 	}
 }
 

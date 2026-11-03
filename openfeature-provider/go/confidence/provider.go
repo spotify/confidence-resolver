@@ -62,6 +62,8 @@ type LocalResolverProvider struct {
 	// seedFn overrides the per-instance random seed (tests pin it for
 	// deterministic bucketing).
 	seedFn func() int64
+	// useInterpreter runs the module host on wazero's interpreter engine.
+	useInterpreter bool
 
 	clientSDK *resolvertypes.Sdk
 

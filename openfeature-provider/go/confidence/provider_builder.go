@@ -69,9 +69,10 @@ type ProviderConfig struct {
 	// defaults to 30 seconds). The provider keeps retrying in the
 	// background when it expires.
 	InitializationTimeout time.Duration
-	// UseWasmInterpreter configures the (optional) event engine to use
-	// wazero's interpreter mode instead of JIT compilation. The flag
-	// resolver itself always runs on wasmtime.
+	// UseWasmInterpreter runs the WASM engines (the module host and the
+	// event engine) on wazero's interpreter instead of its compiler. See the
+	// README's interpreter-mode section for the linux/arm64 signal-handling
+	// trade-offs.
 	UseWasmInterpreter bool
 	// DisableApplyDedup turns off apply-event deduplication, so every apply
 	// is logged even when an identical assignment was just logged. Dedup is
@@ -158,6 +159,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	})
 	provider.fetcher = fetcher
 	provider.forwarder = forwarder
+	provider.useInterpreter = config.UseWasmInterpreter
 
 	if config.UseRemoteMaterializationStore {
 		conn, err := grpc.NewClient(confidenceDomain, grpc.WithTransportCredentials(credentials.NewTLS(nil)))

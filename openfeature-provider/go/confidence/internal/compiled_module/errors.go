@@ -7,6 +7,10 @@ import (
 
 // Sentinel and constructor errors for the host package.
 var (
+	// errUnsupportedReservation marks platforms without a memory reservation
+	// primitive; the allocator falls back to a bounded committed region.
+	errUnsupportedReservation = errors.New("memory reservation unsupported on this platform")
+
 	errNilLogSink     = errors.New("compiled_module: LogSink is required")
 	errMissingExport  = errors.New("compiled_module: instance is missing a required export")
 	errUnexpectedImp  = "compiled_module: unexpected import"

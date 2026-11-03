@@ -1,13 +1,17 @@
 package compiled_module
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	wasmtime "github.com/nicklasl/wasmtime-go/v50"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/experimental"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/flagswasm"
@@ -21,9 +25,9 @@ import (
 // part of the module).
 type LogSink func(body []byte)
 
-// Host is one live compiled client module: a wasmtime engine, the module, the
-// shared memory the module's flag data lives in, and a single instance entered
-// exclusively through a mutex.
+// Host is one live compiled client module: a wazero runtime, the module, the
+// shared memory the module's flag data lives in, and a single instance
+// entered exclusively through a mutex.
 //
 // The single-instance/single-memory design follows the module contract: the
 // flag data is initialized into the shared memory once (by the first
@@ -32,28 +36,27 @@ type LogSink func(body []byte)
 // de-duplication and flush locks never contend and memory.atomic.wait never
 // blocks a host goroutine.
 type Host struct {
-	engine   *wasmtime.Engine
-	module   *wasmtime.Module
-	memory   *wasmtime.SharedMemory
-	store    *wasmtime.Store
-	instance *wasmtime.Instance
+	runtime  wazero.Runtime
+	instance api.Module
+	memory   api.Memory
 	mod      *Module
+	closers  []api.Closer
 
 	mu sync.Mutex // entry mutex: one WASM call at a time
 
-	alloc  *wasmtime.Func
-	frees  *wasmtime.Func
-	ackLog *wasmtime.Func
+	alloc  api.Function
+	frees  api.Function
+	ackLog api.Function
 
-	resolveProcessStart   *wasmtime.Func
-	resolveProcessResume  *wasmtime.Func
-	resolveProcessDiscard *wasmtime.Func
-	applyFlags            *wasmtime.Func
-	flushLogs             *wasmtime.Func
-	evaluate              *wasmtime.Func
-	metricsSnapshot       *wasmtime.Func
-	allocatedBytes        *wasmtime.Func
-	observeLatency        *wasmtime.Func
+	resolveProcessStart   api.Function
+	resolveProcessResume  api.Function
+	resolveProcessDiscard api.Function
+	applyFlags            api.Function
+	flushLogs             api.Function
+	evaluate              api.Function
+	metricsSnapshot       api.Function
+	allocatedBytes        api.Function
+	observeLatency        api.Function
 
 	logSink LogSink
 
@@ -70,6 +73,10 @@ type HostConfig struct {
 	Now func() int64
 	// Seed returns a random value used once per instance. Optional.
 	Seed func() int64
+	// UseInterpreter runs the module on wazero's interpreter engine instead
+	// of its compiler. The signal-handling trade-offs documented in the
+	// provider README apply. Optional.
+	UseInterpreter bool
 	// ApplySeen and SchemaSeen implement the exposure/schema de-duplication
 	// imports: they return true when the fingerprint was already reported.
 	// Nil disables de-duplication for that namespace (always false).
@@ -104,42 +111,27 @@ func (c HostConfig) logger() *slog.Logger {
 	return slog.Default()
 }
 
-// NewHost compiles and instantiates a validated module. The returned host is
-// ready to resolve; Close tears the instance down.
+// NewHost compiles and instantiates a validated module on wazero with the
+// threads feature enabled: the module's atomic instructions decode, and the
+// shared host.memory it imports is provided by a tiny helper module that
+// defines and exports a shared memory with exactly the limits the client
+// module declares. The returned host is ready to resolve; Close tears the
+// instance down.
 func NewHost(mod *Module, cfg HostConfig) (*Host, error) {
 	if cfg.LogSink == nil {
 		return nil, errNilLogSink
 	}
 
-	wasmCfg := wasmtime.NewConfig()
-	wasmCfg.SetWasmThreads(true)
-	wasmCfg.SetSharedMemory(true)
-	engine := wasmtime.NewEngineWithConfig(wasmCfg)
-
-	compiled, err := wasmtime.NewModule(engine, mod.Bytes)
-	if err != nil {
-		engine.Close()
-		return nil, err
+	ctx := context.Background()
+	runtimeCfg := wazero.NewRuntimeConfigCompiler()
+	if cfg.UseInterpreter {
+		runtimeCfg = wazero.NewRuntimeConfigInterpreter()
 	}
+	runtimeCfg = runtimeCfg.WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesThreads)
+	r := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
 
-	limits := mod.info.HostMemoryLimits
-	memType, err := wasmtime.NewMemoryType(limits.Initial, limits.HasMax, limits.Maximum, true)
-	if err != nil {
-		engine.Close()
-		return nil, err
-	}
-	memory, err := wasmtime.NewSharedMemory(engine, memType)
-	if err != nil {
-		engine.Close()
-		return nil, err
-	}
-
-	store := wasmtime.NewStore(engine)
 	h := &Host{
-		engine:             engine,
-		module:             compiled,
-		memory:             memory,
-		store:              store,
+		runtime:            r,
 		mod:                mod,
 		logSink:            cfg.LogSink,
 		hasMetricsSnapshot: mod.HasExport("metrics_snapshot"),
@@ -147,35 +139,89 @@ func NewHost(mod *Module, cfg HostConfig) (*Host, error) {
 		hasObserveLatency:  mod.HasExport("observe_client_resolve_latency"),
 	}
 
-	imports, err := h.buildImports(cfg)
-	if err != nil {
-		store.Close()
-		memory.Close()
-		engine.Close()
-		return nil, err
+	// Host functions required by the module contract. Instantiating a
+	// namespace the module does not import is harmless: wazero resolves
+	// only the imports the module declares.
+	env := r.NewHostModuleBuilder("env").
+		NewFunctionBuilder().WithFunc(func() int64 { return cfg.now() }).Export("current_time").
+		NewFunctionBuilder().WithFunc(func() int64 { return cfg.seed() }).Export("random_seed")
+	if mod.HasImport("env", "write_logs") {
+		env = env.NewFunctionBuilder().WithFunc(
+			func(callCtx context.Context, caller api.Module, payload uint64) {
+				h.deliverLogs(caller, payload, cfg.logger())
+			},
+		).Export("write_logs")
+	}
+	if envMod, err := env.Instantiate(ctx); err != nil {
+		r.Close(ctx)
+		return nil, fmt.Errorf("env host module: %w", err)
+	} else {
+		h.closers = append(h.closers, envMod)
+	}
+	if mod.HasImport("apply_filter", "seen") {
+		seen := cfg.ApplySeen
+		if fMod, err := r.NewHostModuleBuilder("apply_filter").
+			NewFunctionBuilder().WithFunc(func(fingerprint int64) int32 {
+			return boolToI32(seen != nil && seen(fingerprint))
+		}).Export("seen").
+			Instantiate(ctx); err != nil {
+			r.Close(ctx)
+			return nil, fmt.Errorf("apply_filter host module: %w", err)
+		} else {
+			h.closers = append(h.closers, fMod)
+		}
+	}
+	if mod.HasImport("schema_filter", "seen") {
+		seen := cfg.SchemaSeen
+		if fMod, err := r.NewHostModuleBuilder("schema_filter").
+			NewFunctionBuilder().WithFunc(func(fingerprint int64) int32 {
+			return boolToI32(seen != nil && seen(fingerprint))
+		}).Export("seen").
+			Instantiate(ctx); err != nil {
+			r.Close(ctx)
+			return nil, fmt.Errorf("schema_filter host module: %w", err)
+		} else {
+			h.closers = append(h.closers, fMod)
+		}
 	}
 
-	instance, err := wasmtime.NewInstance(store, compiled, imports)
+	// host.memory: a helper module defining and exporting a shared memory
+	// with the module's declared limits. wazero allocates shared memories
+	// fixed at their maximum, which is what threads semantics expect.
+	limits := mod.info.HostMemoryLimits
+	helperCtx := experimental.WithMemoryAllocator(ctx, lazyMemoryAllocator{})
+	helper, err := r.InstantiateWithConfig(helperCtx, sharedMemoryHelperWasm(limits.Initial, limits.Maximum, limits.HasMax), wazero.NewModuleConfig().WithName("host"))
 	if err != nil {
-		store.Close()
-		memory.Close()
-		engine.Close()
+		r.Close(ctx)
+		return nil, fmt.Errorf("shared memory helper: %w", err)
+	}
+	h.closers = append(h.closers, helper)
+	h.memory = helper.Memory()
+	if h.memory == nil {
+		r.Close(ctx)
+		return nil, fmt.Errorf("shared memory helper exported no memory")
+	}
+
+	instance, err := r.Instantiate(ctx, mod.Bytes)
+	if err != nil {
+		r.Close(ctx)
 		return nil, err
 	}
 	h.instance = instance
+	h.closers = append(h.closers, instance)
 
-	h.alloc = instance.GetFunc(store, "alloc")
-	h.frees = instance.GetFunc(store, "free")
-	h.ackLog = instance.GetFunc(store, "ack_logs")
-	h.resolveProcessStart = instance.GetFunc(store, "resolve_process_start")
-	h.resolveProcessResume = instance.GetFunc(store, "resolve_process_resume")
-	h.resolveProcessDiscard = instance.GetFunc(store, "resolve_process_discard")
-	h.applyFlags = instance.GetFunc(store, "apply_flags")
-	h.flushLogs = instance.GetFunc(store, "flush_logs")
-	h.evaluate = instance.GetFunc(store, "evaluate")
-	h.metricsSnapshot = instance.GetFunc(store, "metrics_snapshot")
-	h.allocatedBytes = instance.GetFunc(store, "allocated_bytes")
-	h.observeLatency = instance.GetFunc(store, "observe_client_resolve_latency")
+	h.alloc = instance.ExportedFunction("alloc")
+	h.frees = instance.ExportedFunction("free")
+	h.ackLog = instance.ExportedFunction("ack_logs")
+	h.resolveProcessStart = instance.ExportedFunction("resolve_process_start")
+	h.resolveProcessResume = instance.ExportedFunction("resolve_process_resume")
+	h.resolveProcessDiscard = instance.ExportedFunction("resolve_process_discard")
+	h.applyFlags = instance.ExportedFunction("apply_flags")
+	h.flushLogs = instance.ExportedFunction("flush_logs")
+	h.evaluate = instance.ExportedFunction("evaluate")
+	h.metricsSnapshot = instance.ExportedFunction("metrics_snapshot")
+	h.allocatedBytes = instance.ExportedFunction("allocated_bytes")
+	h.observeLatency = instance.ExportedFunction("observe_client_resolve_latency")
 	if h.alloc == nil || h.frees == nil || h.ackLog == nil ||
 		h.resolveProcessStart == nil || h.resolveProcessResume == nil ||
 		h.resolveProcessDiscard == nil || h.applyFlags == nil ||
@@ -186,50 +232,61 @@ func NewHost(mod *Module, cfg HostConfig) (*Host, error) {
 	return h, nil
 }
 
-// buildImports binds exactly the import set the module declares.
-func (h *Host) buildImports(cfg HostConfig) ([]wasmtime.AsExtern, error) {
-	logger := cfg.logger()
-	var imports []wasmtime.AsExtern
-	for _, imp := range h.mod.info.Imports {
-		key := imp.Module + "." + imp.Name
-		switch key {
-		case memoryImportModule + "." + memoryImportField:
-			imports = append(imports, h.memory)
-		case "env.current_time":
-			imports = append(imports, wasmtime.WrapFunc(h.store, func() int64 {
-				return cfg.now()
-			}))
-		case "env.random_seed":
-			imports = append(imports, wasmtime.WrapFunc(h.store, func() int64 {
-				return cfg.seed()
-			}))
-		case "env.write_logs":
-			imports = append(imports, wasmtime.WrapFunc(h.store, func(caller *wasmtime.Caller, payload int64) {
-				h.deliverLogs(caller, payload, logger)
-			}))
-		case "apply_filter.seen":
-			seen := cfg.ApplySeen
-			imports = append(imports, wasmtime.WrapFunc(h.store, func(fingerprint int64) int32 {
-				return boolToI32(seen != nil && seen(fingerprint))
-			}))
-		case "schema_filter.seen":
-			seen := cfg.SchemaSeen
-			imports = append(imports, wasmtime.WrapFunc(h.store, func(fingerprint int64) int32 {
-				return boolToI32(seen != nil && seen(fingerprint))
-			}))
-		default:
-			return nil, errUnexpectedImport(key)
+// sharedMemoryHelperWasm emits a module equivalent to
+// (module (memory (export "memory") <min> <max> shared)) — the artifact the
+// client module's host.memory import resolves against.
+func sharedMemoryHelperWasm(minPages, maxPages uint32, hasMax bool) []byte {
+	var out []byte
+	out = append(out, 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00)
+
+	// Memory section: one shared memory with the declared limits.
+	var mem []byte
+	mem = append(mem, 0x01) // one memory
+	flags := byte(0x02)     // shared; | 0x01 when a maximum is declared
+	if hasMax {
+		flags |= 0x01
+	}
+	mem = append(mem, flags)
+	mem = appendUleb(mem, uint64(minPages))
+	if hasMax {
+		mem = appendUleb(mem, uint64(maxPages))
+	}
+	out = append(out, 0x05)
+	out = appendUleb(out, uint64(len(mem)))
+	out = append(out, mem...)
+
+	// Export section: "memory" (kind 2), index 0.
+	var exp []byte
+	exp = append(exp, 0x01)
+	exp = append(exp, 0x06)
+	exp = append(exp, 'm', 'e', 'm', 'o', 'r', 'y')
+	exp = append(exp, 0x02, 0x00)
+	out = append(out, 0x07)
+	out = appendUleb(out, uint64(len(exp)))
+	out = append(out, exp...)
+	return out
+}
+
+func appendUleb(b []byte, v uint64) []byte {
+	for {
+		byte7 := byte(v & 0x7f)
+		v >>= 7
+		if v != 0 {
+			byte7 |= 0x80
+		}
+		b = append(b, byte7)
+		if v == 0 {
+			return b
 		}
 	}
-	return imports, nil
 }
 
 // deliverLogs implements the env.write_logs callback: copy the parts out of
 // WASM memory while the callback runs, hand the body to the sink, and ack
 // exactly once in a finally. It must never throw (a panic would trap the
-// in-flight WASM call) and must never re-enter the module other than through
-// ack_logs, which is safe from any thread.
-func (h *Host) deliverLogs(caller *wasmtime.Caller, payload int64, logger *slog.Logger) {
+// in-flight WASM call) and never re-enters the module other than through
+// ack_logs, which the contract allows from any call.
+func (h *Host) deliverLogs(caller api.Module, payload uint64, logger *slog.Logger) {
 	acked := false
 	defer func() {
 		if !acked {
@@ -244,26 +301,27 @@ func (h *Host) deliverLogs(caller *wasmtime.Caller, payload int64, logger *slog.
 	if length == 0 {
 		return
 	}
-	data := h.memory.UnsafeData()
-	if int(ptr)+int(length) > len(data) {
+	data, ok := h.memory.Read(ptr, length)
+	if !ok {
 		logger.Error("write_logs payload out of memory bounds")
 		return
 	}
 
 	envelope := &flagswasm.WriteLogsPayload{}
-	if err := proto.Unmarshal(data[ptr:ptr+length], envelope); err != nil {
+	if err := proto.Unmarshal(data, envelope); err != nil {
 		logger.Error("cannot parse write_logs payload", "error", err)
 		return
 	}
 
 	var body []byte
 	for _, part := range envelope.GetParts() {
-		pptr, plen := unpackSlice(int64(part))
-		if int(pptr)+int(plen) > len(data) {
+		pptr, plen := unpackSlice(part)
+		pdata, ok := h.memory.Read(pptr, plen)
+		if !ok {
 			logger.Error("write_logs part out of memory bounds")
 			return
 		}
-		body = append(body, data[pptr:pptr+plen]...)
+		body = append(body, pdata...)
 	}
 	if len(body) == 0 {
 		return
@@ -271,10 +329,11 @@ func (h *Host) deliverLogs(caller *wasmtime.Caller, payload int64, logger *slog.
 	h.logSink(body)
 }
 
-// ack acknowledges a delivered payload. It is called from inside the
-// write_logs callback (already inside a WASM call) and therefore takes no
-// host lock; the contract allows ack_logs from any thread.
-func (h *Host) ack(caller *wasmtime.Caller, payload int64) {
+// ack acknowledges a delivered payload. The write_logs callback runs inside a
+// locked WASM call, so this reenters through the calling module's own export
+// (allowed by the contract: ack_logs may be called from any thread) instead
+// of taking the host entry mutex.
+func (h *Host) ack(caller api.Module, payload uint64) {
 	defer func() {
 		// ack_logs must never throw; a failure here is logged and dropped.
 		if r := recover(); r != nil {
@@ -282,38 +341,38 @@ func (h *Host) ack(caller *wasmtime.Caller, payload int64) {
 		}
 	}()
 	ackFn := h.ackLog
-	if caller != nil {
-		if extern := caller.GetExport("ack_logs"); extern != nil {
-			if fn := extern.Func(); fn != nil {
-				ackFn = fn
-			}
-		}
+	if fn := caller.ExportedFunction("ack_logs"); fn != nil {
+		ackFn = fn
 	}
 	if ackFn == nil {
 		return
 	}
-	if _, err := ackFn.Call(h.store, payload); err != nil {
+	if _, err := ackFn.Call(context.Background(), payload); err != nil {
 		slog.Default().Error("ack_logs failed", "error", err)
 	}
 }
 
 // Close tears the instance down while the shared memory is still alive, then
-// releases the store, memory and engine. It must not be called concurrently
+// releases the runtime and its modules. It must not be called concurrently
 // with in-flight calls (the provider drains first).
 func (h *Host) Close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	ctx := context.Background()
 	if h.instance != nil {
-		if fn := h.instance.GetFunc(h.store, "destroy_instance"); fn != nil {
-			if _, err := fn.Call(h.store); err != nil {
+		if fn := h.instance.ExportedFunction("destroy_instance"); fn != nil {
+			if _, err := fn.Call(ctx); err != nil {
 				slog.Default().Error("destroy_instance failed", "error", err)
 			}
 		}
 		h.instance = nil
 	}
-	h.store.Close()
-	h.memory.Close()
-	h.engine.Close()
+	// Reverse order: client instance first, then host modules/helper.
+	for i := len(h.closers) - 1; i >= 0; i-- {
+		_ = h.closers[i].Close(ctx)
+	}
+	h.closers = nil
+	_ = h.runtime.Close(ctx)
 }
 
 func boolToI32(b bool) int32 {
