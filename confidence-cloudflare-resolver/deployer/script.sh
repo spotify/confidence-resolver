@@ -166,11 +166,11 @@ store_worker_secret() {
     echo "🔐 Storing ${secret_name} as worker secret..."
     secret_body=$(jq -n --arg name "$secret_name" --arg text "$secret_text" \
         '{"name": $name, "text": $text, "type": "secret_text"}')
-    put_resp=$(curl -sS -w "%{http_code}" -X PUT \
+    put_resp=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 -X PUT \
         -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "$secret_body" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets") || put_resp="000"
     put_status="${put_resp: -3}"
     if [ "$put_status" = "200" ] || [ "$put_status" = "201" ]; then
         echo "✅ ${secret_name} stored as worker secret"
@@ -204,7 +204,7 @@ ensure_worker_secret() {
     local secret_text="$2"
     local settings_resp
     local settings_status
-    settings_resp=$(curl -sS -w "%{http_code}" \
+    settings_resp=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
         -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
         "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || settings_resp="000"
     settings_status="${settings_resp: -3}"

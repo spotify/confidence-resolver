@@ -717,3 +717,18 @@ test('the secrets file cleanup trap is armed before first use', () => {
   assert.ok(rmAt > jqAt && clearAt > rmAt,
     'explicit cleanup after the deploy, traps cleared after');
 });
+
+// A hung Cloudflare API call must never hang the deployer: the two API curls
+// this deployer adds carry the same timeouts the resolve-key lookup got
+// after the silent-key-regeneration incident.
+test('the repair curls carry connect/max timeouts', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const storeFn = script.match(/^store_worker_secret\(\) \{[\s\S]*?^\}/m);
+  const ensureFn = script.match(/^ensure_worker_secret\(\) \{[\s\S]*?^\}/m);
+  assert.ok(storeFn, 'store_worker_secret not found');
+  assert.ok(ensureFn, 'ensure_worker_secret not found');
+  assert.match(storeFn[0], /--connect-timeout 10 --max-time 30/,
+    'the secret PUT must have timeouts');
+  assert.match(ensureFn[0], /--connect-timeout 10 --max-time 30/,
+    'the settings GET must have timeouts');
+});
