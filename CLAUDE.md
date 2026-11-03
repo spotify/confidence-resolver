@@ -112,6 +112,7 @@ make lint           # run all linters
 make build          # build WASM + all provider packages
 make wasm/confidence_resolver.wasm  # build WASM artifact only
 make sync-wasm-go   # build WASM in Docker and sync to Go assets (for committing)
+make sync-wasm-event-go  # same for the event engine; needed too after a wasm-msg change
 make go-bench       # Go benchmark via docker-compose
 make js-bench       # JS benchmark via docker-compose
 ```
