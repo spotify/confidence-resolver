@@ -43,10 +43,12 @@ if test -z "$CONFIDENCE_CLIENT_SECRET"; then
     echo "CONFIDENCE_CLIENT_SECRET must be set"
     exit 1
 fi
-# The client secret is stored as a Cloudflare Worker secret after deploy. It
-# must never be written into the wrangler.toml [vars] table: wrangler prints
-# var values in its deploy log, and Cloudflare stores them as plaintext
-# readable by anyone with dashboard or API read access to the Worker.
+# The client secret is deployed as a Cloudflare Worker secret — uploaded with
+# the version via `wrangler deploy --secrets-file`, and re-checked on
+# ETag-skip runs. It must never be written into the wrangler.toml [vars]
+# table: wrangler prints var values in its deploy log, and Cloudflare stores
+# them as plaintext readable by anyone with dashboard or API read access to
+# the Worker.
 
 # Auto-detect Cloudflare account ID from token if not provided
 if test -z "$CLOUDFLARE_ACCOUNT_ID"; then
@@ -152,6 +154,60 @@ else
     fi
 fi
 
+# Store a value as a Cloudflare Worker secret via the API. Used for secrets
+# this deployer manages outside `wrangler deploy --secrets-file` (today:
+# the auto-generated resolve-token key and the skip-path repair below).
+store_worker_secret() {
+    local secret_name="$1"
+    local secret_text="$2"
+    local secret_body
+    local put_resp
+    local put_status
+    echo "🔐 Storing ${secret_name} as worker secret..."
+    secret_body=$(jq -n --arg name "$secret_name" --arg text "$secret_text" \
+        '{"name": $name, "text": $text, "type": "secret_text"}')
+    put_resp=$(curl -sS -w "%{http_code}" -X PUT \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "$secret_body" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
+    put_status="${put_resp: -3}"
+    if [ "$put_status" = "200" ] || [ "$put_status" = "201" ]; then
+        echo "✅ ${secret_name} stored as worker secret"
+        return 0
+    fi
+    echo "❌ Could not store ${secret_name} as worker secret (HTTP $put_status)" >&2
+    return 1
+}
+
+# Verify a secret is present on the worker, storing it if missing. Used on
+# the ETag-skip path: a worker can be missing its client secret without any
+# state change — for example a worker still carrying the plaintext var from
+# an older deployer, or a store that failed mid-run. Without this repair the
+# skip path would exit successfully and never fix the worker. The check is
+# one read; the PUT is idempotent.
+ensure_worker_secret() {
+    local secret_name="$1"
+    local secret_text="$2"
+    local list_resp
+    local list_status
+    list_resp=$(curl -sS -w "%{http_code}" \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets" 2>/dev/null) || list_resp="000"
+    list_status="${list_resp: -3}"
+    local list_body="${list_resp%???}"
+    local has_secret=false
+    if [ "$list_status" = "200" ] && command -v jq >/dev/null 2>&1; then
+        has_secret=$(printf "%s" "$list_body" | jq -r --arg n "$secret_name" \
+            '[.result[] | select(.name == $n)] | length > 0' 2>/dev/null || echo "false")
+    fi
+    if [ "$has_secret" = "true" ]; then
+        echo "✅ ${secret_name} already present as worker secret"
+        return 0
+    fi
+    store_worker_secret "$secret_name" "$secret_text"
+}
+
 RESPONSE_FILE="data/resolver_state_current.pb"
 ETAG_TOML=""
 ALLOWED_ORIGIN_TOML=""
@@ -236,6 +292,16 @@ HTTP_STATUS=$(curl -sS -w "%{http_code}" -D "$TMP_HEADER" -o "$RESPONSE_FILE" ${
 if [ "$HTTP_STATUS" = "304" ] && [ -z "${FORCE_DEPLOY:-}" ]; then
     echo "✅ Resolver state not modified (HTTP 304). Skipping the deployment"
     echo "   Set FORCE_DEPLOY=1 to deploy anyway (e.g. to change FLAG_LOG_SINK)."
+    # Repair a worker that is missing its client secret even though no
+    # deploy is needed — e.g. one still carrying the plaintext var from an
+    # older deployer. Without this, the skip path would report success and
+    # the worker would stay broken until the next state change.
+    if [ -z "$NO_DEPLOY" ]; then
+        if ! ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "$CONFIDENCE_CLIENT_SECRET"; then
+            echo "❌ Worker '$WORKER_NAME' is missing CONFIDENCE_CLIENT_SECRET and the repair failed." >&2
+            exit 1
+        fi
+    fi
     rm -f "$TMP_HEADER"
     exit 0
 elif [ "$HTTP_STATUS" = "200" ]; then
@@ -344,32 +410,6 @@ add_wrangler_deploy_args_from_lines() {
     if [ "$count" -gt 0 ]; then
         echo "✅ Added ${count} Wrangler deploy arg(s) from ${source_name}"
     fi
-}
-
-# Store a value as a Cloudflare Worker secret. Secrets persist across
-# subsequent wrangler deploys and never appear in wrangler.toml, in deploy
-# logs, or as a plaintext variable readable from the dashboard or API.
-store_worker_secret() {
-    local secret_name="$1"
-    local secret_text="$2"
-    local secret_body
-    local put_resp
-    local put_status
-    echo "🔐 Storing ${secret_name} as worker secret..."
-    secret_body=$(jq -n --arg name "$secret_name" --arg text "$secret_text" \
-        '{"name": $name, "text": $text, "type": "secret_text"}')
-    put_resp=$(curl -sS -w "%{http_code}" -X PUT \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "$secret_body" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
-    put_status="${put_resp: -3}"
-    if [ "$put_status" = "200" ] || [ "$put_status" = "201" ]; then
-        echo "✅ ${secret_name} stored as worker secret"
-        return 0
-    fi
-    echo "❌ Could not store ${secret_name} as worker secret (HTTP $put_status)" >&2
-    return 1
 }
 
 # Verify all required files
@@ -886,15 +926,16 @@ fi
 
 # only deploy if NO_DEPLOY is not set
 if test -z "$NO_DEPLOY"; then
-     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --no-bundle
-
-     # Store the client secret as a Cloudflare Worker secret. Without it the
-     # worker cannot authenticate to Confidence, so a failed store must fail
-     # the deploy rather than leave a broken worker behind.
-     if ! store_worker_secret "CONFIDENCE_CLIENT_SECRET" "$CONFIDENCE_CLIENT_SECRET"; then
-         echo "   Re-run with FORCE_DEPLOY=1 once the Cloudflare API is reachable to retry." >&2
-         exit 1
-     fi
+     # Upload the client secret with the deploy itself: --secrets-file
+     # applies secrets atomically with the new version, and omitted secrets
+     # are never deleted. The binding is therefore present from the
+     # version's very first request — on first installs and on the
+     # var→secret migration alike, with no window where the live worker
+     # lacks the secret.
+     SECRETS_FILE=$(mktemp)
+     jq -n --arg v "$CONFIDENCE_CLIENT_SECRET" '{"CONFIDENCE_CLIENT_SECRET": $v}' > "$SECRETS_FILE"
+     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --secrets-file "$SECRETS_FILE" --no-bundle
+     rm -f "$SECRETS_FILE"
 
      if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then
          # Best effort: on failure the worker keeps the secret it already

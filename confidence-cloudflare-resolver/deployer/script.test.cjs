@@ -388,8 +388,8 @@ ${awkMatch[0]}
 });
 
 // Runs the real store_worker_secret out of script.sh against a stubbed
-// curl/jq pair, so the secret PUT the deployer makes after `wrangler deploy`
-// is asserted end-to-end without touching the network.
+// curl/jq pair, so the secret PUT the deployer makes (resolve-token key,
+// skip-path repair) is asserted end-to-end without touching the network.
 const STORE_WORKER_SECRET = (() => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
   const match = script.match(/^store_worker_secret\(\) \{[\s\S]*?^\}/m);
@@ -476,9 +476,130 @@ test('the secret value never appears in deployer output', () => {
   }
 });
 
-test('a failed client-secret store fails the deploy', () => {
+// --- Deploy-time secret upload ---
+
+// --secrets-file uploads secrets atomically with the version and never
+// deletes omitted secrets (wrangler 4.x), so the live worker has the client
+// secret from the version's first request — fresh install and var→secret
+// migration alike, with no window where the binding is missing.
+test('wrangler deploy carries the client secret via --secrets-file', () => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  const call = script.match(/if ! store_worker_secret "CONFIDENCE_CLIENT_SECRET" "\$CONFIDENCE_CLIENT_SECRET"; then[\s\S]*?\n     fi/);
-  assert.ok(call, 'client secret store not wired into the deploy step');
-  assert.match(call[0], /exit 1/);
+  const deployLine = script.match(/wrangler deploy "\$\{WRANGLER_DEPLOY_ARGS_ARRAY\[@\]\}"[^\n]*/);
+  assert.ok(deployLine, 'wrangler deploy line not found');
+  assert.match(deployLine[0], /--secrets-file "\$SECRETS_FILE"/,
+    'the deploy itself must upload the secrets file');
+  assert.match(deployLine[0], /--no-bundle/);
+
+  const buildAt = script.indexOf('SECRETS_FILE=$(mktemp)');
+  const jqAt = script.indexOf('jq -n --arg v "$CONFIDENCE_CLIENT_SECRET" \'{"CONFIDENCE_CLIENT_SECRET": $v}\' > "$SECRETS_FILE"');
+  const deployAt = script.indexOf(deployLine[0]);
+  const cleanupAt = script.indexOf('rm -f "$SECRETS_FILE"');
+  assert.ok(buildAt !== -1 && jqAt !== -1 && cleanupAt !== -1, 'secrets file plumbing not found');
+  assert.ok(buildAt < jqAt && jqAt < deployAt && deployAt < cleanupAt,
+    'secrets file must be created and filled before the deploy, removed after');
+});
+
+// --- Skip-path repair ---
+
+// The ETag-skip path exits without deploying, so a worker missing its client
+// secret (e.g. one still carrying the pre-fix plaintext var) would stay
+// broken until the next state change — the branch must verify and repair.
+test('the ETag-skip path repairs a worker missing the client secret', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const branch = script.match(/if \[ "\$HTTP_STATUS" = "304" \][\s\S]*?elif \[ "\$HTTP_STATUS" = "200" \]/);
+  assert.ok(branch, '304 skip branch not found');
+  assert.match(branch[0], /ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "\$CONFIDENCE_CLIENT_SECRET"/,
+    'skip path must repair the client secret');
+  assert.match(branch[0], /NO_DEPLOY/, 'repair must respect NO_DEPLOY');
+  assert.match(branch[0], /exit 1/, 'a failed repair must fail the run');
+});
+
+// Runs the real ensure_worker_secret (with the real store_worker_secret)
+// out of script.sh against a stubbed curl/jq pair. The jq stub answers the
+// -r existence filter with the baked value; STATUS is what every stubbed
+// HTTP call returns.
+const ENSURE_WORKER_SECRET = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/^ensure_worker_secret\(\) \{[\s\S]*?^\}/m);
+  assert.ok(match, 'could not find ensure_worker_secret in script.sh');
+  return match[0];
+})();
+
+function runEnsureWorkerSecret(status, jqOut) {
+  const directory = mkdtempSync(join(tmpdir(), 'ensure-secret-test-'));
+  try {
+    writeFileSync(join(directory, 'jq'), `#!/bin/bash
+if [ "$1" = "-r" ]; then echo -n "${jqOut}"; exit 0; fi
+name=""
+text=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--arg" ]; then
+    if [ "$2" = "name" ]; then name="$3"; fi
+    if [ "$2" = "text" ]; then text="$3"; fi
+    shift 3
+  else
+    shift
+  fi
+done
+printf '{"name":"%s","text":"%s","type":"secret_text"}' "$name" "$text"
+`, { mode: 0o755 });
+
+    writeFileSync(join(directory, 'curl'), `#!/bin/bash
+method=""
+url=""
+body=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -d) body="$2"; shift 2 ;;
+    -X) method="$2"; shift 2 ;;
+    https://*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+printf '%s %s\\n%s\\n' "$method" "$url" "$body" >> "$STUB_DIR/requests"
+echo -n "$STATUS"
+`, { mode: 0o755 });
+
+    const result = spawnSync('bash', ['-c', `
+set -euo pipefail
+export PATH="${directory}:$PATH"
+export STUB_DIR="${directory}"
+export STATUS="${status}"
+CLOUDFLARE_API_TOKEN=tok
+CLOUDFLARE_ACCOUNT_ID=acct123
+WORKER_NAME=worker-test
+${STORE_WORKER_SECRET}
+
+${ENSURE_WORKER_SECRET}
+ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "super-secret-value"
+`], { encoding: 'utf8', timeout: 5000 });
+    const requests = existsSync(join(directory, 'requests'))
+      ? readFileSync(join(directory, 'requests'), 'utf8')
+      : '';
+    return { ...result, requests };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('ensure_worker_secret: already present → no PUT, quiet success', () => {
+  const r = runEnsureWorkerSecret('200', 'true');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /already present as worker secret/);
+  assert.doesNotMatch(r.requests, /PUT/, 'must not PUT when the secret exists');
+  assert.match(r.requests, /https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/acct123\/workers\/scripts\/worker-test\/secrets/);
+});
+
+test('ensure_worker_secret: missing → idempotent repair PUT', () => {
+  const r = runEnsureWorkerSecret('200', 'false');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.requests, /PUT https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/acct123\/workers\/scripts\/worker-test\/secrets/);
+  assert.match(r.requests, /"name":"CONFIDENCE_CLIENT_SECRET"/);
+  assert.match(r.stdout, /stored as worker secret/);
+});
+
+test('ensure_worker_secret: unreadable secret list still attempts the store', () => {
+  const r = runEnsureWorkerSecret('404', 'false');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Could not store CONFIDENCE_CLIENT_SECRET as worker secret \(HTTP 404\)/);
 });
