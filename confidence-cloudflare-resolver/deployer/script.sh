@@ -43,6 +43,10 @@ if test -z "$CONFIDENCE_CLIENT_SECRET"; then
     echo "CONFIDENCE_CLIENT_SECRET must be set"
     exit 1
 fi
+# The client secret is stored as a Cloudflare Worker secret after deploy. It
+# must never be written into the wrangler.toml [vars] table: wrangler prints
+# var values in its deploy log, and Cloudflare stores them as plaintext
+# readable by anyone with dashboard or API read access to the Worker.
 
 # Auto-detect Cloudflare account ID from token if not provided
 if test -z "$CLOUDFLARE_ACCOUNT_ID"; then
@@ -151,7 +155,6 @@ fi
 RESPONSE_FILE="data/resolver_state_current.pb"
 ETAG_TOML=""
 ALLOWED_ORIGIN_TOML=""
-CLIENT_SECRET_TOML=""
 
 EXTRA_HEADER=()
 
@@ -343,6 +346,32 @@ add_wrangler_deploy_args_from_lines() {
     fi
 }
 
+# Store a value as a Cloudflare Worker secret. Secrets persist across
+# subsequent wrangler deploys and never appear in wrangler.toml, in deploy
+# logs, or as a plaintext variable readable from the dashboard or API.
+store_worker_secret() {
+    local secret_name="$1"
+    local secret_text="$2"
+    local secret_body
+    local put_resp
+    local put_status
+    echo "🔐 Storing ${secret_name} as worker secret..."
+    secret_body=$(jq -n --arg name "$secret_name" --arg text "$secret_text" \
+        '{"name": $name, "text": $text, "type": "secret_text"}')
+    put_resp=$(curl -sS -w "%{http_code}" -X PUT \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "$secret_body" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
+    put_status="${put_resp: -3}"
+    if [ "$put_status" = "200" ] || [ "$put_status" = "201" ]; then
+        echo "✅ ${secret_name} stored as worker secret"
+        return 0
+    fi
+    echo "❌ Could not store ${secret_name} as worker secret (HTTP $put_status)" >&2
+    return 1
+}
+
 # Verify all required files
 check_file "data/resolver_state_current.pb"
 echo "🚀 All files successfully created and verified"
@@ -350,7 +379,7 @@ echo "🚀 All files successfully created and verified"
 cd confidence-cloudflare-resolver
 
 echo "🏁 Starting CloudFlare deployment"
-echo "☁️ CloudFlare API token: ${CLOUDFLARE_API_TOKEN:0:5}.."
+echo "☁️ CloudFlare API token set (value not logged)"
 echo "☁️ CloudFlare account ID: $CLOUDFLARE_ACCOUNT_ID"
 
 # ---------------------------------------------------------------------------
@@ -709,11 +738,6 @@ if [ -n "$CONFIDENCE_RESOLVER_ALLOWED_ORIGIN" ]; then
     ALLOWED_ORIGIN_TOML=$(printf '%s' "$CONFIDENCE_RESOLVER_ALLOWED_ORIGIN" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
 fi
 
-# Prepare CONFIDENCE_CLIENT_SECRET for TOML (escape quotes and backslashes)
-if [ -n "$CONFIDENCE_CLIENT_SECRET" ]; then
-    CLIENT_SECRET_TOML=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
-fi
-
 # Validate FORCE_APPLY if provided (worker defaults to true when unset)
 if [ -n "$FORCE_APPLY" ]; then
     FORCE_APPLY=$(printf '%s' "$FORCE_APPLY" | tr '[:upper:]' '[:lower:]')
@@ -733,7 +757,7 @@ if [ -n "$ENABLE_APPLY_DEDUP" ]; then
 fi
 
 # Update [vars] without duplicating the table.
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
@@ -743,7 +767,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     sed -i.tmp '/^FORCE_APPLY *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^ENABLE_APPLY_DEDUP *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^FLAG_LOG_SINK *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" '
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -751,7 +775,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (allowed != "") print "ALLOWED_ORIGIN = \"" allowed "\""
                 if (etag != "") print "RESOLVER_STATE_ETAG = \"" etag "\""
                 if (version != "") print "DEPLOYER_VERSION = \"" version "\""
-                if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
                 if (force_apply != "") print "FORCE_APPLY = \"" force_apply "\""
                 if (enable_apply_dedup != "") print "ENABLE_APPLY_DEDUP = \"" enable_apply_dedup "\""
                 if (flag_log_sink != "") print "FLAG_LOG_SINK = \"" flag_log_sink "\""
@@ -767,9 +790,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     fi
     if [ -n "$DEPLOYER_VERSION" ]; then
         echo "✅ DEPLOYER_VERSION set to \"$DEPLOYER_VERSION\" in wrangler.toml"
-    fi
-    if [ -n "$CLIENT_SECRET_TOML" ]; then
-        echo "✅ CONFIDENCE_CLIENT_SECRET set in wrangler.toml"
     fi
     if [ -n "$FORCE_APPLY" ]; then
         echo "✅ FORCE_APPLY set to \"$FORCE_APPLY\" in wrangler.toml"
@@ -868,21 +888,18 @@ fi
 if test -z "$NO_DEPLOY"; then
      wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --no-bundle
 
-     # Store encryption key as a Cloudflare Worker secret (persists across deploys)
+     # Store the client secret as a Cloudflare Worker secret. Without it the
+     # worker cannot authenticate to Confidence, so a failed store must fail
+     # the deploy rather than leave a broken worker behind.
+     if ! store_worker_secret "CONFIDENCE_CLIENT_SECRET" "$CONFIDENCE_CLIENT_SECRET"; then
+         echo "   Re-run with FORCE_DEPLOY=1 once the Cloudflare API is reachable to retry." >&2
+         exit 1
+     fi
+
      if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then
-         echo "🔐 Storing RESOLVE_TOKEN_ENCRYPTION_KEY as worker secret..."
-         SECRET_BODY=$(jq -n --arg text "$RESOLVE_TOKEN_ENCRYPTION_KEY" \
-             '{"name": "RESOLVE_TOKEN_ENCRYPTION_KEY", "text": $text, "type": "secret_text"}')
-         SECRET_PUT_RESP=$(curl -sS -w "%{http_code}" -X PUT \
-             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-             -H "Content-Type: application/json" \
-             -d "$SECRET_BODY" \
-             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
-         SECRET_PUT_STATUS="${SECRET_PUT_RESP: -3}"
-         if [ "$SECRET_PUT_STATUS" = "200" ] || [ "$SECRET_PUT_STATUS" = "201" ]; then
-             echo "✅ RESOLVE_TOKEN_ENCRYPTION_KEY stored as worker secret"
-         else
-             echo "⚠️ Could not store encryption key as worker secret (HTTP $SECRET_PUT_STATUS)"
+         # Best effort: on failure the worker keeps the secret it already
+         # has, so warn and continue rather than failing the deploy.
+         if ! store_worker_secret "RESOLVE_TOKEN_ENCRYPTION_KEY" "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
              echo "   The key is embedded in the worker binary for this deployment."
              echo "   To persist across deploys, set RESOLVE_TOKEN_ENCRYPTION_KEY explicitly."
          fi

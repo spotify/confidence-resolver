@@ -61,7 +61,7 @@ Both queues use `max_batch_size=100` and `max_batch_timeout=10s`.
 
 | Variable | Description |
 |----------|-------------|
-| `CONFIDENCE_CLIENT_SECRET` | Client secret for API authentication |
+| `CONFIDENCE_CLIENT_SECRET` | (secret) Client secret for API authentication |
 | `ALLOWED_ORIGIN` | CORS allowed origin (defaults to `"*"`) |
 | `RESOLVER_STATE_ETAG` | ETag of the embedded resolver state |
 | `DEPLOYER_VERSION` | Version of confidence-resolver used for deployment |

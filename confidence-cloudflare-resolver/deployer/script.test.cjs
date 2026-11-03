@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
-const { mkdtempSync, readFileSync, copyFileSync, rmSync, writeFileSync } = require('node:fs');
+const { existsSync, mkdtempSync, readFileSync, copyFileSync, rmSync, writeFileSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const { test } = require('node:test');
+const { parse: parseToml } = require('smol-toml');
 
 const wranglerTomlPath = join(__dirname, '../wrangler.toml');
 
@@ -329,4 +330,155 @@ test('max_concurrency lands on every flag-logs consumer and no other', () => {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+// --- Secret hygiene ---
+
+// Wrangler prints [vars] values in every deploy log, and Cloudflare stores
+// them as plaintext readable by anyone with dashboard or API read access —
+// so the client secret must only ever live in the Worker secret store.
+test('client secret never lands in the generated wrangler.toml', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  assert.doesNotMatch(script, /CLIENT_SECRET_TOML/, 'no TOML-escaped client secret variable');
+  assert.doesNotMatch(script, /print "CONFIDENCE_CLIENT_SECRET/, 'no [vars] injection in the awk step');
+  const template = readFileSync(wranglerTomlPath, 'utf8');
+  assert.doesNotMatch(template, /^CONFIDENCE_CLIENT_SECRET *=/m, 'template must not carry a var placeholder');
+});
+
+// The deploy log must never print any part of the Cloudflare API token:
+// even a five-character prefix meaningfully narrows a brute force.
+test('deploy log never prints any part of the Cloudflare API token', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  assert.doesNotMatch(script, /\$\{CLOUDFLARE_API_TOKEN:[0-9$]/, 'no token substring may be echoed');
+});
+
+// The vars the deployer does inject must keep flowing into [vars] — the
+// table is now empty in the template — and must never include the secret.
+test('vars injection still populates [vars] — and never with the client secret', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const awkMatch = script.match(/awk -v allowed="\$\{ALLOWED_ORIGIN_TOML\}[\s\S]*?&& mv wrangler\.toml\.new wrangler\.toml/);
+  assert.ok(awkMatch, 'vars injection awk not found in script.sh');
+
+  const directory = mkdtempSync(join(tmpdir(), 'vars-injection-test-'));
+  try {
+    copyFileSync(wranglerTomlPath, join(directory, 'wrangler.toml'));
+    const r = spawnSync('bash', ['-c', `
+set -euo pipefail
+ALLOWED_ORIGIN_TOML="https://example.com"
+ETAG_TOML="etag-123"
+DEPLOYER_VERSION="v1.2.3"
+FORCE_APPLY=""
+ENABLE_APPLY_DEDUP=""
+FLAG_LOG_SINK="queue"
+${awkMatch[0]}
+`], { cwd: directory, encoding: 'utf8', timeout: 5000 });
+    assert.equal(r.status, 0, r.stderr);
+
+    const config = readFileSync(join(directory, 'wrangler.toml'), 'utf8');
+    const parsed = parseToml(config);
+    assert.equal(parsed.vars.FLAG_LOG_SINK, 'queue', 'generated config must stay valid TOML');
+    assert.match(config, /ALLOWED_ORIGIN = "https:\/\/example\.com"/);
+    assert.match(config, /RESOLVER_STATE_ETAG = "etag-123"/);
+    assert.match(config, /DEPLOYER_VERSION = "v1\.2\.3"/);
+    assert.match(config, /FLAG_LOG_SINK = "queue"/);
+    assert.doesNotMatch(config, /^CONFIDENCE_CLIENT_SECRET *=/m);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// Runs the real store_worker_secret out of script.sh against a stubbed
+// curl/jq pair, so the secret PUT the deployer makes after `wrangler deploy`
+// is asserted end-to-end without touching the network.
+const STORE_WORKER_SECRET = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/^store_worker_secret\(\) \{[\s\S]*?^\}/m);
+  assert.ok(match, 'could not find store_worker_secret in script.sh');
+  return match[0];
+})();
+
+function runStoreWorkerSecret(status) {
+  const directory = mkdtempSync(join(tmpdir(), 'worker-secret-test-'));
+  try {
+    writeFileSync(join(directory, 'jq'), `#!/bin/bash
+name=""
+text=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--arg" ]; then
+    if [ "$2" = "name" ]; then name="$3"; fi
+    if [ "$2" = "text" ]; then text="$3"; fi
+    shift 3
+  else
+    shift
+  fi
+done
+printf '{"name":"%s","text":"%s","type":"secret_text"}' "$name" "$text"
+`, { mode: 0o755 });
+
+    writeFileSync(join(directory, 'curl'), `#!/bin/bash
+method=""
+url=""
+body=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -d) body="$2"; shift 2 ;;
+    -X) method="$2"; shift 2 ;;
+    https://*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+printf '%s %s\\n%s\\n' "$method" "$url" "$body" >> "$STUB_DIR/requests"
+echo -n "$STATUS"
+`, { mode: 0o755 });
+
+    const result = spawnSync('bash', ['-c', `
+set -euo pipefail
+export PATH="${directory}:$PATH"
+export STUB_DIR="${directory}"
+export STATUS="${status}"
+CLOUDFLARE_API_TOKEN=tok
+CLOUDFLARE_ACCOUNT_ID=acct123
+WORKER_NAME=worker-test
+${STORE_WORKER_SECRET}
+store_worker_secret "CONFIDENCE_CLIENT_SECRET" "super-secret-value"
+`], { encoding: 'utf8', timeout: 5000 });
+    const requests = existsSync(join(directory, 'requests'))
+      ? readFileSync(join(directory, 'requests'), 'utf8')
+      : '';
+    return { ...result, requests };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('store_worker_secret PUTs a secret_text to the Worker secrets endpoint', () => {
+  const r = runStoreWorkerSecret('200');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.requests,
+    /PUT https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/acct123\/workers\/scripts\/worker-test\/secrets/);
+  assert.match(r.requests, /"name":"CONFIDENCE_CLIENT_SECRET"/);
+  assert.match(r.requests, /"text":"super-secret-value"/);
+  assert.match(r.requests, /"type":"secret_text"/);
+  assert.match(r.stdout, /CONFIDENCE_CLIENT_SECRET stored as worker secret/);
+});
+
+test('store_worker_secret fails loudly on a non-2xx response', () => {
+  const r = runStoreWorkerSecret('500');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Could not store CONFIDENCE_CLIENT_SECRET as worker secret \(HTTP 500\)/);
+});
+
+test('the secret value never appears in deployer output', () => {
+  for (const status of ['200', '500']) {
+    const r = runStoreWorkerSecret(status);
+    assert.doesNotMatch(r.stdout + r.stderr, /super-secret-value/,
+      `status ${status}: the secret value must not be printed`);
+  }
+});
+
+test('a failed client-secret store fails the deploy', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const call = script.match(/if ! store_worker_secret "CONFIDENCE_CLIENT_SECRET" "\$CONFIDENCE_CLIENT_SECRET"; then[\s\S]*?\n     fi/);
+  assert.ok(call, 'client secret store not wired into the deploy step');
+  assert.match(call[0], /exit 1/);
 });
