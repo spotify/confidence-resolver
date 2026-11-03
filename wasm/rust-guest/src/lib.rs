@@ -188,13 +188,20 @@ wasm_msg_guest! {
 
     fn set_resolver_state(request: SetResolverStateRequest) -> WasmResult<Void> {
         // Linear memory never shrinks, so the instance stays as large as this
-        // function's peak. The request bytes go before the state is built and
-        // the old state before the new one, so the peak is one decoded state
-        // plus the old one's structures, not three copies of the encoding.
-        let SetResolverStateRequest { state, account_id, sdk, enable_apply_dedup, disable_exposure_collection } = request;
+        // function's peak. By default the new state is validated before the
+        // old one is released, so a failed update never leaves the resolver
+        // stateless; the peak is then the request bytes plus both states'
+        // structures. drop_state_before_validation inverts the trade: the
+        // old state is freed before the new state is built, so the peak is
+        // one decoded state plus the old one's structures, not three copies of
+        // the encoding — but an update that fails validation leaves the
+        // resolver stateless until the next successful update.
+        let SetResolverStateRequest { state, account_id, sdk, enable_apply_dedup, disable_exposure_collection, drop_state_before_validation } = request;
         let state_pb = ResolverStatePb::decode(state)
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
-        RESOLVER_STATE.store(None);
+        if drop_state_before_validation {
+            RESOLVER_STATE.store(None);
+        }
         let new_state = ResolverState::from_proto(state_pb, account_id.as_str(), sdk)?;
         APPLY_DEDUP_ENABLED.store(enable_apply_dedup, Ordering::Relaxed);
         DISABLE_EXPOSURE_COLLECTION.store(disable_exposure_collection, Ordering::Relaxed);

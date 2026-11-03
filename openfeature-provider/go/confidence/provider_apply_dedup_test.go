@@ -98,6 +98,7 @@ func TestProviderConfigApplyDedupTranslation(t *testing.T) {
 				tc.config.InitializationTimeout,
 				tc.config.DisableApplyDedup,
 				tc.config.DisableExposureCollection,
+				tc.config.DropStateBeforeValidation,
 			)
 			p := newProviderWithOptions(t, opts...)
 			if p.enableApplyDedup != tc.wantDedup {
@@ -125,6 +126,7 @@ func TestProviderTestConfigApplyDedupTranslation(t *testing.T) {
 				tc.config.InitializationTimeout,
 				tc.config.DisableApplyDedup,
 				tc.config.DisableExposureCollection,
+				tc.config.DropStateBeforeValidation,
 			)
 			p := newProviderWithOptions(t, opts...)
 			if p.enableApplyDedup != tc.wantDedup {

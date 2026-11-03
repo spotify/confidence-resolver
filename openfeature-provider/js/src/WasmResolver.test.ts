@@ -29,6 +29,7 @@ const SET_STATE_REQUEST = {
   accountId: 'confidence-test',
   enableApplyDedup: false,
   disableExposureCollection: false,
+  dropStateBeforeValidation: false,
 };
 
 let wasmResolver: WasmResolver;

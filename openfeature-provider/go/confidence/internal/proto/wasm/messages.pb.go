@@ -73,6 +73,16 @@ type SetResolverStateRequest struct {
 	// Provider disableExposureCollection config is forwarded here on every
 	// setResolverState.
 	DisableExposureCollection bool `protobuf:"varint,5,opt,name=disable_exposure_collection,json=disableExposureCollection,proto3" json:"disable_exposure_collection,omitempty"`
+	// Free the previous resolver state before validating the new one. The
+	// default (false) keeps the previous state installed until the new one
+	// has passed validation, so a failed update never leaves the resolver
+	// stateless — at the cost of the old and new state coexisting during the
+	// swap. Set this to true to bound the swap's peak memory instead: the
+	// previous state is dropped first, and an update whose state fails
+	// validation leaves the resolver stateless until the next successful
+	// update.
+	// EXPERIMENTAL: this flag and the default it modifies may change.
+	DropStateBeforeValidation bool `protobuf:"varint,6,opt,name=drop_state_before_validation,json=dropStateBeforeValidation,proto3" json:"drop_state_before_validation,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -138,6 +148,13 @@ func (x *SetResolverStateRequest) GetEnableApplyDedup() bool {
 func (x *SetResolverStateRequest) GetDisableExposureCollection() bool {
 	if x != nil {
 		return x.DisableExposureCollection
+	}
+	return false
+}
+
+func (x *SetResolverStateRequest) GetDropStateBeforeValidation() bool {
+	if x != nil {
+		return x.DropStateBeforeValidation
 	}
 	return false
 }
@@ -377,14 +394,15 @@ var File_confidence_wasm_messages_proto protoreflect.FileDescriptor
 const file_confidence_wasm_messages_proto_rawDesc = "" +
 	"\n" +
 	"\x1econfidence/wasm/messages.proto\x12\x0fconfidence.wasm\x1a(confidence/flags/resolver/v1/types.proto\"\x06\n" +
-	"\x04Void\"\xf1\x01\n" +
+	"\x04Void\"\xb2\x02\n" +
 	"\x17SetResolverStateRequest\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\fR\x05state\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\tR\taccountId\x123\n" +
 	"\x03sdk\x18\x03 \x01(\v2!.confidence.flags.resolver.v1.SdkR\x03sdk\x12,\n" +
 	"\x12enable_apply_dedup\x18\x04 \x01(\bR\x10enableApplyDedup\x12>\n" +
-	"\x1bdisable_exposure_collection\x18\x05 \x01(\bR\x19disableExposureCollection\"\x1d\n" +
+	"\x1bdisable_exposure_collection\x18\x05 \x01(\bR\x19disableExposureCollection\x12?\n" +
+	"\x1cdrop_state_before_validation\x18\x06 \x01(\bR\x19dropStateBeforeValidation\"\x1d\n" +
 	"\aRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"B\n" +
 	"\bResponse\x12\x14\n" +
