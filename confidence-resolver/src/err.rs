@@ -152,7 +152,9 @@ impl<T> OrFailExt<T> for Option<T> {
 impl<T, E> OrFailExt<T> for Result<T, E> {
     #[track_caller]
     fn or_fail(self) -> Fallible<T> {
-        self.map_err(|_| ErrorCode::from_location())
+        // Capture eagerly: #[track_caller] does not propagate into closures.
+        let code = ErrorCode::from_location();
+        self.map_err(move |_| code)
     }
 }
 
@@ -264,6 +266,13 @@ mod tests {
     fn different_call_sites_differ() {
         let a = ErrorCode::from_location();
         let b = ErrorCode::from_location(); // different line ⇒ different site
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn result_or_fail_uses_caller_location() {
+        let a = Err::<(), ()>(()).or_fail().unwrap_err();
+        let b = Err::<(), ()>(()).or_fail().unwrap_err();
         assert_ne!(a, b);
     }
 }
