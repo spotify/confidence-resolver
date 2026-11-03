@@ -931,3 +931,24 @@ ${CONFIG_FORCE_BLOCK}
   assert.match(run('unknown').stdout, /NOT_FORCED/, 'an API blip must not force');
   assert.match(run('h0', { prevEtag: '' }).stdout, /NOT_FORCED/, 'no previous etag: nothing to skip, no lookup needed');
 });
+
+// --- ETag conditional request ---
+
+// The state CDN only matches a properly quoted entity-tag; a bare value
+// always answers 200, which re-downloads and redeploys on every scheduled
+// run instead of skipping unchanged state.
+test('If-None-Match sends the etag in its quoted entity-tag form', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const line = script.match(/^.*EXTRA_HEADER\+=\("-H" "If-None-Match.*$/m);
+  assert.ok(line, 'If-None-Match header line not found');
+  const bashScript = [
+    'set -euo pipefail',
+    'PREV_ETAG="07fec5375bb522af40d13142861e7340"',
+    'EXTRA_HEADER=()',
+    line[0],
+    'printf \'%s\' "${EXTRA_HEADER[1]}"',
+  ].join('\n');
+  const r = spawnSync('bash', ['-c', bashScript], { encoding: 'utf8', timeout: 5000 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), 'If-None-Match: "07fec5375bb522af40d13142861e7340"');
+});

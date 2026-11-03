@@ -434,8 +434,12 @@ fi
  
 if [ -n "$PREV_ETAG" ]; then
     if [ -z "$FORCE_DEPLOY" ]; then
-        EXTRA_HEADER+=("-H" "If-None-Match: $PREV_ETAG")
-        echo "Using If-None-Match: $PREV_ETAG"
+        # The etag must be sent in its quoted entity-tag form (RFC 9110): the
+        # state CDN answers 200 to a bare value, which re-downloads and
+        # redeploys on every scheduled run instead of skipping unchanged
+        # state.
+        EXTRA_HEADER+=("-H" "If-None-Match: \"$PREV_ETAG\"")
+        echo "Using If-None-Match: \"$PREV_ETAG\""
     else
         echo "⚠️ FORCE_DEPLOY is set; ignoring existing ETag"
     fi
