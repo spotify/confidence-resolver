@@ -127,15 +127,25 @@ if test -n "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
     SET_SECRET_AFTER_DEPLOY="true"
 else
     echo "🔍 Checking for existing RESOLVE_TOKEN_ENCRYPTION_KEY secret on worker '$WORKER_NAME'..."
-    SECRETS_RESP=$(curl -sS -w "%{http_code}" \
+    SECRETS_RESP=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
         -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
         "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets" 2>/dev/null) || SECRETS_RESP="000"
     SECRETS_STATUS="${SECRETS_RESP: -3}"
     SECRETS_BODY="${SECRETS_RESP%???}"
 
-    HAS_SECRET="false"
-    if [ "$SECRETS_STATUS" = "200" ] && command -v jq >/dev/null 2>&1; then
-        HAS_SECRET=$(printf "%s" "$SECRETS_BODY" | jq -r '[.result[] | select(.name == "RESOLVE_TOKEN_ENCRYPTION_KEY")] | length > 0' 2>/dev/null || echo "false")
+    # Only auto-generate when we positively know no key exists; a new key invalidates all existing resolve tokens.
+    # 404 = worker doesn't exist yet (first deploy), so there are no tokens to invalidate.
+    if [ "$SECRETS_STATUS" = "404" ]; then
+        HAS_SECRET="false"
+    elif [ "$SECRETS_STATUS" != "200" ]; then
+        echo "❌ Could not list worker secrets (HTTP $SECRETS_STATUS); refusing to auto-generate RESOLVE_TOKEN_ENCRYPTION_KEY."
+        echo "   Set RESOLVE_TOKEN_ENCRYPTION_KEY explicitly to skip this check."
+        exit 1
+    else
+        HAS_SECRET=$(printf "%s" "$SECRETS_BODY" | jq -er '[.result[] | select(.name == "RESOLVE_TOKEN_ENCRYPTION_KEY")] | length > 0') || {
+            echo "❌ Could not parse worker secrets list; refusing to auto-generate RESOLVE_TOKEN_ENCRYPTION_KEY."
+            exit 1
+        }
     fi
 
     if [ "$HAS_SECRET" = "true" ]; then
