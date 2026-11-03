@@ -520,8 +520,9 @@ test('the ETag-skip path repairs a worker missing the client secret', () => {
 
 // Runs the real ensure_worker_secret (with the real store_worker_secret)
 // out of script.sh against a stubbed curl/jq pair. The jq stub answers the
-// -r existence filter with the baked value; STATUS is what every stubbed
-// HTTP call returns.
+// -r binding classification with the baked value (secret_text / plain_text /
+// absent); GET_STATUS and PUT_STATUS are what the stubbed settings GET and
+// secret PUT return respectively.
 const ENSURE_WORKER_SECRET = (() => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
   const match = script.match(/^ensure_worker_secret\(\) \{[\s\S]*?^\}/m);
@@ -587,33 +588,112 @@ ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "super-secret-value"
   }
 }
 
-test('ensure_worker_secret: already present → no PUT, quiet success', () => {
-  const r = runEnsureWorkerSecret('200', '500', 'true');
+test('ensure_worker_secret: already present as a secret → no PUT, quiet success', () => {
+  const r = runEnsureWorkerSecret('200', '500', 'secret_text');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /already present as worker secret/);
   assert.doesNotMatch(r.requests, /PUT/, 'must not PUT when the secret exists');
-  assert.match(r.requests, /https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/acct123\/workers\/scripts\/worker-test\/secrets/);
+  assert.match(r.requests, /https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/acct123\/workers\/scripts\/worker-test\/settings/);
 });
 
-test('ensure_worker_secret: missing → idempotent repair PUT', () => {
-  const r = runEnsureWorkerSecret('200', '200', 'false');
+test('ensure_worker_secret: missing (no binding at all) → repair PUT', () => {
+  const r = runEnsureWorkerSecret('200', '200', 'absent');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.requests, /PUT https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/acct123\/workers\/scripts\/worker-test\/secrets/);
   assert.match(r.requests, /"name":"CONFIDENCE_CLIENT_SECRET"/);
   assert.match(r.stdout, /stored as worker secret/);
 });
 
+test('ensure_worker_secret: still a plaintext var → no doomed PUT, precise message', () => {
+  const r = runEnsureWorkerSecret('200', '200', 'plain_text');
+  assert.equal(r.status, 1);
+  assert.doesNotMatch(r.requests, /PUT/, 'a secret PUT over an existing var binding is rejected by Cloudflare — it must not be attempted');
+  assert.match(r.stderr, /still a plaintext var/);
+  assert.match(r.stderr, /FORCE_DEPLOY=1/);
+});
+
 test('ensure_worker_secret: confirmed missing + failed PUT → exit 1', () => {
-  const r = runEnsureWorkerSecret('200', '500', 'false');
+  const r = runEnsureWorkerSecret('200', '500', 'absent');
   assert.equal(r.status, 1);
   assert.match(r.stderr, /Could not store CONFIDENCE_CLIENT_SECRET as worker secret \(HTTP 500\)/);
 });
 
-test('ensure_worker_secret: unreachable list → inconclusive exit 2, no PUT', () => {
-  const r = runEnsureWorkerSecret('503', '200', 'false');
+test('ensure_worker_secret: unreachable settings → inconclusive exit 2, no PUT', () => {
+  const r = runEnsureWorkerSecret('503', '200', 'absent');
   assert.equal(r.status, 2);
   assert.doesNotMatch(r.requests, /PUT/, 'must not PUT when presence is unknown');
-  assert.match(r.stderr, /Could not list worker secrets \(HTTP 503\)/);
+  assert.match(r.stderr, /Could not read worker settings \(HTTP 503\)/);
+});
+
+// --- Deployer version bootstrap ---
+
+// Docker deploys never had a version: the image does not bake .release_tag
+// and contains no git checkout, so the version-based redeploy never fired.
+// These tests pin the two halves of the fix: the version falls back to the
+// image's COMMIT_SHA env, and a worker reporting no version is force
+// redeployed once (which is what migrates old workers).
+const DEPLOYER_VERSION_BLOCK = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/DEPLOYER_VERSION=""\nif command -v git[\s\S]*?^fi$/m);
+  assert.ok(match, 'could not find the deployer version block');
+  return match[0];
+})();
+
+const VERSION_FORCE_BLOCK = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/# If the deployer version changed[\s\S]*?^fi$/m);
+  assert.ok(match, 'could not find the version force block');
+  return match[0];
+})();
+
+function runBash(scriptBody, env = {}) {
+  return spawnSync('bash', ['-c', scriptBody], {
+    encoding: 'utf8', timeout: 5000,
+    env: { ...process.env, ...env },
+  });
+}
+
+test('deployer version falls back to the image COMMIT_SHA when no tag is baked', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'deployer-version-test-'));
+  try {
+    const withSha = runBash(`
+set -euo pipefail
+cd "${directory}"
+COMMIT_SHA=ce1e2901deadbeef
+${DEPLOYER_VERSION_BLOCK}
+echo "resolved:\${DEPLOYER_VERSION:-}"
+`, { COMMIT_SHA: '' });
+    assert.equal(withSha.status, 0, withSha.stderr);
+    assert.match(withSha.stdout, /Deployer version \(image commit\): ce1e2901deadbeef/);
+    assert.match(withSha.stdout, /resolved:ce1e2901deadbeef/);
+
+    const withoutSha = runBash(`
+set -euo pipefail
+cd "${directory}"
+${DEPLOYER_VERSION_BLOCK}
+echo "resolved:\${DEPLOYER_VERSION:-}"
+`, { COMMIT_SHA: '' });
+    assert.equal(withoutSha.status, 0, withoutSha.stderr);
+    assert.match(withoutSha.stdout, /resolved:$/m);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('version force fires on change and on versionless workers, not when matched', () => {
+  const run = (prev, cur) => runBash(`
+set -euo pipefail
+PREV_DEPLOYER_VERSION="${prev}"
+DEPLOYER_VERSION="${cur}"
+FORCE_DEPLOY=""
+${VERSION_FORCE_BLOCK}
+[ -n "$FORCE_DEPLOY" ] && echo FORCED || echo NOT_FORCED
+`);
+  assert.match(run('', 'abc123').stdout, /FORCED/,
+    'a versionless worker with a versioned deployer must force one migration deploy');
+  assert.match(run('old', 'new').stdout, /FORCED/, 'a version change must force');
+  assert.match(run('same', 'same').stdout, /NOT_FORCED/, 'matching versions must not force');
+  assert.match(run('old', '').stdout, /NOT_FORCED/, 'a versionless deployer must not force');
 });
 
 // The secrets file carries the cleartext client secret; it must be removed

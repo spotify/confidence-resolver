@@ -180,16 +180,21 @@ store_worker_secret() {
     return 1
 }
 
-# Verify a secret is present on the worker, storing it if missing. Used on
-# the ETag-skip path: a worker can be missing its client secret without any
-# state change — for example a worker still carrying the plaintext var from
-# an older deployer, or a store that failed mid-run. Without this repair the
-# skip path would exit successfully and never fix the worker. The check is
-# one read; the PUT is idempotent.
+# Verify the client secret is present on the worker as a secret, storing it
+# if missing. Used on the ETag-skip path: a worker can be missing its client
+# secret without any state change — for example a secret deleted by hand, or
+# a store that failed mid-run. Without this repair the skip path would exit
+# successfully and never fix the worker.
+#
+# The check reads the worker's settings, not the secrets list: settings show
+# both secret and var bindings, which matters because a secret PUT over an
+# existing plaintext var is rejected by Cloudflare with "binding name
+# already in use" — such a worker needs a deploy, not a PUT.
 #
 # Exit codes:
 #   0 — the secret is present, or was missing and has been repaired
-#   1 — the secret is confirmed missing and storing it failed
+#   1 — the secret is confirmed missing and storing it failed, or the
+#       worker still carries it as a plaintext var (a deploy is required)
 #   2 — presence could not be determined (API unreachable or response
 #       unparseable); the caller should treat this as inconclusive rather
 #       than failed, so a Cloudflare API blip cannot turn quiet no-op runs
@@ -197,34 +202,38 @@ store_worker_secret() {
 ensure_worker_secret() {
     local secret_name="$1"
     local secret_text="$2"
-    local list_resp
-    local list_status
-    list_resp=$(curl -sS -w "%{http_code}" \
+    local settings_resp
+    local settings_status
+    settings_resp=$(curl -sS -w "%{http_code}" \
         -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets" 2>/dev/null) || list_resp="000"
-    list_status="${list_resp: -3}"
-    local list_body="${list_resp%???}"
-    if [ "$list_status" != "200" ]; then
-        echo "⚠️ Could not list worker secrets (HTTP $list_status); repair check inconclusive" >&2
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || settings_resp="000"
+    settings_status="${settings_resp: -3}"
+    local settings_body="${settings_resp%???}"
+    if [ "$settings_status" != "200" ]; then
+        echo "⚠️ Could not read worker settings (HTTP $settings_status); repair check inconclusive" >&2
         return 2
     fi
     if ! command -v jq >/dev/null 2>&1; then
         echo "⚠️ jq unavailable; repair check inconclusive" >&2
         return 2
     fi
-    local has_secret
-    has_secret=$(printf "%s" "$list_body" | jq -r --arg n "$secret_name" \
-        '[.result[] | select(.name == $n)] | length > 0' 2>/dev/null || echo "error")
-    case "$has_secret" in
-        true)
+    local binding_type
+    binding_type=$(printf "%s" "$settings_body" | jq -r --arg n "$secret_name" \
+        '[.result.bindings[]? | select(.name == $n) | .type][0] // "absent"' 2>/dev/null || echo "error")
+    case "$binding_type" in
+        secret_text)
             echo "✅ ${secret_name} already present as worker secret"
             return 0
             ;;
-        false)
+        plain_text)
+            echo "❌ ${secret_name} is still a plaintext var on worker '$WORKER_NAME'; storing it as a secret needs a deploy (re-run with FORCE_DEPLOY=1)." >&2
+            return 1
+            ;;
+        absent)
             store_worker_secret "$secret_name" "$secret_text"
             ;;
         *)
-            echo "⚠️ Could not parse the worker secrets response; repair check inconclusive" >&2
+            echo "⚠️ Could not parse the worker settings response; repair check inconclusive" >&2
             return 2
             ;;
     esac
@@ -287,14 +296,25 @@ else
         if DEPLOYER_VERSION=$(cat /workspace/.release_tag | tr -d '\n'); then
             echo "🏷️ Deployer version (baked tag): ${DEPLOYER_VERSION}"
         fi
+    elif [ -n "${COMMIT_SHA:-}" ]; then
+        # The deployer image sets ENV COMMIT_SHA at build time (the root
+        # Makefile passes it). Without this fallback, Docker deploys resolve
+        # no version at all and the version-based redeploy below never fires.
+        DEPLOYER_VERSION="$COMMIT_SHA"
+        echo "🏷️ Deployer version (image commit): ${DEPLOYER_VERSION}"
     else
         echo "ℹ️ Baked deployer tag not found"
     fi
 fi
 
 
-# If version changed, force download to bypass etag and ensure fresh deploy
-if [ -n "$PREV_DEPLOYER_VERSION" ] && [ -n "$DEPLOYER_VERSION" ] && [ "$PREV_DEPLOYER_VERSION" != "$DEPLOYER_VERSION" ]; then
+# If the deployer version changed, force download to bypass etag and ensure a
+# fresh deploy. A worker reporting no version at all (deployed by a deployer
+# that could not resolve one) is also force-redeployed once: that is what
+# migrates workers deployed by older deployers — for example ones still
+# carrying the client secret as a plaintext var, which a repair PUT cannot
+# fix (Cloudflare rejects a secret over an existing var binding).
+if [ -n "$DEPLOYER_VERSION" ] && { [ -z "$PREV_DEPLOYER_VERSION" ] || [ "$PREV_DEPLOYER_VERSION" != "$DEPLOYER_VERSION" ]; }; then
     echo "☑️ Deployer version changed ($PREV_DEPLOYER_VERSION -> $DEPLOYER_VERSION); forcing state download and redeploy"
     FORCE_DEPLOY=1
 fi
