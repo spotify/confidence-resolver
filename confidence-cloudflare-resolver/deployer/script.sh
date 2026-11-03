@@ -124,34 +124,92 @@ fi
 
 mkdir -p data
 
+# Print the type of the named binding on the worker, read from the worker's
+# settings (which list secret and var bindings alike). Shared by the
+# resolve-token key check and the skip-path client-secret repair; each caller
+# decides its own policy for an inconclusive answer. Prints one of:
+#   secret_text | plain_text | absent  — the binding's state on the worker
+#   no_worker  — Cloudflare confirms the worker does not exist yet (10007)
+#   unknown    — could not be determined (API error, timeout, bad response,
+#                jq missing); details go to stderr
+worker_binding_type() {
+    local binding_name="$1"
+    local settings_resp
+    local settings_status
+    local settings_body
+    local binding_type
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "⚠️ jq unavailable; cannot read worker bindings" >&2
+        echo "unknown"
+        return 0
+    fi
+    settings_resp=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || settings_resp="000"
+    settings_status="${settings_resp: -3}"
+    settings_body="${settings_resp%???}"
+    case "$settings_status" in
+        200)
+            binding_type=$(printf "%s" "$settings_body" | jq -r --arg n "$binding_name" \
+                '[.result.bindings[]? | select(.name == $n) | .type][0] // "absent"' 2>/dev/null) || binding_type="error"
+            case "$binding_type" in
+                secret_text|plain_text|absent) echo "$binding_type" ;;
+                *)
+                    echo "⚠️ Could not parse the worker settings response" >&2
+                    echo "unknown"
+                    ;;
+            esac
+            ;;
+        404)
+            # Only Cloudflare's worker-not-found codes mean the worker is
+            # missing; any other 404 (wrong account, path) is not proof.
+            # Same codes wrangler's isWorkerNotFoundError checks: 10007
+            # (worker not found), 10090 (legacy environment not found).
+            if [ "$(printf "%s" "$settings_body" | jq -r '[.errors[]?.code] | any(. == 10007 or . == 10090)' 2>/dev/null)" = "true" ]; then
+                echo "no_worker"
+            else
+                echo "⚠️ Could not read worker settings (HTTP 404, not a missing-worker error)" >&2
+                echo "unknown"
+            fi
+            ;;
+        *)
+            echo "⚠️ Could not read worker settings (HTTP $settings_status)" >&2
+            echo "unknown"
+            ;;
+    esac
+}
+
 # --- Resolve Token Encryption Key ---
-# Auto-generate if not provided and no existing secret on the worker.
-# The key is stored as a Cloudflare Worker secret so it persists across deploys.
+# Auto-generate only when the worker is confirmed to have no key. The key is
+# stored as a Cloudflare Worker secret so it persists across deploys.
+#
+# An inconclusive check fails the deploy here, unlike the skip-path repair
+# (which only warns): generating a key we didn't need would replace the
+# existing one and invalidate every outstanding resolve token, whereas a
+# failed run just leaves the current worker serving until the next run.
 SET_SECRET_AFTER_DEPLOY=""
 if test -n "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
     echo "🔐 RESOLVE_TOKEN_ENCRYPTION_KEY provided"
     SET_SECRET_AFTER_DEPLOY="true"
 else
-    echo "🔍 Checking for existing RESOLVE_TOKEN_ENCRYPTION_KEY secret on worker '$WORKER_NAME'..."
-    SECRETS_RESP=$(curl -sS -w "%{http_code}" \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets" 2>/dev/null) || SECRETS_RESP="000"
-    SECRETS_STATUS="${SECRETS_RESP: -3}"
-    SECRETS_BODY="${SECRETS_RESP%???}"
-
-    HAS_SECRET="false"
-    if [ "$SECRETS_STATUS" = "200" ] && command -v jq >/dev/null 2>&1; then
-        HAS_SECRET=$(printf "%s" "$SECRETS_BODY" | jq -r '[.result[] | select(.name == "RESOLVE_TOKEN_ENCRYPTION_KEY")] | length > 0' 2>/dev/null || echo "false")
-    fi
-
-    if [ "$HAS_SECRET" = "true" ]; then
-        echo "✅ Existing RESOLVE_TOKEN_ENCRYPTION_KEY secret found on worker"
-    else
-        echo "🔑 Auto-generating RESOLVE_TOKEN_ENCRYPTION_KEY..."
-        RESOLVE_TOKEN_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(16).toString('base64'))")
-        SET_SECRET_AFTER_DEPLOY="true"
-        echo "✅ Generated encryption key for resolve tokens"
-    fi
+    echo "🔍 Checking for existing RESOLVE_TOKEN_ENCRYPTION_KEY on worker '$WORKER_NAME'..."
+    KEY_BINDING=$(worker_binding_type "RESOLVE_TOKEN_ENCRYPTION_KEY")
+    case "$KEY_BINDING" in
+        secret_text|plain_text)
+            echo "✅ Existing RESOLVE_TOKEN_ENCRYPTION_KEY found on worker"
+            ;;
+        absent|no_worker)
+            echo "🔑 Auto-generating RESOLVE_TOKEN_ENCRYPTION_KEY..."
+            RESOLVE_TOKEN_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(16).toString('base64'))")
+            SET_SECRET_AFTER_DEPLOY="true"
+            echo "✅ Generated encryption key for resolve tokens"
+            ;;
+        *)
+            echo "❌ Could not verify whether worker '$WORKER_NAME' already has RESOLVE_TOKEN_ENCRYPTION_KEY; refusing to generate a new one." >&2
+            echo "   Set RESOLVE_TOKEN_ENCRYPTION_KEY explicitly to skip this check." >&2
+            exit 1
+            ;;
+    esac
 fi
 
 # Store a value as a Cloudflare Worker secret via the API. Used for secrets
@@ -202,24 +260,8 @@ store_worker_secret() {
 ensure_worker_secret() {
     local secret_name="$1"
     local secret_text="$2"
-    local settings_resp
-    local settings_status
-    settings_resp=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || settings_resp="000"
-    settings_status="${settings_resp: -3}"
-    local settings_body="${settings_resp%???}"
-    if [ "$settings_status" != "200" ]; then
-        echo "⚠️ Could not read worker settings (HTTP $settings_status); repair check inconclusive" >&2
-        return 2
-    fi
-    if ! command -v jq >/dev/null 2>&1; then
-        echo "⚠️ jq unavailable; repair check inconclusive" >&2
-        return 2
-    fi
     local binding_type
-    binding_type=$(printf "%s" "$settings_body" | jq -r --arg n "$secret_name" \
-        '[.result.bindings[]? | select(.name == $n) | .type][0] // "absent"' 2>/dev/null || echo "error")
+    binding_type=$(worker_binding_type "$secret_name")
     case "$binding_type" in
         secret_text)
             echo "✅ ${secret_name} already present as worker secret"
@@ -233,7 +275,7 @@ ensure_worker_secret() {
             store_worker_secret "$secret_name" "$secret_text"
             ;;
         *)
-            echo "⚠️ Could not parse the worker settings response; repair check inconclusive" >&2
+            echo "⚠️ ${secret_name} repair check inconclusive" >&2
             return 2
             ;;
     esac

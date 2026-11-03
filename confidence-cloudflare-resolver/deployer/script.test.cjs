@@ -523,6 +523,13 @@ test('the ETag-skip path repairs a worker missing the client secret', () => {
 // -r binding classification with the baked value (secret_text / plain_text /
 // absent); GET_STATUS and PUT_STATUS are what the stubbed settings GET and
 // secret PUT return respectively.
+const WORKER_BINDING_TYPE = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/^worker_binding_type\(\) \{[\s\S]*?^\}/m);
+  assert.ok(match, 'could not find worker_binding_type in script.sh');
+  return match[0];
+})();
+
 const ENSURE_WORKER_SECRET = (() => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
   const match = script.match(/^ensure_worker_secret\(\) \{[\s\S]*?^\}/m);
@@ -575,6 +582,8 @@ CLOUDFLARE_API_TOKEN=tok
 CLOUDFLARE_ACCOUNT_ID=acct123
 WORKER_NAME=worker-test
 ${STORE_WORKER_SECRET}
+
+${WORKER_BINDING_TYPE}
 
 ${ENSURE_WORKER_SECRET}
 ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "super-secret-value"
@@ -724,11 +733,120 @@ test('the secrets file cleanup trap is armed before first use', () => {
 test('the repair curls carry connect/max timeouts', () => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
   const storeFn = script.match(/^store_worker_secret\(\) \{[\s\S]*?^\}/m);
-  const ensureFn = script.match(/^ensure_worker_secret\(\) \{[\s\S]*?^\}/m);
+  const lookupFn = script.match(/^worker_binding_type\(\) \{[\s\S]*?^\}/m);
   assert.ok(storeFn, 'store_worker_secret not found');
-  assert.ok(ensureFn, 'ensure_worker_secret not found');
+  assert.ok(lookupFn, 'worker_binding_type not found');
   assert.match(storeFn[0], /--connect-timeout 10 --max-time 30/,
     'the secret PUT must have timeouts');
-  assert.match(ensureFn[0], /--connect-timeout 10 --max-time 30/,
+  assert.match(lookupFn[0], /--connect-timeout 10 --max-time 30/,
     'the settings GET must have timeouts');
+});
+
+// --- Resolve-token key lookup ---
+
+// Runs the real key block (with the real worker_binding_type and real jq)
+// against a stubbed curl. A new key must only be generated when the worker is
+// confirmed to have none: generating one otherwise replaces the existing key
+// and invalidates every outstanding resolve token.
+const RESOLVE_KEY_BLOCK = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/^SET_SECRET_AFTER_DEPLOY=""\n[\s\S]*?^fi$/m);
+  assert.ok(match, 'could not find the resolve-token key block');
+  return match[0];
+})();
+
+function runResolveKeyLookup(status, body, { providedKey = '', curlFails = false } = {}) {
+  const directory = mkdtempSync(join(tmpdir(), 'resolve-key-test-'));
+  try {
+    writeFileSync(join(directory, 'body'), body);
+    writeFileSync(join(directory, 'curl'), curlFails
+      ? '#!/bin/bash\nexit 28\n'
+      : `#!/bin/bash\ncat "$STUB_DIR/body"; echo -n "${status}"\n`, { mode: 0o755 });
+    const result = spawnSync('bash', ['-c', `
+set -euo pipefail
+export PATH="${directory}:$PATH"
+export STUB_DIR="${directory}"
+CLOUDFLARE_API_TOKEN=tok
+CLOUDFLARE_ACCOUNT_ID=acct123
+WORKER_NAME=worker-test
+RESOLVE_TOKEN_ENCRYPTION_KEY="${providedKey}"
+${WORKER_BINDING_TYPE}
+${RESOLVE_KEY_BLOCK}
+echo "SET_SECRET=$SET_SECRET_AFTER_DEPLOY KEY_LEN=\${#RESOLVE_TOKEN_ENCRYPTION_KEY}"
+`], { encoding: 'utf8', timeout: 5000 });
+    return result;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+const settingsWith = (bindings) => JSON.stringify({ success: true, result: { bindings } });
+
+test('resolve key: 200 with the key bound → keep it, no new key', () => {
+  const r = runResolveKeyLookup('200', settingsWith([{ name: 'RESOLVE_TOKEN_ENCRYPTION_KEY', type: 'secret_text' }]));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Existing RESOLVE_TOKEN_ENCRYPTION_KEY found/);
+  assert.match(r.stdout, /SET_SECRET= KEY_LEN=0/);
+});
+
+test('resolve key: 200 without the key → generate one', () => {
+  const r = runResolveKeyLookup('200', settingsWith([{ name: 'OTHER', type: 'plain_text' }]));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Auto-generating/);
+  assert.match(r.stdout, /SET_SECRET=true KEY_LEN=24/);
+});
+
+test('resolve key: 404 script-not-found (10007) → first deploy, generate one', () => {
+  const r = runResolveKeyLookup('404', JSON.stringify({ success: false, errors: [{ code: 10007, message: 'workers.api.error.script_not_found' }] }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /SET_SECRET=true KEY_LEN=24/);
+});
+
+test('resolve key: 404 legacy-environment-not-found (10090) → first deploy, generate one', () => {
+  const r = runResolveKeyLookup('404', JSON.stringify({ success: false, errors: [{ code: 10090, message: 'environment not found' }] }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /SET_SECRET=true KEY_LEN=24/);
+});
+
+test('resolve key: 404 with no error codes → refuse, exit 1', () => {
+  const r = runResolveKeyLookup('404', '{}');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /not a missing-worker error/);
+  assert.doesNotMatch(r.stdout, /Auto-generating/);
+});
+
+test('resolve key: any other 404 → refuse, exit 1', () => {
+  const r = runResolveKeyLookup('404', JSON.stringify({ success: false, errors: [{ code: 7003, message: 'Could not route' }] }));
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /refusing to generate a new one/);
+  assert.doesNotMatch(r.stdout, /Auto-generating/);
+});
+
+for (const status of ['500', '429', '403']) {
+  test(`resolve key: HTTP ${status} → refuse, exit 1`, () => {
+    const r = runResolveKeyLookup(status, '{}');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, new RegExp(`HTTP ${status}`));
+    assert.doesNotMatch(r.stdout, /Auto-generating/);
+  });
+}
+
+test('resolve key: curl timeout (000) → refuse, exit 1', () => {
+  const r = runResolveKeyLookup('', '', { curlFails: true });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /HTTP 000/);
+  assert.doesNotMatch(r.stdout, /Auto-generating/);
+});
+
+test('resolve key: unparseable 200 body → refuse, exit 1', () => {
+  const r = runResolveKeyLookup('200', '<html>oops</html>');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Could not parse/);
+});
+
+test('resolve key: provided explicitly → no lookup at all', () => {
+  const r = runResolveKeyLookup('500', '{}', { providedKey: 'AAAAAAAAAAAAAAAAAAAAAA==' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /RESOLVE_TOKEN_ENCRYPTION_KEY provided/);
+  assert.doesNotMatch(r.stdout, /Checking for existing/);
 });
