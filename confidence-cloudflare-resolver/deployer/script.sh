@@ -186,6 +186,14 @@ store_worker_secret() {
 # an older deployer, or a store that failed mid-run. Without this repair the
 # skip path would exit successfully and never fix the worker. The check is
 # one read; the PUT is idempotent.
+#
+# Exit codes:
+#   0 — the secret is present, or was missing and has been repaired
+#   1 — the secret is confirmed missing and storing it failed
+#   2 — presence could not be determined (API unreachable or response
+#       unparseable); the caller should treat this as inconclusive rather
+#       than failed, so a Cloudflare API blip cannot turn quiet no-op runs
+#       into alert storms
 ensure_worker_secret() {
     local secret_name="$1"
     local secret_text="$2"
@@ -196,16 +204,30 @@ ensure_worker_secret() {
         "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets" 2>/dev/null) || list_resp="000"
     list_status="${list_resp: -3}"
     local list_body="${list_resp%???}"
-    local has_secret=false
-    if [ "$list_status" = "200" ] && command -v jq >/dev/null 2>&1; then
-        has_secret=$(printf "%s" "$list_body" | jq -r --arg n "$secret_name" \
-            '[.result[] | select(.name == $n)] | length > 0' 2>/dev/null || echo "false")
+    if [ "$list_status" != "200" ]; then
+        echo "⚠️ Could not list worker secrets (HTTP $list_status); repair check inconclusive" >&2
+        return 2
     fi
-    if [ "$has_secret" = "true" ]; then
-        echo "✅ ${secret_name} already present as worker secret"
-        return 0
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "⚠️ jq unavailable; repair check inconclusive" >&2
+        return 2
     fi
-    store_worker_secret "$secret_name" "$secret_text"
+    local has_secret
+    has_secret=$(printf "%s" "$list_body" | jq -r --arg n "$secret_name" \
+        '[.result[] | select(.name == $n)] | length > 0' 2>/dev/null || echo "error")
+    case "$has_secret" in
+        true)
+            echo "✅ ${secret_name} already present as worker secret"
+            return 0
+            ;;
+        false)
+            store_worker_secret "$secret_name" "$secret_text"
+            ;;
+        *)
+            echo "⚠️ Could not parse the worker secrets response; repair check inconclusive" >&2
+            return 2
+            ;;
+    esac
 }
 
 RESPONSE_FILE="data/resolver_state_current.pb"
@@ -295,11 +317,17 @@ if [ "$HTTP_STATUS" = "304" ] && [ -z "${FORCE_DEPLOY:-}" ]; then
     # Repair a worker that is missing its client secret even though no
     # deploy is needed — e.g. one still carrying the plaintext var from an
     # older deployer. Without this, the skip path would report success and
-    # the worker would stay broken until the next state change.
+    # the worker would stay broken until the next state change. An
+    # inconclusive check only warns: the next scheduled run retries, and a
+    # Cloudflare API blip must not turn quiet no-op runs into alert storms.
     if [ -z "$NO_DEPLOY" ]; then
-        if ! ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "$CONFIDENCE_CLIENT_SECRET"; then
+        REPAIR_STATUS=0
+        ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "$CONFIDENCE_CLIENT_SECRET" || REPAIR_STATUS=$?
+        if [ "$REPAIR_STATUS" = "1" ]; then
             echo "❌ Worker '$WORKER_NAME' is missing CONFIDENCE_CLIENT_SECRET and the repair failed." >&2
             exit 1
+        elif [ "$REPAIR_STATUS" != "0" ]; then
+            echo "⚠️ Could not verify CONFIDENCE_CLIENT_SECRET on this run; the next run will retry." >&2
         fi
     fi
     rm -f "$TMP_HEADER"
@@ -933,9 +961,16 @@ if test -z "$NO_DEPLOY"; then
      # var→secret migration alike, with no window where the live worker
      # lacks the secret.
      SECRETS_FILE=$(mktemp)
+     # The secrets file holds the cleartext client secret: remove it on every
+     # exit path — a failed jq or deploy, an abort, a signal — not just the
+     # happy one.
+     trap 'rm -f "$SECRETS_FILE"' EXIT
+     trap 'exit 130' INT
+     trap 'exit 143' TERM
      jq -n --arg v "$CONFIDENCE_CLIENT_SECRET" '{"CONFIDENCE_CLIENT_SECRET": $v}' > "$SECRETS_FILE"
      wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --secrets-file "$SECRETS_FILE" --no-bundle
      rm -f "$SECRETS_FILE"
+     trap - EXIT INT TERM
 
      if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then
          # Best effort: on failure the worker keeps the secret it already

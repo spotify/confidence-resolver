@@ -493,7 +493,9 @@ test('wrangler deploy carries the client secret via --secrets-file', () => {
   const buildAt = script.indexOf('SECRETS_FILE=$(mktemp)');
   const jqAt = script.indexOf('jq -n --arg v "$CONFIDENCE_CLIENT_SECRET" \'{"CONFIDENCE_CLIENT_SECRET": $v}\' > "$SECRETS_FILE"');
   const deployAt = script.indexOf(deployLine[0]);
-  const cleanupAt = script.indexOf('rm -f "$SECRETS_FILE"');
+  const cleanupMatch = script.match(/^ {5}rm -f "\$SECRETS_FILE"$/m);
+  assert.ok(cleanupMatch, 'explicit secrets file cleanup not found');
+  const cleanupAt = script.indexOf(cleanupMatch[0]);
   assert.ok(buildAt !== -1 && jqAt !== -1 && cleanupAt !== -1, 'secrets file plumbing not found');
   assert.ok(buildAt < jqAt && jqAt < deployAt && deployAt < cleanupAt,
     'secrets file must be created and filled before the deploy, removed after');
@@ -511,7 +513,9 @@ test('the ETag-skip path repairs a worker missing the client secret', () => {
   assert.match(branch[0], /ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "\$CONFIDENCE_CLIENT_SECRET"/,
     'skip path must repair the client secret');
   assert.match(branch[0], /NO_DEPLOY/, 'repair must respect NO_DEPLOY');
-  assert.match(branch[0], /exit 1/, 'a failed repair must fail the run');
+  assert.match(branch[0], /exit 1/, 'a confirmed-missing secret with a failed repair must fail the run');
+  assert.match(branch[0], /REPAIR_STATUS/, 'wiring must distinguish repair outcomes');
+  assert.match(branch[0], /next run will retry/, 'an inconclusive check must only warn, not fail the run');
 });
 
 // Runs the real ensure_worker_secret (with the real store_worker_secret)
@@ -525,7 +529,7 @@ const ENSURE_WORKER_SECRET = (() => {
   return match[0];
 })();
 
-function runEnsureWorkerSecret(status, jqOut) {
+function runEnsureWorkerSecret(getStatus, putStatus, jqOut) {
   const directory = mkdtempSync(join(tmpdir(), 'ensure-secret-test-'));
   try {
     writeFileSync(join(directory, 'jq'), `#!/bin/bash
@@ -557,14 +561,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 printf '%s %s\\n%s\\n' "$method" "$url" "$body" >> "$STUB_DIR/requests"
-echo -n "$STATUS"
+if [ -n "$method" ]; then echo -n "$PUT_STATUS"; else echo -n "$GET_STATUS"; fi
 `, { mode: 0o755 });
 
     const result = spawnSync('bash', ['-c', `
 set -euo pipefail
 export PATH="${directory}:$PATH"
 export STUB_DIR="${directory}"
-export STATUS="${status}"
+export GET_STATUS="${getStatus}"
+export PUT_STATUS="${putStatus}"
 CLOUDFLARE_API_TOKEN=tok
 CLOUDFLARE_ACCOUNT_ID=acct123
 WORKER_NAME=worker-test
@@ -583,7 +588,7 @@ ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "super-secret-value"
 }
 
 test('ensure_worker_secret: already present → no PUT, quiet success', () => {
-  const r = runEnsureWorkerSecret('200', 'true');
+  const r = runEnsureWorkerSecret('200', '500', 'true');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /already present as worker secret/);
   assert.doesNotMatch(r.requests, /PUT/, 'must not PUT when the secret exists');
@@ -591,15 +596,44 @@ test('ensure_worker_secret: already present → no PUT, quiet success', () => {
 });
 
 test('ensure_worker_secret: missing → idempotent repair PUT', () => {
-  const r = runEnsureWorkerSecret('200', 'false');
+  const r = runEnsureWorkerSecret('200', '200', 'false');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.requests, /PUT https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/acct123\/workers\/scripts\/worker-test\/secrets/);
   assert.match(r.requests, /"name":"CONFIDENCE_CLIENT_SECRET"/);
   assert.match(r.stdout, /stored as worker secret/);
 });
 
-test('ensure_worker_secret: unreadable secret list still attempts the store', () => {
-  const r = runEnsureWorkerSecret('404', 'false');
+test('ensure_worker_secret: confirmed missing + failed PUT → exit 1', () => {
+  const r = runEnsureWorkerSecret('200', '500', 'false');
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /Could not store CONFIDENCE_CLIENT_SECRET as worker secret \(HTTP 404\)/);
+  assert.match(r.stderr, /Could not store CONFIDENCE_CLIENT_SECRET as worker secret \(HTTP 500\)/);
+});
+
+test('ensure_worker_secret: unreachable list → inconclusive exit 2, no PUT', () => {
+  const r = runEnsureWorkerSecret('503', '200', 'false');
+  assert.equal(r.status, 2);
+  assert.doesNotMatch(r.requests, /PUT/, 'must not PUT when presence is unknown');
+  assert.match(r.stderr, /Could not list worker secrets \(HTTP 503\)/);
+});
+
+// The secrets file carries the cleartext client secret; it must be removed
+// on every exit path — a failed jq/deploy, an abort, a signal — not only the
+// happy one.
+test('the secrets file cleanup trap is armed before first use', () => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const mktempAt = script.indexOf('SECRETS_FILE=$(mktemp)');
+  const trapAt = script.indexOf('trap \'rm -f "$SECRETS_FILE"\' EXIT');
+  const signalTrapAt = script.indexOf("trap 'exit 143' TERM");
+  const jqAt = script.indexOf('jq -n --arg v "$CONFIDENCE_CLIENT_SECRET"');
+  const cleanupMatch = script.match(/^ {5}rm -f "\$SECRETS_FILE"$/m);
+  assert.ok(cleanupMatch, 'explicit secrets file cleanup not found');
+  const rmAt = script.indexOf(cleanupMatch[0]);
+  const clearAt = script.indexOf('trap - EXIT INT TERM');
+  assert.ok(mktempAt !== -1 && trapAt !== -1 && signalTrapAt !== -1 && jqAt !== -1 && clearAt !== -1,
+    'secrets file plumbing not found');
+  assert.ok(mktempAt < trapAt && trapAt < jqAt,
+    'the EXIT trap must be armed between mktemp and the first write to the file');
+  assert.ok(signalTrapAt > trapAt, 'INT/TERM handlers must route through the EXIT trap');
+  assert.ok(rmAt > jqAt && clearAt > rmAt,
+    'explicit cleanup after the deploy, traps cleared after');
 });
