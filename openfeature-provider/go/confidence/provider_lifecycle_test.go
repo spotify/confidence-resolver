@@ -2,6 +2,8 @@ package confidence
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,5 +143,26 @@ func TestLifecycleRecoveryEvent(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no ProviderReady recovery event")
+	}
+}
+
+// TestInstancePoolSizeConfigured runs the provider with explicit pool caps:
+// the knob must reach the host without changing evaluation results.
+func TestInstancePoolSizeConfigured(t *testing.T) {
+	for _, size := range []int{1, 4} {
+		t.Run(fmt.Sprintf("size-%d", size), func(t *testing.T) {
+			provider, _, _ := newCDNProvider(t, func(cfg *ProviderConfig) {
+				cfg.InstancePoolSize = size
+			})
+			t.Cleanup(provider.Shutdown)
+
+			if err := provider.Init(openfeature.EvaluationContext{}); err != nil {
+				t.Fatalf("Init: %v", err)
+			}
+			detail := provider.StringEvaluation(context.Background(), "tutorial-feature.message", "fallback", tutorialEvalCtx())
+			if !strings.HasPrefix(detail.Value, "We are very excited") {
+				t.Fatalf("evaluation with pool size %d returned %q", size, detail.Value)
+			}
+		})
 	}
 }

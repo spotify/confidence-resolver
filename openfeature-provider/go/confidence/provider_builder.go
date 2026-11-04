@@ -74,6 +74,13 @@ type ProviderConfig struct {
 	// README's interpreter-mode section for the linux/arm64 signal-handling
 	// trade-offs.
 	UseWasmInterpreter bool
+	// InstancePoolSize bounds how many module instances serve concurrent
+	// evaluations (one instance per in-flight call, over the shared flag
+	// data). 0 defaults to GOMAXPROCS. Each instance costs a few MB of
+	// resident memory, so embedding many providers per process may want a
+	// smaller cap; throughput saturates well below GOMAXPROCS on most
+	// workloads.
+	InstancePoolSize int
 	// DisableApplyDedup turns off apply-event deduplication, so every apply
 	// is logged even when an identical assignment was just logged. Dedup is
 	// on by default; use this only if you need the unfiltered apply stream.
@@ -160,6 +167,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	provider.fetcher = fetcher
 	provider.forwarder = forwarder
 	provider.useInterpreter = config.UseWasmInterpreter
+	provider.instancePoolSize = config.InstancePoolSize
 
 	if config.UseRemoteMaterializationStore {
 		conn, err := grpc.NewClient(confidenceDomain, grpc.WithTransportCredentials(credentials.NewTLS(nil)))

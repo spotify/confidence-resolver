@@ -64,6 +64,8 @@ type LocalResolverProvider struct {
 	seedFn func() int64
 	// useInterpreter runs the module host on wazero's interpreter engine.
 	useInterpreter bool
+	// instancePoolSize bounds the module instance pool (0 = GOMAXPROCS).
+	instancePoolSize int
 
 	clientSDK *resolvertypes.Sdk
 
@@ -783,6 +785,7 @@ func (p *LocalResolverProvider) installModule(fetched *FetchedModule) error {
 		},
 		Logger:         p.logger,
 		UseInterpreter: p.useInterpreter,
+		InstanceCap:    p.instancePoolSize,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to instantiate module: %w", err)

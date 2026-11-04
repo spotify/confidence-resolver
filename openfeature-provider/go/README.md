@@ -228,6 +228,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `ModuleBaseURL` (string): Module CDN base URL override (default: the production host). Intended for testing.
 - `IngestionBaseURL` (string): Flag-log ingestion API base URL override (default: the regionless `https://ingestion.confidence.dev`; the regional eu/us hosts can be set explicitly). Intended for testing.
 - `UseWasmInterpreter` (bool): Run the WASM engines (the module host and the optional event engine) in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode).
+- `InstancePoolSize` (int): Bound how many module instances serve concurrent evaluations — one instance per in-flight call over the shared flag data (default: `GOMAXPROCS`). Each instance costs a few MB resident; embedding many providers per process may want a smaller cap.
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
 
   - `nil` (default): Falls back to default values for flags requiring materializations
@@ -701,9 +702,9 @@ CDN. What changes for you:
   `ClientSecret` is unchanged; the same admin-view credentials work.
 - `StatePollInterval` is replaced by `ModulePollInterval` (default 30 seconds)
   and `LogPollInterval` by `LogFlushInterval` (default 5 seconds).
-- `ResolverPoolSize` is gone as a user knob: the module keeps its flag
-  data in one shared memory and the provider manages the instance pool
-  internally (one instance per in-flight call, sized to GOMAXPROCS).
+- `ResolverPoolSize` is replaced by `InstancePoolSize`: the module keeps its
+  flag data in one shared memory and a pool of thin instances serves
+  concurrent evaluations (default GOMAXPROCS).
 - `EnableApplyDedup` / `WithEventTracking`-style functional options are gone;
   everything is configured through `ProviderConfig`. Event tracking remains
   enabled by default via the embedded event engine.
