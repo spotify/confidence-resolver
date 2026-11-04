@@ -178,12 +178,13 @@ type resolveOutcome struct {
 // resuming suspensions from the materialization store when one is
 // configured. It holds the host read lock for the whole flow so a module
 // replacement cannot destroy the host under an in-flight call.
+//
+// Callers must hold p.hostMu.RLock until they are done with the outcome
+// (envelope and host), so a replaced host is never closed under them.
 func (p *LocalResolverProvider) resolveFlags(request *resolver.ResolveFlagsRequest) (*resolveOutcome, error) {
 	start := time.Now()
 
-	p.hostMu.RLock()
 	host := p.host
-	p.hostMu.RUnlock()
 	if host == nil {
 		return nil, errNoModule
 	}
@@ -358,6 +359,8 @@ func evaluate[T any](
 		Sdk:               p.clientSDK,
 	}
 
+	p.hostMu.RLock()
+	defer p.hostMu.RUnlock()
 	outcome, err := p.resolveFlags(request)
 	if err != nil {
 		var rejected *cm.ResolveRejectedError
@@ -531,9 +534,11 @@ type SnapshotConfig struct {
 //
 // Experimental: this API is subject to change.
 func (p *LocalResolverProvider) GetPrometheusMetrics(config SnapshotConfig) string {
+	// Hold the read lock for the snapshot: a module swap must not destroy
+	// the host under the metrics call.
 	p.hostMu.RLock()
+	defer p.hostMu.RUnlock()
 	host := p.host
-	p.hostMu.RUnlock()
 	if host == nil {
 		return ""
 	}
@@ -575,6 +580,8 @@ func (p *LocalResolverProvider) Resolve(
 		return nil, fmt.Errorf("failed to convert context: %w", err)
 	}
 
+	p.hostMu.RLock()
+	defer p.hostMu.RUnlock()
 	outcome, err := p.resolveFlags(&resolver.ResolveFlagsRequest{
 		Flags:             requestFlags,
 		EvaluationContext: protoCtx,
@@ -608,8 +615,8 @@ func (p *LocalResolverProvider) ApplyFlags(
 	}
 
 	p.hostMu.RLock()
+	defer p.hostMu.RUnlock()
 	host := p.host
-	p.hostMu.RUnlock()
 	if host == nil {
 		return errNoModule
 	}
@@ -774,7 +781,8 @@ func (p *LocalResolverProvider) installModule(fetched *FetchedModule) error {
 		SchemaSeen: func(fingerprint int64) bool {
 			return p.schemaFilter.Seen(fingerprint)
 		},
-		Logger: p.logger,
+		Logger:         p.logger,
+		UseInterpreter: p.useInterpreter,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to instantiate module: %w", err)
@@ -867,15 +875,16 @@ func (p *LocalResolverProvider) Shutdown() {
 	}
 
 	// Final log flush so the last batches are queued before the forwarder
-	// drains.
+	// drains. The lock is held for the call, then released before the host
+	// is retired below.
 	p.hostMu.RLock()
 	host := p.host
-	p.hostMu.RUnlock()
 	if host != nil {
 		if err := host.FlushLogs(); err != nil {
 			p.logger.Warn("final log flush failed", "error", err)
 		}
 	}
+	p.hostMu.RUnlock()
 
 	// Drain queued batches, then stop the forwarder.
 	p.forwarder.Shutdown(3 * time.Second)
