@@ -537,6 +537,10 @@ RUN make build
 # ==============================================================================
 FROM openfeature-provider-go.build AS openfeature-provider-go.test
 
+# The Go tests resolve fixtures via repoRoot, which is / inside this stage,
+# so data/ must be present at /data or every state-fixture test skips.
+COPY data/ /data/
+
 RUN --mount=type=secret,id=confidence_client_secret \
     --mount=type=secret,id=confidence_client_encryption_key \
     CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \

@@ -43,6 +43,12 @@ if test -z "$CONFIDENCE_CLIENT_SECRET"; then
     echo "CONFIDENCE_CLIENT_SECRET must be set"
     exit 1
 fi
+# The client secret is deployed as a Cloudflare Worker secret — uploaded with
+# the version via `wrangler deploy --secrets-file`, and re-checked on
+# ETag-skip runs. It must never be written into the wrangler.toml [vars]
+# table: wrangler prints var values in its deploy log, and Cloudflare stores
+# them as plaintext readable by anyone with dashboard or API read access to
+# the Worker.
 
 # Auto-detect Cloudflare account ID from token if not provided
 if test -z "$CLOUDFLARE_ACCOUNT_ID"; then
@@ -118,40 +124,166 @@ fi
 
 mkdir -p data
 
+# Print the type of the named binding on the worker, read from the worker's
+# settings (which list secret and var bindings alike). Shared by the
+# resolve-token key check and the skip-path client-secret repair; each caller
+# decides its own policy for an inconclusive answer. Prints one of:
+#   secret_text | plain_text | absent  — the binding's state on the worker
+#   no_worker  — Cloudflare confirms the worker does not exist yet (10007)
+#   unknown    — could not be determined (API error, timeout, bad response,
+#                jq missing); details go to stderr
+worker_binding_type() {
+    local binding_name="$1"
+    local settings_resp
+    local settings_status
+    local settings_body
+    local binding_type
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "⚠️ jq unavailable; cannot read worker bindings" >&2
+        echo "unknown"
+        return 0
+    fi
+    settings_resp=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || settings_resp="000"
+    settings_status="${settings_resp: -3}"
+    settings_body="${settings_resp%???}"
+    case "$settings_status" in
+        200)
+            binding_type=$(printf "%s" "$settings_body" | jq -r --arg n "$binding_name" \
+                '[.result.bindings[]? | select(.name == $n) | .type][0] // "absent"' 2>/dev/null) || binding_type="error"
+            case "$binding_type" in
+                secret_text|plain_text|absent) echo "$binding_type" ;;
+                *)
+                    echo "⚠️ Could not parse the worker settings response" >&2
+                    echo "unknown"
+                    ;;
+            esac
+            ;;
+        404)
+            # Only Cloudflare's worker-not-found codes mean the worker is
+            # missing; any other 404 (wrong account, path) is not proof.
+            # Same codes wrangler's isWorkerNotFoundError checks: 10007
+            # (worker not found), 10090 (legacy environment not found).
+            if [ "$(printf "%s" "$settings_body" | jq -r '[.errors[]?.code] | any(. == 10007 or . == 10090)' 2>/dev/null)" = "true" ]; then
+                echo "no_worker"
+            else
+                echo "⚠️ Could not read worker settings (HTTP 404, not a missing-worker error)" >&2
+                echo "unknown"
+            fi
+            ;;
+        *)
+            echo "⚠️ Could not read worker settings (HTTP $settings_status)" >&2
+            echo "unknown"
+            ;;
+    esac
+}
+
 # --- Resolve Token Encryption Key ---
-# Auto-generate if not provided and no existing secret on the worker.
-# The key is stored as a Cloudflare Worker secret so it persists across deploys.
+# Auto-generate only when the worker is confirmed to have no key. The key is
+# stored as a Cloudflare Worker secret so it persists across deploys.
+#
+# An inconclusive check fails the deploy here, unlike the skip-path repair
+# (which only warns): generating a key we didn't need would replace the
+# existing one and invalidate every outstanding resolve token, whereas a
+# failed run just leaves the current worker serving until the next run.
 SET_SECRET_AFTER_DEPLOY=""
 if test -n "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
     echo "🔐 RESOLVE_TOKEN_ENCRYPTION_KEY provided"
     SET_SECRET_AFTER_DEPLOY="true"
 else
-    echo "🔍 Checking for existing RESOLVE_TOKEN_ENCRYPTION_KEY secret on worker '$WORKER_NAME'..."
-    SECRETS_RESP=$(curl -sS -w "%{http_code}" \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets" 2>/dev/null) || SECRETS_RESP="000"
-    SECRETS_STATUS="${SECRETS_RESP: -3}"
-    SECRETS_BODY="${SECRETS_RESP%???}"
-
-    HAS_SECRET="false"
-    if [ "$SECRETS_STATUS" = "200" ] && command -v jq >/dev/null 2>&1; then
-        HAS_SECRET=$(printf "%s" "$SECRETS_BODY" | jq -r '[.result[] | select(.name == "RESOLVE_TOKEN_ENCRYPTION_KEY")] | length > 0' 2>/dev/null || echo "false")
-    fi
-
-    if [ "$HAS_SECRET" = "true" ]; then
-        echo "✅ Existing RESOLVE_TOKEN_ENCRYPTION_KEY secret found on worker"
-    else
-        echo "🔑 Auto-generating RESOLVE_TOKEN_ENCRYPTION_KEY..."
-        RESOLVE_TOKEN_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(16).toString('base64'))")
-        SET_SECRET_AFTER_DEPLOY="true"
-        echo "✅ Generated encryption key for resolve tokens"
-    fi
+    echo "🔍 Checking for existing RESOLVE_TOKEN_ENCRYPTION_KEY on worker '$WORKER_NAME'..."
+    KEY_BINDING=$(worker_binding_type "RESOLVE_TOKEN_ENCRYPTION_KEY")
+    case "$KEY_BINDING" in
+        secret_text|plain_text)
+            echo "✅ Existing RESOLVE_TOKEN_ENCRYPTION_KEY found on worker"
+            ;;
+        absent|no_worker)
+            echo "🔑 Auto-generating RESOLVE_TOKEN_ENCRYPTION_KEY..."
+            RESOLVE_TOKEN_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(16).toString('base64'))")
+            SET_SECRET_AFTER_DEPLOY="true"
+            echo "✅ Generated encryption key for resolve tokens"
+            ;;
+        *)
+            echo "❌ Could not verify whether worker '$WORKER_NAME' already has RESOLVE_TOKEN_ENCRYPTION_KEY; refusing to generate a new one." >&2
+            echo "   Set RESOLVE_TOKEN_ENCRYPTION_KEY explicitly to skip this check." >&2
+            exit 1
+            ;;
+    esac
 fi
+
+# Store a value as a Cloudflare Worker secret via the API. Used for secrets
+# this deployer manages outside `wrangler deploy --secrets-file` (today:
+# the auto-generated resolve-token key and the skip-path repair below).
+store_worker_secret() {
+    local secret_name="$1"
+    local secret_text="$2"
+    local secret_body
+    local put_resp
+    local put_status
+    echo "🔐 Storing ${secret_name} as worker secret..."
+    secret_body=$(jq -n --arg name "$secret_name" --arg text "$secret_text" \
+        '{"name": $name, "text": $text, "type": "secret_text"}')
+    put_resp=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 -X PUT \
+        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "$secret_body" \
+        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets") || put_resp="000"
+    put_status="${put_resp: -3}"
+    if [ "$put_status" = "200" ] || [ "$put_status" = "201" ]; then
+        echo "✅ ${secret_name} stored as worker secret"
+        return 0
+    fi
+    echo "❌ Could not store ${secret_name} as worker secret (HTTP $put_status)" >&2
+    return 1
+}
+
+# Verify the client secret is present on the worker as a secret, storing it
+# if missing. Used on the ETag-skip path: a worker can be missing its client
+# secret without any state change — for example a secret deleted by hand, or
+# a store that failed mid-run. Without this repair the skip path would exit
+# successfully and never fix the worker.
+#
+# The check reads the worker's settings, not the secrets list: settings show
+# both secret and var bindings, which matters because a secret PUT over an
+# existing plaintext var is rejected by Cloudflare with "binding name
+# already in use" — such a worker needs a deploy, not a PUT.
+#
+# Exit codes:
+#   0 — the secret is present, or was missing and has been repaired
+#   1 — the secret is confirmed missing and storing it failed, or the
+#       worker still carries it as a plaintext var (a deploy is required)
+#   2 — presence could not be determined (API unreachable or response
+#       unparseable); the caller should treat this as inconclusive rather
+#       than failed, so a Cloudflare API blip cannot turn quiet no-op runs
+#       into alert storms
+ensure_worker_secret() {
+    local secret_name="$1"
+    local secret_text="$2"
+    local binding_type
+    binding_type=$(worker_binding_type "$secret_name")
+    case "$binding_type" in
+        secret_text)
+            echo "✅ ${secret_name} already present as worker secret"
+            return 0
+            ;;
+        plain_text)
+            echo "❌ ${secret_name} is still a plaintext var on worker '$WORKER_NAME'; storing it as a secret needs a deploy (re-run with FORCE_DEPLOY=1)." >&2
+            return 1
+            ;;
+        absent)
+            store_worker_secret "$secret_name" "$secret_text"
+            ;;
+        *)
+            echo "⚠️ ${secret_name} repair check inconclusive" >&2
+            return 2
+            ;;
+    esac
+}
 
 RESPONSE_FILE="data/resolver_state_current.pb"
 ETAG_TOML=""
 ALLOWED_ORIGIN_TOML=""
-CLIENT_SECRET_TOML=""
 
 EXTRA_HEADER=()
 
@@ -206,14 +338,25 @@ else
         if DEPLOYER_VERSION=$(cat /workspace/.release_tag | tr -d '\n'); then
             echo "🏷️ Deployer version (baked tag): ${DEPLOYER_VERSION}"
         fi
+    elif [ -n "${COMMIT_SHA:-}" ]; then
+        # The deployer image sets ENV COMMIT_SHA at build time (the root
+        # Makefile passes it). Without this fallback, Docker deploys resolve
+        # no version at all and the version-based redeploy below never fires.
+        DEPLOYER_VERSION="$COMMIT_SHA"
+        echo "🏷️ Deployer version (image commit): ${DEPLOYER_VERSION}"
     else
         echo "ℹ️ Baked deployer tag not found"
     fi
 fi
 
 
-# If version changed, force download to bypass etag and ensure fresh deploy
-if [ -n "$PREV_DEPLOYER_VERSION" ] && [ -n "$DEPLOYER_VERSION" ] && [ "$PREV_DEPLOYER_VERSION" != "$DEPLOYER_VERSION" ]; then
+# If the deployer version changed, force download to bypass etag and ensure a
+# fresh deploy. A worker reporting no version at all (deployed by a deployer
+# that could not resolve one) is also force-redeployed once: that is what
+# migrates workers deployed by older deployers — for example ones still
+# carrying the client secret as a plaintext var, which a repair PUT cannot
+# fix (Cloudflare rejects a secret over an existing var binding).
+if [ -n "$DEPLOYER_VERSION" ] && { [ -z "$PREV_DEPLOYER_VERSION" ] || [ "$PREV_DEPLOYER_VERSION" != "$DEPLOYER_VERSION" ]; }; then
     echo "☑️ Deployer version changed ($PREV_DEPLOYER_VERSION -> $DEPLOYER_VERSION); forcing state download and redeploy"
     FORCE_DEPLOY=1
 fi
@@ -233,6 +376,22 @@ HTTP_STATUS=$(curl -sS -w "%{http_code}" -D "$TMP_HEADER" -o "$RESPONSE_FILE" ${
 if [ "$HTTP_STATUS" = "304" ] && [ -z "${FORCE_DEPLOY:-}" ]; then
     echo "✅ Resolver state not modified (HTTP 304). Skipping the deployment"
     echo "   Set FORCE_DEPLOY=1 to deploy anyway (e.g. to change FLAG_LOG_SINK)."
+    # Repair a worker that is missing its client secret even though no
+    # deploy is needed — e.g. one still carrying the plaintext var from an
+    # older deployer. Without this, the skip path would report success and
+    # the worker would stay broken until the next state change. An
+    # inconclusive check only warns: the next scheduled run retries, and a
+    # Cloudflare API blip must not turn quiet no-op runs into alert storms.
+    if [ -z "$NO_DEPLOY" ]; then
+        REPAIR_STATUS=0
+        ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "$CONFIDENCE_CLIENT_SECRET" || REPAIR_STATUS=$?
+        if [ "$REPAIR_STATUS" = "1" ]; then
+            echo "❌ Worker '$WORKER_NAME' is missing CONFIDENCE_CLIENT_SECRET and the repair failed." >&2
+            exit 1
+        elif [ "$REPAIR_STATUS" != "0" ]; then
+            echo "⚠️ Could not verify CONFIDENCE_CLIENT_SECRET on this run; the next run will retry." >&2
+        fi
+    fi
     rm -f "$TMP_HEADER"
     exit 0
 elif [ "$HTTP_STATUS" = "200" ]; then
@@ -350,7 +509,7 @@ echo "🚀 All files successfully created and verified"
 cd confidence-cloudflare-resolver
 
 echo "🏁 Starting CloudFlare deployment"
-echo "☁️ CloudFlare API token: ${CLOUDFLARE_API_TOKEN:0:5}.."
+echo "☁️ CloudFlare API token set (value not logged)"
 echo "☁️ CloudFlare account ID: $CLOUDFLARE_ACCOUNT_ID"
 
 # ---------------------------------------------------------------------------
@@ -709,11 +868,6 @@ if [ -n "$CONFIDENCE_RESOLVER_ALLOWED_ORIGIN" ]; then
     ALLOWED_ORIGIN_TOML=$(printf '%s' "$CONFIDENCE_RESOLVER_ALLOWED_ORIGIN" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
 fi
 
-# Prepare CONFIDENCE_CLIENT_SECRET for TOML (escape quotes and backslashes)
-if [ -n "$CONFIDENCE_CLIENT_SECRET" ]; then
-    CLIENT_SECRET_TOML=$(printf '%s' "$CONFIDENCE_CLIENT_SECRET" | sed 's/\\/\\\\/g; s/\"/\\\"/g')
-fi
-
 # Validate FORCE_APPLY if provided (worker defaults to true when unset)
 if [ -n "$FORCE_APPLY" ]; then
     FORCE_APPLY=$(printf '%s' "$FORCE_APPLY" | tr '[:upper:]' '[:lower:]')
@@ -733,7 +887,7 @@ if [ -n "$ENABLE_APPLY_DEDUP" ]; then
 fi
 
 # Update [vars] without duplicating the table.
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$CLIENT_SECRET_TOML" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
@@ -743,7 +897,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     sed -i.tmp '/^FORCE_APPLY *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^ENABLE_APPLY_DEDUP *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^FLAG_LOG_SINK *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v client_secret="${CLIENT_SECRET_TOML}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" '
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -751,7 +905,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (allowed != "") print "ALLOWED_ORIGIN = \"" allowed "\""
                 if (etag != "") print "RESOLVER_STATE_ETAG = \"" etag "\""
                 if (version != "") print "DEPLOYER_VERSION = \"" version "\""
-                if (client_secret != "") print "CONFIDENCE_CLIENT_SECRET = \"" client_secret "\""
                 if (force_apply != "") print "FORCE_APPLY = \"" force_apply "\""
                 if (enable_apply_dedup != "") print "ENABLE_APPLY_DEDUP = \"" enable_apply_dedup "\""
                 if (flag_log_sink != "") print "FLAG_LOG_SINK = \"" flag_log_sink "\""
@@ -767,9 +920,6 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
     fi
     if [ -n "$DEPLOYER_VERSION" ]; then
         echo "✅ DEPLOYER_VERSION set to \"$DEPLOYER_VERSION\" in wrangler.toml"
-    fi
-    if [ -n "$CLIENT_SECRET_TOML" ]; then
-        echo "✅ CONFIDENCE_CLIENT_SECRET set in wrangler.toml"
     fi
     if [ -n "$FORCE_APPLY" ]; then
         echo "✅ FORCE_APPLY set to \"$FORCE_APPLY\" in wrangler.toml"
@@ -866,23 +1016,28 @@ fi
 
 # only deploy if NO_DEPLOY is not set
 if test -z "$NO_DEPLOY"; then
-     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --no-bundle
+     # Upload the client secret with the deploy itself: --secrets-file
+     # applies secrets atomically with the new version, and omitted secrets
+     # are never deleted. The binding is therefore present from the
+     # version's very first request — on first installs and on the
+     # var→secret migration alike, with no window where the live worker
+     # lacks the secret.
+     SECRETS_FILE=$(mktemp)
+     # The secrets file holds the cleartext client secret: remove it on every
+     # exit path — a failed jq or deploy, an abort, a signal — not just the
+     # happy one.
+     trap 'rm -f "$SECRETS_FILE"' EXIT
+     trap 'exit 130' INT
+     trap 'exit 143' TERM
+     jq -n --arg v "$CONFIDENCE_CLIENT_SECRET" '{"CONFIDENCE_CLIENT_SECRET": $v}' > "$SECRETS_FILE"
+     wrangler deploy "${WRANGLER_DEPLOY_ARGS_ARRAY[@]}" --secrets-file "$SECRETS_FILE" --no-bundle
+     rm -f "$SECRETS_FILE"
+     trap - EXIT INT TERM
 
-     # Store encryption key as a Cloudflare Worker secret (persists across deploys)
      if [ -n "$SET_SECRET_AFTER_DEPLOY" ] && [ -n "$RESOLVE_TOKEN_ENCRYPTION_KEY" ]; then
-         echo "🔐 Storing RESOLVE_TOKEN_ENCRYPTION_KEY as worker secret..."
-         SECRET_BODY=$(jq -n --arg text "$RESOLVE_TOKEN_ENCRYPTION_KEY" \
-             '{"name": "RESOLVE_TOKEN_ENCRYPTION_KEY", "text": $text, "type": "secret_text"}')
-         SECRET_PUT_RESP=$(curl -sS -w "%{http_code}" -X PUT \
-             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-             -H "Content-Type: application/json" \
-             -d "$SECRET_BODY" \
-             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/secrets")
-         SECRET_PUT_STATUS="${SECRET_PUT_RESP: -3}"
-         if [ "$SECRET_PUT_STATUS" = "200" ] || [ "$SECRET_PUT_STATUS" = "201" ]; then
-             echo "✅ RESOLVE_TOKEN_ENCRYPTION_KEY stored as worker secret"
-         else
-             echo "⚠️ Could not store encryption key as worker secret (HTTP $SECRET_PUT_STATUS)"
+         # Best effort: on failure the worker keeps the secret it already
+         # has, so warn and continue rather than failing the deploy.
+         if ! store_worker_secret "RESOLVE_TOKEN_ENCRYPTION_KEY" "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
              echo "   The key is embedded in the worker binary for this deployment."
              echo "   To persist across deploys, set RESOLVE_TOKEN_ENCRYPTION_KEY explicitly."
          fi

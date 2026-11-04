@@ -31,5 +31,9 @@ binding = "events_queue"
 # KV namespace for sticky assignments is created and injected by the deployer.
 # Set ENABLE_STICKY_ASSIGNMENTS to auto-create the CONFIDENCE_MATERIALIZATIONS_KV binding.
 
+# Runtime vars (RESOLVER_STATE_ETAG, DEPLOYER_VERSION, FLAG_LOG_SINK, ...) are
+# injected into this table by the deployer. Secrets such as
+# CONFIDENCE_CLIENT_SECRET and RESOLVE_TOKEN_ENCRYPTION_KEY are stored as
+# Worker secrets via the Cloudflare API instead: [vars] values are printed in
+# deploy logs and stored as plaintext readable from the dashboard.
 [vars]
-CONFIDENCE_CLIENT_SECRET = "SECRET"

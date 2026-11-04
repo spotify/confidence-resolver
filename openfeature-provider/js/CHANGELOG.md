@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.24.1...openfeature-provider-js-v0.24.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* **js:** preserve rule_resolve_info across the resolve-report re-encode ([#679](https://github.com/spotify/confidence-resolver/issues/679)) ([4e78c19](https://github.com/spotify/confidence-resolver/commit/4e78c198f66737f7322e65a3b1529176c1afa9e9))
+
 ## [0.24.1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.24.0...openfeature-provider-js-v0.24.1) (2026-09-24)
 
 

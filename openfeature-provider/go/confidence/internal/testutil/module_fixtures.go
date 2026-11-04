@@ -25,16 +25,19 @@ import (
 // test (go test runs each package's tests with the package directory as
 // the working directory), which keeps it correct both in a checkout and
 // in Docker build stages where the source tree layout differs.
+//
+// A missing fixture fails the test: a silently skipped test is a false
+// green.
 func LoadClientModuleFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
-		t.Skipf("Skipping test - could not resolve working directory: %v", err)
+		t.Fatalf("could not resolve working directory: %v", err)
 	}
 	dataPath := filepath.Join(wd, "testdata", name)
 	data, err := os.ReadFile(dataPath)
 	if err != nil {
-		t.Skipf("Skipping test - could not load module fixture %s: %v", name, err)
+		t.Fatalf("module fixture %s could not be loaded: %v", dataPath, err)
 	}
 	return data
 }
