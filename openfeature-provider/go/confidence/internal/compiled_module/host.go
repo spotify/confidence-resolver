@@ -41,6 +41,9 @@ type LogSink func(body []byte)
 // instance that started it, matching the contract's rule that an in-flight
 // call never migrates between host threads. Module-wide entry points
 // (apply_flags, flush_logs, metrics, gauges) may use any instance.
+// defaultInstanceCap bounds the default pool size; see HostConfig.
+const defaultInstanceCap = 4
+
 type Host struct {
 	runtime  wazero.Runtime
 	compiled wazero.CompiledModule
@@ -99,8 +102,9 @@ type HostConfig struct {
 	// provider README apply. Optional.
 	UseInterpreter bool
 	// InstanceCap bounds the instance pool: one instance per concurrent
-	// call, up to this many. 0 defaults to GOMAXPROCS. Additional callers
-	// wait for an instance to be returned. Optional.
+	// call, up to this many. 0 defaults to min(GOMAXPROCS, 4) — the
+	// measured p99 knee. Additional callers wait for an instance to be
+	// returned. Optional.
 	InstanceCap int
 	// ApplySeen and SchemaSeen implement the exposure/schema de-duplication
 	// imports: they return true when the fingerprint was already reported.
@@ -160,7 +164,15 @@ func NewHost(mod *Module, cfg HostConfig) (*Host, error) {
 
 	cap := cfg.InstanceCap
 	if cap <= 0 {
+		// Default cap: GOMAXPROCS bounded by 4. Measurements (10-vCPU
+		// aarch64, 10 concurrent evaluators) show the best p99 at 2-4
+		// instances, with p99 regressing at GOMAXPROCS-scale pools from
+		// vCPU and GC contention, while throughput at 4 is already far
+		// beyond any realistic flag-evaluation load.
 		cap = runtime.GOMAXPROCS(0)
+		if cap > defaultInstanceCap {
+			cap = defaultInstanceCap
+		}
 	}
 
 	h := &Host{

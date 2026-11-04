@@ -64,7 +64,7 @@ type LocalResolverProvider struct {
 	seedFn func() int64
 	// useInterpreter runs the module host on wazero's interpreter engine.
 	useInterpreter bool
-	// instancePoolSize bounds the module instance pool (0 = GOMAXPROCS).
+	// instancePoolSize bounds the module instance pool (0 = min(GOMAXPROCS, 4)).
 	instancePoolSize int
 
 	clientSDK *resolvertypes.Sdk
