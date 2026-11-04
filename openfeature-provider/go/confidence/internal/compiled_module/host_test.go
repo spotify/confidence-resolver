@@ -272,21 +272,64 @@ func TestHostDeferredApply(t *testing.T) {
 	result.Envelope.Close()
 }
 
-func TestHostConcurrentEntryIsSerialized(t *testing.T) {
-	host, _ := newTutorialHost(t)
+// TestHostConcurrentEntryServesEachCallOnItsOwnInstance runs many
+// goroutines through full resolve+evaluate flows at once: the contract's
+// threading model is one instance per concurrent call over the one shared
+// memory, so the pool must serve them in parallel without corrupting the
+// flag data or the shared heap.
+func TestHostConcurrentEntryServesEachCallOnItsOwnInstance(t *testing.T) {
+	// A small explicit cap makes the pool's growth deterministic.
+	wasm := loadFixture(t, "tutorial_client_module.wasm")
+	mod, err := LoadModule(wasm, tutorialSecret)
+	if err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+	collector := &logCollector{}
+	host, err := NewHost(mod, HostConfig{LogSink: collector.sink, InstanceCap: 4})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	t.Cleanup(host.Close)
 
+	const goroutines = 16
+	const iterations = 25
 	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
+	for g := 0; g < goroutines; g++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, _, err := host.StartResolve(tutorialRequest(t, "flags/tutorial-feature", true))
-			if err != nil {
-				t.Errorf("StartResolve: %v", err)
-				return
+			for i := 0; i < iterations; i++ {
+				result, _, err := host.StartResolve(tutorialRequest(t, "flags/tutorial-feature", true))
+				if err != nil {
+					t.Errorf("StartResolve: %v", err)
+					return
+				}
+				details, err := host.Evaluate(result.Envelope, &flagswasm.EvaluateRequest{
+					FlagKey:      "tutorial-feature.message",
+					DefaultValue: structpb.NewStringValue("fallback"),
+				})
+				if err != nil {
+					t.Errorf("Evaluate: %v", err)
+					result.Envelope.Close()
+					return
+				}
+				if got := details.GetValue().GetStringValue(); !strings.HasPrefix(got, "We are very excited") {
+					t.Errorf("value corrupted under concurrency: %q", got)
+					result.Envelope.Close()
+					return
+				}
+				result.Envelope.Close()
 			}
-			result.Envelope.Close()
 		}()
 	}
 	wg.Wait()
+
+	// The pool must have grown past the warm instance to serve the
+	// concurrency (and never past its cap).
+	host.mu.Lock()
+	live := host.live
+	host.mu.Unlock()
+	if live < 2 || live > 4 {
+		t.Fatalf("instance pool live = %d, want between 2 and 4", live)
+	}
 }

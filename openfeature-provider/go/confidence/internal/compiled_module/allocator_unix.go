@@ -9,7 +9,7 @@ import (
 // reserveRegion reserves size bytes of anonymous private memory (read/write)
 // without touching it. On Linux the region is additionally marked
 // MAP_NORESERVE so it does not count against the commit budget.
-func reserveRegion(capacity, max uint64) (region []byte, free func(), err error) {
+func reserveRegion(capacity, max uint64) (region []byte, release func(), err error) {
 	size := max
 	if size < capacity {
 		size = capacity

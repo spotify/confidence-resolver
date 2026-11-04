@@ -11,6 +11,10 @@ var (
 	// primitive; the allocator falls back to a bounded committed region.
 	errUnsupportedReservation = errors.New("memory reservation unsupported on this platform")
 
+	// errHostClosed is returned by instance acquisition after Close: the
+	// host's runtime and shared memory are gone.
+	errHostClosed = errors.New("module host is closed")
+
 	errNilLogSink     = errors.New("compiled_module: LogSink is required")
 	errMissingExport  = errors.New("compiled_module: instance is missing a required export")
 	errUnexpectedImp  = "compiled_module: unexpected import"

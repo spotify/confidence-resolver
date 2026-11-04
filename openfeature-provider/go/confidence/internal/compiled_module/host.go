@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"sync"
 	"time"
 
@@ -26,27 +27,53 @@ import (
 type LogSink func(body []byte)
 
 // Host is one live compiled client module: a wazero runtime, the module, the
-// shared memory the module's flag data lives in, and a single instance
-// entered exclusively through a mutex.
+// one shared memory the module's flag data lives in, and a pool of thin
+// instances serving concurrent calls.
 //
-// The single-instance/single-memory design follows the module contract: the
-// flag data is initialized into the shared memory once (by the first
-// instantiation's start function) and instances are thin execution contexts.
-// All entry into WASM is serialized by one mutex, so the module's internal
-// de-duplication and flush locks never contend and memory.atomic.wait never
-// blocks a host goroutine.
+// The design follows the module contract's threading model: the flag data is
+// initialized into the shared memory once (by the first instantiation's
+// start function) and instances are runtime-equal execution contexts over
+// that memory. One instance serves one in-flight call at a time — instances
+// are never entered concurrently — and the pool lets evaluations from
+// different host goroutines run in parallel, each on its own instance.
+//
+// A resolve flow (start → evaluate → resume/discard → free) is pinned to the
+// instance that started it, matching the contract's rule that an in-flight
+// call never migrates between host threads. Module-wide entry points
+// (apply_flags, flush_logs, metrics, gauges) may use any instance.
 type Host struct {
 	runtime  wazero.Runtime
-	instance api.Module
+	compiled wazero.CompiledModule
 	memory   api.Memory
 	mod      *Module
 	closers  []api.Closer
 
-	mu sync.Mutex // entry mutex: one WASM call at a time
+	// allocator owns the reserved shared-memory region; it is released
+	// after the runtime, never by wazero's per-instance cleanup.
+	allocator *lazyMemoryAllocator
 
-	alloc  api.Function
-	frees  api.Function
-	ackLog api.Function
+	// mu guards the lifecycle state and instance accounting. It is NOT an
+	// entry lock: instance calls run outside it.
+	mu     sync.Mutex
+	closed bool
+	free   chan *instance
+	live   int
+	cap    int
+
+	logSink LogSink
+
+	hasMetricsSnapshot bool
+	hasAllocatedBytes  bool
+	hasObserveLatency  bool
+}
+
+// instance is one instantiation of the client module over the shared memory,
+// with its resolved export handles. It serves one call at a time; the pool
+// in Host hands it to one goroutine at a time.
+type instance struct {
+	mod   api.Module
+	alloc api.Function
+	frees api.Function
 
 	resolveProcessStart   api.Function
 	resolveProcessResume  api.Function
@@ -57,12 +84,6 @@ type Host struct {
 	metricsSnapshot       api.Function
 	allocatedBytes        api.Function
 	observeLatency        api.Function
-
-	logSink LogSink
-
-	hasMetricsSnapshot bool
-	hasAllocatedBytes  bool
-	hasObserveLatency  bool
 }
 
 // HostConfig carries the host-provided callbacks.
@@ -77,8 +98,13 @@ type HostConfig struct {
 	// of its compiler. The signal-handling trade-offs documented in the
 	// provider README apply. Optional.
 	UseInterpreter bool
+	// InstanceCap bounds the instance pool: one instance per concurrent
+	// call, up to this many. 0 defaults to GOMAXPROCS. Additional callers
+	// wait for an instance to be returned. Optional.
+	InstanceCap int
 	// ApplySeen and SchemaSeen implement the exposure/schema de-duplication
 	// imports: they return true when the fingerprint was already reported.
+	// The filters are shared host-side across all instances.
 	// Nil disables de-duplication for that namespace (always false).
 	ApplySeen  func(fingerprint int64) bool
 	SchemaSeen func(fingerprint int64) bool
@@ -115,8 +141,10 @@ func (c HostConfig) logger() *slog.Logger {
 // threads feature enabled: the module's atomic instructions decode, and the
 // shared host.memory it imports is provided by a tiny helper module that
 // defines and exports a shared memory with exactly the limits the client
-// module declares. The returned host is ready to resolve; Close tears the
-// instance down.
+// module declares. One instance is warmed eagerly (its start function
+// initializes the flag data into the shared memory); the pool grows lazily
+// to the configured cap as concurrent calls arrive. Close tears everything
+// down.
 func NewHost(mod *Module, cfg HostConfig) (*Host, error) {
 	if cfg.LogSink == nil {
 		return nil, errNilLogSink
@@ -130,10 +158,17 @@ func NewHost(mod *Module, cfg HostConfig) (*Host, error) {
 	runtimeCfg = runtimeCfg.WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesThreads)
 	r := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
 
+	cap := cfg.InstanceCap
+	if cap <= 0 {
+		cap = runtime.GOMAXPROCS(0)
+	}
+
 	h := &Host{
 		runtime:            r,
 		mod:                mod,
 		logSink:            cfg.LogSink,
+		cap:                cap,
+		free:               make(chan *instance, cap),
 		hasMetricsSnapshot: mod.HasExport("metrics_snapshot"),
 		hasAllocatedBytes:  mod.HasExport("allocated_bytes"),
 		hasObserveLatency:  mod.HasExport("observe_client_resolve_latency"),
@@ -186,13 +221,17 @@ func NewHost(mod *Module, cfg HostConfig) (*Host, error) {
 	}
 
 	// host.memory: a helper module defining and exporting a shared memory
-	// with the module's declared limits. wazero allocates shared memories
-	// fixed at their maximum, which is what threads semantics expect.
+	// with the module's declared limits. All client instances import this
+	// same memory; wazero allocates shared memories fixed at their maximum,
+	// which is what threads semantics expect.
 	limits := mod.info.HostMemoryLimits
-	helperCtx := experimental.WithMemoryAllocator(ctx, lazyMemoryAllocator{})
+	alloc := &lazyMemoryAllocator{}
+	h.allocator = alloc
+	helperCtx := experimental.WithMemoryAllocator(ctx, alloc)
 	helper, err := r.InstantiateWithConfig(helperCtx, sharedMemoryHelperWasm(limits.Initial, limits.Maximum, limits.HasMax), wazero.NewModuleConfig().WithName("host"))
 	if err != nil {
 		r.Close(ctx)
+		alloc.Release()
 		return nil, fmt.Errorf("shared memory helper: %w", err)
 	}
 	h.closers = append(h.closers, helper)
@@ -202,34 +241,123 @@ func NewHost(mod *Module, cfg HostConfig) (*Host, error) {
 		return nil, fmt.Errorf("shared memory helper exported no memory")
 	}
 
-	instance, err := r.Instantiate(ctx, mod.Bytes)
+	// Compile the client module once and instantiate it many times: every
+	// instance shares this compiled code. Instantiating from bytes instead
+	// would give each instance ownership of its code (wazero sets
+	// closeWithModule), so closing one instance would release the code
+	// under the others.
+	compiled, err := r.CompileModule(ctx, mod.Bytes)
 	if err != nil {
 		r.Close(ctx)
+		alloc.Release()
 		return nil, err
 	}
-	h.instance = instance
-	h.closers = append(h.closers, instance)
+	h.compiled = compiled
 
-	h.alloc = instance.ExportedFunction("alloc")
-	h.frees = instance.ExportedFunction("free")
-	h.ackLog = instance.ExportedFunction("ack_logs")
-	h.resolveProcessStart = instance.ExportedFunction("resolve_process_start")
-	h.resolveProcessResume = instance.ExportedFunction("resolve_process_resume")
-	h.resolveProcessDiscard = instance.ExportedFunction("resolve_process_discard")
-	h.applyFlags = instance.ExportedFunction("apply_flags")
-	h.flushLogs = instance.ExportedFunction("flush_logs")
-	h.evaluate = instance.ExportedFunction("evaluate")
-	h.metricsSnapshot = instance.ExportedFunction("metrics_snapshot")
-	h.allocatedBytes = instance.ExportedFunction("allocated_bytes")
-	h.observeLatency = instance.ExportedFunction("observe_client_resolve_latency")
-	if h.alloc == nil || h.frees == nil || h.ackLog == nil ||
-		h.resolveProcessStart == nil || h.resolveProcessResume == nil ||
-		h.resolveProcessDiscard == nil || h.applyFlags == nil ||
-		h.flushLogs == nil || h.evaluate == nil {
-		h.Close()
+	// Warm one instance; its start function initializes the flag data into
+	// the shared memory.
+	first, err := h.newInstance()
+	if err != nil {
+		_ = compiled.Close(ctx)
+		r.Close(ctx)
+		alloc.Release()
+		return nil, err
+	}
+	h.free <- first
+	h.live = 1
+	return h, nil
+}
+
+// newInstance instantiates the compiled client module over the shared
+// memory and resolves its export handles.
+func (h *Host) newInstance() (*instance, error) {
+	mod, err := h.runtime.InstantiateModule(context.Background(), h.compiled, wazero.NewModuleConfig())
+	if err != nil {
+		return nil, err
+	}
+	inst := &instance{
+		mod:                   mod,
+		alloc:                 mod.ExportedFunction("alloc"),
+		frees:                 mod.ExportedFunction("free"),
+		resolveProcessStart:   mod.ExportedFunction("resolve_process_start"),
+		resolveProcessResume:  mod.ExportedFunction("resolve_process_resume"),
+		resolveProcessDiscard: mod.ExportedFunction("resolve_process_discard"),
+		applyFlags:            mod.ExportedFunction("apply_flags"),
+		flushLogs:             mod.ExportedFunction("flush_logs"),
+		evaluate:              mod.ExportedFunction("evaluate"),
+		metricsSnapshot:       mod.ExportedFunction("metrics_snapshot"),
+		allocatedBytes:        mod.ExportedFunction("allocated_bytes"),
+		observeLatency:        mod.ExportedFunction("observe_client_resolve_latency"),
+	}
+	if inst.alloc == nil || inst.frees == nil ||
+		inst.resolveProcessStart == nil || inst.resolveProcessResume == nil ||
+		inst.resolveProcessDiscard == nil || inst.applyFlags == nil ||
+		inst.flushLogs == nil || inst.evaluate == nil {
+		_ = mod.Close(context.Background())
 		return nil, errMissingExport
 	}
-	return h, nil
+	return inst, nil
+}
+
+// acquire returns an instance for exclusive use by one caller. The pool
+// grows lazily up to its cap; beyond that, callers wait for an instance to
+// be returned.
+func (h *Host) acquire() (*instance, error) {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return nil, errHostClosed
+	}
+	if h.live < h.cap {
+		// Room to grow: create outside the lock.
+		h.live++
+		h.mu.Unlock()
+		inst, err := h.newInstance()
+		if err != nil {
+			h.mu.Lock()
+			h.live--
+			h.mu.Unlock()
+			return nil, err
+		}
+		return inst, nil
+	}
+	h.mu.Unlock()
+	// At the cap: wait for a returned instance. Close unblocks waiters by
+	// closing the channel; the zero value reads as a nil instance.
+	inst := <-h.free
+	if inst == nil {
+		return nil, errHostClosed
+	}
+	return inst, nil
+}
+
+// release returns an instance to the pool, destroying it if the host is
+// already closed.
+func (h *Host) release(inst *instance) {
+	if inst == nil {
+		return
+	}
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		h.destroyInstance(inst)
+		h.mu.Lock()
+		h.live--
+		h.mu.Unlock()
+		return
+	}
+	h.free <- inst
+	h.mu.Unlock()
+}
+
+// withInstance runs fn with any pool instance and returns it afterwards.
+func (h *Host) withInstance(fn func(*instance) error) error {
+	inst, err := h.acquire()
+	if err != nil {
+		return err
+	}
+	defer h.release(inst)
+	return fn(inst)
 }
 
 // sharedMemoryHelperWasm emits a module equivalent to
@@ -329,10 +457,10 @@ func (h *Host) deliverLogs(caller api.Module, payload uint64, logger *slog.Logge
 	h.logSink(body)
 }
 
-// ack acknowledges a delivered payload. The write_logs callback runs inside a
-// locked WASM call, so this reenters through the calling module's own export
-// (allowed by the contract: ack_logs may be called from any thread) instead
-// of taking the host entry mutex.
+// ack acknowledges a delivered payload on the instance that produced it.
+// The write_logs callback runs inside that instance's call, so this reenters
+// through the calling module's own export (allowed by the contract:
+// ack_logs may be called from any call) rather than taking a pool instance.
 func (h *Host) ack(caller api.Module, payload uint64) {
 	defer func() {
 		// ack_logs must never throw; a failure here is logged and dropped.
@@ -340,10 +468,7 @@ func (h *Host) ack(caller api.Module, payload uint64) {
 			slog.Default().Error("ack_logs panicked", "panic", r)
 		}
 	}()
-	ackFn := h.ackLog
-	if fn := caller.ExportedFunction("ack_logs"); fn != nil {
-		ackFn = fn
-	}
+	ackFn := caller.ExportedFunction("ack_logs")
 	if ackFn == nil {
 		return
 	}
@@ -352,27 +477,60 @@ func (h *Host) ack(caller api.Module, payload uint64) {
 	}
 }
 
-// Close tears the instance down while the shared memory is still alive, then
-// releases the runtime and its modules. It must not be called concurrently
-// with in-flight calls (the provider drains first).
+// Close destroys every instance while the shared memory is still alive,
+// then releases the runtime and its modules. It must not be called
+// concurrently with in-flight calls (the provider drains first).
 func (h *Host) Close() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	ctx := context.Background()
-	if h.instance != nil {
-		if fn := h.instance.ExportedFunction("destroy_instance"); fn != nil {
-			if _, err := fn.Call(ctx); err != nil {
-				slog.Default().Error("destroy_instance failed", "error", err)
-			}
-		}
-		h.instance = nil
+	if h.closed {
+		h.mu.Unlock()
+		return
 	}
-	// Reverse order: client instance first, then host modules/helper.
+	h.closed = true
+	// Drain idle instances and destroy them; instances still out with
+	// callers are destroyed by their release path.
+	drained := 0
+	for drained < len(h.free) {
+		inst := <-h.free
+		h.mu.Unlock()
+		h.destroyInstance(inst)
+		h.mu.Lock()
+		drained++
+		h.live--
+	}
+	// Unblock any waiters so acquire reports the closure.
+	close(h.free)
+	h.mu.Unlock()
+
+	ctx := context.Background()
 	for i := len(h.closers) - 1; i >= 0; i-- {
 		_ = h.closers[i].Close(ctx)
 	}
 	h.closers = nil
+	if h.compiled != nil {
+		_ = h.compiled.Close(ctx)
+		h.compiled = nil
+	}
 	_ = h.runtime.Close(ctx)
+	// The shared memory region outlives the runtime; only now is it safe
+	// to unmap.
+	if h.allocator != nil {
+		h.allocator.Release()
+	}
+}
+
+// destroyInstance tears down one instance: the contract's destroy_instance
+// export first, then the runtime handle.
+func (h *Host) destroyInstance(inst *instance) {
+	if inst == nil {
+		return
+	}
+	if fn := inst.mod.ExportedFunction("destroy_instance"); fn != nil {
+		if _, err := fn.Call(context.Background()); err != nil {
+			slog.Default().Error("destroy_instance failed", "error", err)
+		}
+	}
+	_ = inst.mod.Close(context.Background())
 }
 
 func boolToI32(b bool) int32 {

@@ -30,11 +30,12 @@ and published as a small encrypted artifact per credential.
   no protobuf state to parse at runtime.
 - The module runs on [wazero](https://wazero.io/) (pure Go, no cgo) with the
   WebAssembly threads proposal enabled: one shared memory holds the flag
-  data, initialized once, and all evaluation entry is serialized through one
-  instance. The shared memory is provided by the host and backed by a lazily
-  committed reservation, so the module's declared memory ceiling (the
-  compiler's default is 4 GiB) costs virtual address space, not physical
-  memory.
+  data, initialized once, and a pool of thin instances serves concurrent
+  evaluations in parallel — one instance per in-flight call, never a
+  concurrent entry into one instance. The shared memory is provided by the
+  host and backed by a lazily committed reservation, so the module's
+  declared memory ceiling (the compiler's default is 4 GiB) costs virtual
+  address space, not physical memory.
 - Evaluation itself (splitting `my-flag.path.to.field` into flag and value
   path, walking the path, checking the resolved value against your default,
   merging defaults into nulls, and mapping errors) is performed by the
@@ -700,8 +701,9 @@ CDN. What changes for you:
   `ClientSecret` is unchanged; the same admin-view credentials work.
 - `StatePollInterval` is replaced by `ModulePollInterval` (default 30 seconds)
   and `LogPollInterval` by `LogFlushInterval` (default 5 seconds).
-- `ResolverPoolSize` is gone: the module keeps its flag data in one shared
-  memory and all evaluation entry is serialized through one instance.
+- `ResolverPoolSize` is gone as a user knob: the module keeps its flag
+  data in one shared memory and the provider manages the instance pool
+  internally (one instance per in-flight call, sized to GOMAXPROCS).
 - `EnableApplyDedup` / `WithEventTracking`-style functional options are gone;
   everything is configured through `ProviderConfig`. Event tracking remains
   enabled by default via the embedded event engine.

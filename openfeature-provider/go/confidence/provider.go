@@ -961,14 +961,17 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 				if !p.ready.Load() {
 					continue
 				}
+				// Hold the read lock for the flush: it may block on a busy
+				// instance pool, and a module swap must not destroy the host
+				// underneath it.
 				p.hostMu.RLock()
 				host := p.host
-				p.hostMu.RUnlock()
 				if host != nil {
 					if err := host.FlushLogs(); err != nil {
 						p.logger.Error("Failed to flush logs", "error", err)
 					}
 				}
+				p.hostMu.RUnlock()
 			case <-parentCtx.Done():
 				return
 			}
