@@ -1,35 +1,25 @@
 import { ConfidenceServerProviderLocal, ProviderOptions, validateEncryptionKey } from './ConfidenceServerProviderLocal';
 import { EventWasmTracker } from './EventWasmTracker';
-import { LocalResolver } from './LocalResolver';
-import { WasmResolver } from './WasmResolver';
 import type { EventTracker } from './EventWasmTracker';
 export type { MaterializationStore } from './materialization';
 export type { SnapshotConfig } from './ConfidenceServerProviderLocal';
 
-let resolver: Promise<LocalResolver> | null = null;
 let eventTracker: Promise<EventTracker> | null = null;
 
 export interface ProviderOptionsExt extends ProviderOptions {
+  /** @deprecated the state resolver WASM is no longer used; accepted and ignored. */
   wasmUrl?: URL | string;
 }
 
 export function createConfidenceServerProvider({
-  wasmUrl,
+  wasmUrl: _wasmUrl,
   ...options
 }: ProviderOptionsExt): ConfidenceServerProviderLocal {
   validateEncryptionKey(options.encryptionKey);
-  if (!resolver) {
-    resolver = createResolver(wasmUrl ?? new URL('confidence_resolver.wasm', import.meta.url));
-  }
   if (!eventTracker) {
     eventTracker = createEventTracker(new URL('confidence_event_engine.wasm', import.meta.url));
   }
-  return new ConfidenceServerProviderLocal(resolver, eventTracker, options);
-}
-
-async function createResolver(wasmUrl: URL | string): Promise<LocalResolver> {
-  const module = await WebAssembly.compileStreaming(fetch(wasmUrl));
-  return new WasmResolver(module);
+  return new ConfidenceServerProviderLocal({ ...options, eventTracker });
 }
 
 async function createEventTracker(wasmUrl: URL | string): Promise<EventTracker> {

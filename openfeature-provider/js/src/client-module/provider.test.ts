@@ -7,7 +7,7 @@ import {
   moduleArtifactBytes,
   stageCannedResponses,
 } from './test-support';
-import { ConfidenceModuleProvider, DEFAULT_FLUSH_INTERVAL } from './provider';
+import { ConfidenceServerProviderLocal, DEFAULT_FLUSH_INTERVAL } from './provider';
 import { DEFAULT_MODULE_UPDATE_INTERVAL } from './module-client';
 import type { ConfidenceBundleProvider } from '../provider-contract';
 
@@ -45,9 +45,9 @@ function routingFetch(): RoutingFetch {
 
 function makeProvider(
   fetchImpl: RoutingFetch,
-  options?: Partial<ConstructorParameters<typeof ConfidenceModuleProvider>[0]>,
+  options?: Partial<ConstructorParameters<typeof ConfidenceServerProviderLocal>[0]>,
 ) {
-  return new ConfidenceModuleProvider({
+  return new ConfidenceServerProviderLocal({
     flagClientSecret: CLIENT_SECRET,
     encryptionKey: ENCRYPTION_KEY,
     moduleBaseUrl: MODULE_BASE,
@@ -57,7 +57,7 @@ function makeProvider(
   });
 }
 
-const providers: ConfidenceModuleProvider[] = [];
+const providers: ConfidenceServerProviderLocal[] = [];
 
 afterEach(async () => {
   for (const provider of providers.splice(0)) {
@@ -65,14 +65,14 @@ afterEach(async () => {
   }
 });
 
-function track<T extends ConfidenceModuleProvider>(provider: T): T {
+function track<T extends ConfidenceServerProviderLocal>(provider: T): T {
   providers.push(provider);
   return provider;
 }
 
 /** Stages canned responses into every pooled instance's memory. */
 async function stageAll(
-  provider: ConfidenceModuleProvider,
+  provider: ConfidenceServerProviderLocal,
   start: Uint8Array,
   resume?: Uint8Array,
   details?: Uint8Array,
@@ -83,17 +83,41 @@ async function stageAll(
   stageCannedResponses(provider['runtime'].pool!.memory, start, resume, details);
 }
 
-describe('ConfidenceModuleProvider', () => {
+describe('ConfidenceServerProviderLocal', () => {
   it('defaults module and flush intervals', () => {
     const provider = track(makeProvider(routingFetch()));
     expect(provider['moduleUpdateInterval']).toBe(DEFAULT_MODULE_UPDATE_INTERVAL);
     expect(provider['flushInterval']).toBe(DEFAULT_FLUSH_INTERVAL);
   });
 
+  it('maps the legacy stateUpdateInterval option onto the module poll cadence', () => {
+    const provider = track(makeProvider(routingFetch(), { stateUpdateInterval: 5000 }));
+    expect(provider['moduleUpdateInterval']).toBe(5000);
+    const overridden = track(makeProvider(routingFetch(), { stateUpdateInterval: 5000, moduleUpdateInterval: 9000 }));
+    expect(overridden['moduleUpdateInterval']).toBe(9000);
+  });
+
+  it('tracks events through the injected event tracker', async () => {
+    const trackEvent = vi.fn();
+    const flushEvents = vi.fn(() => ({ events: [] }));
+    const provider = track(makeProvider(routingFetch(), { eventTracker: { trackEvent, flushEvents } as never }));
+    await provider.initialize();
+
+    provider.track('checkout_completed', { targetingKey: 'user-123' }, { value: 42 });
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'checkout_completed',
+        value: 42,
+        context: { targeting_key: 'user-123' },
+      }),
+    );
+  });
+
   it('rejects invalid intervals', () => {
     expect(
       () =>
-        new ConfidenceModuleProvider({
+        new ConfidenceServerProviderLocal({
           flagClientSecret: CLIENT_SECRET,
           encryptionKey: ENCRYPTION_KEY,
           moduleUpdateInterval: 500,
@@ -101,7 +125,7 @@ describe('ConfidenceModuleProvider', () => {
     ).toThrow('moduleUpdateInterval');
     expect(
       () =>
-        new ConfidenceModuleProvider({
+        new ConfidenceServerProviderLocal({
           flagClientSecret: CLIENT_SECRET,
           encryptionKey: ENCRYPTION_KEY,
           flushInterval: 0,
@@ -132,7 +156,7 @@ describe('ConfidenceModuleProvider', () => {
     const provider = track(makeProvider(routingFetch()));
     const contract: ConfidenceBundleProvider = provider; // type-level check
     await provider.initialize();
-    expect(contract.metadata.name).toBe('ConfidenceModuleProvider');
+    expect(contract.metadata.name).toBe('ConfidenceServerProviderLocal');
   });
 
   it('exposes the module Prometheus metrics snapshot', async () => {
