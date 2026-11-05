@@ -716,6 +716,10 @@ CDN. What changes for you:
   semantics are shared by every provider on this architecture. The
   state-based provider returned FLAG_NOT_FOUND for that case; unknown
   flags still return FLAG_NOT_FOUND.
+- Log batches are module-generated: flag assignment, client resolve and
+  flag resolve data is equivalent, but client identification moved from a
+  per-assignment `client_info` to one `client_resolve_info` entry per
+  batch.
 - The provider is pure Go (wazero, no cgo) and cross-compiles with the
   standard Go toolchain. On platforms without a memory-reservation
   primitive, module memory is capped at 64 MiB instead of the declared
