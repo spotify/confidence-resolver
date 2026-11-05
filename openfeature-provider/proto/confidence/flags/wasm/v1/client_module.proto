@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package confidence.flags.wasm.v1;
+
+option java_package = "com.spotify.confidence.flags.wasm.v1";
+option java_multiple_files = true;
+
+// Client-split artifact, encrypted in full with AES-256-GCM:
+// 12-byte nonce || ciphertext || 16-byte tag, no key prefix, empty associated data.
+// Both fields are required by the producer contract, despite proto3 defaults.
+message ClientModule {
+  // Required raw, uncompressed WASM, compiled without an embedded log token.
+  bytes module = 1;
+  reserved 2;
+  // Required bare JWT, without "Bearer". The SDK adds the Authorization header when
+  // forwarding logs. Never log this token.
+  string log_token = 3;
+}

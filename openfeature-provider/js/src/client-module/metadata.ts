@@ -1,5 +1,6 @@
 import { ResolverMetadata } from '../proto/confidence/flags/wasm/v1/metadata';
 import { ByteReader, verifyHeader } from './wasm-imports';
+import { bytesEqual } from '../util';
 
 /** Name of the custom section carrying routing metadata. */
 export const RESOLVER_METADATA_SECTION = 'confidence.metadata';
@@ -72,9 +73,7 @@ export function validateResolverMetadata(metadata: ResolverMetadata): void {
  * bytes of the caller's client secret (32 raw bytes).
  */
 export function assertAcceptsClientSecret(metadata: ResolverMetadata, clientSecretSha256: Uint8Array): void {
-  const accepted = metadata.clientSecretSha256.some(
-    digest => digest.length === clientSecretSha256.length && digest.every((byte, i) => byte === clientSecretSha256[i]),
-  );
+  const accepted = metadata.clientSecretSha256.some(digest => bytesEqual(digest, clientSecretSha256));
   if (!accepted) {
     throw new Error('Module does not accept this client secret');
   }
