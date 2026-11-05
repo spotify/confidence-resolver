@@ -11,34 +11,33 @@ import (
 
 // Envelope holds the raw ResolveProcessResponse bytes a resolve produced.
 // It is borrowed by Evaluate and must stay alive until the last evaluation
-// against it; Close frees the module-allocated block and returns the
-// pinned instance to the pool.
+// against it; Close frees the module-allocated block. The block lives in
+// the shared memory with module-wide heap metadata, so no instance is
+// pinned: any pool instance can evaluate against it or free it.
 type Envelope struct {
 	host   *Host
-	inst   *instance
 	packed uint64
 	closed bool
 }
 
-// Close frees the envelope's block in the module's shared memory and
-// releases the pinned instance. Idempotent.
+// Close frees the envelope's block in the module's shared memory,
+// borrowing any pool instance for the free. Idempotent.
 func (e *Envelope) Close() {
 	if e == nil || e.closed {
 		return
 	}
 	e.closed = true
-	e.host.freePacked(e.inst, e.packed)
-	e.host.release(e.inst)
-	e.inst = nil
+	e.host.freePackedBorrowed(e.packed)
 }
 
 // Suspended is an in-flight resolve waiting on materializations only the
 // host's storage layer can provide. The process handle is opaque and
-// single-use; ResumeResolve or Discard consumes it. The process stays
-// pinned to the instance that started it.
+// single-use; ResumeResolve or Discard consumes it. No instance is held
+// for the suspension: the process state is module-wide in the shared
+// memory, so the pool keeps serving other calls while the host reads its
+// store, and the resume runs on any instance.
 type Suspended struct {
 	processID uint32
-	inst      *instance
 	toRead    []*flagswasm.Materialization_Record
 }
 
@@ -66,24 +65,21 @@ func (h *Host) StartResolve(request *resolver.ResolveFlagsRequest) (*ResolveResu
 	if err != nil {
 		return nil, nil, err
 	}
+	defer h.release(inst)
 
 	reqSlice, err := h.writeSlice(inst, mustMarshal(request))
 	if err != nil {
-		h.release(inst)
 		return nil, nil, err
 	}
 	res, err := inst.resolveProcessStart.Call(context.Background(), reqSlice)
 	if err != nil {
-		h.release(inst)
 		return nil, nil, err
 	}
 	resolved, suspended, envelope, err := h.decodeProcessResponse(inst, res[0])
 	if err != nil {
-		h.release(inst)
 		return nil, nil, err
 	}
 	if suspended != nil {
-		suspended.inst = inst
 		return nil, suspended, nil
 	}
 	return &ResolveResult{
@@ -99,18 +95,21 @@ func (h *Host) StartResolve(request *resolver.ResolveFlagsRequest) (*ResolveResu
 // count as absent. A second suspension is a module defect and fails the
 // resolve.
 func (h *Host) ResumeResolve(s *Suspended, materializations *flagswasm.Materialization) (*ResolveResult, error) {
-	if s == nil || s.processID == 0 || s.inst == nil {
+	if s == nil || s.processID == 0 {
 		return nil, errors.New("no suspended process to resume")
 	}
 	id := s.processID
-	inst := s.inst
 	s.processID = 0
-	s.inst = nil
+
+	inst, err := h.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer h.release(inst)
 
 	matSlice, err := h.writeSlice(inst, mustMarshal(materializations))
 	if err != nil {
 		h.discardLocked(inst, id)
-		h.release(inst)
 		return nil, err
 	}
 	res, err := inst.resolveProcessResume.Call(context.Background(), uint64(id), matSlice)
@@ -118,20 +117,17 @@ func (h *Host) ResumeResolve(s *Suspended, materializations *flagswasm.Materiali
 		// The handle may or may not have been consumed by the module;
 		// discarding defensively releases any remaining process state.
 		h.discardLocked(inst, id)
-		h.release(inst)
 		return nil, err
 	}
 	resolved, suspended, envelope, err := h.decodeProcessResponse(inst, res[0])
 	if err != nil {
 		h.discardLocked(inst, id)
-		h.release(inst)
 		return nil, err
 	}
 	if suspended != nil {
 		// A second suspension is a module defect: discard the new handle
 		// and fail the resolve.
 		h.discardLocked(inst, suspended.processID)
-		h.release(inst)
 		return nil, errSecondSuspend
 	}
 	return &ResolveResult{
@@ -145,15 +141,17 @@ func (h *Host) ResumeResolve(s *Suspended, materializations *flagswasm.Materiali
 // Discard abandons a suspended process, releasing its module-side state and
 // the pinned instance.
 func (h *Host) Discard(s *Suspended) {
-	if s == nil || s.processID == 0 || s.inst == nil {
+	if s == nil || s.processID == 0 {
 		return
 	}
 	id := s.processID
-	inst := s.inst
 	s.processID = 0
-	s.inst = nil
+	inst, err := h.acquire()
+	if err != nil {
+		return
+	}
+	defer h.release(inst)
 	h.discardLocked(inst, id)
-	h.release(inst)
 }
 
 // discardLocked calls resolve_process_discard on the process's pinned
@@ -172,10 +170,14 @@ func (h *Host) discardLocked(inst *instance, processID uint32) {
 // nulls and mapping errors. The envelope is borrowed; the caller frees it
 // when done evaluating.
 func (h *Host) Evaluate(envelope *Envelope, request *flagswasm.EvaluateRequest) (*flagswasm.ResolutionDetails, error) {
-	if envelope == nil || envelope.closed || envelope.inst == nil {
+	if envelope == nil || envelope.closed {
 		return nil, errNilEnvelope
 	}
-	inst := envelope.inst
+	inst, err := h.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer h.release(inst)
 
 	reqSlice, err := h.writeSlice(inst, mustMarshal(request))
 	if err != nil {
@@ -320,7 +322,7 @@ func (h *Host) decodeProcessResponse(inst *instance, packed uint64) (
 	}
 	switch result := process.Result.(type) {
 	case *flagswasm.ResolveProcessResponse_Resolved_:
-		return result.Resolved, nil, &Envelope{host: h, inst: inst, packed: packed}, nil
+		return result.Resolved, nil, &Envelope{host: h, packed: packed}, nil
 	case *flagswasm.ResolveProcessResponse_Suspended:
 		// The suspended envelope is spent; the process handle carries the
 		// state forward on the pinned instance.
@@ -341,8 +343,22 @@ func (h *Host) decodeProcessResponse(inst *instance, packed uint64) (
 	}
 }
 
-// freePacked frees a module-allocated block by packed slice on the instance
-// that manages it.
+// freePackedBorrowed frees a module-allocated block through any pool
+// instance: the heap metadata is module-wide in the shared memory. Used by
+// owners of long-lived blocks (envelopes) that no longer hold an instance.
+func (h *Host) freePackedBorrowed(packed uint64) {
+	inst, err := h.acquire()
+	if err != nil {
+		// The host is closed: the shared memory dies with the runtime and
+		// the block goes with it.
+		return
+	}
+	defer h.release(inst)
+	h.freePacked(inst, packed)
+}
+
+// freePacked frees a module-allocated block by packed slice on a borrowed
+// instance.
 func (h *Host) freePacked(inst *instance, packed uint64) {
 	ptr, length := unpackSlice(packed)
 	if length > 0 {
