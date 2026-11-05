@@ -394,8 +394,7 @@ COPY openfeature-provider/js/tsconfig.json openfeature-provider/js/tsdown.config
 COPY openfeature-provider/js/Makefile ./
 
 # Copy WASM modules. The paths mirror the repo layout because the tests load
-# them relative to src/ (see WasmResolver.test.ts / EventWasmResolver.test.ts).
-COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ../../../wasm/confidence_resolver.wasm
+# them relative to src/ (see EventWasmTracker.test.ts).
 COPY --from=wasm-event-guest.artifact /confidence_event_engine.wasm ../../../wasm/confidence_event_engine.wasm
 
 
