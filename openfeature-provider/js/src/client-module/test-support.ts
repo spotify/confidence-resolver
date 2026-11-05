@@ -119,12 +119,18 @@ function section(id: number, content: number[]): number[] {
   return [id, ...uleb(content.length), ...content];
 }
 
-function wasm(...sections: number[][]): Uint8Array<ArrayBuffer> {
+export function wasm(...sections: number[][]): Uint8Array<ArrayBuffer> {
   return new Uint8Array([...WASM_HEADER, ...sections.flat()]);
 }
 
-function hostMemoryImport(initial: number, maximum: number): number[] {
+export function hostMemoryImport(initial: number, maximum: number): number[] {
   return [...str('host'), ...str('memory'), 0x02, 0b11, ...uleb(initial), ...uleb(maximum)];
+}
+
+/** A custom section: id 0, content = length-prefixed name + payload. */
+export function customSection(name: string, payload: Uint8Array | number[]): number[] {
+  const content = [...str(name), ...(payload instanceof Uint8Array ? [...payload] : payload)];
+  return section(0, content);
 }
 
 /**
@@ -133,6 +139,11 @@ function hostMemoryImport(initial: number, maximum: number): number[] {
  */
 export function guestModuleWithoutExports(): Uint8Array<ArrayBuffer> {
   return wasm(section(2, [1, ...hostMemoryImport(1, 2)]));
+}
+
+/** An import section with the given entries. */
+export function importSection(...entries: number[][]): number[] {
+  return section(2, [...uleb(entries.length), ...entries.flat()]);
 }
 
 /** A module that does not import host.memory at all. */

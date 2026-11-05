@@ -42,7 +42,7 @@ export interface SharedMemoryDescriptor {
 const IMPORT_SECTION_ID = 2;
 const WASM_HEADER = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 
-class ByteReader {
+export class ByteReader {
   private offset: number;
   private end: number;
 
@@ -77,6 +77,17 @@ class ByteReader {
       throw new Error(`Malformed ${what}: ${this.end - this.offset} trailing byte(s)`);
     }
     this.end = previousEnd;
+  }
+
+  /** Jump to the narrowed end and restore the previous range, skipping unread payload. */
+  exit(previousEnd: number): void {
+    this.offset = this.end;
+    this.end = previousEnd;
+  }
+
+  /** View of the remaining bytes in the current range (no copy). */
+  rest(): Uint8Array {
+    return this.wasm.subarray(this.offset, this.end);
   }
 
   byte(what: string): number {
@@ -146,7 +157,7 @@ function readLimits(reader: ByteReader, what: string): MemoryLimits {
   return { initial, maximum, shared };
 }
 
-function verifyHeader(wasm: Uint8Array): void {
+export function verifyHeader(wasm: Uint8Array): void {
   if (wasm.length < WASM_HEADER.length) {
     throw new Error(`Not a wasm binary: ${wasm.length} byte(s) is shorter than the 8-byte header`);
   }
