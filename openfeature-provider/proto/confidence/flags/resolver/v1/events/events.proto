@@ -1,0 +1,91 @@
+// AUTO-GENERATED from vendor/epx-flags-resolver — do not edit.
+// To regenerate: python3 scripts/sync-upstream-protos.py
+
+syntax = "proto3";
+
+package confidence.flags.resolver.v1.events;
+
+option java_package = "com.spotify.confidence.flags.resolver.v1.events";
+option java_multiple_files = true;
+option java_outer_classname = "StateToWasmEventsProto";
+
+import "confidence/flags/resolver/v1/types.proto";
+import "google/protobuf/timestamp.proto";
+
+
+
+message ClientInfo {
+  string client = 1;
+  string client_credential = 2;
+  //TODO: client version
+
+  // Information about the SDK used to interact with the API.
+  Sdk sdk = 3;
+}
+
+
+message FlagAssigned {
+
+  string resolve_id = 10;
+
+  ClientInfo client_info = 3;
+
+  repeated AppliedFlag flags = 15;
+
+  // When true, this event is destined for the Cloud Storage load ingestion path;
+  // streaming consumers must ack-skip it. When false (the default), streaming
+  // consumers handle it and the Cloud Storage load path skips it (for STREAMING-mode
+  // connections). Set by the resolver from a feature-flag rollout.
+  bool gcs_ingestion = 16;
+
+  // 17 was usage_reported, which routed applies between the report path and the per-account
+  // FlagAssigned subscriptions during that migration. Every apply is aggregated now.
+  reserved 17;
+
+  message AppliedFlag {
+    string flag = 1;
+
+    string targeting_key = 2;
+    string targeting_key_selector = 3;
+
+    oneof assignment {
+      AssignmentInfo assignment_info = 4;
+      DefaultAssignment default_assignment = 5;
+    }
+
+    string assignment_id = 6;
+
+    string rule = 7;
+
+    repeated FallthroughAssignment fallthrough_assignments = 8;
+    google.protobuf.Timestamp apply_time = 9;
+
+    // Stable identity of the applied assignment, excluding resolve/apply time.
+    optional fixed64 fingerprint = 10;
+  }
+
+  message AssignmentInfo {
+    string segment = 1;
+    string variant = 2;
+  }
+
+  message DefaultAssignment {
+    DefaultAssignmentReason reason = 1;
+    enum DefaultAssignmentReason {
+      DEFAULT_ASSIGNMENT_REASON_UNSPECIFIED = 0;
+      NO_SEGMENT_MATCH = 1;
+      NO_TREATMENT_MATCH = 2 [deprecated = true];
+      FLAG_ARCHIVED = 3;
+    }
+  }
+}
+
+
+message FallthroughAssignment {
+  string rule = 1;
+
+  string assignment_id = 2;
+
+  string targeting_key = 3;
+  string targeting_key_selector = 4;
+}

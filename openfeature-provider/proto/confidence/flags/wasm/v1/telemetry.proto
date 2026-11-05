@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package confidence.flags.wasm.v1;
+
+option java_package = "com.spotify.confidence.flags.wasm.v1";
+option java_multiple_files = true;
+
+import "confidence/flags/resolver/v1/types.proto";
+import "google/protobuf/descriptor.proto";
+
+// One label dimension of a metric. Repeat the option for several labels;
+// the i-th option describes the i-th entry of each point's labels.
+message Label {
+  // Label key on the exported series, e.g. "reason".
+  string name = 1;
+  // Fully qualified enum whose values are the label values. Value names
+  // carry the enum's prefix, which ingestion strips and lowercases
+  // (RESOLVE_REASON_MATCH -> "match").
+  string enum_type = 2;
+}
+
+extend google.protobuf.FieldOptions {
+  repeated Label label = 50001;
+}
+
+// One producer's telemetry report, carried serialized in
+// WriteFlagLogsRequest.telemetry. Each field from 10 up is one metric: the
+// field name is the metric name, the payload type is the merge rule, and
+// (label) options describe its label dimensions. Ingestion
+// maps only fields it knows, so the schema is the allowlist.
+message ResolverTelemetry {
+  // Ingestion attributes every point to its arrival time.
+  Producer producer = 1;
+  // The client resource name (`clients/...`) the metrics are counted for;
+  // empty for module-wide metrics and requests failing before the client
+  // lookup.
+  string client = 2;
+
+  // One per logical resolve, when it ends; a suspend and its resume are one.
+  Counter resolve_requests = 10 [
+    (label) = { name: "outcome", enum_type: "confidence.flags.wasm.v1.ResolveOutcome" }
+  ];
+  Gauge memory_bytes = 11;
+  // The final reason per flag outcome. Provider modules (built with
+  // evaluate) count once per evaluate call, including TYPE_MISMATCH and
+  // FLAG_NOT_FOUND; other modules count once per resolved flag.
+  Counter flag_resolves = 12 [
+    (label) = { name: "reason", enum_type: "confidence.flags.resolver.v1.ResolveReason" }
+  ];
+  // Host-observed, from start through the final resume, successful requests
+  // only. Exponential scale 2.
+  Histogram resolve_latency_microseconds = 13;
+}
+
+enum ResolveOutcome {
+  RESOLVE_OUTCOME_UNSPECIFIED = 0;
+  // Resolved, directly or after resuming with materializations.
+  RESOLVE_OUTCOME_OK = 1;
+  // No response: the request could not be resolved, or a resume named an
+  // unknown process.
+  RESOLVE_OUTCOME_ERROR = 2;
+  // A suspended resolve the host discarded instead of resuming.
+  RESOLVE_OUTCOME_DISCARDED = 3;
+}
+
+message Producer {
+  string resolver_version = 1;
+  string state_id = 2;
+}
+
+// Delta since the producer's previous report, summed by ingestion.
+// Zero-delta points are omitted.
+message Counter {
+  repeated Point points = 1;
+
+  message Point {
+    uint64 delta = 1;
+    // Enum values, one per (label) option of the metric, in option order.
+    repeated int32 labels = 2;
+  }
+}
+
+// Point-in-time sample. Producers are not identified, so latest-wins cannot
+// merge them; ingestion adds each point as one observation to a histogram.
+message Gauge {
+  repeated Point points = 1;
+
+  message Point {
+    int64 value = 1;
+    // Enum values, one per (label) option of the metric, in option order.
+    repeated int32 labels = 2;
+  }
+}
+
+// OpenTelemetry exponential bucket layout: self-describing and always
+// mergeable (bucket-wise sum after downscaling to the coarser scale).
+message Histogram {
+  sint32 scale = 1;
+  sint32 offset = 2;
+  repeated uint64 counts = 3;
+  uint64 count = 4;
+  double sum = 5;
+  uint64 zero_count = 6;
+}

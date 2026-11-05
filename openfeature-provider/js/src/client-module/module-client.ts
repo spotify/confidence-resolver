@@ -24,8 +24,8 @@ export interface ModuleClientOptions {
 
 /** The currently accepted artifact snapshot. */
 export interface CurrentModule {
-  /** Raw wasm module bytes (the wrapper's `module` field). */
-  moduleBytes: Uint8Array;
+  /** Raw wasm module bytes (the wrapper's `module` field; an owned copy). */
+  moduleBytes: Uint8Array<ArrayBuffer>;
   /** Routing metadata verified for this artifact. */
   metadata: ResolverMetadata;
   /** Bare JWT from the wrapper; the SDK adds the Authorization header when forwarding logs. Never log it. */
@@ -175,7 +175,12 @@ export class ModuleClient {
       };
       return { type: 'accepted', change: 'token', current: this.currentField };
     }
-    this.currentField = { moduleBytes: wrapper.module, metadata, logToken: wrapper.logToken, etag };
+    this.currentField = {
+      moduleBytes: new Uint8Array(wrapper.module),
+      metadata,
+      logToken: wrapper.logToken,
+      etag,
+    };
     return { type: 'accepted', change: previous ? 'module' : 'initial', current: this.currentField };
   }
 }

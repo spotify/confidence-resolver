@@ -1,0 +1,180 @@
+syntax = "proto3";
+
+// Simplified from konfidens/state-to-wasm protos/src/main/proto/confidence/flags/admin/v1/types.proto:
+// only the messages the WASM resolve-process API needs (WriteResolveInfoRequest and
+// its evaluation-context schema dependencies). Segment/Flag/ResolverState live in
+// resolver.proto in this tree.
+package confidence.flags.admin.v1;
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/admin";
+option java_package = "com.spotify.confidence.sdk.flags.admin.v1";
+option java_multiple_files = true;
+option java_outer_classname = "AdminTypesProto";
+
+import "google/protobuf/struct.proto";
+
+message EvaluationContextSchemaField {
+  // The observed types.
+  repeated Kind types = 1;
+
+  // Human friendly name of the field
+  string display_name = 2;
+
+  // If the field should be visible or not
+  bool hidden = 3;
+
+  // Semantic type of a field. Makes it possible to narrow the number of possible values for a field etc.
+  ContextFieldSemanticType semantic_type = 4;
+
+  // Sample of values seen for this field.
+  repeated google.protobuf.Value seen_values = 5;
+
+  // The type of a field in the schema.
+  enum Kind {
+    // Unspecified kind.
+    KIND_UNSPECIFIED = 0;
+
+    // Null value observed.
+    NULL_KIND = 1;
+
+    // A number, integer or double, observed.
+    NUMBER_KIND = 2;
+
+    // A string observed.
+    STRING_KIND = 3;
+
+    // A boolean observed.
+    BOOL_KIND = 4;
+  }
+}
+
+// Defines values that have been seen for a context field.
+message ContextFieldSeenValues {
+  // List of unique values seen.
+  repeated google.protobuf.Value values = 1;
+}
+
+// Semantic type of a field. Makes it possible to narrow the number of possible values for a field etc.
+message ContextFieldSemanticType {
+  oneof type {
+    // If this is a country type, this specifies in what format.
+    CountrySemanticType country = 1;
+    // If this is an enum this specifies what value it has etc.
+    EnumSemanticType enum_type = 2;
+    // If this field is a reference to an entity.
+    EntitySemanticType entity_reference = 3;
+    // If this field is a semantic type.
+    VersionSemanticType version = 4;
+    // If this is a date.
+    DateSemanticType date = 5;
+    // If this is a timestamp.
+    TimestampSemanticType timestamp = 6;
+  }
+
+  // Specifies a semver semantic type
+  message VersionSemanticType {}
+
+  // Specifies a date semantic type
+  message DateSemanticType {}
+
+  // Specifies a timestamp semantic type
+  message TimestampSemanticType {}
+
+  // Specifies an enum semantic type
+  message EnumSemanticType {
+    repeated EnumValue values = 1;
+
+    // An allowed value for the enum
+    message EnumValue {
+      // A possible value the enum can take.
+      string value = 1;
+    }
+  }
+
+  // Specifies a field that has a semantic type of entity.
+  message EntitySemanticType {
+    // A reference to the entity that exists in this field.-
+    string entity = 1;
+  }
+
+  // Specifies a country semantic type.
+  message CountrySemanticType {
+    // What format the country is specified in.
+    CountryFormat format = 1;
+    // Enum of different formats that country should be in.
+    enum CountryFormat {
+      // No semantic type for the field.
+      COUNTRY_FORMAT_UNSPECIFIED = 0;
+      // The field is a country specified by a 2 letter code.
+      TWO_LETTER_ISO_CODE = 1;
+    }
+  }
+}
+
+// A request to write flag resolve info
+message WriteResolveInfoRequest {
+  // Information about how clients have resolved
+  repeated ClientResolveInfo client_resolve_info = 1;
+  // Information about how flags were resolved
+  repeated FlagResolveInfo flag_resolve_info = 2;
+
+  // Information about how a single flag has been resolved
+  message FlagResolveInfo {
+    // The flag the info is about
+    string flag = 1;
+    // Information about how variants were resolved.
+    repeated VariantResolveInfo variant_resolve_info = 2;
+    // Information about how rules were resolved.
+    repeated RuleResolveInfo rule_resolve_info = 3;
+
+    // Information about how a variant was resolved.
+    message VariantResolveInfo {
+      // If there was a variant assigned, otherwise not set
+      string variant = 1;
+      // Number of times the variant was resolved in this period
+      int64 count = 3;
+    }
+
+    // Information about how a rule was resolved.
+    message RuleResolveInfo {
+      // The rule that was resolved
+      string rule = 1;
+      // Number of times the rule was resolved in this period
+      int64 count = 2;
+
+      // Resolve counts on each assignment
+      repeated AssignmentResolveInfo assignment_resolve_info = 3;
+    }
+
+    // Information about the assignment that was resolved.
+    message AssignmentResolveInfo {
+      // The assignment id of the resolved value, otherwise not set.
+      string assignment_id = 1;
+
+      // Number of times the assignment id was resolved in this period.
+      int64 count = 2;
+    }
+  }
+
+  // Information about how a client resolved
+  message ClientResolveInfo {
+    // Resource reference to a client.
+    string client = 1;
+
+    // Resource reference to a credential.
+    string client_credential = 2;
+
+    // The different evaluation context schema of the client that have been seen recently.
+    repeated EvaluationContextSchemaInstance schema = 3;
+
+    // An instance of a schema that was seen
+    message EvaluationContextSchemaInstance {
+      // Schema of each field in the evaluation context.
+      map<string, EvaluationContextSchemaField.Kind> schema = 1;
+      // Optional semantic type per field.
+      map<string, ContextFieldSemanticType> semantic_types = 2;
+      // Optional sample of seen values of non pii.
+      map<string, ContextFieldSeenValues> seen_values = 3;
+    }
+  }
+}

@@ -7,6 +7,12 @@ export interface GuestLogPayload {
    * callback: read it once and keep the copy.
    */
   bytes(): Uint8Array;
+  /**
+   * Copy of a packed slice's bytes from module memory (e.g. one of
+   * `WriteLogsPayload.parts`). Reading is allowed inside the callback; never
+   * free or ack individual parts — only the payload itself is acknowledged.
+   */
+  readSlice(packed: PackedSlice): Uint8Array;
   /** Release the payload in the module. Call exactly once, even on failure. */
   ack(): void;
 }
@@ -215,6 +221,7 @@ export class GuestInstance {
           let acked = false;
           const handle: GuestLogPayload = {
             bytes: () => this.readSlice(payload),
+            readSlice: packed => this.readSlice(packed),
             ack: () => {
               if (acked) return;
               acked = true;
