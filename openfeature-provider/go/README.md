@@ -228,7 +228,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `ModuleBaseURL` (string): Module CDN base URL override (default: the production host). Intended for testing.
 - `IngestionBaseURL` (string): Flag-log ingestion API base URL override (default: the regionless `https://ingestion.confidence.dev`; the regional eu/us hosts can be set explicitly). Intended for testing.
 - `UseWasmInterpreter` (bool): Run the WASM engines (the module host and the optional event engine) in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode).
-- `InstancePoolSize` (int): Bound how many module instances serve concurrent evaluations — one instance per in-flight call over the shared flag data. Defaults to `min(GOMAXPROCS, 4)`: measured tail latency is best at 2–4 instances, larger pools trade p99 and ~8–10 MB resident per compiler instance for peak throughput.
+- `InstancePoolSize` (int): Bound how many module instances serve concurrent evaluations — one instance per in-flight call over the shared flag data. Defaults to `min(GOMAXPROCS, 4)`: measured tail latency is best at 2–4 instances; larger pools trade p99 and ~3 MB resident per compiler instance (steady state; higher transiently under load) for peak throughput.
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
 
   - `nil` (default): Falls back to default values for flags requiring materializations

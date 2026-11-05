@@ -78,9 +78,9 @@ type ProviderConfig struct {
 	// evaluations (one instance per in-flight call, over the shared flag
 	// data). 0 defaults to min(GOMAXPROCS, 4), the measured p99 knee:
 	// larger pools add throughput but regress tail latency and cost
-	// roughly 8-10 MB resident per extra compiler instance. Raise it for
-	// peak throughput; lower it when embedding many providers per
-	// process.
+	// roughly 3 MB resident per extra compiler instance (steady state;
+	// higher transiently under load). Raise it for peak throughput;
+	// lower it when embedding many providers per process.
 	InstancePoolSize int
 	// DisableApplyDedup turns off apply-event deduplication, so every apply
 	// is logged even when an identical assignment was just logged. Dedup is
