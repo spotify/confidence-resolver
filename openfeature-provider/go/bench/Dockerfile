@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine3.22 AS build
+FROM golang:1.26-alpine3.22 AS build
 WORKDIR /src
 
 # Prepare module files in correct relative locations to satisfy the replace directive
@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 \
     go build -C ./openfeature-provider/go/bench -o /out/bench .
 
-FROM alpine:3.22
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates
 COPY --from=build /out/bench /bench
 ENTRYPOINT ["/bench"]
