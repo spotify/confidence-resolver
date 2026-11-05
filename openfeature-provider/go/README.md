@@ -711,6 +711,11 @@ CDN. What changes for you:
 - Flag logs are delivered to the Confidence ingestion API using the
   compiler-signed log token that ships inside the module wrapper, instead of
   the previous per-account log destinations.
+- A value path that does not exist inside a found flag now evaluates as
+  TYPE_MISMATCH: path walking belongs to the module, whose evaluation
+  semantics are shared by every provider on this architecture. The
+  state-based provider returned FLAG_NOT_FOUND for that case; unknown
+  flags still return FLAG_NOT_FOUND.
 - The provider is pure Go (wazero, no cgo) and cross-compiles with the
   standard Go toolchain. On platforms without a memory-reservation
   primitive, module memory is capped at 64 MiB instead of the declared

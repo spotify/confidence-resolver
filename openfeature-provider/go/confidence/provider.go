@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -197,12 +198,18 @@ func (p *LocalResolverProvider) resolveFlags(request *resolver.ResolveFlagsReque
 	}
 
 	// One suspend at most: the module asks for materializations only the
-	// host's storage can provide. With no store configured, resume with an
-	// empty set: the flags then resolve with a per-flag
-	// MATERIALIZATION_NOT_SUPPORTED reason.
+	// host's storage can provide. With no store configured, a resolve that
+	// needs materializations fails with the documented actionable error
+	// instead of resuming with an empty set: which record the module would
+	// want next is the host's business, and the message tells the operator
+	// what to configure.
 	if suspended != nil {
 		materializations := &flagswasm.Materialization{}
-		if p.matStore != nil && len(suspended.ToRead()) > 0 {
+		if len(suspended.ToRead()) > 0 {
+			if p.matStore == nil {
+				host.Discard(suspended)
+				return nil, fmt.Errorf("flag '%s' requires materializations; configure a materialization store", requestFlagName(request))
+			}
 			records, readErr := p.readMaterializations(suspended.ToRead())
 			if readErr != nil {
 				host.Discard(suspended)
@@ -999,6 +1006,17 @@ func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
 			}
 		}()
 	}
+}
+
+// requestFlagName returns the bare flag name of a resolve request, for
+// error messages.
+func requestFlagName(request *resolver.ResolveFlagsRequest) string {
+	for _, f := range request.GetFlags() {
+		if name := strings.TrimPrefix(f, "flags/"); name != "" {
+			return name
+		}
+	}
+	return "unknown"
 }
 
 // parseFlagName splits the flag portion of a dotted key; the value path is

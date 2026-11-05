@@ -1,6 +1,8 @@
 package testutil
 
 import (
+	"encoding/json"
+
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/compiler"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // LoadClientModuleFixture reads a compiled client module from the
@@ -220,4 +223,15 @@ func (c *MockModuleCDN) URL() string {
 // transport (no real network traffic).
 func (c *MockModuleCDN) HTTPClient() *http.Client {
 	return c.server.Client()
+}
+
+// MustJSONToProto parses a JSON string into a protobuf Value, panicking on
+// malformed input. Test-fixture convenience for expected values.
+func MustJSONToProto(jsonString string) *structpb.Value {
+	var v structpb.Value
+	err := json.Unmarshal([]byte(jsonString), &v)
+	if err != nil {
+		panic(err)
+	}
+	return &v
 }
