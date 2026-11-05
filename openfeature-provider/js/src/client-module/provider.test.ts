@@ -9,6 +9,7 @@ import {
 } from './test-support';
 import { ConfidenceModuleProvider, DEFAULT_FLUSH_INTERVAL } from './provider';
 import { DEFAULT_MODULE_UPDATE_INTERVAL } from './module-client';
+import type { ConfidenceBundleProvider } from '../provider-contract';
 
 const CLIENT_SECRET = 'provider-test-secret';
 const ENCRYPTION_KEY = '00'.repeat(32);
@@ -125,6 +126,19 @@ describe('ConfidenceModuleProvider', () => {
       errorCode: 'PROVIDER_NOT_READY',
       errorMessage: 'Provider is not ready',
     });
+  });
+
+  it('satisfies the shared provider contract used by the React integrations', async () => {
+    const provider = track(makeProvider(routingFetch()));
+    const contract: ConfidenceBundleProvider = provider; // type-level check
+    await provider.initialize();
+    expect(contract.metadata.name).toBe('ConfidenceModuleProvider');
+  });
+
+  it('exposes the module Prometheus metrics snapshot', async () => {
+    const provider = track(makeProvider(routingFetch()));
+    await provider.initialize();
+    await expect(provider.getPrometheusMetrics()).resolves.toBe('fake-metrics');
   });
 
   it('evaluates through the module and maps reasons', async () => {

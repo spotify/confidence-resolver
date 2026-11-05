@@ -1,8 +1,9 @@
 import type FlagBundleType from '../flag-bundle';
-import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
+import type { ConfidenceBundleProvider } from '../provider-contract';
 
 export type FlagBundle = FlagBundleType;
-export type ConfidenceProvider = ConfidenceServerProviderLocal;
+/** Any provider implementing the Confidence bundle API (state-based or module-based). */
+export type ConfidenceProvider = ConfidenceBundleProvider;
 
 /**
  * Server-to-client transport payload returned from `withConfidence` and

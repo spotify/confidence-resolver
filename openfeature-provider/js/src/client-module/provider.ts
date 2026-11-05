@@ -285,7 +285,11 @@ export class ConfidenceModuleProvider implements Provider {
     await this.runtime.close();
   }
 
-  private async evaluate<T extends JsonValue>(
+  /**
+   * Evaluate one flag, logging exposure immediately. Public surface kept
+   * from the state-based provider for direct callers and the React layer.
+   */
+  async evaluate<T extends JsonValue>(
     flagKey: string,
     defaultValue: T,
     context: EvaluationContext,
@@ -394,6 +398,11 @@ export class ConfidenceModuleProvider implements Provider {
   /** Returns a Prometheus metrics snapshot from the module. */
   async getPrometheusMetrics(): Promise<string> {
     return this.runtime.metricsSnapshot(0);
+  }
+
+  /** Flush buffered flag logs now. */
+  async flush(): Promise<void> {
+    this.runtime.flushLogs();
   }
 }
 
