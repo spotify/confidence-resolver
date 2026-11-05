@@ -1,13 +1,18 @@
-import { createCipheriv, createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { ResolveReason } from '../proto/confidence/flags/resolver/v1/types';
-import { ResolveProcessResponse, ResolutionDetails } from '../proto/confidence/flags/wasm/v1/api';
-import { ResolverMetadata } from '../proto/confidence/flags/wasm/v1/metadata';
-import { ClientModule } from '../proto/confidence/flags/wasm/v1/client_module';
 import type { MaterializationStore } from '../materialization';
+import { ResolveReason } from '../proto/confidence/flags/resolver/v1/types';
 import { ModuleClient } from './module-client';
 import { ModuleRuntime, ResolveProcessError, RuntimeNotReadyError } from './module-runtime';
-import { customSection, loadFixture } from './test-support';
+import {
+  cannedDetails,
+  cannedError,
+  cannedResolvedAfterResume,
+  cannedResolvedStart,
+  cannedSuspended,
+  encryptModuleWrapper,
+  moduleArtifactBytes,
+  stageCannedResponses,
+} from './test-support';
 
 const CLIENT_SECRET = 'runtime-test-secret';
 const ENCRYPTION_KEY = '00'.repeat(32);
@@ -15,35 +20,12 @@ const MODULE_BASE = 'http://module-cdn.test';
 const INGESTION_BASE = 'http://ingestion.test';
 const LOG_BODY = 'LOGSBODYLOGSBODY';
 
-const CANNED_GUEST = loadFixture('canned-guest.wasm');
-const STAGED_START = 0xe000;
-const STAGED_RESUME = 0xe400;
-const STAGED_DETAILS = 0xe800;
-
 // --- fixtures -------------------------------------------------------------------
 
-function moduleArtifact(variant = 1): Uint8Array {
-  const digest = new Uint8Array(createHash('sha256').update(CLIENT_SECRET, 'utf8').digest());
-  const metadata = ResolverMetadata.encode({
-    schemaVersion: 1,
-    compilerVersion: '1.2.3',
-    compilerGitSha: 'deadbeef',
-    clientSecretSha256: [digest],
-  }).finish();
-  return new Uint8Array([
-    ...CANNED_GUEST,
-    ...customSection('confidence.metadata', metadata),
-    ...(variant > 1 ? customSection('variant', [variant]) : []),
-  ]);
-}
+const moduleArtifact = (variant = 1) => moduleArtifactBytes(CLIENT_SECRET, variant);
 
-function encryptedModuleResponse(moduleBytes: Uint8Array, logToken: string, etag: string): Response {
-  const wrapper = ClientModule.encode({ module: moduleBytes, logToken }).finish();
-  const nonce = Buffer.alloc(12);
-  const cipher = createCipheriv('aes-256-gcm', Buffer.from(ENCRYPTION_KEY, 'hex'), nonce);
-  const body = new Uint8Array(Buffer.concat([nonce, cipher.update(wrapper), cipher.final(), cipher.getAuthTag()]));
-  return new Response(body, { status: 200, headers: { etag } });
-}
+const encryptedModuleResponse = (moduleBytes: Uint8Array, logToken: string, etag: string) =>
+  new Response(encryptModuleWrapper(moduleBytes, logToken, ENCRYPTION_KEY), { status: 200, headers: { etag } });
 
 type RecordingFetch = typeof fetch & { requests: Array<{ url: string; init?: RequestInit }> };
 
@@ -58,84 +40,14 @@ function recordingFetch(handler: (call: number, url: string, init?: RequestInit)
   return impl;
 }
 
-const resolvedStart = ResolveProcessResponse.encode({
-  resolved: {
-    response: {
-      resolvedFlags: [
-        {
-          flag: 'flags/test-flag',
-          variant: 'control',
-          value: { fields: { enabled: true } },
-          reason: ResolveReason.RESOLVE_REASON_MATCH,
-          shouldApply: true,
-          assignmentOrigin: '',
-        },
-      ],
-      resolveToken: new Uint8Array([1, 2, 3, 4]),
-      resolveId: 'r1',
-    },
-    materializationToWrite: [],
-    clientIndex: 7,
-  },
-}).finish();
-
-const suspendedResponse = ResolveProcessResponse.encode({
-  suspended: {
-    processId: 42,
-    materializationToRead: [{ unit: 'user-1', materialization: 'm1', rule: 'r1', variant: '' }],
-  },
-}).finish();
-
-const resolvedAfterResume = ResolveProcessResponse.encode({
-  resolved: {
-    response: {
-      resolvedFlags: [
-        {
-          flag: 'flags/test-flag',
-          variant: 'sticky',
-          value: { fields: { enabled: false } },
-          reason: ResolveReason.RESOLVE_REASON_MATCH,
-          shouldApply: true,
-          assignmentOrigin: '',
-        },
-      ],
-      resolveToken: new Uint8Array([5, 6]),
-      resolveId: 'r2',
-    },
-    materializationToWrite: [{ unit: 'user-1', materialization: 'm1', rule: 'r1', variant: 'sticky-1' }],
-    clientIndex: 7,
-  },
-}).finish();
-
-const errorResponse = ResolveProcessResponse.encode({
-  error: { code: 16, message: 'invalid credential' },
-}).finish();
-
-const cannedDetails = ResolutionDetails.encode({
-  value: true,
-  variant: 'on',
-  reason: ResolveReason.RESOLVE_REASON_MATCH,
-  errorCode: 0,
-  errorMessage: '',
-  shouldApply: true,
-}).finish();
+const resolvedStart = cannedResolvedStart;
+const suspendedResponse = cannedSuspended;
+const resolvedAfterResume = cannedResolvedAfterResume;
+const errorResponse = cannedError;
 
 // --- harness --------------------------------------------------------------------
 
-function stage(memory: WebAssembly.Memory, start: Uint8Array, resume?: Uint8Array, details?: Uint8Array): void {
-  const view = new Uint8Array(memory.buffer);
-  const dataView = new DataView(memory.buffer);
-  view.set(start, STAGED_START);
-  dataView.setInt32(32, start.length, true);
-  if (resume) {
-    view.set(resume, STAGED_RESUME);
-    dataView.setInt32(36, resume.length, true);
-  }
-  if (details) {
-    view.set(details, STAGED_DETAILS);
-    dataView.setInt32(40, details.length, true);
-  }
-}
+const stage = stageCannedResponses;
 
 function discardCount(memory: WebAssembly.Memory): number {
   return Atomics.load(new Int32Array(memory.buffer), 11);
@@ -245,7 +157,7 @@ describe('ModuleRuntime refresh', () => {
     expect(runtime.isReady).toBe(true);
 
     // the new pool serves resolves
-    stage(runtime.pool!.memory, resolvedStart, undefined, cannedDetails);
+    stage(runtime.pool!.memory, resolvedStart, undefined, cannedDetails());
     const session = await runtime.resolve({
       flags: ['test-flag'],
       evaluationContext: { targeting_key: 'u1' },
@@ -260,7 +172,7 @@ describe('ModuleRuntime refresh', () => {
 describe('ModuleRuntime resolve', () => {
   it('resolves, evaluates against the borrowed envelope, and releases', async () => {
     const { runtime } = await readyRuntime();
-    stage(runtime.pool!.memory, resolvedStart, resolvedAfterResume, cannedDetails);
+    stage(runtime.pool!.memory, resolvedStart, resolvedAfterResume, cannedDetails());
 
     const session = await runtime.resolve({
       flags: ['test-flag'],
@@ -288,7 +200,7 @@ describe('ModuleRuntime resolve', () => {
   it('drives the suspend/resume protocol through the materialization store', async () => {
     const store = createRecordingStore();
     const { runtime } = await readyRuntime({ store });
-    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails);
+    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
 
     const session = await runtime.resolve({
       flags: ['test-flag'],
@@ -316,7 +228,7 @@ describe('ModuleRuntime resolve', () => {
     const store = createRecordingStore();
     store.readMaterializations.mockRejectedValueOnce(new Error('store down'));
     const { runtime } = await readyRuntime({ store });
-    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails);
+    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
 
     await expect(
       runtime.resolve({ flags: ['test-flag'], evaluationContext: { targeting_key: 'user-1' }, apply: true }),
@@ -328,7 +240,7 @@ describe('ModuleRuntime resolve', () => {
 
   it('resumes with empty materializations when no store is configured', async () => {
     const { runtime } = await readyRuntime();
-    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails);
+    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
     const session = await runtime.resolve({
       flags: ['test-flag'],
       evaluationContext: { targeting_key: 'user-1' },
@@ -425,7 +337,7 @@ describe('ModuleRuntime log delivery', () => {
 describe('ModuleRuntime close', () => {
   it('destroys the pool and stops accepting work', async () => {
     const { runtime } = await readyRuntime();
-    stage(runtime.pool!.memory, resolvedStart, undefined, cannedDetails);
+    stage(runtime.pool!.memory, resolvedStart, undefined, cannedDetails());
     await runtime.close();
 
     expect(runtime.isReady).toBe(false);

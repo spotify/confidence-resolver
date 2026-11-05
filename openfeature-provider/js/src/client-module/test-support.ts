@@ -1,5 +1,13 @@
 import { readFileSync } from 'node:fs';
 import type { GuestLogPayload, HostFunctions } from './guest-instance';
+import { createCipheriv, createHash } from 'node:crypto';
+import {
+  ResolveProcessResponse,
+  ResolutionDetails as WasmResolutionDetails,
+} from '../proto/confidence/flags/wasm/v1/api';
+import { ResolverMetadata } from '../proto/confidence/flags/wasm/v1/metadata';
+import { ClientModule } from '../proto/confidence/flags/wasm/v1/client_module';
+import { ResolveReason } from '../proto/confidence/flags/resolver/v1/types';
 
 // --- fixture loading -----------------------------------------------------------
 
@@ -149,4 +157,127 @@ export function importSection(...entries: number[][]): number[] {
 /** A module that does not import host.memory at all. */
 export function moduleWithoutHostMemory(): Uint8Array<ArrayBuffer> {
   return new Uint8Array(WASM_HEADER);
+}
+
+// --- canned-module fixtures (shared by runtime and provider tests) -------------
+
+export const CANNED_START = 0xe000;
+export const CANNED_RESUME = 0xe400;
+export const CANNED_DETAILS = 0xe800;
+
+/** A byte-level module artifact: the canned guest plus a conforming metadata section. */
+export function moduleArtifactBytes(
+  clientSecret: string,
+  variant = 1,
+  fixture = 'canned-guest.wasm',
+): Uint8Array<ArrayBuffer> {
+  const digest = new Uint8Array(createHash('sha256').update(clientSecret, 'utf8').digest());
+  const metadata = ResolverMetadata.encode({
+    schemaVersion: 1,
+    compilerVersion: '1.2.3',
+    compilerGitSha: 'deadbeef',
+    clientSecretSha256: [digest],
+  }).finish();
+  return new Uint8Array([
+    ...loadFixture(fixture),
+    ...customSection('confidence.metadata', metadata),
+    ...(variant > 1 ? customSection('variant', [variant]) : []),
+  ]);
+}
+
+/** Encrypt a ClientModule wrapper in the wire format: nonce || ciphertext || tag. */
+export function encryptModuleWrapper(
+  moduleBytes: Uint8Array,
+  logToken: string,
+  encryptionKey = '00'.repeat(32),
+): Uint8Array<ArrayBuffer> {
+  const wrapper = ClientModule.encode({ module: moduleBytes, logToken }).finish();
+  const nonce = Buffer.alloc(12);
+  const cipher = createCipheriv('aes-256-gcm', Buffer.from(encryptionKey, 'hex'), nonce);
+  return new Uint8Array(Buffer.concat([nonce, cipher.update(wrapper), cipher.final(), cipher.getAuthTag()]));
+}
+
+export const cannedResolvedStart = ResolveProcessResponse.encode({
+  resolved: {
+    response: {
+      resolvedFlags: [
+        {
+          flag: 'flags/test-flag',
+          variant: 'control',
+          value: { fields: { enabled: true } },
+          reason: ResolveReason.RESOLVE_REASON_MATCH,
+          shouldApply: true,
+          assignmentOrigin: '',
+        },
+      ],
+      resolveToken: new Uint8Array([1, 2, 3, 4]),
+      resolveId: 'r1',
+    },
+    materializationToWrite: [],
+    clientIndex: 7,
+  },
+}).finish();
+
+export const cannedSuspended = ResolveProcessResponse.encode({
+  suspended: {
+    processId: 42,
+    materializationToRead: [{ unit: 'user-1', materialization: 'm1', rule: 'r1', variant: '' }],
+  },
+}).finish();
+
+export const cannedResolvedAfterResume = ResolveProcessResponse.encode({
+  resolved: {
+    response: {
+      resolvedFlags: [
+        {
+          flag: 'flags/test-flag',
+          variant: 'sticky',
+          value: { fields: { enabled: false } },
+          reason: ResolveReason.RESOLVE_REASON_MATCH,
+          shouldApply: true,
+          assignmentOrigin: '',
+        },
+      ],
+      resolveToken: new Uint8Array([5, 6]),
+      resolveId: 'r2',
+    },
+    materializationToWrite: [{ unit: 'user-1', materialization: 'm1', rule: 'r1', variant: 'sticky-1' }],
+    clientIndex: 7,
+  },
+}).finish();
+
+export const cannedError = ResolveProcessResponse.encode({
+  error: { code: 16, message: 'invalid credential' },
+}).finish();
+
+export const cannedDetails = (overrides?: Partial<WasmResolutionDetails>): Uint8Array =>
+  WasmResolutionDetails.encode({
+    value: true,
+    variant: 'on',
+    reason: ResolveReason.RESOLVE_REASON_MATCH,
+    errorCode: 0,
+    errorMessage: '',
+    shouldApply: true,
+    ...overrides,
+  }).finish();
+
+/** Stage canned responses into the canned guest's fixed shared-memory slots. */
+export function stageCannedResponses(
+  memory: WebAssembly.Memory,
+  start: Uint8Array,
+  resume?: Uint8Array,
+  details?: Uint8Array,
+): void {
+  const view = new Uint8Array(memory.buffer);
+  const dataView = new DataView(memory.buffer);
+  view.set(start, CANNED_START);
+  dataView.setInt32(32, start.length, true);
+  if (resume) {
+    view.set(resume, CANNED_RESUME);
+    dataView.setInt32(36, resume.length, true);
+  }
+  if (details) {
+    view.set(details, CANNED_DETAILS);
+    dataView.setInt32(40, details.length, true);
+  }
 }

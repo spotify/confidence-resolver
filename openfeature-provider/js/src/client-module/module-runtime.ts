@@ -137,6 +137,7 @@ class BoundedSeenSet {
 class LogQueue {
   private token = '';
   private closed = false;
+  private inFlight = 0;
   readonly stats = { sent: 0, dropped: 0, retries: 0 };
 
   constructor(
@@ -162,11 +163,28 @@ class LogQueue {
     void this.deliver(body, this.token, 0);
   }
 
+  /** Wait until no batch is mid-delivery (bounded); used by shutdown drains. */
+  async settle(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.inFlight > 0 && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+  }
+
   close(): void {
     this.closed = true;
   }
 
   private async deliver(body: Uint8Array<ArrayBuffer>, token: string, attempt: number): Promise<void> {
+    this.inFlight++;
+    try {
+      await this.deliverAttempt(body, token, attempt);
+    } finally {
+      this.inFlight--;
+    }
+  }
+
+  private async deliverAttempt(body: Uint8Array<ArrayBuffer>, token: string, attempt: number): Promise<void> {
     if (this.closed) {
       this.stats.dropped++;
       return;
@@ -397,6 +415,12 @@ export class ModuleRuntime {
   /** Flush buffered logs now, on an idle instance. Skips when every instance is busy. */
   flushLogs(): void {
     this.poolField?.tryFlushLogsIdle();
+  }
+
+  /** Flush now and wait (bounded) for in-flight deliveries to finish; for shutdown drains. */
+  async drainLogs(timeoutMs = 5000): Promise<void> {
+    this.flushLogs();
+    await this.logQueue.settle(timeoutMs);
   }
 
   /** Module-wide metrics snapshot in text form (Prometheus or OpenMetrics). */
