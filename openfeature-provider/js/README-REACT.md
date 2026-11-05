@@ -485,7 +485,7 @@ The client only ever sees the sealed value; the apply API route opens it server-
 
 ## Troubleshooting
 
-### "ConfidenceProvider requires a ConfidenceServerProviderLocal"
+### "ConfidenceProvider requires a Confidence provider"
 
 Make sure you've initialized the OpenFeature provider before rendering:
 
