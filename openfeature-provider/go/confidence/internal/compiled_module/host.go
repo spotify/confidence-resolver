@@ -19,12 +19,13 @@ import (
 )
 
 // LogSink receives the concatenated bytes of one WriteFlagLogsRequest
-// produced by the module. It is called from inside a WASM call, so it must
-// not block, must not re-enter the module, and must not panic; failures are
-// the sink's business and must never surface into a resolve. The token to
-// attach at delivery time is captured by the caller of NewHost (it is not
-// part of the module).
-type LogSink func(body []byte)
+// produced by the module, together with the log token the module echoes
+// from its compile-time configuration (empty when the module was compiled
+// without one — the host then falls back to the wrapper token at delivery
+// time). It is called from inside a WASM call, so it must not block, must
+// not re-enter the module, and must not panic; failures are the sink's
+// business and must never surface into a resolve.
+type LogSink func(body []byte, logToken string)
 
 // Host is one live compiled client module: a wazero runtime, the module, the
 // one shared memory the module's flag data lives in, and a pool of thin
@@ -466,7 +467,7 @@ func (h *Host) deliverLogs(caller api.Module, payload uint64, logger *slog.Logge
 	if len(body) == 0 {
 		return
 	}
-	h.logSink(body)
+	h.logSink(body, envelope.GetLogToken())
 }
 
 // ack acknowledges a delivered payload on the instance that produced it.

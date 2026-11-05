@@ -84,4 +84,8 @@ enum ErrorCode {
 
 message WriteLogsPayload {
   repeated fixed64 parts = 1;
+  // Compile-time value echoed verbatim from the module; empty when unset.
+  // The host forwards it with the batch when present, so log delivery can
+  // route to the destination the module was compiled for.
+  string log_token = 2;
 }

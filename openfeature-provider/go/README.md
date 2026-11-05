@@ -43,7 +43,9 @@ and published as a small encrypted artifact per credential.
   repository applies identical evaluation semantics.
 - The module pushes log batches (exposure/assignment events and resolve
   analytics) to the provider, which forwards them unchanged to the
-  Confidence ingestion API with the wrapper's log token. Delivery is
+  Confidence ingestion API. The token sent with each batch is the one the
+  module echoes from its compile-time configuration; modules compiled
+  without one fall back to the wrapper's log token. Delivery is
   strictly best-effort: it never blocks or fails an evaluation.
 
 No account identifier is configured: it is not present in the artifact path,

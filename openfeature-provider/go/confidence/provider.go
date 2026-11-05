@@ -827,8 +827,14 @@ type moduleFetcher interface {
 // moduleLogSink is the write_logs callback target: the token is captured with
 // the batch at delivery time and the batch is handed to the forwarder, which
 // never blocks the callback.
-func (p *LocalResolverProvider) moduleLogSink(body []byte) {
+func (p *LocalResolverProvider) moduleLogSink(body []byte, moduleToken string) {
+	// The module echoes its compile-time token with each batch; the
+	// wrapper's token covers modules compiled without one, and wrapper
+	// refreshes keep it current for both.
 	token, _ := p.logToken.Load().(string)
+	if moduleToken != "" {
+		token = moduleToken
+	}
 	p.forwarder.Enqueue(body, token)
 }
 

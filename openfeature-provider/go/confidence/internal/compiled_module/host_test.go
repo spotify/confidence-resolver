@@ -1,6 +1,8 @@
 package compiled_module
 
 import (
+	"log/slog"
+
 	"errors"
 	"strings"
 	"sync"
@@ -13,16 +15,19 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// logCollector captures log bodies handed to a host's LogSink.
+// logCollector captures log bodies and per-batch tokens handed to a host's
+// LogSink.
 type logCollector struct {
 	mu     sync.Mutex
 	bodies [][]byte
+	tokens []string
 }
 
-func (c *logCollector) sink(body []byte) {
+func (c *logCollector) sink(body []byte, logToken string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.bodies = append(c.bodies, append([]byte(nil), body...))
+	c.tokens = append(c.tokens, logToken)
 }
 
 func (c *logCollector) all() [][]byte {
@@ -331,5 +336,50 @@ func TestHostConcurrentEntryServesEachCallOnItsOwnInstance(t *testing.T) {
 	host.mu.Unlock()
 	if live < 2 || live > 4 {
 		t.Fatalf("instance pool live = %d, want between 2 and 4", live)
+	}
+}
+
+// TestDeliverLogsCarriesModuleLogToken: the write_logs payload may echo a
+// compile-time log token alongside the parts; the sink must receive both,
+// with an empty token when the module was compiled without one.
+func TestDeliverLogsCarriesModuleLogToken(t *testing.T) {
+	host, collector := newTutorialHost(t)
+
+	inst, err := host.acquire()
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer host.release(inst)
+
+	for _, tc := range []struct {
+		name  string
+		token string
+	}{
+		{name: "with-token", token: "compile-time-token"},
+		{name: "without-token", token: ""},
+	} {
+		partSlice, err := host.writeSlice(inst, []byte("hello-"+tc.name))
+		if err != nil {
+			t.Fatalf("%s: part: %v", tc.name, err)
+		}
+		payload, err := host.writeSlice(inst, mustMarshal(&flagswasm.WriteLogsPayload{
+			Parts:    []uint64{partSlice},
+			LogToken: tc.token,
+		}))
+		if err != nil {
+			t.Fatalf("%s: payload: %v", tc.name, err)
+		}
+
+		before := len(collector.bodies)
+		host.deliverLogs(inst.mod, payload, slog.Default())
+		if got := len(collector.bodies) - before; got != 1 {
+			t.Fatalf("%s: sink called %d times, want 1", tc.name, got)
+		}
+		if got := collector.bodies[before]; string(got) != "hello-"+tc.name {
+			t.Errorf("%s: body = %q", tc.name, got)
+		}
+		if got := collector.tokens[before]; got != tc.token {
+			t.Errorf("%s: token = %q, want %q", tc.name, got, tc.token)
+		}
 	}
 }

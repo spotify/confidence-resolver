@@ -478,8 +478,12 @@ func (x *ResolutionDetails) GetShouldApply() bool {
 }
 
 type WriteLogsPayload struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Parts         []uint64               `protobuf:"fixed64,1,rep,packed,name=parts,proto3" json:"parts,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Parts []uint64               `protobuf:"fixed64,1,rep,packed,name=parts,proto3" json:"parts,omitempty"`
+	// Compile-time value echoed verbatim from the module; empty when unset.
+	// The host forwards it with the batch when present, so log delivery can
+	// route to the destination the module was compiled for.
+	LogToken      string `protobuf:"bytes,2,opt,name=log_token,json=logToken,proto3" json:"log_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -519,6 +523,13 @@ func (x *WriteLogsPayload) GetParts() []uint64 {
 		return x.Parts
 	}
 	return nil
+}
+
+func (x *WriteLogsPayload) GetLogToken() string {
+	if x != nil {
+		return x.LogToken
+	}
+	return ""
 }
 
 type ResolveProcessResponse_Resolved struct {
@@ -691,9 +702,10 @@ const file_confidence_flags_wasm_v1_api_proto_rawDesc = "" +
 	"\n" +
 	"error_code\x18\x04 \x01(\x0e2#.confidence.flags.wasm.v1.ErrorCodeR\terrorCode\x12#\n" +
 	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x12!\n" +
-	"\fshould_apply\x18\x06 \x01(\bR\vshouldApply\"(\n" +
+	"\fshould_apply\x18\x06 \x01(\bR\vshouldApply\"E\n" +
 	"\x10WriteLogsPayload\x12\x14\n" +
-	"\x05parts\x18\x01 \x03(\x06R\x05parts*\xdd\x01\n" +
+	"\x05parts\x18\x01 \x03(\x06R\x05parts\x12\x1b\n" +
+	"\tlog_token\x18\x02 \x01(\tR\blogToken*\xdd\x01\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dERROR_CODE_PROVIDER_NOT_READY\x10\x01\x12\x1d\n" +
