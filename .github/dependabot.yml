@@ -4,11 +4,9 @@ updates:
   # Keep actions pinned to full SHAs; Dependabot also updates the version comments.
   - package-ecosystem: "github-actions"
     directory: "/"
+    open-pull-requests-limit: 3
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-      timezone: "Europe/Stockholm"
+      interval: "monthly"
     groups:
       github-actions:
         patterns: ["*"]
@@ -19,23 +17,28 @@ updates:
       - "/mock-support-server"
       - "/openfeature-provider/go/bench"
       - "/openfeature-provider/js/bench"
+    open-pull-requests-limit: 3
     schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "06:00"
-      timezone: "Europe/Stockholm"
+      interval: "monthly"
     groups:
       docker-images:
         patterns: ["*"]
 
   - package-ecosystem: "cargo"
     directory: "/"
+    open-pull-requests-limit: 3
     schedule:
       interval: "monthly"
     groups:
       cargo-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      cargo-major:
+        patterns: ["*"]
+        update-types: ["major"]
+      cargo-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: "gomod"
     directories:
@@ -43,47 +46,82 @@ updates:
       - "/openfeature-provider/go"
       - "/openfeature-provider/go/bench"
       - "/openfeature-provider/go/demo"
+    open-pull-requests-limit: 3
     schedule:
       interval: "monthly"
     groups:
       go-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      go-major:
+        patterns: ["*"]
+        update-types: ["major"]
+      go-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: "maven"
     directory: "/openfeature-provider/java"
+    open-pull-requests-limit: 3
     schedule:
       interval: "monthly"
     groups:
       maven-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      maven-major:
+        patterns: ["*"]
+        update-types: ["major"]
+      maven-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: "npm"
     directories:
       - "/openfeature-provider/js"
       - "/openfeature-provider/js/bench"
+    open-pull-requests-limit: 3
     schedule:
       interval: "monthly"
     groups:
       npm-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      npm-major:
+        patterns: ["*"]
+        update-types: ["major"]
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: "pip"
     directory: "/openfeature-provider/python"
+    open-pull-requests-limit: 3
     schedule:
       interval: "monthly"
     groups:
       pip-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      pip-major:
+        patterns: ["*"]
+        update-types: ["major"]
+      pip-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: "bundler"
     directory: "/openfeature-provider/ruby"
+    open-pull-requests-limit: 3
     schedule:
       interval: "monthly"
     groups:
       bundler-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      bundler-major:
+        patterns: ["*"]
+        update-types: ["major"]
+      bundler-security:
+        applies-to: security-updates
+        patterns: ["*"]
