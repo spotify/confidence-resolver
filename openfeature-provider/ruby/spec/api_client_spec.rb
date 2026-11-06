@@ -83,4 +83,72 @@ RSpec.describe Confidence::OpenFeature::APIClient do
     expect(results.length).to eq(8)
     results.each { |requested, returned| expect(returned).to eq(requested) }
   end
+
+  describe "HTTP timeouts" do
+    it "configures open_timeout, read_timeout, and write_timeout on built agents" do
+      client = described_class.new(
+        client_secret: "secret",
+        open_timeout: 1.5,
+        read_timeout: 2.5,
+        write_timeout: 3.5
+      )
+
+      agents = capture_agents { |req| ok_response(JSON.parse(req.body)["flags"].first) }
+
+      client.resolve(flags: ["flags/one"])
+
+      expect(agents.length).to eq(1)
+      expect(agents.first.open_timeout).to eq(1.5)
+      expect(agents.first.read_timeout).to eq(2.5)
+      expect(agents.first.write_timeout).to eq(3.5) if agents.first.respond_to?(:write_timeout)
+    end
+
+    it "leaves timeouts at Net::HTTP defaults when omitted" do
+      client = described_class.new(client_secret: "secret")
+
+      agents = capture_agents { |req| ok_response(JSON.parse(req.body)["flags"].first) }
+
+      client.resolve(flags: ["flags/one"])
+
+      expect(agents.length).to eq(1)
+      expect(client.open_timeout).to be_nil
+      expect(client.read_timeout).to be_nil
+      expect(client.write_timeout).to be_nil
+    end
+
+    it "rejects non-numeric timeout values with ArgumentError" do
+      expect {
+        described_class.new(client_secret: "secret", open_timeout: "fast")
+      }.to raise_error(ArgumentError, /open_timeout must be a positive number/)
+    end
+
+    it "rejects negative or zero timeout values with ArgumentError" do
+      expect {
+        described_class.new(client_secret: "secret", read_timeout: -1)
+      }.to raise_error(ArgumentError, /read_timeout must be a positive number/)
+
+      expect {
+        described_class.new(client_secret: "secret", write_timeout: 0)
+      }.to raise_error(ArgumentError, /write_timeout must be a positive number/)
+    end
+
+    it "wraps Net::OpenTimeout as APIError" do
+      client = described_class.new(client_secret: "secret")
+      capture_agents { |_req| raise Net::OpenTimeout.new("execution expired") }
+
+      expect {
+        client.resolve(flags: ["flags/one"])
+      }.to raise_error(Confidence::OpenFeature::APIError, /flags:resolve timed out: execution expired/)
+    end
+
+    it "wraps Net::ReadTimeout as APIError" do
+      client = described_class.new(client_secret: "secret")
+      capture_agents { |_req| raise Net::ReadTimeout.new("read timed out") }
+
+      expect {
+        client.resolve(flags: ["flags/one"])
+      }.to raise_error(Confidence::OpenFeature::APIError, /flags:resolve timed out: read timed out/)
+    end
+  end
+
 end
