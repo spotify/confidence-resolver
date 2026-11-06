@@ -1,169 +1,85 @@
 package confidence
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
-	et "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/event_tracking"
-	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/eventswasm"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/flagswasm"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	cm "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/compiled_module"
 )
 
 const (
-	defaultStatePollIntervalSeconds = 10
-	defaultLogPollIntervalSeconds   = 15
-	defaultInitializationTimeout    = 30 * time.Second
-	initialStateRetryInterval       = time.Second
+	defaultModulePollIntervalSeconds = 30
+	defaultLogFlushInterval          = 5 * time.Second
+	defaultInitializationTimeout     = 30 * time.Second
+	initialModuleRetryInterval       = time.Second
 )
 
-type LocalResolverSupplier func(context.Context, lr.LogSink) lr.LocalResolver
-
-// Option is a functional option for configuring LocalResolverProvider
-type Option func(*providerOptions)
-
-type providerOptions struct {
-	statePollInterval     time.Duration
-	logPollInterval       time.Duration
-	eventWasmBytes        []byte
-	eventsClient          events.EventsServiceClient
-	useWasmInterpreter    bool
-	initializationTimeout time.Duration
-	initialRetryInterval  time.Duration
-	// disableApplyDedup is stored inverted so the zero value means "dedup on",
-	// which is the default. WithEnableApplyDedup clears it, WithDisableApplyDedup
-	// sets it.
-	disableApplyDedup         bool
-	disableExposureCollection bool
-}
-
-// WithStatePollInterval sets the interval for polling state updates
-func WithStatePollInterval(d time.Duration) Option {
-	return func(o *providerOptions) {
-		o.statePollInterval = d
-	}
-}
-
-// WithLogPollInterval sets the interval for polling/flushing logs
-func WithLogPollInterval(d time.Duration) Option {
-	return func(o *providerOptions) {
-		o.logPollInterval = d
-	}
-}
-
-// WithInitializationTimeout sets the total time allowed for initial state loading.
-// The provider continues retrying in the background if this timeout expires.
-func WithInitializationTimeout(d time.Duration) Option {
-	return func(o *providerOptions) {
-		o.initializationTimeout = d
-	}
-}
-
-func withInitialStateRetryInterval(d time.Duration) Option {
-	return func(o *providerOptions) {
-		o.initialRetryInterval = d
-	}
-}
-
-// WithEventTracking enables event tracking by providing the event engine WASM
-// binary. The WASM module must export wasm_msg_guest_track_event and
-// wasm_msg_guest_bounded_flush_events. Events are flushed on the same interval
-// as log flushing and published to the Confidence events service over gRPC.
-func WithEventTracking(eventWasmBytes []byte) Option {
-	return func(o *providerOptions) {
-		o.eventWasmBytes = eventWasmBytes
-	}
-}
-
-// WithEventsServiceClient sets the gRPC client used to publish events. If not
-// set, a TLS channel to the Confidence events service is created when event
-// tracking is enabled. Intended for testing and advanced transport setups.
-func WithEventsServiceClient(client events.EventsServiceClient) Option {
-	return func(o *providerOptions) {
-		o.eventsClient = client
-	}
-}
-
-// WithUseWasmInterpreter configures the event engine to use wazero's
-// interpreter mode instead of JIT compilation.
-func WithUseWasmInterpreter(use bool) Option {
-	return func(o *providerOptions) {
-		o.useWasmInterpreter = use
-	}
-}
-
-// WithEnableApplyDedup enables apply-event deduplication in the WASM resolver:
-// repeated identical assignments within a short TTL window are logged once.
-//
-// Dedup is on by default, so this is only needed to undo an earlier
-// WithDisableApplyDedup in the same option list. It is retained because it is
-// part of the published API.
-func WithEnableApplyDedup() Option {
-	return func(o *providerOptions) {
-		o.disableApplyDedup = false
-	}
-}
-
-// WithDisableApplyDedup turns off apply-event deduplication, so every apply is
-// logged even when an identical assignment was just logged. Dedup is on by
-// default; use this only if you need the unfiltered apply stream.
-func WithDisableApplyDedup() Option {
-	return func(o *providerOptions) {
-		o.disableApplyDedup = true
-	}
-}
-
-// WithDisableExposureCollection disables exposure/assignment collection for all OpenFeature
-// evaluations through this provider. Use only for exceptional no-exposure
-// modes; resolve logs and telemetry are still sent.
-func WithDisableExposureCollection() Option {
-	return func(o *providerOptions) {
-		o.disableExposureCollection = true
-	}
-}
-
-// eventTracking is the subset of the WASM event tracker used by the provider.
-// Declared as an interface so the publish/drain path can be exercised without a
-// live WASM instance; the only production implementation is *et.EventTracker.
-type eventTracking interface {
-	TrackEvent(request *eventswasm.TrackEventRequest) error
-	FlushEvents() (*eventswasm.FlushEventsResponse, error)
-	Close() error
-}
-
 // LocalResolverProvider implements the OpenFeature FeatureProvider interface
-// for local flag resolution using the Confidence WASM resolver
+// by hosting the credential's compiled client module: a WASM module that
+// already contains the credential's flag rules, fetched as an encrypted
+// artifact from the module CDN and executed locally. There is no state to
+// load into a resolver at runtime; loading a module is loading its flags.
 type LocalResolverProvider struct {
-	resolverSupplier      LocalResolverSupplier
-	resolver              lr.LocalResolver
-	stateProvider         StateProvider
-	flagLogger            FlagLogger
-	clientSecret          string
-	logger                *slog.Logger
-	cancelFunc            context.CancelFunc
-	wg                    sync.WaitGroup
-	mu                    sync.Mutex
-	statePollInterval     time.Duration
-	logPollInterval       time.Duration
-	initializationTimeout time.Duration
-	initialRetryInterval  time.Duration
+	clientSecret string
+	logger       *slog.Logger
+
+	fetcher   moduleFetcher
+	forwarder logForwarder
+
+	// hostMu guards the live host swap. Evaluation paths hold the read side
+	// for the whole operation (resolve through evaluate), so a replaced host
+	// is only destroyed after every in-flight call has drained.
+	hostMu sync.RWMutex
+	host   *cm.Host
+	// moduleBytes is the module the live host was built from; a fetch that
+	// returns the same bytes with a new log token is a wrapper-only change.
+	moduleBytes []byte
+
+	// logToken is the current wrapper's ingestion token, read by the
+	// write_logs callback to capture the token with each batch.
+	logToken atomic.Value // string
+
+	matStore MaterializationStore
+
+	applyFilter  *cm.SeenFilter
+	schemaFilter *cm.SeenFilter
+	// seedFn overrides the per-instance random seed (tests pin it for
+	// deterministic bucketing).
+	seedFn func() int64
+	// useInterpreter runs the module host on wazero's interpreter engine.
+	useInterpreter bool
+	// instancePoolSize bounds the module instance pool (0 = min(GOMAXPROCS, 4)).
+	instancePoolSize int
+
+	clientSDK *resolvertypes.Sdk
+
+	stateMu                   sync.Mutex
+	cancelFunc                context.CancelFunc
+	wg                        sync.WaitGroup
+	modulePollInterval        time.Duration
+	logFlushInterval          time.Duration
+	initializationTimeout     time.Duration
+	initialRetryInterval      time.Duration
+	ready                     atomic.Bool
+	lifecycleEvents           chan openfeature.Event
+	disableExposureCollection bool
 
 	// Event tracking (optional — nil when no event WASM is provided)
 	eventTracker eventTracking
@@ -174,12 +90,6 @@ type LocalResolverProvider struct {
 	// per eventPublishLogWindow attempts instead of logging every failed RPC.
 	eventPublishAttempts atomic.Int64
 	eventPublishFailures atomic.Int64
-	ready                atomic.Bool
-	lifecycleEvents      chan openfeature.Event
-
-	// Feature options forwarded to SetResolverState
-	enableApplyDedup          bool
-	disableExposureCollection bool
 }
 
 // Compile-time interface conformance checks
@@ -190,87 +100,13 @@ var (
 	_ openfeature.Tracker         = (*LocalResolverProvider)(nil)
 )
 
-// newLocalResolverProvider creates a new LocalResolverProvider
-func newLocalResolverProvider(
-	resolverSupplier LocalResolverSupplier,
-	stateProvider StateProvider,
-	flagLogger FlagLogger,
-	clientSecret string,
-	logger *slog.Logger,
-	opts ...Option,
-) *LocalResolverProvider {
-	// Create a default logger if none provided
-	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
-	}
-
-	// Apply options
-	options := &providerOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	// Use defaults if not provided
-	statePollInterval := options.statePollInterval
-	if statePollInterval <= 0 {
-		statePollInterval = getStatePollInterval(logger)
-	}
-	logPollInterval := options.logPollInterval
-	if logPollInterval <= 0 {
-		logPollInterval = getLogPollInterval(logger)
-	}
-	initializationTimeout := options.initializationTimeout
-	if initializationTimeout <= 0 {
-		initializationTimeout = defaultInitializationTimeout
-	}
-	initialRetryInterval := options.initialRetryInterval
-	if initialRetryInterval <= 0 {
-		initialRetryInterval = initialStateRetryInterval
-	}
-
-	provider := &LocalResolverProvider{
-		resolverSupplier:          resolverSupplier,
-		stateProvider:             stateProvider,
-		flagLogger:                flagLogger,
-		clientSecret:              clientSecret,
-		logger:                    logger,
-		statePollInterval:         statePollInterval,
-		logPollInterval:           logPollInterval,
-		initializationTimeout:     initializationTimeout,
-		initialRetryInterval:      initialRetryInterval,
-		lifecycleEvents:           make(chan openfeature.Event, 2),
-		enableApplyDedup:          !options.disableApplyDedup,
-		disableExposureCollection: options.disableExposureCollection,
-	}
-
-	// Initialize the event tracker if event WASM bytes were provided
-	if len(options.eventWasmBytes) > 0 {
-		eventTracker, err := et.NewEventTracker(options.eventWasmBytes, options.useWasmInterpreter)
-		if err != nil {
-			logger.Error("Failed to initialize event tracker, event tracking disabled", "error", err)
-		} else {
-			provider.eventTracker = eventTracker
-			provider.eventsClient = options.eventsClient
-			if provider.eventsClient == nil {
-				conn, err := grpc.NewClient(
-					eventsGrpcTarget,
-					grpc.WithTransportCredentials(credentials.NewTLS(nil)),
-					grpc.WithDefaultServiceConfig(eventsRetryServiceConfig),
-				)
-				if err != nil {
-					logger.Error("Failed to create events service channel, event publishing disabled", "error", err)
-				} else {
-					provider.eventsConn = conn
-					provider.eventsClient = events.NewEventsServiceClient(conn)
-				}
-			}
-			logger.Info("Event tracking enabled")
-		}
-	}
-
-	return provider
+// eventTracking is the subset of the WASM event tracker used by the provider.
+// Declared as an interface so the publish/drain path can be exercised without a
+// live WASM instance; the only production implementation is *et.EventTracker.
+type eventTracking interface {
+	TrackEvent(request *eventswasm.TrackEventRequest) error
+	FlushEvents() (*eventswasm.FlushEventsResponse, error)
+	Close() error
 }
 
 // Metadata returns the provider metadata
@@ -329,54 +165,160 @@ func (p *LocalResolverProvider) ObjectEvaluation(
 	return evaluate(p, ctx, flag, defaultValue, evalCtx)
 }
 
-// resolveFlags is the shared resolve implementation used by both the OpenFeature
-// evaluate methods and the direct Resolve API. It converts the evaluation context,
-// builds the protobuf request, calls the WASM resolver, and extracts the response.
-func (p *LocalResolverProvider) resolveFlags(
-	evalCtx openfeature.FlattenedContext,
-	flagNames []string,
-	apply bool,
-) (*resolver.ResolveFlagsResponse, error) {
-	processedCtx := processTargetingKey(evalCtx)
-
-	protoCtx, err := flattenedContextToProto(processedCtx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert context: %w", err)
-	}
-
-	request := &resolver.ResolveFlagsRequest{
-		Flags:             flagNames,
-		Apply:             apply,
-		ClientSecret:      p.clientSecret,
-		EvaluationContext: protoCtx,
-		Sdk: &resolvertypes.Sdk{
-			Sdk: &resolvertypes.Sdk_Id{
-				Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER,
-			},
-			Version: Version,
-		},
-	}
-
-	processRequest := &wasm.ResolveProcessRequest{
-		Resolve: &wasm.ResolveProcessRequest_WithoutMaterializations{
-			WithoutMaterializations: request,
-		},
-	}
-
-	processResponse, err := p.resolver.ResolveProcess(processRequest)
-	if err != nil {
-		return nil, fmt.Errorf("resolve failed: %w", err)
-	}
-
-	switch result := processResponse.Result.(type) {
-	case *wasm.ResolveProcessResponse_Resolved_:
-		return result.Resolved.Response, nil
-	case *wasm.ResolveProcessResponse_Suspended_:
-		return nil, fmt.Errorf("unexpected suspended response")
-	default:
-		return nil, fmt.Errorf("unexpected resolve result type")
-	}
+// resolveOutcome is the result of driving one resolve through the module,
+// including any suspend/resume round-trips the materialization store needed.
+type resolveOutcome struct {
+	host     *cm.Host
+	envelope *cm.Envelope
+	response *resolver.ResolveFlagsResponse
+	// latency is measured from the start of the resolve through the final
+	// resume and reported to the module's latency metrics.
+	latency     time.Duration
+	clientIndex int32
 }
+
+// resolveFlags drives a ResolveFlagsRequest through the live module,
+// resuming suspensions from the materialization store when one is
+// configured. It holds the host read lock for the whole flow so a module
+// replacement cannot destroy the host under an in-flight call.
+//
+// Callers must hold p.hostMu.RLock until they are done with the outcome
+// (envelope and host), so a replaced host is never closed under them.
+func (p *LocalResolverProvider) resolveFlags(request *resolver.ResolveFlagsRequest) (*resolveOutcome, error) {
+	start := time.Now()
+
+	host := p.host
+	if host == nil {
+		return nil, errNoModule
+	}
+
+	result, suspended, err := host.StartResolve(request)
+	if err != nil {
+		return nil, err
+	}
+
+	// One suspend at most: the module asks for materializations only the
+	// host's storage can provide. With no store configured, a resolve that
+	// needs materializations fails with the documented actionable error
+	// instead of resuming with an empty set: which record the module would
+	// want next is the host's business, and the message tells the operator
+	// what to configure.
+	if suspended != nil {
+		materializations := &flagswasm.Materialization{}
+		if len(suspended.ToRead()) > 0 {
+			if p.matStore == nil {
+				host.Discard(suspended)
+				return nil, fmt.Errorf("flag '%s' requires materializations; configure a materialization store", requestFlagName(request))
+			}
+			records, readErr := p.readMaterializations(suspended.ToRead())
+			if readErr != nil {
+				host.Discard(suspended)
+				return nil, fmt.Errorf("failed to read materializations: %w", readErr)
+			}
+			materializations.Records = records
+		}
+		result, err = host.ResumeResolve(suspended, materializations)
+		if err != nil {
+			return nil, err
+		}
+		if result == nil {
+			return nil, errors.New("no result after resume")
+		}
+	}
+
+	// Persist materializations the module produced; a slow or failing store
+	// must never fail the resolve.
+	if len(result.MaterializationToWrite) > 0 {
+		p.storeMaterializations(result.MaterializationToWrite)
+	}
+
+	return &resolveOutcome{
+		host:        host,
+		envelope:    result.Envelope,
+		response:    result.Response,
+		latency:     time.Since(start),
+		clientIndex: result.ClientIndex,
+	}, nil
+}
+
+// readMaterializations looks up the requested records in the store.
+func (p *LocalResolverProvider) readMaterializations(toRead []*flagswasm.Materialization_Record) ([]*flagswasm.Materialization_Record, error) {
+	readOps := materializationRecordsToReadOps(toRead)
+	results, err := p.matStore.Read(context.Background(), readOps)
+	if err != nil {
+		var unsupported *MaterializationNotSupportedError
+		if errors.As(err, &unsupported) {
+			// Absent records count as absent: resolve without them.
+			return nil, nil
+		}
+		return nil, err
+	}
+	return readResultsToMaterializationRecords(results), nil
+}
+
+// storeMaterializations hands the write batch to the store asynchronously.
+func (p *LocalResolverProvider) storeMaterializations(records []*flagswasm.Materialization_Record) {
+	writeOps := make([]WriteOp, len(records))
+	for i, record := range records {
+		writeOps[i] = newWriteOpVariant(
+			record.GetMaterialization(),
+			record.GetUnit(),
+			record.GetRule(),
+			record.GetVariant(),
+		)
+	}
+	go func() {
+		if err := p.matStore.Write(context.Background(), writeOps); err != nil {
+			if _, ok := err.(*MaterializationNotSupportedError); !ok {
+				p.logger.Debug("failed to persist materializations", "error", err)
+			}
+		}
+	}()
+}
+
+// materializationRecordsToReadOps converts the module's records to store
+// read operations. Records with a rule are variant reads; others are
+// inclusion reads.
+func materializationRecordsToReadOps(records []*flagswasm.Materialization_Record) []ReadOp {
+	ops := make([]ReadOp, len(records))
+	for i, record := range records {
+		if record.GetRule() != "" {
+			ops[i] = newReadOpVariant(record.GetMaterialization(), record.GetUnit(), record.GetRule())
+		} else {
+			ops[i] = newReadOpInclusion(record.GetMaterialization(), record.GetUnit())
+		}
+	}
+	return ops
+}
+
+// readResultsToMaterializationRecords converts store results back to the
+// module's records. Absent answers are omitted (absence = not included).
+func readResultsToMaterializationRecords(results []ReadResult) []*flagswasm.Materialization_Record {
+	var records []*flagswasm.Materialization_Record
+	for _, result := range results {
+		switch v := result.(type) {
+		case *ReadResultVariant:
+			if v.Variant() != nil && *v.Variant() != "" {
+				records = append(records, &flagswasm.Materialization_Record{
+					Unit:            v.Unit(),
+					Materialization: v.Materialization(),
+					Rule:            v.Rule(),
+					Variant:         *v.Variant(),
+				})
+			}
+		case *ReadResultInclusion:
+			if v.Included() {
+				records = append(records, &flagswasm.Materialization_Record{
+					Unit:            v.Unit(),
+					Materialization: v.Materialization(),
+				})
+			}
+		}
+	}
+	return records
+}
+
+var errNoModule = errors.New("no module loaded")
 
 // generic evaluation not a member since members can't be generic
 func evaluate[T any](
@@ -396,22 +338,8 @@ func evaluate[T any](
 		}
 	}
 
-	flagName, path := parseFlagPath(flag)
-	requestFlagName := "flags/" + flagName
-
-	start := time.Now()
-	registerResolve := func(reason resolver.ResolveReason) {
-		latencyUs := uint32(time.Since(start).Microseconds())
-		p.resolver.RegisterResolve(&wasm.RegisterResolveRequest{
-			Reason:    reason,
-			LatencyUs: latencyUs,
-		})
-	}
-
-	// apply=false covers both provider DisableExposureCollection and per-eval
-	// `_confidence_skip_apply`. Provider DisableExposureCollection is also forwarded on
-	// setResolverState so the guest skips assign/token entirely; apply=false
-	// alone would still mint a deferred token.
+	// apply=false covers both provider DisableExposureCollection and
+	// per-eval _confidence_skip_apply.
 	apply := !p.disableExposureCollection
 	if skip, ok := evalCtx["_confidence_skip_apply"]; ok {
 		if b, ok := skip.(bool); ok && b {
@@ -420,26 +348,84 @@ func evaluate[T any](
 		delete(evalCtx, "_confidence_skip_apply")
 	}
 
-	response, err := p.resolveFlags(evalCtx, []string{requestFlagName}, apply)
+	processedCtx := processTargetingKey(evalCtx)
+	protoCtx, err := flattenedContextToProto(processedCtx)
 	if err != nil {
-		var matErr *MaterializationNotSupportedError
-		if errors.As(err, &matErr) {
-			p.logger.Warn(
-				"Flag requires materializations but no materialization store is configured. "+
-					"Enable it via UseRemoteMaterializationStore in your provider config.",
-				"flag", flagName,
-			)
-			registerResolve(resolver.ResolveReason_RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED)
+		return openfeature.GenericResolutionDetail[T]{
+			Value: defaultValue,
+			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
+				Reason:          openfeature.ErrorReason,
+				ResolutionError: openfeature.NewInvalidContextResolutionError(err.Error()),
+			},
+		}
+	}
+
+	request := &resolver.ResolveFlagsRequest{
+		Flags:             []string{"flags/" + parseFlagName(flag)},
+		EvaluationContext: protoCtx,
+		ClientSecret:      p.clientSecret,
+		Apply:             apply,
+		Sdk:               p.clientSDK,
+	}
+
+	p.hostMu.RLock()
+	defer p.hostMu.RUnlock()
+	outcome, err := p.resolveFlags(request)
+	if err != nil {
+		var rejected *cm.ResolveRejectedError
+		if errors.As(err, &rejected) && rejected.IsUnauthenticated() {
 			return openfeature.GenericResolutionDetail[T]{
 				Value: defaultValue,
 				ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 					Reason:          openfeature.ErrorReason,
-					ResolutionError: openfeature.NewGeneralResolutionError(fmt.Sprintf("flag '%s' requires materializations; configure a materialization store", flagName)),
+					ResolutionError: openfeature.NewGeneralResolutionError("module does not accept this client credential"),
 				},
 			}
 		}
-		p.logger.Error("Failed to resolve flag", "flag", flagName, "error", err)
-		registerResolve(resolver.ResolveReason_RESOLVE_REASON_ERROR)
+		p.logger.Error("Failed to resolve flag", "flag", flag, "error", err)
+		return openfeature.GenericResolutionDetail[T]{
+			Value: defaultValue,
+			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
+				Reason:          openfeature.ErrorReason,
+				ResolutionError: openfeature.NewGeneralResolutionError(err.Error()),
+			},
+		}
+	}
+	defer outcome.envelope.Close()
+
+	// Report the resolve's latency to the module's per-client metrics.
+	outcome.host.ObserveResolveLatency(outcome.clientIndex, outcome.latency.Microseconds())
+
+	// The evaluation step (key splitting, path walking, default merging,
+	// type checks and error mapping) belongs to the module. Scalar defaults
+	// are handed to the module so error paths echo them; object defaults
+	// pass a null default and apply the documented struct/map merge
+	// semantics locally, exactly as previous provider versions did.
+	var defaultValueProto *structpb.Value
+	var localUnmarshal bool
+	switch any(defaultValue).(type) {
+	case bool, string, float64, int64, int:
+		proto, err := goValueToProtoValue(defaultValue)
+		if err != nil {
+			return openfeature.GenericResolutionDetail[T]{
+				Value: defaultValue,
+				ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
+					Reason:          openfeature.ErrorReason,
+					ResolutionError: openfeature.NewTypeMismatchResolutionError(err.Error()),
+				},
+			}
+		}
+		defaultValueProto = proto
+	default:
+		defaultValueProto = structpb.NewNullValue()
+		localUnmarshal = true
+	}
+	details, err := outcome.host.Evaluate(outcome.envelope, &flagswasm.EvaluateRequest{
+		FlagKey:      flag,
+		DefaultValue: defaultValueProto,
+	})
+	if err != nil {
+		p.logger.Error("Failed to evaluate flag", "flag", flag, "error", err)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -449,59 +435,35 @@ func evaluate[T any](
 		}
 	}
 
-	if len(response.ResolvedFlags) == 0 {
-		registerResolve(resolver.ResolveReason_RESOLVE_REASON_FLAG_NOT_FOUND)
+	if code := mapErrorCode(details.GetErrorCode()); code != nil {
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewFlagNotFoundResolutionError(fmt.Sprintf("flag '%s' not found", flagName)),
+				ResolutionError: *code,
 			},
 		}
 	}
 
-	resolvedFlag := response.ResolvedFlags[0]
-
-	if resolvedFlag.Flag != requestFlagName {
-		p.logger.Error("Unexpected flag from resolver", "expected", requestFlagName, "got", resolvedFlag.Flag)
-		registerResolve(resolver.ResolveReason_RESOLVE_REASON_FLAG_NOT_FOUND)
+	// The flag resolved with a per-flag reason that the evaluate step kept;
+	// a materialization requirement surfaces here with the reason intact.
+	if details.GetReason() == resolver.ResolveReason_RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED {
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
 				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewFlagNotFoundResolutionError("unexpected flag returned"),
+				ResolutionError: openfeature.NewGeneralResolutionError(fmt.Sprintf("flag '%s' requires materializations; configure a materialization store", flag)),
 			},
 		}
 	}
 
-	if resolvedFlag.Variant == "" {
-		registerResolve(resolvedFlag.Reason)
-		return openfeature.GenericResolutionDetail[T]{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				ResolutionError: openfeature.ResolutionError{},
-				Reason:          mapResolveReasonToOpenFeature(resolvedFlag.Reason),
-			},
-		}
+	var value T
+	if localUnmarshal {
+		value, err = unmarshalProto(details.GetValue(), defaultValue, nil)
+	} else {
+		value, err = protoValueToGo[T](details.GetValue())
 	}
-
-	value, ok := getValueForPath(path, resolvedFlag.Value)
-
-	if !ok {
-		registerResolve(resolver.ResolveReason_RESOLVE_REASON_FLAG_NOT_FOUND)
-		return openfeature.GenericResolutionDetail[T]{
-			Value: defaultValue,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewFlagNotFoundResolutionError(fmt.Sprintf("path '%s' not found in flag '%s'", strings.Join(path, "."), flagName)),
-			},
-		}
-	}
-
-	result, err := unmarshalProto(value, defaultValue, path)
-
 	if err != nil {
-		registerResolve(resolver.ResolveReason_RESOLVE_REASON_TYPE_MISMATCH)
 		return openfeature.GenericResolutionDetail[T]{
 			Value: defaultValue,
 			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
@@ -511,14 +473,55 @@ func evaluate[T any](
 		}
 	}
 
-	registerResolve(resolvedFlag.Reason)
 	return openfeature.GenericResolutionDetail[T]{
-		Value: result,
+		Value: value,
 		ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-			Variant:         resolvedFlag.Variant,
+			Variant:         details.GetVariant(),
 			ResolutionError: openfeature.ResolutionError{},
-			Reason:          mapResolveReasonToOpenFeature(resolvedFlag.Reason),
+			Reason:          mapResolveReasonToOpenFeature(details.GetReason()),
 		},
+	}
+}
+
+// mapErrorCode maps the module's evaluation error codes onto OpenFeature
+// resolution errors; nil means success.
+func mapErrorCode(code flagswasm.ErrorCode) *openfeature.ResolutionError {
+	switch code {
+	case flagswasm.ErrorCode_ERROR_CODE_UNSPECIFIED:
+		return nil
+	case flagswasm.ErrorCode_ERROR_CODE_PROVIDER_NOT_READY:
+		e := openfeature.NewProviderNotReadyResolutionError("module not ready")
+		return &e
+	case flagswasm.ErrorCode_ERROR_CODE_FLAG_NOT_FOUND:
+		e := openfeature.NewFlagNotFoundResolutionError("flag not found for this credential")
+		return &e
+	case flagswasm.ErrorCode_ERROR_CODE_TYPE_MISMATCH:
+		e := openfeature.NewTypeMismatchResolutionError("resolved value does not match the requested type")
+		return &e
+	default: // PROVIDER_FATAL, GENERAL, CYCLE_DETECTED
+		e := openfeature.NewGeneralResolutionError("flag evaluation failed")
+		return &e
+	}
+}
+
+// mapResolveReasonToOpenFeature converts Confidence resolve reasons to
+// OpenFeature reasons.
+func mapResolveReasonToOpenFeature(reason resolvertypes.ResolveReason) openfeature.Reason {
+	switch reason {
+	case resolvertypes.ResolveReason_RESOLVE_REASON_MATCH:
+		return openfeature.TargetingMatchReason
+	case resolvertypes.ResolveReason_RESOLVE_REASON_NO_SEGMENT_MATCH:
+		return openfeature.DefaultReason
+	case resolvertypes.ResolveReason_RESOLVE_REASON_FLAG_ARCHIVED:
+		return openfeature.DisabledReason
+	case resolvertypes.ResolveReason_RESOLVE_REASON_TARGETING_KEY_ERROR:
+		return openfeature.ErrorReason
+	case resolvertypes.ResolveReason_RESOLVE_REASON_ERROR:
+		return openfeature.ErrorReason
+	case resolvertypes.ResolveReason_RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE:
+		return openfeature.ErrorReason
+	default:
+		return openfeature.UnknownReason
 	}
 }
 
@@ -526,25 +529,681 @@ func evaluate[T any](
 //
 // Experimental: this API is subject to change.
 type SnapshotConfig struct {
-	// BucketsPerDecade controls histogram bucket density in the output.
-	// The internal histogram always stores 18 buckets per decimal order
-	// of magnitude. This controls how many are emitted by striding.
-	// Valid range: 1-18. Zero means default (18 — all buckets).
+	// BucketsPerDecade is retained for API compatibility. Module metrics
+	// snapshots choose their own bucket density; the field is ignored.
 	BucketsPerDecade uint32
 	// OpenMetrics switches output to OpenMetrics text format.
 	// When false (default), Prometheus exposition format is used.
 	OpenMetrics bool
 }
 
-// GetPrometheusMetrics returns a Prometheus text-format metrics snapshot
-// aggregated from all pooled resolver instances.
+// GetPrometheusMetrics returns the module's metrics as Prometheus or
+// OpenMetrics text. The snapshot is module-wide (not per instance) and
+// reflects all resolves served by this provider.
 //
 // Experimental: this API is subject to change.
 func (p *LocalResolverProvider) GetPrometheusMetrics(config SnapshotConfig) string {
-	if p.resolver == nil {
+	// Hold the read lock for the snapshot: a module swap must not destroy
+	// the host under the metrics call.
+	p.hostMu.RLock()
+	defer p.hostMu.RUnlock()
+	host := p.host
+	if host == nil {
 		return ""
 	}
-	return p.resolver.PrometheusSnapshot(config.BucketsPerDecade, config.OpenMetrics)
+	text, err := host.MetricsSnapshot(config.OpenMetrics)
+	if err != nil {
+		p.logger.Warn("metrics snapshot failed", "error", err)
+		return ""
+	}
+	return text
+}
+
+// Resolve resolves multiple flags for the given context. If flagNames is
+// empty, all flags available to the client are resolved. When apply is true,
+// exposure events are recorded immediately. When apply is false, the response
+// carries a resolve_token that must be passed to ApplyFlags later to record
+// exposures. With DisableExposureCollection configured no exposure token is
+// returned.
+//
+// Returns an error if the provider has not been initialized (Init not
+// called), the evaluation context cannot be converted, or the module fails
+// to resolve.
+func (p *LocalResolverProvider) Resolve(
+	ctx context.Context,
+	evalCtx openfeature.FlattenedContext,
+	flagNames []string,
+	apply bool,
+) (*resolver.ResolveFlagsResponse, error) {
+	if !p.ready.Load() {
+		return nil, fmt.Errorf("provider not initialized")
+	}
+
+	requestFlags := make([]string, len(flagNames))
+	for i, name := range flagNames {
+		requestFlags[i] = "flags/" + name
+	}
+
+	protoCtx, err := flattenedContextToProto(processTargetingKey(evalCtx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert context: %w", err)
+	}
+
+	p.hostMu.RLock()
+	defer p.hostMu.RUnlock()
+	outcome, err := p.resolveFlags(&resolver.ResolveFlagsRequest{
+		Flags:             requestFlags,
+		EvaluationContext: protoCtx,
+		ClientSecret:      p.clientSecret,
+		Apply:             apply,
+		Sdk:               p.clientSDK,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer outcome.envelope.Close()
+	outcome.host.ObserveResolveLatency(outcome.clientIndex, outcome.latency.Microseconds())
+	return outcome.response, nil
+}
+
+// ApplyFlags records exposure events for flags previously resolved with
+// apply=false. The request must contain the resolve_token from the original
+// resolve response. With DisableExposureCollection configured, ApplyFlags is
+// a no-op.
+//
+// Returns an error if the provider has not been initialized. Non-zero
+// statuses from the module are logged best-effort and not surfaced.
+func (p *LocalResolverProvider) ApplyFlags(
+	request *resolver.ApplyFlagsRequest,
+) error {
+	if !p.ready.Load() {
+		return fmt.Errorf("provider not initialized")
+	}
+	if p.disableExposureCollection {
+		return nil
+	}
+
+	p.hostMu.RLock()
+	defer p.hostMu.RUnlock()
+	host := p.host
+	if host == nil {
+		return errNoModule
+	}
+
+	req := &resolver.ApplyFlagsRequest{
+		Flags:        request.GetFlags(),
+		ResolveToken: request.GetResolveToken(),
+		SendTime:     request.GetSendTime(),
+		ClientSecret: p.clientSecret,
+		Sdk:          request.GetSdk(),
+	}
+	if req.Sdk == nil {
+		req.Sdk = p.clientSDK
+	}
+	status, err := host.ApplyFlags(req)
+	if err != nil {
+		p.logger.Warn("Failed to apply flags", "error", err)
+		return nil
+	}
+	if status != cm.ApplyOK {
+		// Best-effort logging failures: never surface as evaluation errors.
+		p.logger.Warn("apply_flags reported a status", "status", status.String())
+	}
+	return nil
+}
+
+// Hooks returns provider hooks (none for this implementation)
+func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
+	return []openfeature.Hook{}
+}
+
+// EventChannel reports provider lifecycle changes to the OpenFeature SDK.
+func (p *LocalResolverProvider) EventChannel() <-chan openfeature.Event {
+	return p.lifecycleEvents
+}
+
+func (p *LocalResolverProvider) emitLifecycleEvent(
+	eventType openfeature.EventType,
+	message string,
+	errorCode openfeature.ErrorCode,
+) {
+	event := openfeature.Event{
+		ProviderName: p.Metadata().Name,
+		EventType:    eventType,
+		ProviderEventDetails: openfeature.ProviderEventDetails{
+			Message:   message,
+			ErrorCode: errorCode,
+		},
+	}
+	select {
+	case p.lifecycleEvents <- event:
+	default:
+		p.logger.Warn("Dropping provider lifecycle event", "event_type", eventType)
+	}
+}
+
+// Init initializes the provider (part of StateHandler interface): it fetches
+// the credential's compiled module, validates and instantiates it, then
+// starts the poll loop that keeps it fresh and the flush timer that keeps
+// low-volume credentials observable. Until the first module is loaded,
+// evaluations return the caller's default with PROVIDER_NOT_READY.
+func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationContext) (err error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	p.stateMu.Lock()
+	p.ready.Store(false)
+	p.cancelFunc = cancel
+	p.wg.Add(1)
+	p.stateMu.Unlock()
+	defer p.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			cancel()
+			err = &openfeature.ProviderInitError{
+				ErrorCode: openfeature.ProviderFatalCode,
+				Message:   fmt.Sprintf("Init panicked: %v", r),
+			}
+		}
+	}()
+
+	if p.fetcher == nil {
+		cancel()
+		return fmt.Errorf("module fetcher is nil, cannot initialize")
+	}
+
+	startupCtx, startupCancel := context.WithTimeout(ctx, p.initializationTimeout)
+	defer startupCancel()
+
+	install := func() error {
+		fetched, err := p.fetcher.Fetch(startupCtx)
+		if err != nil {
+			return err
+		}
+		return p.installModule(fetched)
+	}
+
+	var lastErr error
+	finishStartup := func() error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// Keep retrying in the background; the provider serves defaults
+		// until a module loads.
+		p.startScheduledTasks(ctx)
+		p.logger.Warn("Initial module load timed out; serving default values while recovery continues", "error", lastErr)
+		return fmt.Errorf("provider initialization timed out after %s: %w", p.initializationTimeout, startupCtx.Err())
+	}
+	for {
+		lastErr = install()
+		if startupCtx.Err() != nil {
+			return finishStartup()
+		}
+		if lastErr == nil {
+			if !p.transitionToReady(ctx, false) {
+				return ctx.Err()
+			}
+			p.startScheduledTasks(ctx)
+			p.logger.Info("Provider initialized successfully")
+			return nil
+		}
+		if !isModuleNotPublished(lastErr) && !isModuleUnchanged(lastErr) {
+			p.logger.Error("Initial module load failed", "error", lastErr)
+		}
+
+		retryTimer := time.NewTimer(p.initialRetryInterval)
+		select {
+		case <-retryTimer.C:
+			continue
+		case <-startupCtx.Done():
+			retryTimer.Stop()
+			return finishStartup()
+		}
+	}
+}
+
+// installModule validates a fetched artifact and swaps the live host. A
+// wrapper whose module bytes match the live module is a token-only change:
+// the new token takes effect for new batches without re-instantiation. A
+// module that fails validation keeps the previous host serving; only the
+// initial load (no previous host) propagates the error.
+func (p *LocalResolverProvider) installModule(fetched *FetchedModule) error {
+	p.hostMu.RLock()
+	sameModule := p.host != nil && bytesEqual(p.moduleBytes, fetched.Module)
+	p.hostMu.RUnlock()
+	if sameModule {
+		// Wrapper-only change: new log token, same module.
+		p.logToken.Store(fetched.LogToken)
+		p.logger.Info("Module wrapper refreshed", "log_token_changed", true)
+		return nil
+	}
+
+	module, err := cm.LoadModule(fetched.Module, p.clientSecret)
+	if err != nil {
+		return fmt.Errorf("rejected module: %w", err)
+	}
+
+	for _, filter := range []*cm.SeenFilter{p.applyFilter, p.schemaFilter} {
+		if err := filter.Init(p.useInterpreter); err != nil {
+			return fmt.Errorf("failed to initialize de-duplication: %w", err)
+		}
+	}
+
+	host, err := cm.NewHost(module, cm.HostConfig{
+		LogSink: p.moduleLogSink,
+		Seed:    p.seedFn,
+		ApplySeen: func(fingerprint int64) bool {
+			return p.applyFilter.Seen(fingerprint)
+		},
+		SchemaSeen: func(fingerprint int64) bool {
+			return p.schemaFilter.Seen(fingerprint)
+		},
+		Logger:         p.logger,
+		UseInterpreter: p.useInterpreter,
+		InstanceCap:    p.instancePoolSize,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to instantiate module: %w", err)
+	}
+
+	p.hostMu.Lock()
+	old := p.host
+	p.host = host
+	p.moduleBytes = fetched.Module
+	p.logToken.Store(fetched.LogToken)
+	p.hostMu.Unlock()
+
+	// Stop routing to the old host (done above), wait for in-flight calls
+	// to drain, then retire the old instances while its memory is still
+	// alive, and release it. A failed validation above keeps the old host
+	// serving: it is only replaced here, after the new one is live.
+	if old != nil {
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			old.Close()
+		}()
+	}
+	return nil
+}
+
+// moduleFetcher is the artifact source the provider polls.
+type moduleFetcher interface {
+	Fetch(ctx context.Context) (*FetchedModule, error)
+}
+
+// moduleLogSink is the write_logs callback target: the token is captured with
+// the batch at delivery time and the batch is handed to the forwarder, which
+// never blocks the callback.
+func (p *LocalResolverProvider) moduleLogSink(body []byte, moduleToken string) {
+	// The module echoes its compile-time token with each batch; the
+	// wrapper's token covers modules compiled without one, and wrapper
+	// refreshes keep it current for both.
+	token, _ := p.logToken.Load().(string)
+	if moduleToken != "" {
+		token = moduleToken
+	}
+	p.forwarder.Enqueue(body, token)
+}
+
+// transitionToReady flips the provider to READY once, reporting recovery.
+func (p *LocalResolverProvider) transitionToReady(ctx context.Context, reportRecovery bool) bool {
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+
+	if ctx.Err() != nil {
+		return false
+	}
+	if becameReady := !p.ready.Swap(true); becameReady && reportRecovery {
+		p.logger.Info("Provider recovered and is now ready")
+		p.emitLifecycleEvent(openfeature.ProviderReady, "Provider recovered and is now ready", "")
+	}
+	return true
+}
+
+// Shutdown closes the provider and cleans up resources (part of StateHandler
+// interface). Log batches still queued are drained with a bounded deadline.
+func (p *LocalResolverProvider) Shutdown() {
+	ctx := context.Background()
+	p.stateMu.Lock()
+	cancel := p.cancelFunc
+	p.cancelFunc = nil
+	if cancel != nil {
+		cancel()
+	}
+	p.ready.Store(false)
+	p.stateMu.Unlock()
+
+	if p.logger != nil {
+		p.logger.Info("Shutting down provider")
+	}
+
+	// Wait for background goroutines to exit.
+	p.wg.Wait()
+
+	// Drain and close the event tracker BEFORE the final log flush: event
+	// delivery outcomes ride on the next log batch.
+	if p.eventTracker != nil {
+		drainCtx, drainCancel := context.WithTimeout(ctx, 3*time.Second)
+		p.drainEvents(drainCtx)
+		drainCancel()
+		if err := p.eventTracker.Close(); err != nil && p.logger != nil {
+			p.logger.Warn("Failed to close event tracker", "error", err)
+		}
+		if p.eventsConn != nil {
+			if err := p.eventsConn.Close(); err != nil && p.logger != nil {
+				p.logger.Warn("Failed to close events service channel", "error", err)
+			}
+			p.eventsConn = nil
+		}
+	}
+
+	// Final log flush so the last batches are queued before the forwarder
+	// drains. The lock is held for the call, then released before the host
+	// is retired below.
+	p.hostMu.RLock()
+	host := p.host
+	if host != nil {
+		if err := host.FlushLogs(); err != nil {
+			p.logger.Warn("final log flush failed", "error", err)
+		}
+	}
+	p.hostMu.RUnlock()
+
+	// Drain queued batches, then stop the forwarder.
+	p.forwarder.Shutdown(3 * time.Second)
+
+	// Retire the module instance and release the shared memory.
+	if host != nil {
+		host.Close()
+		p.hostMu.Lock()
+		p.host = nil
+		p.hostMu.Unlock()
+	}
+
+	p.applyFilter.Close()
+	p.schemaFilter.Close()
+
+	if p.logger != nil {
+		p.logger.Info("Provider has been shut down")
+	}
+}
+
+// startScheduledTasks starts the background poll loop, the log flush timer
+// and the event flush timer.
+func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context) {
+	// Module poll loop.
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		nextInterval := func() time.Duration {
+			if p.ready.Load() {
+				return p.modulePollInterval
+			}
+			return p.initialRetryInterval
+		}
+		timer := time.NewTimer(nextInterval())
+		defer timer.Stop()
+
+		for {
+			select {
+			case <-timer.C:
+				fetched, err := p.fetcher.Fetch(parentCtx)
+				if parentCtx.Err() != nil {
+					return
+				}
+				switch {
+				case err == nil:
+					if err := p.installModule(fetched); err != nil {
+						p.logger.Error("Failed to install refreshed module; keeping the previous module", "error", err)
+					}
+				case isModuleNotPublished(err):
+					// No module published (yet, or no longer): keep
+					// serving whatever is live.
+				case isModuleUnchanged(err):
+					// Nothing to do.
+				default:
+					p.logger.Error("Module fetch failed", "error", err)
+				}
+				if !p.ready.Load() {
+					p.transitionToReady(parentCtx, true)
+				}
+				timer.Reset(nextInterval())
+			case <-parentCtx.Done():
+				return
+			}
+		}
+	}()
+
+	// Log flush timer: low-volume credentials stay observable.
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		ticker := time.NewTicker(p.logFlushInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if !p.ready.Load() {
+					continue
+				}
+				// Hold the read lock for the flush: it may block on a busy
+				// instance pool, and a module swap must not destroy the host
+				// underneath it.
+				p.hostMu.RLock()
+				host := p.host
+				if host != nil {
+					if err := host.FlushLogs(); err != nil {
+						p.logger.Error("Failed to flush logs", "error", err)
+					}
+				}
+				p.hostMu.RUnlock()
+			case <-parentCtx.Done():
+				return
+			}
+		}
+	}()
+
+	// Event flushing (only when event tracking is enabled).
+	if p.eventTracker != nil {
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			ticker := time.NewTicker(p.logFlushInterval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					p.flushAndPublishEvents(parentCtx)
+				case <-parentCtx.Done():
+					return
+				}
+			}
+		}()
+	}
+}
+
+// requestFlagName returns the bare flag name of a resolve request, for
+// error messages.
+func requestFlagName(request *resolver.ResolveFlagsRequest) string {
+	for _, f := range request.GetFlags() {
+		if name := strings.TrimPrefix(f, "flags/"); name != "" {
+			return name
+		}
+	}
+	return "unknown"
+}
+
+// parseFlagName splits the flag portion of a dotted key; the value path is
+// handled by the module's evaluate step.
+func parseFlagName(key string) string {
+	for i := 0; i < len(key); i++ {
+		if key[i] == '.' {
+			return key[:i]
+		}
+	}
+	return key
+}
+
+// processTargetingKey converts "targetingKey" to "targeting_key" in the context.
+func processTargetingKey(evalCtx openfeature.FlattenedContext) openfeature.FlattenedContext {
+	newEvalContext := make(openfeature.FlattenedContext)
+	for k, v := range evalCtx {
+		newEvalContext[k] = v
+	}
+
+	if targetingKey, exists := evalCtx["targetingKey"]; exists {
+		newEvalContext["targeting_key"] = targetingKey
+		delete(newEvalContext, "targetingKey")
+	}
+
+	return newEvalContext
+}
+
+// flattenedContextToProto converts OpenFeature FlattenedContext to protobuf Struct.
+func flattenedContextToProto(ctx openfeature.FlattenedContext) (*structpb.Struct, error) {
+	fields := make(map[string]*structpb.Value)
+
+	for key, value := range ctx {
+		protoValue, err := goValueToProto(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert field '%s': %w", key, err)
+		}
+		fields[key] = protoValue
+	}
+
+	return &structpb.Struct{Fields: fields}, nil
+}
+
+// goValueToProto converts a Go value to a protobuf Value.
+func goValueToProto(value interface{}) (*structpb.Value, error) {
+	switch v := value.(type) {
+	case nil:
+		return structpb.NewNullValue(), nil
+	case bool:
+		return structpb.NewBoolValue(v), nil
+	case int:
+		return structpb.NewNumberValue(float64(v)), nil
+	case int64:
+		return structpb.NewNumberValue(float64(v)), nil
+	case float64:
+		return structpb.NewNumberValue(v), nil
+	case string:
+		return structpb.NewStringValue(v), nil
+	case []interface{}:
+		values := make([]*structpb.Value, len(v))
+		for i, item := range v {
+			val, err := goValueToProto(item)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = val
+		}
+		return structpb.NewListValue(&structpb.ListValue{Values: values}), nil
+	case map[string]interface{}:
+		fields := make(map[string]*structpb.Value)
+		for key, val := range v {
+			protoVal, err := goValueToProto(val)
+			if err != nil {
+				return nil, err
+			}
+			fields[key] = protoVal
+		}
+		return structpb.NewStructValue(&structpb.Struct{Fields: fields}), nil
+	default:
+		return nil, fmt.Errorf("unsupported type: %T", v)
+	}
+}
+
+// goValueToProtoValue converts a typed default to a protobuf Value for the
+// module's evaluate request.
+func goValueToProtoValue[T any](value T) (*structpb.Value, error) {
+	return goValueToProto(any(value))
+}
+
+// protoValueToGo converts the module's evaluated Value back to the caller's
+// type. The module returns the caller's default on every error path, so a
+// conversion failure here means the resolved value does not fit the
+// requested type.
+func protoValueToGo[T any](value *structpb.Value) (T, error) {
+	var zero T
+	if value == nil {
+		return zero, nil
+	}
+	var target T
+	switch any(target).(type) {
+	case bool:
+		b, ok := value.GetKind().(*structpb.Value_BoolValue)
+		if !ok {
+			return zero, fmt.Errorf("expected a bool value, got %s", kindName(value))
+		}
+		return any(b.BoolValue).(T), nil
+	case string:
+		s, ok := value.GetKind().(*structpb.Value_StringValue)
+		if !ok {
+			return zero, fmt.Errorf("expected a string value, got %s", kindName(value))
+		}
+		return any(s.StringValue).(T), nil
+	case float64:
+		n, ok := value.GetKind().(*structpb.Value_NumberValue)
+		if !ok {
+			return zero, fmt.Errorf("expected a number value, got %s", kindName(value))
+		}
+		return any(n.NumberValue).(T), nil
+	case int64:
+		n, ok := value.GetKind().(*structpb.Value_NumberValue)
+		if !ok {
+			return zero, fmt.Errorf("expected a number value, got %s", kindName(value))
+		}
+		if n.NumberValue != float64(int64(n.NumberValue)) {
+			return zero, fmt.Errorf("value %v is not a whole number", n.NumberValue)
+		}
+		return any(int64(n.NumberValue)).(T), nil
+	case int:
+		n, ok := value.GetKind().(*structpb.Value_NumberValue)
+		if !ok {
+			return zero, fmt.Errorf("expected a number value, got %s", kindName(value))
+		}
+		if n.NumberValue != float64(int(n.NumberValue)) {
+			return zero, fmt.Errorf("value %v is not a whole number", n.NumberValue)
+		}
+		return any(int(n.NumberValue)).(T), nil
+	default:
+		// Object evaluation: the module already merged defaults into
+		// nulls; the interface value is the decoded structure.
+		return value.AsInterface().(T), nil
+	}
+}
+
+func kindName(value *structpb.Value) string {
+	switch value.GetKind().(type) {
+	case *structpb.Value_NullValue:
+		return "null"
+	case *structpb.Value_NumberValue:
+		return "number"
+	case *structpb.Value_StringValue:
+		return "string"
+	case *structpb.Value_BoolValue:
+		return "bool"
+	case *structpb.Value_StructValue:
+		return "struct"
+	case *structpb.Value_ListValue:
+		return "list"
+	default:
+		return "unknown"
+	}
+}
+
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // eventsGrpcTarget is the gRPC target for the Confidence events service.
@@ -572,7 +1231,7 @@ const eventsRetryServiceConfig = `{
 }`
 
 // eventPublishLogWindow is how many publish attempts are aggregated before
-// failures are reported, mirroring the flag logger's failure accounting.
+// failures are reported, mirroring the forwarder's failure accounting.
 const eventPublishLogWindow = 10
 
 // maxDrainBatches bounds the number of flush/publish rounds performed on
@@ -586,6 +1245,13 @@ const maxDrainBatches = 100
 var eventsSdk = &events.Sdk{
 	Sdk:     &events.Sdk_Id{Id: events.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 	Version: Version,
+}
+
+// defaultLogger builds the provider's fallback logger.
+func defaultLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
 }
 
 // Track sends a tracking event to the event engine, implementing the
@@ -665,7 +1331,7 @@ func (p *LocalResolverProvider) Track(
 //
 // Publish failures are swallowed (the events are already gone from the WASM
 // buffer); they are counted and reported once per eventPublishLogWindow
-// attempts, mirroring the flag logger's failure accounting.
+// attempts.
 func (p *LocalResolverProvider) flushAndPublishEvents(ctx context.Context) int {
 	if p.eventTracker == nil {
 		return 0
@@ -681,20 +1347,12 @@ func (p *LocalResolverProvider) flushAndPublishEvents(ctx context.Context) int {
 		return 0
 	}
 
-	eventCount := len(batch.Events)
 	rejected, err := p.publishEvents(ctx, batch)
 	if err != nil {
 		p.eventPublishFailures.Add(1)
 		p.logger.Debug("Failed to publish events", "error", err)
-		if recorder, ok := p.flagLogger.(interface {
-			RecordEventBatch(int, int, bool)
-		}); ok {
-			recorder.RecordEventBatch(eventCount, 0, false)
-		}
-	} else if recorder, ok := p.flagLogger.(interface {
-		RecordEventBatch(int, int, bool)
-	}); ok {
-		recorder.RecordEventBatch(eventCount-rejected, rejected, true)
+	} else if rejected > 0 {
+		p.logger.Debug("Events rejected on publish", "rejected", rejected)
 	}
 
 	if p.eventPublishAttempts.Add(1)%eventPublishLogWindow == 0 {
@@ -760,560 +1418,4 @@ func (p *LocalResolverProvider) publishEvents(ctx context.Context, batch *events
 	}
 
 	return rejected, nil
-}
-
-// Resolve resolves multiple flags for the given context. If flagNames is empty,
-// all flags available to the client are resolved. When apply is true, exposure
-// events are recorded immediately. When apply is false, the response normally
-// contains a resolve_token that must be passed to ApplyFlags later to record
-// exposures. If this provider was configured with DisableExposureCollection, no exposure token
-// is returned.
-//
-// Returns an error if the provider has not been initialized (Init not called),
-// the evaluation context cannot be converted, or the WASM resolver fails.
-// On success the returned ResolveFlagsResponse contains the resolved flag
-// values and, when apply is false and DisableExposureCollection is not configured, the
-// resolve_token for deferred application.
-func (p *LocalResolverProvider) Resolve(
-	ctx context.Context,
-	evalCtx openfeature.FlattenedContext,
-	flagNames []string,
-	apply bool,
-) (*resolver.ResolveFlagsResponse, error) {
-	if !p.ready.Load() {
-		return nil, fmt.Errorf("provider not initialized")
-	}
-
-	requestFlags := make([]string, len(flagNames))
-	for i, name := range flagNames {
-		requestFlags[i] = "flags/" + name
-	}
-
-	start := time.Now()
-	resp, err := p.resolveFlags(evalCtx, requestFlags, apply)
-
-	reason := resolver.ResolveReason_RESOLVE_REASON_BUNDLE
-	if err != nil {
-		reason = resolver.ResolveReason_RESOLVE_REASON_ERROR
-	}
-	p.resolver.RegisterResolve(&wasm.RegisterResolveRequest{
-		Reason:    reason,
-		LatencyUs: uint32(time.Since(start).Microseconds()),
-	})
-
-	return resp, err
-}
-
-// ApplyFlags records exposure events for flags previously resolved with
-// apply=false. The request must contain the resolve_token from the original
-// resolve response. If this provider was configured with DisableExposureCollection, ApplyFlags
-// is a no-op.
-//
-// Returns an error if the provider has not been initialized or the WASM
-// resolver fails to process the apply request.
-func (p *LocalResolverProvider) ApplyFlags(
-	request *resolver.ApplyFlagsRequest,
-) error {
-	if !p.ready.Load() {
-		return fmt.Errorf("provider not initialized")
-	}
-	return p.resolver.ApplyFlags(request)
-}
-
-// Hooks returns provider hooks (none for this implementation)
-func (p *LocalResolverProvider) Hooks() []openfeature.Hook {
-	return []openfeature.Hook{}
-}
-
-// EventChannel reports provider lifecycle changes to the OpenFeature SDK.
-func (p *LocalResolverProvider) EventChannel() <-chan openfeature.Event {
-	return p.lifecycleEvents
-}
-
-func (p *LocalResolverProvider) emitLifecycleEvent(
-	eventType openfeature.EventType,
-	message string,
-	errorCode openfeature.ErrorCode,
-) {
-	event := openfeature.Event{
-		ProviderName: p.Metadata().Name,
-		EventType:    eventType,
-		ProviderEventDetails: openfeature.ProviderEventDetails{
-			Message:   message,
-			ErrorCode: errorCode,
-		},
-	}
-	select {
-	case p.lifecycleEvents <- event:
-	default:
-		p.logger.Warn("Dropping provider lifecycle event", "event_type", eventType)
-	}
-}
-
-// Init initializes the provider (part of StateHandler interface)
-// Fetches initial state and starts background tasks for state updates and log flushing
-func (p *LocalResolverProvider) Init(evaluationContext openfeature.EvaluationContext) (err error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	p.mu.Lock()
-	p.ready.Store(false)
-	p.cancelFunc = cancel
-	p.wg.Add(1)
-	p.mu.Unlock()
-	defer p.wg.Done()
-	defer func() {
-		if r := recover(); r != nil {
-			cancel()
-			err = &openfeature.ProviderInitError{
-				ErrorCode: openfeature.ProviderFatalCode,
-				Message:   fmt.Sprintf("Init panicked: %v", r),
-			}
-		}
-	}()
-
-	// Check if required components are present
-	if p.stateProvider == nil {
-		cancel()
-		return fmt.Errorf("state provider is nil, cannot initialize")
-	}
-
-	if p.resolverSupplier == nil {
-		cancel()
-		return fmt.Errorf("resolverSupplier is nil, cannot initialize")
-	}
-
-	if p.flagLogger == nil {
-		cancel()
-		return fmt.Errorf("flag logger is nil, cannot initialize")
-	}
-	logSink := p.flagLogger.Write
-
-	p.resolver = p.resolverSupplier(ctx, logSink)
-
-	startupCtx, startupCancel := context.WithTimeout(ctx, p.initializationTimeout)
-	defer startupCancel()
-
-	var lastErr error
-	finishStartup := func() error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		p.startScheduledTasks(ctx, nil, "")
-		p.logger.Warn("Initial state load timed out; serving default values while recovery continues", "error", lastErr)
-		return fmt.Errorf("provider initialization timed out after %s: %w", p.initializationTimeout, startupCtx.Err())
-	}
-	for {
-		initialState, accountId, loadErr := p.loadState(startupCtx)
-		if isTerminalStateError(loadErr) && ctx.Err() == nil {
-			cancel()
-			return &openfeature.ProviderInitError{ErrorCode: openfeature.ProviderFatalCode, Message: loadErr.Error()}
-		}
-		if startupCtx.Err() != nil {
-			return finishStartup()
-		}
-		if loadErr == nil {
-			if !p.transitionToReady(ctx, false) {
-				return ctx.Err()
-			}
-			p.startScheduledTasks(ctx, initialState, accountId)
-			p.logger.Info("Provider initialized successfully")
-			return nil
-		}
-		lastErr = loadErr
-		p.logger.Error("Initial state load failed", "error", loadErr)
-
-		retryTimer := time.NewTimer(p.initialRetryInterval)
-		select {
-		case <-retryTimer.C:
-			continue
-		case <-startupCtx.Done():
-			retryTimer.Stop()
-			return finishStartup()
-		}
-	}
-}
-
-func (p *LocalResolverProvider) loadState(ctx context.Context) ([]byte, string, error) {
-	state, accountId, err := p.stateProvider.Provide(ctx)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to fetch state: %w", err)
-	}
-	if accountId == "" {
-		return nil, "", &terminalStateError{errors.New("account ID is empty in fetched state")}
-	}
-	if err := p.setResolverState(state, accountId); err != nil {
-		return nil, "", &terminalStateError{fmt.Errorf("failed to install resolver state: %w", err)}
-	}
-	return state, accountId, nil
-}
-
-func (p *LocalResolverProvider) setResolverState(state []byte, accountId string) error {
-	return p.resolver.SetResolverState(&wasm.SetResolverStateRequest{
-		State:                     state,
-		AccountId:                 accountId,
-		EnableApplyDedup:          p.enableApplyDedup,
-		DisableExposureCollection: p.disableExposureCollection,
-		Sdk: &resolvertypes.Sdk{
-			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
-			Version: Version,
-		},
-	})
-}
-
-func (p *LocalResolverProvider) transitionToReady(ctx context.Context, reportRecovery bool) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if ctx.Err() != nil {
-		return false
-	}
-	if becameReady := !p.ready.Swap(true); becameReady && reportRecovery {
-		p.logger.Info("Provider recovered and is now ready")
-		p.emitLifecycleEvent(openfeature.ProviderReady, "Provider recovered and is now ready", "")
-	}
-	return true
-}
-
-// Shutdown closes the provider and cleans up resources (part of StateHandler interface)
-func (p *LocalResolverProvider) Shutdown() {
-	ctx := context.Background()
-	p.mu.Lock()
-	cancel := p.cancelFunc
-	p.cancelFunc = nil
-	if cancel != nil {
-		cancel()
-	}
-	p.ready.Store(false)
-	p.mu.Unlock()
-
-	if p.logger != nil {
-		p.logger.Info("Shutting down provider")
-		if cancel != nil {
-			p.logger.Debug("Cancelled scheduled tasks")
-		}
-	}
-
-	// Wait for background goroutines to exit
-	p.wg.Wait()
-
-	// Drain and close the event tracker BEFORE closing the resolver. Event
-	// delivery outcomes ride on the next WriteFlagLogs, so draining after the
-	// resolver's final flush would strand the last batch's
-	// published/rejected/succeeded/failed counters in process-local atomics.
-	// Java already orders it this way.
-	if p.eventTracker != nil {
-		drainCtx, drainCancel := context.WithTimeout(ctx, 3*time.Second)
-		p.drainEvents(drainCtx)
-		drainCancel()
-		if err := p.eventTracker.Close(); err != nil && p.logger != nil {
-			p.logger.Warn("Failed to close event tracker", "error", err)
-		}
-		if p.eventsConn != nil {
-			if err := p.eventsConn.Close(); err != nil && p.logger != nil {
-				p.logger.Warn("Failed to close events service channel", "error", err)
-			}
-			p.eventsConn = nil
-		}
-		if p.logger != nil {
-			p.logger.Debug("Closed event tracker")
-		}
-	}
-
-	// Close resolver API (which flushes final logs, carrying the event
-	// counters drained above)
-	if p.resolver != nil {
-		p.resolver.Close(ctx)
-		if p.logger != nil {
-			p.logger.Debug("Closed resolver API")
-		}
-	}
-
-	// Shutdown flag logger (which waits for log sends to complete)
-	if p.flagLogger != nil {
-		p.flagLogger.Shutdown()
-		if p.logger != nil {
-			p.logger.Debug("Shut down flag logger")
-		}
-	}
-
-	if p.logger != nil {
-		p.logger.Info("Provider has been shut down")
-	}
-}
-
-// startScheduledTasks starts the background tasks for state fetching and log polling
-func (p *LocalResolverProvider) startScheduledTasks(parentCtx context.Context, appliedState []byte, appliedAccountId string) {
-	// Goroutine for state fetching
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		nextInterval := func() time.Duration {
-			if p.ready.Load() {
-				return p.statePollInterval
-			}
-			return p.initialRetryInterval
-		}
-		stateTimer := time.NewTimer(nextInterval())
-		defer stateTimer.Stop()
-
-		for {
-			select {
-			case <-stateTimer.C:
-				// Fetch latest state and accountID
-				state, accountId, err := p.stateProvider.Provide(parentCtx)
-				if parentCtx.Err() != nil {
-					return
-				}
-				if err != nil {
-					p.logger.Error("State fetch failed", "error", err)
-				} else if accountId == "" {
-					err = &terminalStateError{errors.New("account ID is empty in fetched state")}
-				} else if p.ready.Load() && accountId == appliedAccountId && bytes.Equal(state, appliedState) {
-					// Skip the WASM state update if nothing changed (e.g. the fetch
-					// was answered with 304 Not Modified). Re-ingesting identical
-					// state churns the WASM heap for no benefit (#455).
-				} else {
-					// Flush logs before state update to reduce WASM heap fragmentation (#455)
-					if p.ready.Load() {
-						if err := p.resolver.FlushAllLogs(); err != nil {
-							p.logger.Error("Failed to flush logs before state update", "error", err)
-						}
-					}
-
-					if installErr := p.setResolverState(state, accountId); installErr != nil {
-						err = &terminalStateError{fmt.Errorf("failed to install resolver state: %w", installErr)}
-						p.logger.Error("Failed to update state", "error", err)
-					} else {
-						if !p.transitionToReady(parentCtx, true) {
-							return
-						}
-						appliedState = state
-						appliedAccountId = accountId
-					}
-				}
-				if !p.ready.Load() && isTerminalStateError(err) {
-					p.emitLifecycleEvent(openfeature.ProviderError, err.Error(), openfeature.ProviderFatalCode)
-					return
-				}
-				stateTimer.Reset(nextInterval())
-			case <-parentCtx.Done():
-				return
-			}
-		}
-	}()
-
-	// Goroutine for log flushing
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		logTicker := time.NewTicker(p.logPollInterval)
-		defer logTicker.Stop()
-
-		var assignTicker *time.Ticker
-		// Receive-only channel. Left nil when disableExposureCollection so the select case
-		// below never fires — a nil chan in select is never ready.
-		var assignC <-chan time.Time
-		if !p.disableExposureCollection {
-			assignTicker = time.NewTicker(100 * time.Millisecond)
-			defer assignTicker.Stop()
-			assignC = assignTicker.C
-		}
-
-		for {
-			select {
-			case <-logTicker.C:
-				if p.ready.Load() {
-					if err := p.resolver.FlushAllLogs(); err != nil {
-						p.logger.Error("Failed to flush all logs", "error", err)
-					}
-				}
-			case <-assignC:
-				if p.ready.Load() {
-					if err := p.resolver.FlushAssignLogs(); err != nil {
-						p.logger.Error("Failed to flush assign logs", "error", err)
-					}
-				}
-			case <-parentCtx.Done():
-				return
-			}
-		}
-	}()
-
-	// Goroutine for event flushing (only when event tracking is enabled).
-	// Kept separate from log flushing so a slow PublishEvents RPC cannot delay
-	// resolve/assign log flushes.
-	if p.eventTracker != nil {
-		p.wg.Add(1)
-		go func() {
-			defer p.wg.Done()
-			eventTicker := time.NewTicker(p.logPollInterval)
-			defer eventTicker.Stop()
-
-			for {
-				select {
-				case <-eventTicker.C:
-					p.flushAndPublishEvents(parentCtx)
-				case <-parentCtx.Done():
-					return
-				}
-			}
-		}()
-	}
-}
-
-// getStatePollInterval gets the state poll interval from environment or returns default
-// Deprecated: Use ProviderConfig.StatePollInterval instead. Environment variable support will be removed in a future version.
-func getStatePollInterval(logger *slog.Logger) time.Duration {
-	if envVal := os.Getenv("CONFIDENCE_STATE_POLL_INTERVAL_SECONDS"); envVal != "" {
-		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
-			if logger != nil {
-				logger.Warn("CONFIDENCE_STATE_POLL_INTERVAL_SECONDS is deprecated, use ProviderConfig.StatePollInterval instead")
-			}
-			return time.Duration(seconds) * time.Second
-		}
-	}
-	return time.Duration(defaultStatePollIntervalSeconds) * time.Second
-}
-
-// getLogPollInterval gets the log poll interval from environment or returns default
-// Deprecated: Use ProviderConfig.LogPollInterval instead. Environment variable support will be removed in a future version.
-func getLogPollInterval(logger *slog.Logger) time.Duration {
-	if envVal := os.Getenv("CONFIDENCE_LOG_POLL_INTERVAL_SECONDS"); envVal != "" {
-		if seconds, err := strconv.ParseInt(envVal, 10, 64); err == nil {
-			if logger != nil {
-				logger.Warn("CONFIDENCE_LOG_POLL_INTERVAL_SECONDS is deprecated, use ProviderConfig.LogPollInterval instead")
-			}
-			return time.Duration(seconds) * time.Second
-		}
-	}
-	return time.Duration(defaultLogPollIntervalSeconds) * time.Second
-}
-
-// parseFlagPath splits a flag key into flag name and path
-// e.g., "my-flag.nested.value" -> ("my-flag", "nested.value")
-func parseFlagPath(key string) (flagName string, steps []string) {
-	parts := strings.Split(key, ".")
-	return parts[0], parts[1:]
-}
-
-// processTargetingKey converts "targetingKey" to "targeting_key" in the context
-func processTargetingKey(evalCtx openfeature.FlattenedContext) openfeature.FlattenedContext {
-	newEvalContext := make(openfeature.FlattenedContext)
-	for k, v := range evalCtx {
-		newEvalContext[k] = v
-	}
-
-	if targetingKey, exists := evalCtx["targetingKey"]; exists {
-		newEvalContext["targeting_key"] = targetingKey
-		delete(newEvalContext, "targetingKey")
-	}
-
-	return newEvalContext
-}
-
-// flattenedContextToProto converts OpenFeature FlattenedContext to protobuf Struct
-func flattenedContextToProto(ctx openfeature.FlattenedContext) (*structpb.Struct, error) {
-	fields := make(map[string]*structpb.Value)
-
-	for key, value := range ctx {
-		protoValue, err := goValueToProto(value)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert field '%s': %w", key, err)
-		}
-		fields[key] = protoValue
-	}
-
-	return &structpb.Struct{Fields: fields}, nil
-}
-
-// goValueToProto converts a Go value to protobuf Value
-func goValueToProto(value interface{}) (*structpb.Value, error) {
-	switch v := value.(type) {
-	case nil:
-		return structpb.NewNullValue(), nil
-	case bool:
-		return structpb.NewBoolValue(v), nil
-	case int:
-		return structpb.NewNumberValue(float64(v)), nil
-	case int64:
-		return structpb.NewNumberValue(float64(v)), nil
-	case float64:
-		return structpb.NewNumberValue(v), nil
-	case string:
-		return structpb.NewStringValue(v), nil
-	case []interface{}:
-		values := make([]*structpb.Value, len(v))
-		for i, item := range v {
-			val, err := goValueToProto(item)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = val
-		}
-		return structpb.NewListValue(&structpb.ListValue{Values: values}), nil
-	case map[string]interface{}:
-		fields := make(map[string]*structpb.Value)
-		for key, val := range v {
-			protoVal, err := goValueToProto(val)
-			if err != nil {
-				return nil, err
-			}
-			fields[key] = protoVal
-		}
-		return structpb.NewStructValue(&structpb.Struct{Fields: fields}), nil
-	default:
-		return nil, fmt.Errorf("unsupported type: %T", v)
-	}
-}
-
-// getValueForPath extracts a nested value from a map using dot notation
-// e.g., "nested.value" from map{"nested": map{"value": 42}} returns 42
-// Returns (value, found) where found indicates if the path was fully traversed
-func getValueForPath(path []string, value *structpb.Struct) (*structpb.Value, bool) {
-	current := structpb.NewStructValue(value)
-
-	for _, part := range path {
-		// if current.Kind ==
-		switch v := current.Kind.(type) {
-		case *structpb.Value_StructValue:
-			var exists bool
-			current, exists = v.StructValue.Fields[part]
-			if !exists {
-				return nil, false
-			}
-		default:
-			// Can't traverse further - path not found
-			return nil, false
-		}
-	}
-
-	return current, true
-}
-
-// logResolutionErrorIfPresent logs a warning if the resolution detail contains an error
-func (p *LocalResolverProvider) logResolutionErrorIfPresent(flag string, detail openfeature.ProviderResolutionDetail) {
-	errStr := detail.ResolutionError.Error()
-	// Empty ResolutionError returns ": ", so check for meaningful error
-	if errStr != "" && errStr != ": " {
-		p.logger.Warn("Flag evaluation error", "flag", flag, "error_code", errStr)
-	}
-}
-
-// mapResolveReasonToOpenFeature converts Confidence ResolveReason to OpenFeature Reason
-func mapResolveReasonToOpenFeature(reason resolvertypes.ResolveReason) openfeature.Reason {
-	switch reason {
-	case resolvertypes.ResolveReason_RESOLVE_REASON_MATCH:
-		return openfeature.TargetingMatchReason
-	case resolvertypes.ResolveReason_RESOLVE_REASON_NO_SEGMENT_MATCH:
-		return openfeature.DefaultReason
-	case resolvertypes.ResolveReason_RESOLVE_REASON_FLAG_ARCHIVED:
-		return openfeature.DisabledReason
-	case resolvertypes.ResolveReason_RESOLVE_REASON_TARGETING_KEY_ERROR:
-		return openfeature.ErrorReason
-	case resolvertypes.ResolveReason_RESOLVE_REASON_ERROR:
-		return openfeature.ErrorReason
-	case resolvertypes.ResolveReason_RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE:
-		return openfeature.ErrorReason
-	default:
-		return openfeature.UnknownReason
-	}
 }

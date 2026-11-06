@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package confidence.flags.compiler.v1;
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/compiler";
+option java_package = "com.spotify.confidence.flags.compiler.v1";
+option java_multiple_files = true;
+
+// Encrypted artifact served at `<module-base-url>/modules/<secret-hash>.wasm.enc`.
+// Decrypted by the provider with the credential's AES-256-GCM key; the wire
+// format is `12-byte nonce || ciphertext || 16-byte tag` with empty AAD.
+message ClientModule {
+  // Raw, uncompressed WebAssembly module (the compiled client module).
+  bytes module = 1;
+
+  // Bare bearer token used when forwarding logs to the ingestion API.
+  // Opaque: never parsed, logged or cached durably. It has a lifetime and is
+  // refreshed with each wrapper.
+  string log_token = 3;
+}

@@ -5,69 +5,124 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"strconv"
+	"sync"
 	"time"
 
+	"github.com/open-feature/go-sdk/openfeature"
+	cm "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/compiled_module"
 	et "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/event_tracking"
-	fl "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/flag_logger"
-	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events"
+	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
 	resolverv1 "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
+// confidenceDomain is the Confidence edge gRPC endpoint used for the events
+// service and the remote materialization store.
 const confidenceDomain = "edge-grpc.spotify.com"
 
+// logForwarder is the delivery sink the provider hands batches to.
+type logForwarder interface {
+	Enqueue(body []byte, token string)
+	Shutdown(deadline time.Duration)
+}
+
+// ProviderConfig configures a provider hosting a compiled client module.
+//
+// Three pieces of information are required and nothing else: the client
+// secret identifying the credential, the encryption key paired with it, and
+// (optionally) the module base URL. No account identifier is configured: it
+// is not present in the artifact path, not present in the module, and not
+// needed to send logs.
 type ProviderConfig struct {
-	ClientSecret                  string
-	EncryptionKey                 string // Required: hex-encoded AES-256 key for decrypting CDN state
-	Logger                        *slog.Logger
-	TransportHooks                TransportHooks       // Optional: defaults to DefaultTransportHooks
-	MaterializationStore          MaterializationStore // Optional
-	UseRemoteMaterializationStore bool                 // set to true to use a Remote lookup for materializations. Requires that MaterializationStore is nil.
-	StatePollInterval             time.Duration        // Optional: interval for state polling, defaults to 10 seconds
-	LogPollInterval               time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
-	InitializationTimeout         time.Duration        // Optional: total startup retry budget, defaults to 30 seconds
-	ResolverPoolSize              int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
-	UseWasmInterpreter            bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
-	// EnableApplyDedup is retained for compatibility and is now redundant:
-	// apply-event dedup is on by default. Because this is a plain bool, leaving
-	// it false is indistinguishable from not setting it, so false does NOT turn
-	// dedup off — use DisableApplyDedup for that.
-	EnableApplyDedup bool
-	// DisableApplyDedup turns off apply-event deduplication, so every apply is
-	// logged even when an identical assignment was just logged. Dedup is on by
-	// default; set this only if you need the unfiltered apply stream. Takes
-	// precedence over EnableApplyDedup.
+	ClientSecret string
+	// EncryptionKey is required: the hex-encoded AES-256 key that decrypts
+	// the credential's module wrapper from the CDN.
+	EncryptionKey string
+	// ModuleBaseURL overrides the module CDN; defaults to the production
+	// host. Intended for testing.
+	ModuleBaseURL string
+	// IngestionBaseURL overrides the flag-log ingestion API base URL;
+	// defaults to the regionless host (the regional eu/us hosts can be set
+	// explicitly). Intended for testing.
+	IngestionBaseURL string
+	Logger           *slog.Logger
+	// TransportHooks allows advanced customization of gRPC and HTTP
+	// networking (optional; defaults to DefaultTransportHooks).
+	TransportHooks TransportHooks
+	// MaterializationStore provides persistent storage for materialization
+	// data (optional). Without one, resolves that need materializations
+	// report MATERIALIZATION_NOT_SUPPORTED per flag.
+	MaterializationStore MaterializationStore
+	// UseRemoteMaterializationStore looks materializations up through the
+	// Confidence remote service. Requires that MaterializationStore is nil.
+	UseRemoteMaterializationStore bool
+	// ModulePollInterval is how often a fresh module is polled for
+	// (optional; defaults to 30 seconds). The CDN caches briefly, so a
+	// published change becomes visible within about a minute.
+	ModulePollInterval time.Duration
+	// LogFlushInterval is how often buffered logs are flushed out of the
+	// module (optional; defaults to 5 seconds) so low-volume credentials
+	// stay observable.
+	LogFlushInterval time.Duration
+	// InitializationTimeout is the total startup retry budget (optional;
+	// defaults to 30 seconds). The provider keeps retrying in the
+	// background when it expires.
+	InitializationTimeout time.Duration
+	// UseWasmInterpreter runs the WASM engines (the module host and the
+	// event engine) on wazero's interpreter instead of its compiler. See the
+	// README's interpreter-mode section for the linux/arm64 signal-handling
+	// trade-offs.
+	UseWasmInterpreter bool
+	// InstancePoolSize bounds how many module instances serve concurrent
+	// evaluations (one instance per in-flight call, over the shared flag
+	// data). 0 defaults to min(GOMAXPROCS, 4), the measured p99 knee:
+	// larger pools add throughput but regress tail latency and cost
+	// roughly 3 MB resident per extra compiler instance (steady state;
+	// higher transiently under load). Raise it for peak throughput;
+	// lower it when embedding many providers per process.
+	InstancePoolSize int
+	// DisableApplyDedup turns off apply-event deduplication, so every apply
+	// is logged even when an identical assignment was just logged. Dedup is
+	// on by default; use this only if you need the unfiltered apply stream.
 	DisableApplyDedup bool
-	// DisableExposureCollection disables exposure/assignment collection for all
-	// OpenFeature evaluations through this provider. Use only for exceptional
-	// no-exposure modes; resolve logs and telemetry are still sent.
+	// DisableExposureCollection disables exposure/assignment collection for
+	// all OpenFeature evaluations through this provider. Use only for
+	// exceptional no-exposure modes; resolve logs and telemetry are still
+	// sent.
 	DisableExposureCollection bool
 }
 
+// ProviderTestConfig configures a provider against test doubles: the module
+// is provided directly instead of being fetched, and log delivery is
+// observable through a sink.
 type ProviderTestConfig struct {
-	StateProvider         StateProvider
-	FlagLogger            FlagLogger
-	ClientSecret          string
-	Logger                *slog.Logger
-	MaterializationStore  MaterializationStore // Optional
-	StatePollInterval     time.Duration        // Optional: interval for state polling, defaults to 10 seconds
-	LogPollInterval       time.Duration        // Optional: interval for log flushing, defaults to 60 seconds
-	InitializationTimeout time.Duration        // Optional: total startup retry budget, defaults to 30 seconds
-	ResolverPoolSize      int                  // Optional: number of WASM resolver instances in the pool, defaults to 2
-	UseWasmInterpreter    bool                 // Optional: wazero interpreter instead of JIT — see provider README; default false
-	// DisableApplyDedup turns off apply-event deduplication. Dedup is on by
-	// default here too, so a test provider behaves like a real one; set this
-	// when a test needs to observe every apply rather than the deduped stream.
-	DisableApplyDedup bool
-	// DisableExposureCollection disables exposure/assignment collection for all
-	// OpenFeature evaluations through this provider. Use only for exceptional
-	// no-exposure modes; resolve logs and telemetry are still sent.
+	// ClientSecret the module under test accepts.
+	ClientSecret string
+	// Module is the compiled client module to host.
+	Module []byte
+	// LogToken the wrapper would carry (captured with each batch).
+	LogToken string
+	// LogSink, when set, receives every batch with its token instead of
+	// HTTP delivery (optional).
+	LogSink func(body []byte, token string)
+	// IngestionBaseURL for log delivery when no LogSink is set (optional).
+	IngestionBaseURL          string
+	Logger                    *slog.Logger
+	MaterializationStore      MaterializationStore
+	ModulePollInterval        time.Duration
+	LogFlushInterval          time.Duration
+	InitializationTimeout     time.Duration
+	DisableApplyDedup         bool
 	DisableExposureCollection bool
+	// Seed pins the module's per-instance random seed, making variant
+	// bucketing deterministic (optional).
+	Seed *int64
 }
 
+// NewProvider creates a provider hosting the credential's compiled client
+// module. The provider is NOT_READY until Init loads the first module.
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
 	if err := validateEncryptionKey(config.EncryptionKey); err != nil {
 		return nil, err
@@ -75,130 +130,209 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	if config.ClientSecret == "" {
 		return nil, fmt.Errorf("ClientSecret is required")
 	}
+	if config.UseRemoteMaterializationStore && config.MaterializationStore != nil {
+		return nil, fmt.Errorf("UseRemoteMaterializationStore requires MaterializationStore to be nil")
+	}
 
 	logger := config.Logger
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+		logger = defaultLogger()
 	}
 
-	// Create gRPC connection for flag logger
 	hooks := config.TransportHooks
 	if hooks == nil {
 		hooks = DefaultTransportHooks
 	}
 
-	tlsCreds := credentials.NewTLS(nil)
-	baseOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(tlsCreds),
-	}
-
-	target, opts := hooks.ModifyGRPCDial(confidenceDomain, baseOpts)
-	conn, err := grpc.NewClient(target, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create connection: %w", err)
-	}
-
-	// Create state provider and flag logger
-	flagLoggerService := resolverv1.NewInternalFlagLoggerServiceClient(conn)
-	// Build HTTP transport using hooks and pass into state fetcher
+	// One HTTP transport serves module fetch and log delivery, wrapped by
+	// the configured hooks.
 	transport := hooks.WrapHTTP(http.DefaultTransport)
-	stateProvider, err := NewFlagsAdminStateFetcherWithEncryption(config.ClientSecret, config.EncryptionKey, logger, transport)
+	fetchClient := &http.Client{Timeout: 30 * time.Second, Transport: transport}
+
+	fetcher, err := NewModuleFetcher(config.ClientSecret, config.EncryptionKey, config.ModuleBaseURL, logger, fetchClient)
 	if err != nil {
 		return nil, err
 	}
-	flagLogger := fl.NewMultiDestinationFlagLogger(
-		flagLoggerService,
-		config.ClientSecret,
-		stateProvider.GetLogDestinations,
-		stateProvider.GetAccountID,
-		logger,
-	)
-	materializationStore := config.MaterializationStore
-	if materializationStore == nil {
-		materializationStore = newUnsupportedMaterializationStore()
-	}
+	forwarder := NewLogForwarder(LogForwarderConfig{
+		BaseURL:    config.IngestionBaseURL,
+		Logger:     logger,
+		HTTPClient: &http.Client{Timeout: logForwardHTTPTimeout, Transport: transport},
+	})
+
+	provider := newLocalResolverProvider(config.ClientSecret, logger, providerOptions{
+		modulePollInterval:        config.ModulePollInterval,
+		logFlushInterval:          config.LogFlushInterval,
+		initializationTimeout:     config.InitializationTimeout,
+		disableApplyDedup:         config.DisableApplyDedup,
+		disableExposureCollection: config.DisableExposureCollection,
+	})
+	provider.fetcher = fetcher
+	provider.forwarder = forwarder
+	provider.useInterpreter = config.UseWasmInterpreter
+	provider.instancePoolSize = config.InstancePoolSize
+
 	if config.UseRemoteMaterializationStore {
-		materializationStore = newRemoteMaterializationStore(resolverv1.NewInternalFlagLoggerServiceClient(conn), config.ClientSecret)
+		conn, err := grpc.NewClient(confidenceDomain, grpc.WithTransportCredentials(credentials.NewTLS(nil)))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create materialization channel: %w", err)
+		}
+		provider.matStore = newRemoteMaterializationStore(resolverv1.NewInternalFlagLoggerServiceClient(conn), config.ClientSecret)
+	} else if config.MaterializationStore != nil {
+		provider.matStore = config.MaterializationStore
 	}
 
-	initLabels := map[string]string{
-		"encryption": strconv.FormatBool(config.EncryptionKey != ""),
-	}
-	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
-	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection)
-	providerOpts = append(providerOpts,
-		WithEventTracking(et.EventEngineWasm),
-		WithUseWasmInterpreter(config.UseWasmInterpreter),
-	)
-	provider := newLocalResolverProvider(resolverSupplierWithMaterialization, stateProvider, flagLogger, config.ClientSecret, logger, providerOpts...)
+	provider.initEventTracking(et.EventEngineWasm, config.UseWasmInterpreter)
 	return provider, nil
 }
 
-// newProviderForTest creates a provider with mocked StateProvider and FlagLogger for testing
+// newProviderForTest creates a provider hosting the given module directly.
+// Log batches go to the sink when one is configured, otherwise to a
+// forwarder pointed at the given ingestion URL.
 func newProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalResolverProvider, error) {
-	if config.StateProvider == nil {
-		return nil, fmt.Errorf("StateProvider is required")
+	if len(config.Module) == 0 {
+		return nil, fmt.Errorf("Module is required")
 	}
-	if config.FlagLogger == nil {
-		return nil, fmt.Errorf("FlagLogger is required")
-	}
-
 	logger := config.Logger
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+		logger = defaultLogger()
 	}
 
-	materializationStore := config.MaterializationStore
-	if materializationStore == nil {
-		materializationStore = newUnsupportedMaterializationStore()
-	}
-	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, nil)
-	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection)
-	provider := newLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
+	provider := newLocalResolverProvider(config.ClientSecret, logger, providerOptions{
+		modulePollInterval:        config.ModulePollInterval,
+		logFlushInterval:          config.LogFlushInterval,
+		initializationTimeout:     config.InitializationTimeout,
+		disableApplyDedup:         config.DisableApplyDedup,
+		disableExposureCollection: config.DisableExposureCollection,
+	})
+	provider.fetcher = &staticModuleFetcher{module: config.Module, token: config.LogToken}
 
+	if config.LogSink != nil {
+		provider.forwarder = &sinkForwarder{sink: config.LogSink}
+	} else {
+		provider.forwarder = NewLogForwarder(LogForwarderConfig{
+			BaseURL: config.IngestionBaseURL,
+			Logger:  logger,
+		})
+	}
+	if config.MaterializationStore != nil {
+		provider.matStore = config.MaterializationStore
+	}
+	if config.Seed != nil {
+		seed := *config.Seed
+		provider.seedFn = func() int64 { return seed }
+	}
 	return provider, nil
 }
 
-func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels map[string]string) func(context.Context, lr.LogSink) lr.LocalResolver {
-	cfg := lr.LocalResolverConfig{
-		PoolSize:           poolSize,
-		UseWasmInterpreter: useWasmInterpreter,
+// providerOptions are the constructor-level knobs shared by NewProvider and
+// newProviderForTest.
+type providerOptions struct {
+	modulePollInterval        time.Duration
+	logFlushInterval          time.Duration
+	initializationTimeout     time.Duration
+	disableApplyDedup         bool
+	disableExposureCollection bool
+}
+
+func newLocalResolverProvider(clientSecret string, logger *slog.Logger, opts providerOptions) *LocalResolverProvider {
+	modulePollInterval := opts.modulePollInterval
+	if modulePollInterval <= 0 {
+		modulePollInterval = defaultModulePollIntervalSeconds * time.Second
 	}
-	return func(ctx context.Context, logSink lr.LogSink) lr.LocalResolver {
-		return newProviderTelemetryResolver(
-			logSink,
-			initLabels,
-			func(providerLogSink lr.LogSink) lr.LocalResolver {
-				return lr.NewLocalResolver(ctx, providerLogSink, cfg)
-			},
-		)
+	logFlushInterval := opts.logFlushInterval
+	if logFlushInterval <= 0 {
+		logFlushInterval = defaultLogFlushInterval
+	}
+	initializationTimeout := opts.initializationTimeout
+	if initializationTimeout <= 0 {
+		initializationTimeout = defaultInitializationTimeout
+	}
+
+	return &LocalResolverProvider{
+		clientSecret:              clientSecret,
+		logger:                    logger,
+		modulePollInterval:        modulePollInterval,
+		logFlushInterval:          logFlushInterval,
+		initializationTimeout:     initializationTimeout,
+		initialRetryInterval:      initialModuleRetryInterval,
+		lifecycleEvents:           make(chan openfeature.Event, 2),
+		applyFilter:               cm.NewSeenFilter(opts.disableApplyDedup, 8),
+		schemaFilter:              cm.NewSeenFilter(false, 2),
+		disableExposureCollection: opts.disableExposureCollection,
+		clientSDK:                 clientSDKIdentifier(),
 	}
 }
 
-// buildProviderOptions creates options slice from provider config
-func buildProviderOptions(statePollInterval, logPollInterval, initializationTimeout time.Duration, disableApplyDedup, disableExposureCollection bool) []Option {
-	var opts []Option
-	if statePollInterval > 0 {
-		opts = append(opts, WithStatePollInterval(statePollInterval))
+// clientSDKIdentifier names this provider to the module and telemetry: the
+// provider's name and version ride on every resolve request.
+func clientSDKIdentifier() *resolvertypes.Sdk {
+	return &resolvertypes.Sdk{
+		Sdk:     &resolvertypes.Sdk_CustomId{CustomId: "confidence-sdk-go-local"},
+		Version: Version,
 	}
-	if logPollInterval > 0 {
-		opts = append(opts, WithLogPollInterval(logPollInterval))
-	}
-	if initializationTimeout > 0 {
-		opts = append(opts, WithInitializationTimeout(initializationTimeout))
-	}
-	// Dedup is on by default, so only an explicit opt-out needs an option here.
-	if disableApplyDedup {
-		opts = append(opts, WithDisableApplyDedup())
-	}
-	if disableExposureCollection {
-		opts = append(opts, WithDisableExposureCollection())
-	}
-	return opts
 }
+
+// initEventTracking enables the optional event engine (OpenFeature Track API).
+// Failures disable event tracking but never fail provider construction.
+func (p *LocalResolverProvider) initEventTracking(eventWasmBytes []byte, useInterpreter bool) {
+	if len(eventWasmBytes) == 0 {
+		return
+	}
+	eventTracker, err := et.NewEventTracker(eventWasmBytes, useInterpreter)
+	if err != nil {
+		p.logger.Error("Failed to initialize event tracker, event tracking disabled", "error", err)
+		return
+	}
+	p.eventTracker = eventTracker
+	conn, err := grpc.NewClient(
+		eventsGrpcTarget,
+		grpc.WithTransportCredentials(credentials.NewTLS(nil)),
+		grpc.WithDefaultServiceConfig(eventsRetryServiceConfig),
+	)
+	if err != nil {
+		p.logger.Error("Failed to create events service channel, event publishing disabled", "error", err)
+		if err := eventTracker.Close(); err != nil {
+			p.logger.Warn("Failed to close event tracker", "error", err)
+		}
+		return
+	}
+	p.eventsConn = conn
+	p.eventsClient = events.NewEventsServiceClient(conn)
+	p.logger.Info("Event tracking enabled")
+}
+
+// staticModuleFetcher serves one fixed artifact, so Init installs it
+// immediately. Replace swaps the artifact to simulate a refresh.
+type staticModuleFetcher struct {
+	mu     sync.Mutex
+	module []byte
+	token  string
+}
+
+func (f *staticModuleFetcher) Fetch(ctx context.Context) (*FetchedModule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.module) == 0 {
+		return nil, &moduleNotPublishedError{fmt.Errorf("no module installed")}
+	}
+	return &FetchedModule{Module: f.module, LogToken: f.token}, nil
+}
+
+// Replace swaps the artifact the static fetcher serves (and its token).
+func (f *staticModuleFetcher) Replace(module []byte, token string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.module = module
+	f.token = token
+}
+
+// sinkForwarder routes batches straight to a test sink.
+type sinkForwarder struct {
+	sink func(body []byte, token string)
+}
+
+func (f *sinkForwarder) Enqueue(body []byte, token string) {
+	f.sink(body, token)
+}
+
+func (f *sinkForwarder) Shutdown(deadline time.Duration) {}

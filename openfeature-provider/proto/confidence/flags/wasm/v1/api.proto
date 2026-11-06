@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package confidence.flags.wasm.v1;
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/flagswasm";
+option java_package = "com.spotify.confidence.flags.wasm.v1";
+option java_multiple_files = true;
+
+import "confidence/flags/resolver/v1/types.proto";
+import "confidence/flags/resolver/v1/api.proto";
+import "confidence/flags/types/v1/types.proto";
+import "google/protobuf/struct.proto";
+
+// WASM resolve process API — suspend/resume protocol for materialization.
+
+message ResolveProcessResponse {
+  oneof result {
+    Resolved resolved = 1;
+    SuspendedResolveProcess suspended = 2;
+    ResolveError error = 3;
+  }
+
+  message Resolved {
+    confidence.flags.resolver.v1.ResolveFlagsResponse response = 1;
+    repeated Materialization.Record materialization_to_write = 2;
+    // The client the request authenticated as, handed to the module's
+    // observe_client_resolve_latency export. Zero when the module does not
+    // report one.
+    int32 client_index = 3;
+  }
+}
+
+// Rejection of a resolve request. Code follows gRPC status values
+// (3 = INVALID_ARGUMENT, 16 = UNAUTHENTICATED).
+message ResolveError {
+  int32 code = 1;
+  string message = 2;
+}
+
+message SuspendedResolveProcess {
+  uint32 process_id = 1;
+  repeated Materialization.Record materialization_to_read = 2;
+}
+
+message Materialization {
+  repeated Record records = 1;
+
+  message Record {
+    string unit = 1;
+    string materialization = 2;
+    string rule = 3;
+    string variant = 4;
+  }
+}
+
+// WASM evaluate API — provider host interface.
+
+message EvaluateRequest {
+  string flag_key = 1;
+  google.protobuf.Value default_value = 2;
+  confidence.flags.types.v1.FlagSchema expected_schema = 3;
+}
+
+message ResolutionDetails {
+  google.protobuf.Value value = 1;
+  string variant = 2;
+  confidence.flags.resolver.v1.ResolveReason reason = 3;
+  ErrorCode error_code = 4;
+  string error_message = 5;
+  bool should_apply = 6;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_PROVIDER_NOT_READY = 1;
+  ERROR_CODE_PROVIDER_FATAL = 2;
+  ERROR_CODE_FLAG_NOT_FOUND = 3;
+  ERROR_CODE_TYPE_MISMATCH = 4;
+  ERROR_CODE_GENERAL = 5;
+  ERROR_CODE_CYCLE_DETECTED = 6;
+}
+
+// WASM logging — packed-slice encoding for passing log bytes out of WASM.
+
+message WriteLogsPayload {
+  repeated fixed64 parts = 1;
+  // Compile-time value echoed verbatim from the module; empty when unset.
+  // The host forwards it with the batch when present, so log delivery can
+  // route to the destination the module was compiled for.
+  string log_token = 2;
+}

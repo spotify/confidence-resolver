@@ -582,15 +582,16 @@ mod tests {
 
     #[tokio::test]
     async fn retries_on_network_error() {
-        // Stop the server so requests fail at the transport layer.
-        let server = MockServer::start().await;
-        let uri = server.uri();
-        drop(server);
-
+        // Port 1 is outside the ephemeral range, so nothing can bind it and
+        // requests fail at the transport layer deterministically. Dropping a
+        // real MockServer instead races its freed ephemeral port being
+        // re-bound by another test's server: the "unreachable" endpoint then
+        // answers, and this test's retries pollute the other server's
+        // request counts.
         let sender = test_sender();
         let result = sender
             .send_with_retry(
-                &format!("{}{}", uri, TEST_PATH),
+                &format!("http://127.0.0.1:1{}", TEST_PATH),
                 b"test-payload".to_vec(),
                 "application/x-protobuf",
                 LogDestination::Edge,

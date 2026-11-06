@@ -7,8 +7,6 @@ import (
 	"time"
 
 	pb "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolverinternal"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
-	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -222,108 +220,6 @@ func TestRemoteMaterializationStore_Write_ContextTimeout(t *testing.T) {
 	err := store.Write(context.Background(), writeOps)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
-	}
-}
-
-// TestRemoteMaterializationStore_ErrorPropagation_InProvider tests that errors from
-// the remote materialization store are properly propagated through the provider
-func TestRemoteMaterializationStore_ErrorPropagation_InProvider(t *testing.T) {
-	// Create a mock client that returns an error on read
-	mockClient := &mockInternalFlagLoggerServiceClient{
-		readMaterializedOperationsFunc: func(ctx context.Context, req *pb.ReadOperationsRequest) (*pb.ReadOperationsResult, error) {
-			return nil, status.Error(codes.Unavailable, "service unavailable")
-		},
-	}
-
-	// Create remote store
-	remoteStore := newRemoteMaterializationStore(mockClient, "test-secret")
-
-	// Create mocked resolver that returns Suspended needing materializations
-	mockedResolver := &tu.MockedLocalResolver{
-		Response: &wasm.ResolveProcessResponse{
-			Result: &wasm.ResolveProcessResponse_Suspended_{
-				Suspended: &wasm.ResolveProcessResponse_Suspended{
-					MaterializationsToRead: []*wasm.MaterializationRecord{
-						{
-							Unit:            "test-user-123",
-							Materialization: "experiment_v1",
-							Rule:            "flags/sticky-test-flag/rules/sticky-rule",
-						},
-					},
-					State: []byte{1, 2, 3},
-				},
-			},
-		},
-	}
-
-	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
-
-	materializationResolver := newMaterializationSupportedResolver(remoteStore, mockedResolver)
-
-	// The error from the remote store should be propagated
-	_, err := materializationResolver.ResolveProcess(request)
-	if err == nil {
-		t.Fatal("expected error to be propagated, got nil")
-	}
-
-	// Verify the error message contains information about the remote failure
-	expectedErrMsg := "failed to read materializations: failed to read materialized operations: rpc error: code = Unavailable desc = service unavailable"
-	if err.Error() != expectedErrMsg {
-		t.Errorf("expected error message %q, got %q", expectedErrMsg, err.Error())
-	}
-}
-
-// TestRemoteMaterializationStore_WriteErrorDoesNotBlock tests that write errors
-// don't block resolution (since writes are async)
-func TestRemoteMaterializationStore_WriteErrorDoesNotBlock(t *testing.T) {
-	writeCallCount := 0
-	mockClient := &mockInternalFlagLoggerServiceClient{
-		writeMaterializedOperationsFunc: func(ctx context.Context, req *pb.WriteOperationsRequest) (*pb.WriteOperationsResult, error) {
-			writeCallCount++
-			// Return an error
-			return nil, status.Error(codes.Internal, "internal error")
-		},
-	}
-
-	remoteStore := newRemoteMaterializationStore(mockClient, "test-secret")
-
-	mockedResolver := &tu.MockedLocalResolver{
-		Response: &wasm.ResolveProcessResponse{
-			Result: &wasm.ResolveProcessResponse_Resolved_{
-				Resolved: &wasm.ResolveProcessResponse_Resolved{
-					Response: tu.CreateTutorialFeatureResponse(),
-					MaterializationsToWrite: []*wasm.MaterializationRecord{
-						{
-							Materialization: "experiment_v1",
-							Unit:            "test-user-123",
-							Rule:            "flags/sticky-test-flag/rules/sticky-rule",
-							Variant:         "flags/sticky-test-flag/variants/on",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	request := tu.CreateResolveProcessRequest(tu.CreateTutorialFeatureRequest())
-
-	materializationResolver := newMaterializationSupportedResolver(remoteStore, mockedResolver)
-
-	// Resolution should succeed even though write will fail
-	response, err := materializationResolver.ResolveProcess(request)
-	if err != nil {
-		t.Fatalf("expected no error (write is async), got %v", err)
-	}
-	if response == nil {
-		t.Fatal("expected non-nil response")
-	}
-
-	// Wait for async write to complete
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify write was attempted (even though it failed)
-	if writeCallCount != 1 {
-		t.Errorf("expected 1 write attempt, got %d", writeCallCount)
 	}
 }
 

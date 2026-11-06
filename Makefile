@@ -3,7 +3,6 @@
 
 TARGET_WASM := target/wasm32-unknown-unknown/wasm/rust_guest.wasm
 TARGET_EVENT_WASM := target/wasm32-unknown-unknown/wasm/event_guest.wasm
-GO_WASM := openfeature-provider/go/confidence/internal/local_resolver/assets
 GO_EVENT_WASM := openfeature-provider/go/confidence/internal/event_tracking/assets
 
 .PHONY: $(TARGET_WASM) $(TARGET_EVENT_WASM) test lint build all clean
@@ -23,17 +22,6 @@ wasm/confidence_event_engine.wasm: $(TARGET_EVENT_WASM)
 	@mkdir -p wasm
 	@cp -p $(TARGET_EVENT_WASM) $@
 	@echo "Event WASM size: $$(ls -lh $@ | awk '{print $$5}')"
-
-# Sync WASM to Go provider using Docker to ensure correct toolchain
-.PHONY: sync-wasm-go
-sync-wasm-go:
-	@echo "Building WASM with Docker to ensure correct dependencies..."
-	@docker build --platform linux/arm64 --target wasm-rust-guest.artifact --output type=local,dest=$(GO_WASM) .
-	@echo "✅ WASM synced to $(GO_WASM)/"
-	@echo ""
-	@echo "Don't forget to commit the change:"
-	@echo "  git add $(GO_WASM)/confidence_resolver.wasm"
-	@echo "  git commit -m 'chore: sync WASM module for Go provider'"
 
 # Sync event engine WASM to Go provider using Docker to ensure correct toolchain
 .PHONY: sync-wasm-event-go

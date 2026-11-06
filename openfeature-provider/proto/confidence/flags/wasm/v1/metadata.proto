@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package confidence.flags.wasm.v1;
+
+option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/flagswasm";
+option java_package = "com.spotify.confidence.flags.wasm.v1";
+option java_multiple_files = true;
+
+// Encoded as the payload of the confidence.metadata WASM custom section.
+// Routing metadata only: it does not change executable code or the data segment.
+message ResolverMetadata {
+  // Currently 1. Readers must reject unsupported versions.
+  uint32 schema_version = 1;
+  // state-to-wasm Maven project version. Diagnostic, not an ABI guarantee.
+  // Snapshot builds may share a version. No compilation timestamp is included.
+  string compiler_version = 2;
+  // Full Git commit of the compiler build, not the process invoking it.
+  // Empty for dirty builds or when reliable Git information is unavailable.
+  string compiler_git_sha = 3;
+  // Each entry is SHA-256 of the UTF-8 bytes of an original client secret.
+  // Unique entries, sorted lexicographically by unsigned digest bytes.
+  // These hashes are routing keys, never credentials accepted by the runtime.
+  repeated bytes client_secret_sha256 = 4;
+  // Lowercase hexadecimal MD5 of the original serialized ResolverState blob.
+  // Compatible with the MD5 metadata on resolver state objects in GCS. Absent
+  // when neither the original bytes nor an externally computed fingerprint is available.
+  optional string state_file_hash = 5;
+}

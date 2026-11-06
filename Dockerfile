@@ -497,42 +497,6 @@ COPY openfeature-provider/go/confidence/ ./confidence/
 ENV IN_DOCKER_BUILD=1
 
 # ==============================================================================
-# Validate WASM sync for Go Provider
-# ==============================================================================
-FROM alpine:3.22 AS openfeature-provider-go.validate-wasm
-
-# Install diffutils for cmp command
-RUN apk add --no-cache diffutils
-
-# Copy built WASM from artifact
-COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm /built/confidence_resolver.wasm
-
-# Copy committed WASM from source
-COPY openfeature-provider/go/confidence/internal/local_resolver/assets/confidence_resolver.wasm /committed/confidence_resolver.wasm
-
-# Compare files
-RUN set -e; \
-    echo "Validating WASM sync for Go provider..."; \
-    if ! cmp -s /built/confidence_resolver.wasm /committed/confidence_resolver.wasm; then \
-      echo ""; \
-      echo "❌ ERROR: WASM files are out of sync!"; \
-      echo ""; \
-      echo "The WASM file in openfeature-provider/go/confidence/wasm/ doesn't match the built version."; \
-      echo ""; \
-      echo "To fix (using Docker to ensure correct dependencies):"; \
-      echo "  docker build --target wasm-rust-guest.artifact --output type=local,dest=. ."; \
-      echo "  cp confidence_resolver.wasm openfeature-provider/go/confidence/wasm/"; \
-      echo "  git add openfeature-provider/go/confidence/wasm/confidence_resolver.wasm"; \
-      echo "  git commit -m 'chore: sync WASM module for Go provider'"; \
-      echo ""; \
-      echo "Or use the Makefile target:"; \
-      echo "  make sync-wasm-go"; \
-      echo ""; \
-      exit 1; \
-    fi; \
-    echo "✅ WASM files are in sync"
-
-# ==============================================================================
 # Validate committed event engine WASM matches a fresh build (Go go:embed)
 # ==============================================================================
 FROM alpine:3.22 AS openfeature-provider-go.validate-event-wasm
@@ -894,7 +858,6 @@ COPY --from=openfeature-provider-rust.test /workspace/Cargo.toml /markers/test-o
 COPY --from=openfeature-provider-rust.test_e2e /workspace/Cargo.toml /markers/test-openfeature-rust-e2e
 
 # Force validation stages to run
-COPY --from=openfeature-provider-go.validate-wasm /built/confidence_resolver.wasm /markers/validate-wasm-go
 COPY --from=openfeature-provider-go.validate-event-wasm /built/confidence_event_engine.wasm /markers/validate-event-wasm-go
 
 # Force lint stages to run by copying marker files

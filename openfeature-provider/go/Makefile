@@ -1,25 +1,15 @@
 # openfeature-provider/go Makefile
-# Go OpenFeature local provider
+# Go OpenFeature local provider hosting compiled client modules
 
 ROOT := $(realpath $(CURDIR)/../..)
 
 # Stamps and directories
 BUILD_STAMP := .build.stamp
-WASM_ARTIFACT := $(ROOT)/wasm/confidence_resolver.wasm
 
 # Source files
 GO_SRC := $(shell find confidence -name '*.go')
 
 .PHONY: install build test lint clean proto
-
-# Always build wasm if not in docker
-ifneq ($(IN_DOCKER_BUILD),1)
-.PHONY: build-wasm
-build-wasm:
-	@$(MAKE) -C $(ROOT) wasm/confidence_resolver.wasm
-	@cp $(WASM_ARTIFACT) confidence/internal/local_resolver/assets/
-$(BUILD_STAMP): | build-wasm
-endif
 
 # Install Go dependencies
 install:
