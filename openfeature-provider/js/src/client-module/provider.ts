@@ -31,7 +31,6 @@ import { TrackEventRequest, FlushEventsResponse } from '../proto/confidence/even
 import { SdkId as EventsSdkId, EventError_Reason } from '../proto/confidence/events/v1/types';
 import { PublishEventsRequest, PublishEventsResponse } from '../proto/confidence/events/v1/api';
 import { DEFAULT_MODULE_BASE_URL, DEFAULT_MODULE_UPDATE_INTERVAL, ModuleClient } from './module-client';
-export { DEFAULT_MODULE_UPDATE_INTERVAL } from './module-client';
 import {
   DEFAULT_INGESTION_BASE_URL,
   ModuleRuntime,
