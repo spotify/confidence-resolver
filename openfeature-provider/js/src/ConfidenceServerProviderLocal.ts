@@ -11,4 +11,4 @@ export {
   NOT_READY_MODULE_INTERVAL,
 } from './client-module/provider';
 export type { ProviderOptions, ProviderResolutionDetails, SnapshotConfig } from './client-module/provider';
-export { validateEncryptionKey } from './crypto';
+export { validateEncryptionKey } from './util';

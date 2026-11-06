@@ -6,32 +6,30 @@ import { OpenFeature } from '@openfeature/server-sdk';
 import type { Provider, EvaluationContext } from '@openfeature/server-sdk';
 import React from 'react';
 import { ConfidenceProvider } from './server';
-import type { ConfidenceBundleProvider } from '../provider-contract';
+import type { ConfidenceServerProviderLocal } from '../ConfidenceServerProviderLocal';
 
-// Mock provider implementing the Confidence bundle API contract
+// Mock provider that matches ConfidenceServerProviderLocal's metadata
 function createMockConfidenceProvider(
-  overrides: Partial<ConfidenceBundleProvider> = {},
-  name = 'ConfidenceServerProviderLocal',
-): ConfidenceBundleProvider {
+  overrides: Partial<ConfidenceServerProviderLocal> = {},
+): ConfidenceServerProviderLocal {
   return {
-    metadata: { name },
+    metadata: { name: 'ConfidenceServerProviderLocal' },
     resolve: vi.fn().mockResolvedValue({
       flags: { 'test-flag': { value: true, reason: 'MATCH' } },
       resolveToken: 'test-token',
       resolveId: 'test-resolve-id',
     }),
     applyFlag: vi.fn(),
-    evaluate: vi.fn(),
     rulesOfHooks: 'once',
     resolveBooleanEvaluation: vi.fn(),
     resolveStringEvaluation: vi.fn(),
     resolveNumberEvaluation: vi.fn(),
     resolveObjectEvaluation: vi.fn(),
     ...overrides,
-  } as unknown as ConfidenceBundleProvider;
+  } as unknown as ConfidenceServerProviderLocal;
 }
 
-// Mock provider that does NOT implement the Confidence bundle API
+// Mock provider that is NOT ConfidenceServerProviderLocal
 function createMockOtherProvider(): Provider {
   return {
     metadata: { name: 'SomeOtherProvider' },
@@ -54,7 +52,7 @@ describe('ConfidenceProvider', () => {
   });
 
   describe('provider validation', () => {
-    it('warns and returns children when default provider does not implement the bundle API', async () => {
+    it('warns and returns children when default provider is not ConfidenceServerProviderLocal', async () => {
       const otherProvider = createMockOtherProvider();
       await OpenFeature.setProviderAndWait(otherProvider);
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -66,13 +64,13 @@ describe('ConfidenceProvider', () => {
       });
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ConfidenceProvider requires a Confidence provider'),
+        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
       );
       expect(result).toBeDefined();
       warnSpy.mockRestore();
     });
 
-    it('warns and returns children when named provider does not implement the bundle API', async () => {
+    it('warns and returns children when named provider is not ConfidenceServerProviderLocal', async () => {
       const otherProvider = createMockOtherProvider();
       await OpenFeature.setProviderAndWait('my-provider', otherProvider);
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -84,7 +82,7 @@ describe('ConfidenceProvider', () => {
       });
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ConfidenceProvider requires a Confidence provider'),
+        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
       );
       expect(result).toBeDefined();
       warnSpy.mockRestore();
@@ -99,47 +97,23 @@ describe('ConfidenceProvider', () => {
       });
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ConfidenceProvider requires a Confidence provider'),
+        expect.stringContaining('ConfidenceProvider requires a ConfidenceServerProviderLocal'),
       );
       expect(result).toBeDefined();
       warnSpy.mockRestore();
     });
 
-    it('accepts any provider implementing the bundle API, regardless of name', async () => {
-      const mockProvider = createMockConfidenceProvider({}, 'MyCustomConfidenceProvider');
+    it('identifies provider by metadata.name, not instanceof', async () => {
+      const mockProvider = createMockConfidenceProvider();
       await OpenFeature.setProviderAndWait(mockProvider);
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+      // Should not throw - provider is identified by metadata name
       const result = await ConfidenceProvider({
         context: { targetingKey: 'user-123' },
         children: <div>Test</div>,
       });
 
-      // No warning, and the bundle API was used
-      expect(warnSpy).not.toHaveBeenCalled();
-      expect(mockProvider.resolve).toHaveBeenCalled();
       expect(result).toBeDefined();
-      warnSpy.mockRestore();
-    });
-
-    it('rejects a provider by structure even when named like a Confidence provider', async () => {
-      const fakeProvider = {
-        metadata: { name: 'ConfidenceServerProviderLocal' },
-        resolveBooleanEvaluation: vi.fn(),
-      } as unknown as Provider;
-      await OpenFeature.setProviderAndWait(fakeProvider);
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-      const result = await ConfidenceProvider({
-        context: { targetingKey: 'user-123' },
-        children: <div>Test</div>,
-      });
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ConfidenceProvider requires a Confidence provider'),
-      );
-      expect(result).toBeDefined();
-      warnSpy.mockRestore();
     });
   });
 

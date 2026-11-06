@@ -68,8 +68,6 @@ describe('applyHandler', () => {
     // Register a real-shaped provider so the 503 branch doesn't shortcut.
     OpenFeature.setProvider({
       metadata: { name: 'ConfidenceServerProviderLocal' },
-      resolve: vi.fn(),
-      evaluate: vi.fn(),
       applyFlag: vi.fn(),
     } as never);
     const handler = applyHandler();
@@ -82,8 +80,6 @@ describe('applyHandler', () => {
     const applyFlag = vi.fn();
     OpenFeature.setProvider({
       metadata: { name: 'ConfidenceServerProviderLocal' },
-      resolve: vi.fn(),
-      evaluate: vi.fn(),
       applyFlag,
     } as never);
     const sealed = sealResolveToken(''); // FlagBundle.error() ships resolveToken: ''
@@ -98,8 +94,6 @@ describe('applyHandler', () => {
     const applyFlag = vi.fn();
     OpenFeature.setProvider({
       metadata: { name: 'ConfidenceServerProviderLocal' },
-      resolve: vi.fn(),
-      evaluate: vi.fn(),
       applyFlag,
     } as never);
     const sealed = sealResolveToken('the-real-token');

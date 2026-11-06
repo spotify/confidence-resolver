@@ -15,8 +15,14 @@ import { ResolveReason } from '../proto/confidence/flags/resolver/v1/types';
 import { ErrorCode, type ResolutionDetails as LegacyResolutionDetails } from '../types';
 import { VERSION } from '../version';
 import { ProviderEvents } from '../ProviderEvents';
-import { abortableSleep, castStringToEnum, scheduleWithFixedInterval, timeoutSignal, TimeUnit } from '../util';
-import { validateEncryptionKey } from '../crypto';
+import {
+  abortableSleep,
+  castStringToEnum,
+  scheduleWithFixedInterval,
+  timeoutSignal,
+  TimeUnit,
+  validateEncryptionKey,
+} from '../util';
 import { ConfidenceRemoteMaterializationStore, type MaterializationStore } from '../materialization';
 import FlagBundleDefault, * as FlagBundleModule from '../flag-bundle';
 import { Fetch, withLogging, withRetry, withRouter, withTimeout } from '../fetch';

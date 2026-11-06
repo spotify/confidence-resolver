@@ -1,18 +1,17 @@
 import { OpenFeature } from '@openfeature/server-sdk';
-import { isConfidenceProvider } from '../provider-contract';
 import type { ConfidenceProvider } from './types';
 
+const PROVIDER_NAME = 'ConfidenceServerProviderLocal';
+
 /**
- * Resolves the OpenFeature provider and narrows it to a Confidence provider
- * (by structure: `resolve`, `applyFlag`, `evaluate` — the state-based
- * ConfidenceServerProviderLocal or the module-based ConfidenceModuleProvider).
- * Returns `null` if the registered provider does not implement the Confidence
- * bundle API — the user is expected to register one (typically in
- * `instrumentation.ts`).
+ * Resolves the OpenFeature provider and narrows it to a Confidence provider.
+ * Returns `null` if the registered provider is not a `ConfidenceServerProviderLocal`
+ * — the user is expected to register one (typically in `instrumentation.ts`).
  *
- * Mirrors the App Router integration's provider check.
+ * Mirrors `isConfidenceServerProviderLocal` from the App Router integration.
  */
 export function getConfidenceProvider(providerName?: string): ConfidenceProvider | null {
   const provider = providerName ? OpenFeature.getProvider(providerName) : OpenFeature.getProvider();
-  return isConfidenceProvider(provider) ? provider : null;
+  if (provider?.metadata?.name !== PROVIDER_NAME) return null;
+  return provider as ConfidenceProvider;
 }
