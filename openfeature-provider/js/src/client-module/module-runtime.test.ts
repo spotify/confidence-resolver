@@ -69,6 +69,7 @@ async function createRuntime(overrides?: {
   moduleHandler?: (call: number, url: string, init?: RequestInit) => Response;
   ingestionHandler?: (call: number) => Response;
   store?: MaterializationStore;
+  logDelivery?: { maxBatchBytes?: number; timeoutMs?: number };
 }) {
   const moduleFetch = recordingFetch(
     overrides?.moduleHandler ?? (() => encryptedModuleResponse(moduleArtifact(), 'token-1', '"v1"')),
@@ -90,7 +91,7 @@ async function createRuntime(overrides?: {
       maxInstances: 4,
       warmInstances: 1,
       sdk: { customId: 'test-runtime', version: '1.0.0' },
-      logDelivery: { maxAttempts: 2, baseDelayMs: 5 },
+      logDelivery: { maxAttempts: 2, baseDelayMs: 5, ...overrides?.logDelivery },
     },
   );
   return { runtime, moduleFetch, ingestionFetch };
@@ -306,6 +307,37 @@ describe('ModuleRuntime log delivery', () => {
     expect(headers.Authorization).toBe('Bearer token-1');
     expect(new TextDecoder().decode(request.init!.body as Uint8Array)).toBe(LOG_BODY);
     expect(runtime.logStats.sent).toBe(1);
+    await runtime.close();
+  });
+
+  it('prefers the payload log_token over the wrapper token, per batch', async () => {
+    const { runtime, ingestionFetch } = await readyRuntime();
+    stage(runtime.pool!.memory, resolvedStart);
+    new DataView(runtime.pool!.memory.buffer).setUint8(35, 1); // embed log_token flag
+
+    runtime.flushLogs();
+    await flushMicrotasks();
+
+    expect(ingestionFetch.requests).toHaveLength(1);
+    expect((ingestionFetch.requests[0].init!.headers as Record<string, string>).Authorization).toBe('Bearer moduletok');
+
+    // Without the flag the same module flushes tokenless: wrapper fallback.
+    new DataView(runtime.pool!.memory.buffer).setUint8(35, 0);
+    runtime.flushLogs();
+    await flushMicrotasks();
+    expect((ingestionFetch.requests[1].init!.headers as Record<string, string>).Authorization).toBe('Bearer token-1');
+    await runtime.close();
+  });
+
+  it('drops batches over maxBatchBytes instead of retrying a doomed request', async () => {
+    const { runtime, ingestionFetch } = await readyRuntime({ logDelivery: { maxBatchBytes: 8 } });
+    stage(runtime.pool!.memory, resolvedStart);
+
+    runtime.flushLogs();
+    await flushMicrotasks();
+
+    expect(ingestionFetch.requests).toHaveLength(0);
+    expect(runtime.logStats.dropped).toBe(1);
     await runtime.close();
   });
 

@@ -14,7 +14,8 @@
 ;;   [8..16)   i64 last ack_logs payload
 ;;   [16..24)  i64 last write_logs payload
 ;;   [24..32)  i64 last random_seed value
-;;   [32..36)  i32 length of the staged start response
+;;   [32..36)  i32 length of the staged start response; byte [35] doubles as
+;;             the embed-log_token flag (top byte — lengths stay < 16MiB)
 ;;   [36..40)  i32 length of the staged resume response
 ;;   [40..44)  i32 length of the staged evaluate details
 ;;   [44..48)  i32 resolve_process_discard counter
@@ -105,23 +106,33 @@
 
   ;; flush_logs: body = "LOGSBODYLOGSBODY" (16B), payload = a serialized
   ;; WriteLogsPayload {parts: [packed(body)]}: field 1 packed fixed64 →
-  ;; [0x0A, 0x08, <packed slice, little-endian>].
+  ;; [0x0A, 0x08, <packed slice, little-endian>]. When byte [35] is staged
+  ;; non-zero, also appends field 2 log_token "moduletok" — exercising the
+  ;; host's payload-token preference over the wrapper token.
   (func (export "flush_logs")
-    (local $body i32) (local $payload i32) (local $slice i64)
+    (local $body i32) (local $payload i32) (local $slice i64) (local $size i32)
     (local.set $body (call $alloc (i32.const 16)))
     (if (i32.eqz (local.get $body))
       (then (unreachable)))
     (i64.store (local.get $body) (i64.const 0x59444F4253474F4C))              ;; "LOGSBODY"
     (i64.store (i32.add (local.get $body) (i32.const 8)) (i64.const 0x59444F4253474F4C))
     (local.set $slice (call $pack (local.get $body) (i32.const 16)))
-    (local.set $payload (call $alloc (i32.const 10)))
+    (local.set $payload (call $alloc (i32.const 21)))
     (if (i32.eqz (local.get $payload))
       (then (unreachable)))
     (i32.store8 (local.get $payload) (i32.const 0x0A))
     (i32.store8 (i32.add (local.get $payload) (i32.const 1)) (i32.const 0x08))
     (i64.store (i32.add (local.get $payload) (i32.const 2)) (local.get $slice))
-    (i64.store (i32.const 16) (call $pack (local.get $payload) (i32.const 10)))
-    (call $write_logs (call $pack (local.get $payload) (i32.const 10))))
+    (local.set $size (i32.const 10))
+    (if (i32.load8_u (i32.const 35))
+      (then
+        (i32.store8 (i32.add (local.get $payload) (i32.const 10)) (i32.const 0x12))   ;; field 2 tag
+        (i32.store8 (i32.add (local.get $payload) (i32.const 11)) (i32.const 0x09))    ;; len 9
+        (i64.store (i32.add (local.get $payload) (i32.const 12)) (i64.const 0x6F74656C75646F6D)) ;; "moduleto"
+        (i32.store8 (i32.add (local.get $payload) (i32.const 20)) (i32.const 0x6B))    ;; "k"
+        (local.set $size (i32.const 21))))
+    (i64.store (i32.const 16) (call $pack (local.get $payload) (local.get $size)))
+    (call $write_logs (call $pack (local.get $payload) (local.get $size))))
 
   (func (export "ack_logs") (param $payload i64)
     (i64.store (i32.const 8) (local.get $payload)))

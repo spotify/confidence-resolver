@@ -43,7 +43,7 @@ export interface ModuleRuntimeOptions {
   /** Capacity of each exposure/schema de-duplication seen-set. Default 100_000. */
   seenSetCapacity?: number;
   /** Log delivery tuning; retries are bounded and batches are dropped rather than retried forever. */
-  logDelivery?: { maxAttempts?: number; baseDelayMs?: number };
+  logDelivery?: { maxAttempts?: number; baseDelayMs?: number; timeoutMs?: number; maxBatchBytes?: number };
 }
 
 export interface ResolveInput {
@@ -145,6 +145,8 @@ class LogQueue {
     private readonly fetchImpl: typeof fetch,
     private readonly maxAttempts: number,
     private readonly baseDelayMs: number,
+    private readonly timeoutMs: number,
+    private readonly maxBatchBytes: number,
   ) {}
 
   setToken(token: string): void {
@@ -155,12 +157,24 @@ class LogQueue {
     return this.closed;
   }
 
-  enqueue(body: Uint8Array<ArrayBuffer>): void {
+  /**
+   * Enqueue one batch. The token is captured per batch and never merges across
+   * tokens: the module's compile-time token (payload `log_token`) wins when
+   * non-empty, otherwise the wrapper's token — which is the credential in
+   * production today (client-module payloads ship an empty token).
+   * Batches larger than maxBatchBytes are dropped: the ingestion service
+   * rejects requests over 4 MiB, so retrying them cannot succeed.
+   */
+  enqueue(body: Uint8Array<ArrayBuffer>, moduleToken?: string): void {
     if (this.closed) {
       this.stats.dropped++;
       return;
     }
-    void this.deliver(body, this.token, 0);
+    if (body.length > this.maxBatchBytes) {
+      this.stats.dropped++;
+      return;
+    }
+    void this.deliver(body, moduleToken || this.token, 0);
   }
 
   /** Wait until no batch is mid-delivery (bounded); used by shutdown drains. */
@@ -195,6 +209,7 @@ class LogQueue {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-protobuf', Authorization: `Bearer ${token}` },
         body,
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
       if (response.ok) {
         this.stats.sent++;
@@ -217,8 +232,8 @@ class LogQueue {
  * Runs one credential's compiled client module: fetches and verifies the
  * artifact (through a {@link ModuleClient}), pools instances over the shared
  * memory, drives the resolve/suspend/resume protocol, applies previously
- * resolved flags, and forwards the module's logs to the ingestion API with
- * the wrapper's token.
+ * resolved flags, and forwards the module's logs to the ingestion API — the
+ * module's compile-time token when it ships one, otherwise the wrapper's token.
  *
  * A failed refresh never takes a running module down; only a successfully
  * verified replacement switches the pool.
@@ -239,6 +254,8 @@ export class ModuleRuntime {
       options.fetch ?? fetch,
       options.logDelivery?.maxAttempts ?? 3,
       options.logDelivery?.baseDelayMs ?? 500,
+      options.logDelivery?.timeoutMs ?? 5_000,
+      options.logDelivery?.maxBatchBytes ?? 4 * 1024 * 1024,
     );
     const capacity = options.seenSetCapacity ?? 100_000;
     this.seenApply = new BoundedSeenSet(capacity);
@@ -483,10 +500,10 @@ export class ModuleRuntime {
       body.set(chunk, offset);
       offset += chunk.length;
     }
-    // In client modules the payload token is empty: the wrapper's token (held
-    // by the queue) is the credential. Hand the body to the queue and return;
-    // the payload is acked by the GuestInstance wrapper.
-    this.logQueue.enqueue(body);
+    // The module's compile-time token (payload log_token) takes precedence
+    // per batch; live client modules ship an empty payload token, in which
+    // case the queue falls back to the wrapper's token.
+    this.logQueue.enqueue(body, envelope.logToken || undefined);
   }
 
   private async readMaterializations(records: Materialization_Record[]): Promise<Materialization_Record[]> {
