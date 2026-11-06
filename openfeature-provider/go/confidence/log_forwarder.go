@@ -13,11 +13,12 @@ import (
 )
 
 // defaultIngestionBaseURL is the regionless base URL of the flag-log
-// ingestion endpoint (epx-flags-ingestion's FlagLogIngestionService,
-// exposed as POST /v1/flagLogs:write). The regional pair (eu/us) is
-// available as an explicit override. The hostname currently fronts the
-// previous ingestion edge; the public routing to the new service is
-// tracked separately, and the base URL stays overridable for that window.
+// ingestion endpoint: epx-flags-ingestion's FlagLogIngestionService,
+// publicly exposed at ingestion.confidence.dev and the regional eu/us
+// pair (edge-config epx-flags-ingestion-perimeter) as
+// POST /v1/flagLogs:write. The edge terminates TLS and passes
+// application/x-protobuf bodies through; the service authenticates the
+// compiler-signed Bearer log token itself.
 const defaultIngestionBaseURL = "https://ingestion.confidence.dev"
 
 // logForwarderDefaults. The per-send timeout matches the reference
