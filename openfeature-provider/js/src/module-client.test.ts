@@ -1,10 +1,10 @@
 import { createCipheriv, createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { ClientModule } from '../proto/confidence/flags/wasm/v1/client_module';
-import { ResolverMetadata } from '../proto/confidence/flags/wasm/v1/metadata';
+import { ClientModule } from './proto/confidence/flags/wasm/v1/client_module';
+import { ResolverMetadata } from './proto/confidence/flags/wasm/v1/metadata';
 import { ModuleClient } from './module-client';
-import { customSection, hostMemoryImport, importSection, wasm } from './test-support';
-import { bytesEqual } from '../util';
+import { customSection, hostMemoryImport, importSection, wasm } from './test-helpers';
+import { bytesEqual } from './util';
 
 const CLIENT_SECRET = 'test-secret';
 const SECRET_SHA256_HEX = createHash('sha256').update(CLIENT_SECRET, 'utf8').digest('hex');

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenFeature } from '@openfeature/server-sdk';
-import { encryptModuleWrapper, moduleArtifactBytes } from './client-module/test-support';
+import { encryptModuleWrapper, moduleArtifactBytes } from './test-helpers';
 
 const CLIENT_SECRET = 'event-tracking-secret';
 const ENCRYPTION_KEY = '00'.repeat(32);

@@ -1,8 +1,8 @@
-import { ClientModule } from '../proto/confidence/flags/wasm/v1/client_module';
-import { ResolverMetadata } from '../proto/confidence/flags/wasm/v1/metadata';
+import { ClientModule } from './proto/confidence/flags/wasm/v1/client_module';
+import { ResolverMetadata } from './proto/confidence/flags/wasm/v1/metadata';
 import { assertAcceptsClientSecret, readResolverMetadata } from './metadata';
-import { sha256Bytes } from '../hash';
-import { bytesToHex, bytesEqual, hexToBytes, decryptAesGcm, validateEncryptionKey } from '../util';
+import { sha256Bytes } from './hash';
+import { bytesToHex, bytesEqual, hexToBytes, decryptAesGcm, validateEncryptionKey } from './util';
 
 /** Default module refresh poll interval (the guide recommends ~30s). */
 export const DEFAULT_MODULE_UPDATE_INTERVAL = 30_000;

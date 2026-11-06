@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GuestInstancePool, type GuestInstancePoolOptions } from './instance-pool';
-import type { GuestInstance } from './guest-instance';
+import { WasmResolverPool, type WasmResolverPoolOptions } from './instance-pool';
+import type { WasmResolver } from './WasmResolver';
 import {
   createRecordingHost,
   guestLayout,
@@ -8,19 +8,19 @@ import {
   loadFixture,
   moduleWithoutHostMemory,
   type RecordingHost,
-} from './test-support';
+} from './test-helpers';
 
 const fakeGuestBytes = loadFixture('fake-guest.wasm');
 
 async function createPool(
-  options?: GuestInstancePoolOptions,
+  options?: WasmResolverPoolOptions,
   host: RecordingHost = createRecordingHost(),
-): Promise<{ pool: GuestInstancePool; host: RecordingHost }> {
-  const pool = await GuestInstancePool.create(fakeGuestBytes, host.host, options);
+): Promise<{ pool: WasmResolverPool; host: RecordingHost }> {
+  const pool = await WasmResolverPool.create(fakeGuestBytes, host.host, options);
   return { pool, host };
 }
 
-describe('GuestInstancePool creation', () => {
+describe('WasmResolverPool creation', () => {
   it('warms one instance by default', async () => {
     const { pool, host } = await createPool();
     expect(pool.liveCount).toBe(1);
@@ -30,14 +30,14 @@ describe('GuestInstancePool creation', () => {
 
   it('rejects a module that does not import host.memory', async () => {
     const host = createRecordingHost();
-    await expect(GuestInstancePool.create(moduleWithoutHostMemory(), host.host)).rejects.toThrow(
+    await expect(WasmResolverPool.create(moduleWithoutHostMemory(), host.host)).rejects.toThrow(
       /does not import host\.memory/,
     );
   });
 
   it('rejects a module missing required exports at warm-up', async () => {
     const host = createRecordingHost();
-    await expect(GuestInstancePool.create(guestModuleWithoutExports(), host.host)).rejects.toThrow(
+    await expect(WasmResolverPool.create(guestModuleWithoutExports(), host.host)).rejects.toThrow(
       /missing required export/,
     );
   });
@@ -48,7 +48,7 @@ describe('GuestInstancePool creation', () => {
   });
 });
 
-describe('GuestInstancePool leasing', () => {
+describe('WasmResolverPool leasing', () => {
   it('reuses released instances', async () => {
     const { pool, host } = await createPool();
     const a = await pool.acquire();
@@ -78,7 +78,7 @@ describe('GuestInstancePool leasing', () => {
     const b = await pool.acquire(); // creates the second (at cap)
     expect(pool.liveCount).toBe(2);
 
-    let acquired: GuestInstance | undefined;
+    let acquired: WasmResolver | undefined;
     let settled = false;
     const third = pool.acquire().then(instance => {
       settled = true;
@@ -118,7 +118,7 @@ describe('GuestInstancePool leasing', () => {
   });
 });
 
-describe('GuestInstancePool destruction', () => {
+describe('WasmResolverPool destruction', () => {
   it('destroys idle instances and rejects new acquires', async () => {
     const { pool } = await createPool();
     await pool.destroy();

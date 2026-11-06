@@ -1,7 +1,7 @@
 import { readSharedMemoryLimits } from './wasm-imports';
-import { GuestInstance, type HostFunctions } from './guest-instance';
+import { WasmResolver, type HostFunctions } from './WasmResolver';
 
-export interface GuestInstancePoolOptions {
+export interface WasmResolverPoolOptions {
   /**
    * Upper bound on simultaneously existing instances. Suspended resolves pin
    * their instance, so the pool sizes by concurrency, not by state size.
@@ -13,7 +13,7 @@ export interface GuestInstancePoolOptions {
 }
 
 interface Waiter {
-  resolve(instance: GuestInstance): void;
+  resolve(instance: WasmResolver): void;
   reject(error: Error): void;
 }
 
@@ -25,21 +25,21 @@ interface Waiter {
  * leases a different instance. Instances of the same module are runtime-equal;
  * there is no primary instance.
  */
-export class GuestInstancePool {
+export class WasmResolverPool {
   static async create(
     wasmBytes: Uint8Array<ArrayBuffer>,
     hostFunctions: HostFunctions,
-    options?: GuestInstancePoolOptions,
-  ): Promise<GuestInstancePool> {
+    options?: WasmResolverPoolOptions,
+  ): Promise<WasmResolverPool> {
     const limits = readSharedMemoryLimits(wasmBytes);
     const memory = new WebAssembly.Memory({ initial: limits.initial, maximum: limits.maximum, shared: true });
     const module = await WebAssembly.compile(wasmBytes);
-    return new GuestInstancePool(module, memory, hostFunctions, options);
+    return new WasmResolverPool(module, memory, hostFunctions, options);
   }
 
   private readonly maxInstances: number;
-  private idle: GuestInstance[] = [];
-  private readonly held = new Set<GuestInstance>();
+  private idle: WasmResolver[] = [];
+  private readonly held = new Set<WasmResolver>();
   private readonly waiters: Waiter[] = [];
   private closed = false;
   private idleWhenClosed: (() => void)[] = [];
@@ -48,7 +48,7 @@ export class GuestInstancePool {
     private readonly module: WebAssembly.Module,
     private readonly sharedMemory: WebAssembly.Memory,
     private readonly hostFunctions: HostFunctions,
-    options?: GuestInstancePoolOptions,
+    options?: WasmResolverPoolOptions,
   ) {
     const maxInstances = options?.maxInstances ?? 32;
     const warmInstances = options?.warmInstances ?? 1;
@@ -83,8 +83,8 @@ export class GuestInstancePool {
    * Lease an idle instance, instantiating a new one while below
    * `maxInstances`, or waiting for a release at the cap.
    */
-  async acquire(): Promise<GuestInstance> {
-    if (this.closed) throw new Error('GuestInstancePool is destroyed');
+  async acquire(): Promise<WasmResolver> {
+    if (this.closed) throw new Error('WasmResolverPool is destroyed');
     const idleInstance = this.idle.pop();
     if (idleInstance) {
       this.held.add(idleInstance);
@@ -95,13 +95,13 @@ export class GuestInstancePool {
       this.held.add(instance);
       return instance;
     }
-    return new Promise<GuestInstance>((resolve, reject) => {
+    return new Promise<WasmResolver>((resolve, reject) => {
       this.waiters.push({ resolve, reject });
     });
   }
 
   /** Return a leased instance. Rejects double release. */
-  release(instance: GuestInstance): void {
+  release(instance: WasmResolver): void {
     if (!this.held.delete(instance)) {
       throw new Error('release() called on an instance that is not held');
     }
@@ -143,7 +143,7 @@ export class GuestInstancePool {
     if (this.closed) return;
     this.closed = true;
     for (const waiter of this.waiters.splice(0)) {
-      waiter.reject(new Error('GuestInstancePool destroyed while waiting for an instance'));
+      waiter.reject(new Error('WasmResolverPool destroyed while waiting for an instance'));
     }
     for (const idleInstance of this.idle.splice(0)) {
       idleInstance.destroyInstance();
@@ -153,15 +153,15 @@ export class GuestInstancePool {
         this.idleWhenClosed.push(resolve);
         signal?.addEventListener(
           'abort',
-          () => reject(new Error(`GuestInstancePool.destroy aborted with ${this.held.size} instance(s) still held`)),
+          () => reject(new Error(`WasmResolverPool.destroy aborted with ${this.held.size} instance(s) still held`)),
           { once: true },
         );
       });
     }
   }
 
-  private instantiate(): GuestInstance {
-    return new GuestInstance(this.module, this.sharedMemory, this.hostFunctions);
+  private instantiate(): WasmResolver {
+    return new WasmResolver(this.module, this.sharedMemory, this.hostFunctions);
   }
 
   private notifyClosed(): void {

@@ -41,7 +41,7 @@ export interface HostFunctions {
 
 /** Optional exports the module may or may not provide. */
 export interface GuestCapabilities {
-  metricsSnapshot: boolean;
+  prometheusSnapshot: boolean;
   observeClientResolveLatency: boolean;
   evaluate: boolean;
 }
@@ -88,7 +88,7 @@ type GuestExports = {
  *   free it once when done;
  * - log payloads are acknowledged through `ack_logs`, never freed.
  */
-export class GuestInstance {
+export class WasmResolver {
   readonly capabilities: GuestCapabilities;
   private readonly exports: GuestExports;
 
@@ -107,7 +107,7 @@ export class GuestInstance {
       }
     }
     this.capabilities = {
-      metricsSnapshot: moduleExports.has('metrics_snapshot'),
+      prometheusSnapshot: moduleExports.has('metrics_snapshot'),
       observeClientResolveLatency: moduleExports.has('observe_client_resolve_latency'),
       evaluate: moduleExports.has('evaluate'),
     };
@@ -144,8 +144,8 @@ export class GuestInstance {
   }
 
   /** Text metrics snapshot. `format`: 0 = Prometheus, 1 = OpenMetrics. */
-  metricsSnapshot(format: 0 | 1): Uint8Array {
-    this.assertCapability('metrics_snapshot', this.capabilities.metricsSnapshot);
+  prometheusSnapshot(format: 0 | 1): Uint8Array {
+    this.assertCapability('metrics_snapshot', this.capabilities.prometheusSnapshot);
     return this.readAndFreeSlice(this.exports.metrics_snapshot!(format));
   }
 

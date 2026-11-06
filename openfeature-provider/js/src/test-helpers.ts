@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs';
-import type { GuestLogPayload, HostFunctions } from './guest-instance';
+import type { GuestLogPayload, HostFunctions } from './WasmResolver';
 import { createCipheriv, createHash } from 'node:crypto';
 import {
   ResolveProcessResponse,
   ResolutionDetails as WasmResolutionDetails,
-} from '../proto/confidence/flags/wasm/v1/api';
-import { ResolverMetadata } from '../proto/confidence/flags/wasm/v1/metadata';
-import { ClientModule } from '../proto/confidence/flags/wasm/v1/client_module';
-import { ResolveReason } from '../proto/confidence/flags/resolver/v1/types';
+} from './proto/confidence/flags/wasm/v1/api';
+import { ResolverMetadata } from './proto/confidence/flags/wasm/v1/metadata';
+import { ClientModule } from './proto/confidence/flags/wasm/v1/client_module';
+import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 
 // --- fixture loading -----------------------------------------------------------
 
@@ -143,7 +143,7 @@ export function customSection(name: string, payload: Uint8Array | number[]): num
 
 /**
  * A module that imports a conforming shared host.memory but has no exports:
- * passes `readSharedMemoryLimits`, fails `GuestInstance` export verification.
+ * passes `readSharedMemoryLimits`, fails `WasmResolver` export verification.
  */
 export function guestModuleWithoutExports(): Uint8Array<ArrayBuffer> {
   return wasm(section(2, [1, ...hostMemoryImport(1, 2)]));
@@ -159,7 +159,7 @@ export function moduleWithoutHostMemory(): Uint8Array<ArrayBuffer> {
   return new Uint8Array(WASM_HEADER);
 }
 
-// --- canned-module fixtures (shared by runtime and provider tests) -------------
+// --- canned-module fixtures (shared by resolver and provider tests) -------------
 
 export const CANNED_START = 0xe000;
 export const CANNED_RESUME = 0xe400;

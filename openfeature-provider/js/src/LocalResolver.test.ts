@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MaterializationStore } from '../materialization';
-import { ResolveReason } from '../proto/confidence/flags/resolver/v1/types';
+import type { MaterializationStore } from './materialization';
+import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 import { ModuleClient } from './module-client';
-import { ModuleRuntime, ResolveProcessError, RuntimeNotReadyError } from './module-runtime';
+import { LocalResolver, ResolveProcessError, RuntimeNotReadyError } from './LocalResolver';
 import {
   cannedDetails,
   cannedError,
@@ -12,9 +12,9 @@ import {
   encryptModuleWrapper,
   moduleArtifactBytes,
   stageCannedResponses,
-} from './test-support';
+} from './test-helpers';
 
-const CLIENT_SECRET = 'runtime-test-secret';
+const CLIENT_SECRET = 'resolver-test-secret';
 const ENCRYPTION_KEY = '00'.repeat(32);
 const MODULE_BASE = 'http://module-cdn.test';
 const INGESTION_BASE = 'http://ingestion.test';
@@ -65,7 +65,7 @@ function createRecordingStore(): MaterializationStore & {
   };
 }
 
-async function createRuntime(overrides?: {
+async function createResolver(overrides?: {
   moduleHandler?: (call: number, url: string, init?: RequestInit) => Response;
   ingestionHandler?: (call: number) => Response;
   store?: MaterializationStore;
@@ -75,7 +75,7 @@ async function createRuntime(overrides?: {
     overrides?.moduleHandler ?? (() => encryptedModuleResponse(moduleArtifact(), 'token-1', '"v1"')),
   );
   const ingestionFetch = recordingFetch(overrides?.ingestionHandler ?? (() => new Response(null, { status: 200 })));
-  const runtime = new ModuleRuntime(
+  const resolver = new LocalResolver(
     new ModuleClient({
       clientSecret: CLIENT_SECRET,
       encryptionKey: ENCRYPTION_KEY,
@@ -90,16 +90,16 @@ async function createRuntime(overrides?: {
       materializationStore: overrides?.store,
       maxInstances: 4,
       warmInstances: 1,
-      sdk: { customId: 'test-runtime', version: '1.0.0' },
+      sdk: { customId: 'test-resolver', version: '1.0.0' },
       logDelivery: { maxAttempts: 2, baseDelayMs: 5, ...overrides?.logDelivery },
     },
   );
-  return { runtime, moduleFetch, ingestionFetch };
+  return { resolver, moduleFetch, ingestionFetch };
 }
 
-async function readyRuntime(overrides?: Parameters<typeof createRuntime>[0]) {
-  const harness = await createRuntime(overrides);
-  await harness.runtime.refresh();
+async function readyResolver(overrides?: Parameters<typeof createResolver>[0]) {
+  const harness = await createResolver(overrides);
+  await harness.resolver.updateState();
   return harness;
 }
 
@@ -108,74 +108,74 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- tests ----------------------------------------------------------------------
 
-describe('ModuleRuntime refresh', () => {
+describe('LocalResolver refresh', () => {
   it('builds the pool on the first accept', async () => {
-    const { runtime } = await createRuntime();
-    expect(runtime.isReady).toBe(false);
-    const outcome = await runtime.refresh();
+    const { resolver } = await createResolver();
+    expect(resolver.isReady).toBe(false);
+    const outcome = await resolver.updateState();
     expect(outcome).toMatchObject({ type: 'accepted', change: 'initial' });
-    expect(runtime.isReady).toBe(true);
-    expect(runtime.pool!.liveCount).toBe(1);
-    expect(runtime.current!.logToken).toBe('token-1');
-    await runtime.close();
+    expect(resolver.isReady).toBe(true);
+    expect(resolver.pool!.liveCount).toBe(1);
+    expect(resolver.current!.logToken).toBe('token-1');
+    await resolver.close();
   });
 
   it('swaps only the log token on wrapper-only changes', async () => {
-    const { runtime, ingestionFetch } = await readyRuntime({
+    const { resolver, ingestionFetch } = await readyResolver({
       moduleHandler: call =>
         encryptedModuleResponse(moduleArtifact(), call === 0 ? 'token-1' : 'token-2', call === 0 ? '"v1"' : '"v2"'),
     });
 
-    stage(runtime.pool!.memory, resolvedStart);
-    runtime.flushLogs();
+    stage(resolver.pool!.memory, resolvedStart);
+    resolver.flushLogs();
     await flushMicrotasks();
     expect(ingestionFetch.requests).toHaveLength(1);
     expect((ingestionFetch.requests[0].init!.headers as Record<string, string>).Authorization).toBe('Bearer token-1');
 
-    const outcome = await runtime.refresh();
+    const outcome = await resolver.updateState();
     expect(outcome).toMatchObject({ type: 'accepted', change: 'token' });
-    const firstPool = runtime.pool;
+    const firstPool = resolver.pool;
 
-    runtime.flushLogs();
+    resolver.flushLogs();
     await flushMicrotasks();
     expect(ingestionFetch.requests).toHaveLength(2);
     expect((ingestionFetch.requests[1].init!.headers as Record<string, string>).Authorization).toBe('Bearer token-2');
-    expect(runtime.pool).toBe(firstPool); // nothing recompiled
-    await runtime.close();
+    expect(resolver.pool).toBe(firstPool); // nothing recompiled
+    await resolver.close();
   });
 
   it('rebuilds the pool on module changes and keeps the old one drained', async () => {
-    const { runtime } = await readyRuntime({
+    const { resolver } = await readyResolver({
       moduleHandler: call =>
         encryptedModuleResponse(moduleArtifact(call === 0 ? 1 : 2), 'token-1', call === 0 ? '"v1"' : '"v2"'),
     });
-    const oldPool = runtime.pool!;
+    const oldPool = resolver.pool!;
 
-    const outcome = await runtime.refresh();
+    const outcome = await resolver.updateState();
     expect(outcome).toMatchObject({ type: 'accepted', change: 'module' });
-    expect(runtime.pool).not.toBe(oldPool);
+    expect(resolver.pool).not.toBe(oldPool);
     expect(oldPool.liveCount).toBe(0); // drained and destroyed
-    expect(runtime.isReady).toBe(true);
+    expect(resolver.isReady).toBe(true);
 
     // the new pool serves resolves
-    stage(runtime.pool!.memory, resolvedStart, undefined, cannedDetails());
-    const session = await runtime.resolve({
+    stage(resolver.pool!.memory, resolvedStart, undefined, cannedDetails());
+    const session = await resolver.resolve({
       flags: ['test-flag'],
       evaluationContext: { targeting_key: 'u1' },
       apply: true,
     });
     expect(session.response.resolveId).toBe('r1');
     session.release();
-    await runtime.close();
+    await resolver.close();
   });
 });
 
-describe('ModuleRuntime resolve', () => {
+describe('LocalResolver resolve', () => {
   it('resolves, evaluates against the borrowed envelope, and releases', async () => {
-    const { runtime } = await readyRuntime();
-    stage(runtime.pool!.memory, resolvedStart, resolvedAfterResume, cannedDetails());
+    const { resolver } = await readyResolver();
+    stage(resolver.pool!.memory, resolvedStart, resolvedAfterResume, cannedDetails());
 
-    const session = await runtime.resolve({
+    const session = await resolver.resolve({
       flags: ['test-flag'],
       evaluationContext: { targeting_key: 'user-1', country: 'SE' },
       apply: true,
@@ -194,16 +194,16 @@ describe('ModuleRuntime resolve', () => {
     expect(details.shouldApply).toBe(true);
 
     session.release();
-    expect(runtime.pool!.heldCount).toBe(0);
-    await runtime.close();
+    expect(resolver.pool!.heldCount).toBe(0);
+    await resolver.close();
   });
 
   it('drives the suspend/resume protocol through the materialization store', async () => {
     const store = createRecordingStore();
-    const { runtime } = await readyRuntime({ store });
-    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
+    const { resolver } = await readyResolver({ store });
+    stage(resolver.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
 
-    const session = await runtime.resolve({
+    const session = await resolver.resolve({
       flags: ['test-flag'],
       evaluationContext: { targeting_key: 'user-1' },
       apply: true,
@@ -222,80 +222,80 @@ describe('ModuleRuntime resolve', () => {
     expect(store.writeMaterializations).toHaveBeenCalledWith([
       { op: 'variant', unit: 'user-1', materialization: 'm1', rule: 'r1', variant: 'sticky-1' },
     ]);
-    await runtime.close();
+    await resolver.close();
   });
 
   it('discards and fails the resolve when the store read fails', async () => {
     const store = createRecordingStore();
     store.readMaterializations.mockRejectedValueOnce(new Error('store down'));
-    const { runtime } = await readyRuntime({ store });
-    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
+    const { resolver } = await readyResolver({ store });
+    stage(resolver.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
 
     await expect(
-      runtime.resolve({ flags: ['test-flag'], evaluationContext: { targeting_key: 'user-1' }, apply: true }),
+      resolver.resolve({ flags: ['test-flag'], evaluationContext: { targeting_key: 'user-1' }, apply: true }),
     ).rejects.toThrow('store down');
-    expect(discardCount(runtime.pool!.memory)).toBe(1);
-    expect(runtime.pool!.heldCount).toBe(0);
-    await runtime.close();
+    expect(discardCount(resolver.pool!.memory)).toBe(1);
+    expect(resolver.pool!.heldCount).toBe(0);
+    await resolver.close();
   });
 
   it('resumes with empty materializations when no store is configured', async () => {
-    const { runtime } = await readyRuntime();
-    stage(runtime.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
-    const session = await runtime.resolve({
+    const { resolver } = await readyResolver();
+    stage(resolver.pool!.memory, suspendedResponse, resolvedAfterResume, cannedDetails());
+    const session = await resolver.resolve({
       flags: ['test-flag'],
       evaluationContext: { targeting_key: 'user-1' },
       apply: true,
     });
     expect(session.response.resolveId).toBe('r2');
     session.release();
-    await runtime.close();
+    await resolver.close();
   });
 
   it('surfaces module rejections as ResolveProcessError and releases the lease', async () => {
-    const { runtime } = await readyRuntime();
-    stage(runtime.pool!.memory, errorResponse);
+    const { resolver } = await readyResolver();
+    stage(resolver.pool!.memory, errorResponse);
 
-    const promise = runtime.resolve({ flags: ['test-flag'], evaluationContext: {}, apply: true });
+    const promise = resolver.resolve({ flags: ['test-flag'], evaluationContext: {}, apply: true });
     await expect(promise).rejects.toBeInstanceOf(ResolveProcessError);
     const rejection = await promise.catch(error => error);
     expect(rejection.code).toBe(16);
     expect(rejection.message).toBe('invalid credential');
-    expect(runtime.pool!.heldCount).toBe(0);
-    await runtime.close();
+    expect(resolver.pool!.heldCount).toBe(0);
+    await resolver.close();
   });
 
   it('rejects when no module is loaded', async () => {
-    const { runtime } = await createRuntime();
-    await expect(runtime.resolve({ flags: [], evaluationContext: {}, apply: true })).rejects.toBeInstanceOf(
+    const { resolver } = await createResolver();
+    await expect(resolver.resolve({ flags: [], evaluationContext: {}, apply: true })).rejects.toBeInstanceOf(
       RuntimeNotReadyError,
     );
     await expect(
-      runtime.applyFlags({ resolveToken: new Uint8Array(0), flags: [{ flag: 'x' }] }),
+      resolver.applyFlags({ resolveToken: new Uint8Array(0), flags: [{ flag: 'x' }] }),
     ).rejects.toBeInstanceOf(RuntimeNotReadyError);
-    expect(() => runtime.flushLogs()).not.toThrow(); // no-op without a pool
+    expect(() => resolver.flushLogs()).not.toThrow(); // no-op without a pool
   });
 });
 
-describe('ModuleRuntime apply', () => {
+describe('LocalResolver apply', () => {
   it('applies flags and consults the exposure dedup filter', async () => {
-    const { runtime } = await readyRuntime();
+    const { resolver } = await readyResolver();
     const input = { resolveToken: new Uint8Array([1, 2, 3, 4]), flags: [{ flag: 'flags/test-flag' }] };
 
-    expect(await runtime.applyFlags(input)).toBe(0);
+    expect(await resolver.applyFlags(input)).toBe(0);
     // The canned guest fingerprints the request's stable prefix (client secret):
     // the second apply of the same credential is deduplicated.
-    expect(await runtime.applyFlags(input)).toBe(1);
-    await runtime.close();
+    expect(await resolver.applyFlags(input)).toBe(1);
+    await resolver.close();
   });
 });
 
-describe('ModuleRuntime log delivery', () => {
+describe('LocalResolver log delivery', () => {
   it('forwards write_logs batches unchanged with the wrapper token', async () => {
-    const { runtime, ingestionFetch } = await readyRuntime();
-    stage(runtime.pool!.memory, resolvedStart);
+    const { resolver, ingestionFetch } = await readyResolver();
+    stage(resolver.pool!.memory, resolvedStart);
 
-    runtime.flushLogs();
+    resolver.flushLogs();
     await flushMicrotasks();
 
     expect(ingestionFetch.requests).toHaveLength(1);
@@ -306,72 +306,72 @@ describe('ModuleRuntime log delivery', () => {
     expect(headers['Content-Type']).toBe('application/x-protobuf');
     expect(headers.Authorization).toBe('Bearer token-1');
     expect(new TextDecoder().decode(request.init!.body as Uint8Array)).toBe(LOG_BODY);
-    expect(runtime.logStats.sent).toBe(1);
-    await runtime.close();
+    expect(resolver.logStats.sent).toBe(1);
+    await resolver.close();
   });
 
   it('ignores the deprecated payload log_token: the wrapper token always wins', async () => {
-    const { runtime, ingestionFetch } = await readyRuntime();
-    stage(runtime.pool!.memory, resolvedStart);
-    new DataView(runtime.pool!.memory.buffer).setUint8(35, 1); // module embeds a log_token
+    const { resolver, ingestionFetch } = await readyResolver();
+    stage(resolver.pool!.memory, resolvedStart);
+    new DataView(resolver.pool!.memory.buffer).setUint8(35, 1); // module embeds a log_token
 
-    runtime.flushLogs();
+    resolver.flushLogs();
     await flushMicrotasks();
 
     expect(ingestionFetch.requests).toHaveLength(1);
     // The wrapper's token authenticates even when the module ships one: the
     // compiled-module token is deprecated and deliberately ignored.
     expect((ingestionFetch.requests[0].init!.headers as Record<string, string>).Authorization).toBe('Bearer token-1');
-    await runtime.close();
+    await resolver.close();
   });
 
   it('drops batches over maxBatchBytes instead of retrying a doomed request', async () => {
-    const { runtime, ingestionFetch } = await readyRuntime({ logDelivery: { maxBatchBytes: 8 } });
-    stage(runtime.pool!.memory, resolvedStart);
+    const { resolver, ingestionFetch } = await readyResolver({ logDelivery: { maxBatchBytes: 8 } });
+    stage(resolver.pool!.memory, resolvedStart);
 
-    runtime.flushLogs();
+    resolver.flushLogs();
     await flushMicrotasks();
 
     expect(ingestionFetch.requests).toHaveLength(0);
-    expect(runtime.logStats.dropped).toBe(1);
-    await runtime.close();
+    expect(resolver.logStats.dropped).toBe(1);
+    await resolver.close();
   });
 
   it('retries retryable failures with a bounded budget, then succeeds', async () => {
-    const { runtime } = await readyRuntime({
+    const { resolver } = await readyResolver({
       ingestionHandler: call => new Response(null, { status: call === 0 ? 500 : 200 }),
     });
-    stage(runtime.pool!.memory, resolvedStart);
+    stage(resolver.pool!.memory, resolvedStart);
 
-    runtime.flushLogs();
+    resolver.flushLogs();
     await sleep(30);
-    expect(runtime.logStats).toEqual({ sent: 1, dropped: 0, retries: 1 });
-    await runtime.close();
+    expect(resolver.logStats).toEqual({ sent: 1, dropped: 0, retries: 1 });
+    await resolver.close();
   });
 
   it('drops batches after exhausting the retry budget', async () => {
-    const { runtime } = await readyRuntime({
+    const { resolver } = await readyResolver({
       ingestionHandler: () => new Response(null, { status: 500 }),
     });
-    stage(runtime.pool!.memory, resolvedStart);
+    stage(resolver.pool!.memory, resolvedStart);
 
-    runtime.flushLogs();
+    resolver.flushLogs();
     await sleep(30);
-    expect(runtime.logStats).toEqual({ sent: 0, dropped: 1, retries: 1 });
-    await runtime.close();
+    expect(resolver.logStats).toEqual({ sent: 0, dropped: 1, retries: 1 });
+    await resolver.close();
   });
 });
 
-describe('ModuleRuntime close', () => {
+describe('LocalResolver close', () => {
   it('destroys the pool and stops accepting work', async () => {
-    const { runtime } = await readyRuntime();
-    stage(runtime.pool!.memory, resolvedStart, undefined, cannedDetails());
-    await runtime.close();
+    const { resolver } = await readyResolver();
+    stage(resolver.pool!.memory, resolvedStart, undefined, cannedDetails());
+    await resolver.close();
 
-    expect(runtime.isReady).toBe(false);
-    await expect(runtime.resolve({ flags: [], evaluationContext: {}, apply: true })).rejects.toBeInstanceOf(
+    expect(resolver.isReady).toBe(false);
+    await expect(resolver.resolve({ flags: [], evaluationContext: {}, apply: true })).rejects.toBeInstanceOf(
       RuntimeNotReadyError,
     );
-    expect(() => runtime.flushLogs()).not.toThrow();
+    expect(() => resolver.flushLogs()).not.toThrow();
   });
 });

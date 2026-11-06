@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { GuestInstance } from './guest-instance';
+import { WasmResolver } from './WasmResolver';
 import { unpackSlice } from './slice';
-import { createRecordingHost, guestLayout, guestModuleWithoutExports, loadFixture } from './test-support';
+import { createRecordingHost, guestLayout, guestModuleWithoutExports, loadFixture } from './test-helpers';
 
 const fakeGuestModule = new WebAssembly.Module(loadFixture('fake-guest.wasm'));
 const bareGuestModule = new WebAssembly.Module(loadFixture('bare-guest.wasm'));
@@ -12,11 +12,11 @@ function sharedMemory(): WebAssembly.Memory {
 
 const FAKELOGS = [0x46, 0x41, 0x4b, 0x45, 0x4c, 0x4f, 0x47, 0x53]; // "FAKELOGS"
 
-describe('GuestInstance construction', () => {
+describe('WasmResolver construction', () => {
   it('rejects a module missing required exports', () => {
     expect(
       () =>
-        new GuestInstance(
+        new WasmResolver(
           new WebAssembly.Module(guestModuleWithoutExports()),
           sharedMemory(),
           createRecordingHost().host,
@@ -26,19 +26,19 @@ describe('GuestInstance construction', () => {
 
   it('rejects a non-shared memory', () => {
     const memory = new WebAssembly.Memory({ initial: 1, maximum: 16 });
-    expect(() => new GuestInstance(fakeGuestModule, memory, createRecordingHost().host)).toThrow(/must be shared/);
+    expect(() => new WasmResolver(fakeGuestModule, memory, createRecordingHost().host)).toThrow(/must be shared/);
   });
 
   it('detects optional exports', () => {
     const memory = sharedMemory();
     const host = createRecordingHost();
-    expect(new GuestInstance(fakeGuestModule, memory, host.host).capabilities).toEqual({
-      metricsSnapshot: true,
+    expect(new WasmResolver(fakeGuestModule, memory, host.host).capabilities).toEqual({
+      prometheusSnapshot: true,
       observeClientResolveLatency: true,
       evaluate: true,
     });
-    expect(new GuestInstance(bareGuestModule, sharedMemory(), createRecordingHost().host).capabilities).toEqual({
-      metricsSnapshot: false,
+    expect(new WasmResolver(bareGuestModule, sharedMemory(), createRecordingHost().host).capabilities).toEqual({
+      prometheusSnapshot: false,
       observeClientResolveLatency: false,
       evaluate: false,
     });
@@ -47,16 +47,16 @@ describe('GuestInstance construction', () => {
   it('calls random_seed once per instance and records it in shared memory', () => {
     const memory = sharedMemory();
     const host = createRecordingHost();
-    new GuestInstance(fakeGuestModule, memory, host.host);
-    new GuestInstance(fakeGuestModule, memory, host.host);
+    new WasmResolver(fakeGuestModule, memory, host.host);
+    new WasmResolver(fakeGuestModule, memory, host.host);
     expect(host.randomSeeds).toHaveLength(2);
     expect(guestLayout(memory).lastSeed()).toBe(host.randomSeeds[1]);
   });
 });
 
-describe('GuestInstance slices', () => {
+describe('WasmResolver slices', () => {
   it('round-trips bytes and tracks 8-byte alignment', () => {
-    const gi = new GuestInstance(fakeGuestModule, sharedMemory(), createRecordingHost().host);
+    const gi = new WasmResolver(fakeGuestModule, sharedMemory(), createRecordingHost().host);
     const slice = gi.writeSlice(new Uint8Array([1, 2, 3, 4, 5]));
     expect([...gi.readSlice(slice)]).toEqual([1, 2, 3, 4, 5]);
     expect(gi.allocatedBytes()).toBe(5);
@@ -65,20 +65,20 @@ describe('GuestInstance slices', () => {
   });
 
   it('returns the absent slice for empty input', () => {
-    const gi = new GuestInstance(fakeGuestModule, sharedMemory(), createRecordingHost().host);
+    const gi = new WasmResolver(fakeGuestModule, sharedMemory(), createRecordingHost().host);
     expect(gi.writeSlice(new Uint8Array(0))).toBe(0n);
   });
 
   it('surfaces allocation failure', () => {
-    const gi = new GuestInstance(fakeGuestModule, sharedMemory(), createRecordingHost().host);
+    const gi = new WasmResolver(fakeGuestModule, sharedMemory(), createRecordingHost().host);
     expect(() => gi.writeSlice(new Uint8Array(100_000))).toThrow(/alloc\(100000\) failed/);
   });
 
   it('shares the arena across instances of the same memory', () => {
     const memory = sharedMemory();
     const host = createRecordingHost();
-    const a = new GuestInstance(fakeGuestModule, memory, host.host);
-    const b = new GuestInstance(fakeGuestModule, memory, host.host);
+    const a = new WasmResolver(fakeGuestModule, memory, host.host);
+    const b = new WasmResolver(fakeGuestModule, memory, host.host);
     a.writeSlice(new Uint8Array(8));
     const topAfterA = guestLayout(memory).bumpTop();
     b.writeSlice(new Uint8Array(8));
@@ -87,9 +87,9 @@ describe('GuestInstance slices', () => {
   });
 });
 
-describe('GuestInstance ABI methods', () => {
+describe('WasmResolver ABI methods', () => {
   it('resolveProcessStart echoes the request; evaluate borrows the envelope repeatedly', () => {
-    const gi = new GuestInstance(fakeGuestModule, sharedMemory(), createRecordingHost().host);
+    const gi = new WasmResolver(fakeGuestModule, sharedMemory(), createRecordingHost().host);
     const request = new Uint8Array([9, 8, 7, 6, 5, 4, 3, 250]);
     const envelope = gi.resolveProcessStart(request);
     expect([...gi.readSlice(envelope)]).toEqual([...request]);
@@ -105,7 +105,7 @@ describe('GuestInstance ABI methods', () => {
 
   it('applyFlags returns 0 and consults the apply filter; 1 when the fingerprint is seen', () => {
     const host = createRecordingHost();
-    const gi = new GuestInstance(fakeGuestModule, sharedMemory(), host.host);
+    const gi = new WasmResolver(fakeGuestModule, sharedMemory(), host.host);
     const request = new Uint8Array(5);
     expect(gi.applyFlags(request)).toBe(0);
     expect(host.applySeenQueries).toEqual([5n]);
@@ -116,7 +116,7 @@ describe('GuestInstance ABI methods', () => {
   it('flushLogs delivers a payload through write_logs and the ack is guaranteed', () => {
     const host = createRecordingHost();
     const memory = sharedMemory();
-    const gi = new GuestInstance(fakeGuestModule, memory, host.host);
+    const gi = new WasmResolver(fakeGuestModule, memory, host.host);
 
     gi.flushLogs();
     expect(host.writeLogPayloads).toHaveLength(1);
@@ -124,7 +124,7 @@ describe('GuestInstance ABI methods', () => {
     expect(payload).toHaveLength(16);
     expect([...payload.slice(8, 16)]).toEqual(FAKELOGS);
     expect(new DataView(payload.buffer, payload.byteOffset).getBigUint64(0, true)).toBe(host.currentTimes[0]);
-    // the host implementation never acked: GuestInstance's finally did, with the same slice
+    // the host implementation never acked: WasmResolver's finally did, with the same slice
     const layout = guestLayout(memory);
     expect(layout.lastAck()).toBe(layout.lastWriteLogs());
     expect(layout.lastAck()).not.toBe(0n);
@@ -134,7 +134,7 @@ describe('GuestInstance ABI methods', () => {
     const host = createRecordingHost();
     host.writeLogsThrows = true;
     const memory = sharedMemory();
-    const gi = new GuestInstance(fakeGuestModule, memory, host.host);
+    const gi = new WasmResolver(fakeGuestModule, memory, host.host);
 
     expect(() => gi.flushLogs()).not.toThrow();
     expect(host.hostErrors).toEqual([{ where: 'writeLogs', error: new Error('boom from writeLogs') }]);
@@ -146,32 +146,32 @@ describe('GuestInstance ABI methods', () => {
     const host = createRecordingHost();
     host.writeLogsAcks = true;
     const memory = sharedMemory();
-    const gi = new GuestInstance(fakeGuestModule, memory, host.host);
+    const gi = new WasmResolver(fakeGuestModule, memory, host.host);
     gi.flushLogs();
     const layout = guestLayout(memory);
     expect(layout.lastAck()).toBe(layout.lastWriteLogs());
   });
 
-  it('metricsSnapshot decodes text; destroy increments the shared counter', () => {
+  it('prometheusSnapshot decodes text; destroy increments the shared counter', () => {
     const memory = sharedMemory();
     const host = createRecordingHost();
-    const gi = new GuestInstance(fakeGuestModule, memory, host.host);
-    expect(new TextDecoder().decode(gi.metricsSnapshot(0))).toBe('fake-metrics');
+    const gi = new WasmResolver(fakeGuestModule, memory, host.host);
+    expect(new TextDecoder().decode(gi.prometheusSnapshot(0))).toBe('fake-metrics');
 
     gi.destroyInstance();
     expect(guestLayout(memory).destroyCount()).toBe(1);
-    new GuestInstance(fakeGuestModule, memory, host.host).destroyInstance();
+    new WasmResolver(fakeGuestModule, memory, host.host).destroyInstance();
     expect(guestLayout(memory).destroyCount()).toBe(2);
   });
 
   it('observeClientResolveLatency is a no-op when present, throws when absent', () => {
-    const gi = new GuestInstance(fakeGuestModule, sharedMemory(), createRecordingHost().host);
+    const gi = new WasmResolver(fakeGuestModule, sharedMemory(), createRecordingHost().host);
     expect(() => gi.observeClientResolveLatency(3, 1500n)).not.toThrow();
-    const bare = new GuestInstance(bareGuestModule, sharedMemory(), createRecordingHost().host);
+    const bare = new WasmResolver(bareGuestModule, sharedMemory(), createRecordingHost().host);
     expect(() => bare.observeClientResolveLatency(3, 1500n)).toThrow(
       /does not export "observe_client_resolve_latency"/,
     );
-    expect(() => bare.metricsSnapshot(0)).toThrow(/does not export "metrics_snapshot"/);
+    expect(() => bare.prometheusSnapshot(0)).toThrow(/does not export "metrics_snapshot"/);
     expect(() => bare.evaluate(0n, new Uint8Array([1]))).toThrow(/does not export "evaluate"/);
   });
 });

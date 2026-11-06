@@ -13,7 +13,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { OpenFeature } from '@openfeature/server-sdk';
-import { ConfidenceServerProviderLocal } from './provider';
+import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
 
 const CLIENT_SECRET = process.env.CONFIDENCE_CLIENT_SECRET;
 const ENCRYPTION_KEY = process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY;

@@ -1,8 +1,4 @@
-import {
-  ApplyFlagsRequest,
-  ResolveFlagsRequest,
-  ResolveFlagsResponse,
-} from '../proto/confidence/flags/resolver/v1/api';
+import { ApplyFlagsRequest, ResolveFlagsRequest, ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
 import {
   EvaluateRequest,
   Materialization,
@@ -10,22 +6,22 @@ import {
   ResolveProcessResponse,
   ResolutionDetails,
   WriteLogsPayload,
-} from '../proto/confidence/flags/wasm/v1/api';
+} from './proto/confidence/flags/wasm/v1/api';
 import {
   type MaterializationStore,
   materializationRecordsToReadOps,
   materializationRecordsToWriteOps,
   readResultsToMaterializationRecords,
-} from '../materialization';
+} from './materialization';
 import { ModuleClient, type CurrentModule, type ModuleRefreshOutcome } from './module-client';
-import { GuestInstancePool } from './instance-pool';
-import type { GuestInstance, GuestLogPayload, HostFunctions } from './guest-instance';
+import { WasmResolverPool } from './instance-pool';
+import type { WasmResolver, GuestLogPayload, HostFunctions } from './WasmResolver';
 import { unpackSlice } from './slice';
 
 /** Default ingestion host (regionless); the base URL is the only configurable part. */
 export const DEFAULT_INGESTION_BASE_URL = 'https://ingestion.confidence.dev';
 
-export interface ModuleRuntimeOptions {
+export interface LocalResolverOptions {
   clientSecret: string;
   /** Hex-encoded AES-256 key paired with the credential. */
   encryptionKey: string;
@@ -71,7 +67,7 @@ export class ResolveProcessError extends Error {
   }
 }
 
-/** The runtime has no module loaded yet (or was closed). */
+/** The resolver has no module loaded yet (or was closed). */
 export class RuntimeNotReadyError extends Error {
   constructor() {
     super('No module loaded');
@@ -83,7 +79,7 @@ export interface ResolveSession {
   readonly response: ResolveFlagsResponse;
   /** The client the request authenticated as (diagnostic). */
   readonly clientIndex: number;
-  /** Materialization records to persist (persisted best-effort by the runtime already). */
+  /** Materialization records to persist (persisted best-effort by the resolver already). */
   readonly materializationsToWrite: Materialization_Record[];
   /** Whether the module provides the `evaluate` export. */
   readonly canEvaluate: boolean;
@@ -238,8 +234,8 @@ class LogQueue {
  * A failed refresh never takes a running module down; only a successfully
  * verified replacement switches the pool.
  */
-export class ModuleRuntime {
-  private poolField: GuestInstancePool | null = null;
+export class LocalResolver {
+  private poolField: WasmResolverPool | null = null;
   private readonly logQueue: LogQueue;
   private readonly seenApply: BoundedSeenSet;
   private readonly seenSchema: BoundedSeenSet;
@@ -247,7 +243,7 @@ export class ModuleRuntime {
 
   constructor(
     private readonly moduleClient: ModuleClient,
-    private readonly options: ModuleRuntimeOptions,
+    private readonly options: LocalResolverOptions,
   ) {
     this.logQueue = new LogQueue(
       (options.ingestionBaseUrl ?? DEFAULT_INGESTION_BASE_URL).replace(/\/+$/, ''),
@@ -279,7 +275,7 @@ export class ModuleRuntime {
   }
 
   /** The live instance pool, or null while no module is loaded. */
-  get pool(): GuestInstancePool | null {
+  get pool(): WasmResolverPool | null {
     return this.poolField;
   }
 
@@ -293,12 +289,12 @@ export class ModuleRuntime {
   }
 
   /**
-   * One artifact refresh cycle plus pool choreography: a wrapper-only change
+   * One artifact update cycle plus pool choreography: a wrapper-only change
    * swaps the log token; a new module builds a new pool, switches routing to
    * it, then drains and destroys the old one. A pool-build failure keeps the
    * previous pool serving.
    */
-  async refresh(signal?: AbortSignal): Promise<ModuleRefreshOutcome> {
+  async updateState(signal?: AbortSignal): Promise<ModuleRefreshOutcome> {
     const outcome = await this.moduleClient.refresh(signal);
     if (outcome.type !== 'accepted') return outcome;
 
@@ -306,9 +302,9 @@ export class ModuleRuntime {
       this.logQueue.setToken(outcome.current.logToken);
       return outcome;
     }
-    let newPool: GuestInstancePool;
+    let newPool: WasmResolverPool;
     try {
-      newPool = await GuestInstancePool.create(outcome.current.moduleBytes, this.hostFunctions, {
+      newPool = await WasmResolverPool.create(outcome.current.moduleBytes, this.hostFunctions, {
         maxInstances: this.options.maxInstances,
         warmInstances: this.options.warmInstances,
       });
@@ -441,12 +437,12 @@ export class ModuleRuntime {
   }
 
   /** Module-wide metrics snapshot in text form (Prometheus or OpenMetrics). */
-  async metricsSnapshot(format: 0 | 1 = 0): Promise<string> {
+  async prometheusSnapshot(format: 0 | 1 = 0): Promise<string> {
     const pool = this.poolField;
     if (!pool) throw new RuntimeNotReadyError();
     const instance = await pool.acquire();
     try {
-      return new TextDecoder().decode(instance.metricsSnapshot(format));
+      return new TextDecoder().decode(instance.prometheusSnapshot(format));
     } finally {
       pool.release(instance);
     }
@@ -473,8 +469,8 @@ export class ModuleRuntime {
   }
 
   private evaluateOn(
-    instance: GuestInstance,
-    envelope: ReturnType<GuestInstance['resolveProcessStart']>,
+    instance: WasmResolver,
+    envelope: ReturnType<WasmResolver['resolveProcessStart']>,
     flagKey: string,
     defaultValue: unknown,
     expectedSchema: EvaluateRequest['expectedSchema'],

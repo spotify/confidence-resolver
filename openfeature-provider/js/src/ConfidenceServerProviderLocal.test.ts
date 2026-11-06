@@ -6,8 +6,8 @@ import {
   encryptModuleWrapper,
   moduleArtifactBytes,
   stageCannedResponses,
-} from './test-support';
-import { ConfidenceServerProviderLocal, DEFAULT_FLUSH_INTERVAL } from './provider';
+} from './test-helpers';
+import { ConfidenceServerProviderLocal, DEFAULT_FLUSH_INTERVAL } from './ConfidenceServerProviderLocal';
 import { DEFAULT_MODULE_UPDATE_INTERVAL } from './module-client';
 
 const CLIENT_SECRET = 'provider-test-secret';
@@ -77,9 +77,9 @@ async function stageAll(
   details?: Uint8Array,
 ) {
   await vi.waitFor(() => {
-    expect(provider['runtime'].isReady).toBe(true);
+    expect(provider['resolver'].isReady).toBe(true);
   });
-  stageCannedResponses(provider['runtime'].pool!.memory, start, resume, details);
+  stageCannedResponses(provider['resolver'].pool!.memory, start, resume, details);
 }
 
 describe('ConfidenceServerProviderLocal', () => {
@@ -207,10 +207,10 @@ describe('ConfidenceServerProviderLocal', () => {
     expect(bundle.flags['test-flag']?.variant).toBe('control');
 
     // Fire-and-forget apply through the provider, then verify it landed: the
-    // same token applied again through the runtime now reads as duplicate (1).
+    // same token applied again through the resolver now reads as duplicate (1).
     provider.applyFlag(bundle.resolveToken, 'test-flag');
     await vi.waitFor(async () => {
-      const duplicate = await provider['runtime'].applyFlags({
+      const duplicate = await provider['resolver'].applyFlags({
         resolveToken: new Uint8Array([1, 2, 3, 4]),
         flags: [{ flag: 'flags/test-flag' }],
       });

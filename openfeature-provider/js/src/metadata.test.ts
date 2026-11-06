@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { ResolverMetadata } from '../proto/confidence/flags/wasm/v1/metadata';
+import { ResolverMetadata } from './proto/confidence/flags/wasm/v1/metadata';
 import {
   assertAcceptsClientSecret,
   readResolverMetadata,
   RESOLVER_METADATA_SECTION,
   validateResolverMetadata,
 } from './metadata';
-import { customSection, wasm } from './test-support';
+import { customSection, wasm } from './test-helpers';
 import { readSharedMemoryLimits } from './wasm-imports';
-import { hostMemoryImport, importSection } from './test-support';
+import { hostMemoryImport, importSection } from './test-helpers';
 
 function digestOf(fill: number): Uint8Array {
   return new Uint8Array(32).fill(fill);

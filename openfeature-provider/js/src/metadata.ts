@@ -1,6 +1,6 @@
-import { ResolverMetadata } from '../proto/confidence/flags/wasm/v1/metadata';
+import { ResolverMetadata } from './proto/confidence/flags/wasm/v1/metadata';
 import { ByteReader, verifyHeader } from './wasm-imports';
-import { bytesEqual } from '../util';
+import { bytesEqual } from './util';
 
 /** Name of the custom section carrying routing metadata. */
 export const RESOLVER_METADATA_SECTION = 'confidence.metadata';
@@ -68,7 +68,7 @@ export function validateResolverMetadata(metadata: ResolverMetadata): void {
 
 /**
  * Reject a module that does not accept this credential: the artifact was
- * compiled for a different client secret, and the runtime would reject every
+ * compiled for a different client secret, and the resolver would reject every
  * request anyway. `clientSecretSha256` is the SHA-256 of the exact UTF-8
  * bytes of the caller's client secret (32 raw bytes).
  */
