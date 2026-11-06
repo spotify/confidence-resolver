@@ -310,22 +310,18 @@ describe('ModuleRuntime log delivery', () => {
     await runtime.close();
   });
 
-  it('prefers the payload log_token over the wrapper token, per batch', async () => {
+  it('ignores the deprecated payload log_token: the wrapper token always wins', async () => {
     const { runtime, ingestionFetch } = await readyRuntime();
     stage(runtime.pool!.memory, resolvedStart);
-    new DataView(runtime.pool!.memory.buffer).setUint8(35, 1); // embed log_token flag
+    new DataView(runtime.pool!.memory.buffer).setUint8(35, 1); // module embeds a log_token
 
     runtime.flushLogs();
     await flushMicrotasks();
 
     expect(ingestionFetch.requests).toHaveLength(1);
-    expect((ingestionFetch.requests[0].init!.headers as Record<string, string>).Authorization).toBe('Bearer moduletok');
-
-    // Without the flag the same module flushes tokenless: wrapper fallback.
-    new DataView(runtime.pool!.memory.buffer).setUint8(35, 0);
-    runtime.flushLogs();
-    await flushMicrotasks();
-    expect((ingestionFetch.requests[1].init!.headers as Record<string, string>).Authorization).toBe('Bearer token-1');
+    // The wrapper's token authenticates even when the module ships one: the
+    // compiled-module token is deprecated and deliberately ignored.
+    expect((ingestionFetch.requests[0].init!.headers as Record<string, string>).Authorization).toBe('Bearer token-1');
     await runtime.close();
   });
 

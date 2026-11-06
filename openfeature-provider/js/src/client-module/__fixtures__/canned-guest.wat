@@ -15,7 +15,8 @@
 ;;   [16..24)  i64 last write_logs payload
 ;;   [24..32)  i64 last random_seed value
 ;;   [32..36)  i32 length of the staged start response; byte [35] doubles as
-;;             the embed-log_token flag (top byte — lengths stay < 16MiB)
+;;             the embed-log_token flag (top byte — lengths stay < 16MiB);
+;;             the host must ignore the deprecated token it triggers
 ;;   [36..40)  i32 length of the staged resume response
 ;;   [40..44)  i32 length of the staged evaluate details
 ;;   [44..48)  i32 resolve_process_discard counter
@@ -107,8 +108,8 @@
   ;; flush_logs: body = "LOGSBODYLOGSBODY" (16B), payload = a serialized
   ;; WriteLogsPayload {parts: [packed(body)]}: field 1 packed fixed64 →
   ;; [0x0A, 0x08, <packed slice, little-endian>]. When byte [35] is staged
-  ;; non-zero, also appends field 2 log_token "moduletok" — exercising the
-  ;; host's payload-token preference over the wrapper token.
+  ;; non-zero, also appends field 2 log_token "moduletok" — exercising that
+  ;; the host IGNORES the deprecated compiled-module token (wrapper wins).
   (func (export "flush_logs")
     (local $body i32) (local $payload i32) (local $slice i64) (local $size i32)
     (local.set $body (call $alloc (i32.const 16)))

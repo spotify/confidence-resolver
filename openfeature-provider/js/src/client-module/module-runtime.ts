@@ -159,13 +159,13 @@ class LogQueue {
 
   /**
    * Enqueue one batch. The token is captured per batch and never merges across
-   * tokens: the module's compile-time token (payload `log_token`) wins when
-   * non-empty, otherwise the wrapper's token — which is the credential in
-   * production today (client-module payloads ship an empty token).
+   * tokens: the wrapper's token is THE credential. The payload's deprecated
+   * `log_token` field (compiled-module token) is deliberately ignored — that
+   * concept is being removed from the protocol.
    * Batches larger than maxBatchBytes are dropped: the ingestion service
    * rejects requests over 4 MiB, so retrying them cannot succeed.
    */
-  enqueue(body: Uint8Array<ArrayBuffer>, moduleToken?: string): void {
+  enqueue(body: Uint8Array<ArrayBuffer>): void {
     if (this.closed) {
       this.stats.dropped++;
       return;
@@ -174,7 +174,7 @@ class LogQueue {
       this.stats.dropped++;
       return;
     }
-    void this.deliver(body, moduleToken || this.token, 0);
+    void this.deliver(body, this.token, 0);
   }
 
   /** Wait until no batch is mid-delivery (bounded); used by shutdown drains. */
@@ -232,8 +232,8 @@ class LogQueue {
  * Runs one credential's compiled client module: fetches and verifies the
  * artifact (through a {@link ModuleClient}), pools instances over the shared
  * memory, drives the resolve/suspend/resume protocol, applies previously
- * resolved flags, and forwards the module's logs to the ingestion API — the
- * module's compile-time token when it ships one, otherwise the wrapper's token.
+ * resolved flags, and forwards the module's logs to the ingestion API with
+ * the wrapper's token (the deprecated compiled-module token is ignored).
  *
  * A failed refresh never takes a running module down; only a successfully
  * verified replacement switches the pool.
@@ -500,10 +500,10 @@ export class ModuleRuntime {
       body.set(chunk, offset);
       offset += chunk.length;
     }
-    // The module's compile-time token (payload log_token) takes precedence
-    // per batch; live client modules ship an empty payload token, in which
-    // case the queue falls back to the wrapper's token.
-    this.logQueue.enqueue(body, envelope.logToken || undefined);
+    // The wrapper's token is THE credential for the batch; the payload's
+    // deprecated log_token field (compiled-module token, slated for removal)
+    // is deliberately ignored.
+    this.logQueue.enqueue(body);
   }
 
   private async readMaterializations(records: Materialization_Record[]): Promise<Materialization_Record[]> {
