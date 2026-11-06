@@ -250,10 +250,11 @@ metadata validation → instantiate → resolve) runs against real module bytes.
 ## Apply-event deduplication
 
 Apply-event deduplication is **on by default**. The provider answers the
-module's apply-filter callback with a host-side seen-set that collapses
-repeated assignments for the same fingerprint within a 10-minute TTL window
-(bounded at 65,536 entries), so repeatedly resolving the same flag for the
-same targeting key produces one apply event instead of many.
+module's apply-filter callback with the `state-to-wasm` WASM dedupe filter.
+It retains fingerprints in bounded memory with bucket-local eviction and no
+TTL, so repeated assignments are suppressed until their fingerprint is evicted.
+Apply and schema filters use separate memories (8 and 2 WASM pages), retained
+across client-module refreshes.
 
 Upgrading without changing any code therefore reduces raw apply-event volume,
 substantially so for high-QPS traffic that resolves the same flag for the same

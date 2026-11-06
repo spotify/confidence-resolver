@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
+	cm "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/compiled_module"
 	et "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/event_tracking"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/events"
 	resolvertypes "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
@@ -255,8 +256,8 @@ func newLocalResolverProvider(clientSecret string, logger *slog.Logger, opts pro
 		initializationTimeout:     initializationTimeout,
 		initialRetryInterval:      initialModuleRetryInterval,
 		lifecycleEvents:           make(chan openfeature.Event, 2),
-		applyFilter:               newSeenFilter(opts.disableApplyDedup),
-		schemaFilter:              newSeenFilter(false),
+		applyFilter:               cm.NewSeenFilter(opts.disableApplyDedup, 8),
+		schemaFilter:              cm.NewSeenFilter(false, 2),
 		disableExposureCollection: opts.disableExposureCollection,
 		clientSDK:                 clientSDKIdentifier(),
 	}

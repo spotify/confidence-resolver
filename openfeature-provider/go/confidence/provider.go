@@ -58,8 +58,8 @@ type LocalResolverProvider struct {
 
 	matStore MaterializationStore
 
-	applyFilter  *seenFilter
-	schemaFilter *seenFilter
+	applyFilter  *cm.SeenFilter
+	schemaFilter *cm.SeenFilter
 	// seedFn overrides the per-instance random seed (tests pin it for
 	// deterministic bucketing).
 	seedFn func() int64
@@ -781,6 +781,12 @@ func (p *LocalResolverProvider) installModule(fetched *FetchedModule) error {
 		return fmt.Errorf("rejected module: %w", err)
 	}
 
+	for _, filter := range []*cm.SeenFilter{p.applyFilter, p.schemaFilter} {
+		if err := filter.Init(p.useInterpreter); err != nil {
+			return fmt.Errorf("failed to initialize de-duplication: %w", err)
+		}
+	}
+
 	host, err := cm.NewHost(module, cm.HostConfig{
 		LogSink: p.moduleLogSink,
 		Seed:    p.seedFn,
@@ -912,6 +918,9 @@ func (p *LocalResolverProvider) Shutdown() {
 		p.host = nil
 		p.hostMu.Unlock()
 	}
+
+	p.applyFilter.Close()
+	p.schemaFilter.Close()
 
 	if p.logger != nil {
 		p.logger.Info("Provider has been shut down")
