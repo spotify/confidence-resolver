@@ -1,5 +1,8 @@
 fn main() {
     let mut config = prost_build::Config::new();
+    // `bytes` fields as Bytes so a decoded state is a view into the request
+    // buffer instead of a copy.
+    config.bytes(["."]);
     // Needed for proto3 optional fields on older protoc versions available in CI images
     config.protoc_arg("--experimental_allow_proto3_optional");
 

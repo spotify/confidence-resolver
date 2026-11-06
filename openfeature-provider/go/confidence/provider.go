@@ -52,6 +52,10 @@ type providerOptions struct {
 	// sets it.
 	disableApplyDedup         bool
 	disableExposureCollection bool
+	// dropStateBeforeValidation is false by default: the previous resolver
+	// state is kept until the new one has passed validation.
+	// WithDropStateBeforeValidation sets it for the memory-optimized swap.
+	dropStateBeforeValidation bool
 }
 
 // WithStatePollInterval sets the interval for polling state updates
@@ -139,6 +143,24 @@ func WithDisableExposureCollection() Option {
 	}
 }
 
+// WithDropStateBeforeValidation opts the WASM resolver into the
+// memory-optimized state swap: the previous resolver state is freed before
+// the new one is validated. Without this option the previous state is kept
+// until the new one has passed validation, so a failed state update never
+// leaves the resolver stateless. Use this only when the swap's peak memory
+// matters more than surviving a failed update: with it, an update whose
+// state fails validation leaves the resolver stateless until the next
+// successful update.
+//
+// Experimental: this option, and the keep-previous-state default it opts
+// out of, are experimental and may change or be removed in a future
+// release.
+func WithDropStateBeforeValidation() Option {
+	return func(o *providerOptions) {
+		o.dropStateBeforeValidation = true
+	}
+}
+
 // eventTracking is the subset of the WASM event tracker used by the provider.
 // Declared as an interface so the publish/drain path can be exercised without a
 // live WASM instance; the only production implementation is *et.EventTracker.
@@ -180,6 +202,7 @@ type LocalResolverProvider struct {
 	// Feature options forwarded to SetResolverState
 	enableApplyDedup          bool
 	disableExposureCollection bool
+	dropStateBeforeValidation bool
 }
 
 // Compile-time interface conformance checks
@@ -243,6 +266,7 @@ func newLocalResolverProvider(
 		lifecycleEvents:           make(chan openfeature.Event, 2),
 		enableApplyDedup:          !options.disableApplyDedup,
 		disableExposureCollection: options.disableExposureCollection,
+		dropStateBeforeValidation: options.dropStateBeforeValidation,
 	}
 
 	// Initialize the event tracker if event WASM bytes were provided
@@ -952,6 +976,7 @@ func (p *LocalResolverProvider) setResolverState(state []byte, accountId string)
 		AccountId:                 accountId,
 		EnableApplyDedup:          p.enableApplyDedup,
 		DisableExposureCollection: p.disableExposureCollection,
+		DropStateBeforeValidation: p.dropStateBeforeValidation,
 		Sdk: &resolvertypes.Sdk{
 			Sdk:     &resolvertypes.Sdk_Id{Id: resolvertypes.SdkId_SDK_ID_GO_LOCAL_PROVIDER},
 			Version: Version,

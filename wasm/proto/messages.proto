@@ -29,6 +29,16 @@ message SetResolverStateRequest {
     // Provider disableExposureCollection config is forwarded here on every
     // setResolverState.
     bool disable_exposure_collection = 5;
+    // Free the previous resolver state before validating the new one. The
+    // default (false) keeps the previous state installed until the new one
+    // has passed validation, so a failed update never leaves the resolver
+    // stateless — at the cost of the old and new state coexisting during the
+    // swap. Set this to true to bound the swap's peak memory instead: the
+    // previous state is dropped first, and an update whose state fails
+    // validation leaves the resolver stateless until the next successful
+    // update.
+    // EXPERIMENTAL: this flag and the default it modifies may change.
+    bool drop_state_before_validation = 6;
 }
 
 message ResolveSimpleRequest {
