@@ -1,3 +1,10 @@
+/** SHA-256 of a string's UTF-8 bytes, as a fresh digest. */
+export async function sha256Bytes(input: string): Promise<Uint8Array> {
+  const data = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return new Uint8Array(hashBuffer);
+}
+
 export async function sha256Hex(input: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(input);

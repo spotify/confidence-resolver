@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { EventWasmTracker } from './EventWasmTracker';
 import { FlushEventsResponse } from './proto/confidence/events/wasm/v1/wasm_api';
 import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
-import type { LocalResolver } from './LocalResolver';
 
 const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_event_engine.wasm');
 const module = new WebAssembly.Module(moduleBytes);
@@ -92,14 +91,13 @@ describe('EventWasmTracker error semantics', () => {
 });
 
 describe('ConfidenceServerProviderLocal event wiring', () => {
-  const stubResolver = {} as LocalResolver;
-
   // Regression: the node entry point supplies eventTracker as a pending
   // promise. An earlier version assigned it inside a .then(), which the
   // constructor had already read, leaving event tracking permanently disabled.
   it('accepts a pending eventTracker promise without dropping it', async () => {
     const eventTracker = new EventWasmTracker(module);
-    const provider = new ConfidenceServerProviderLocal(stubResolver, Promise.resolve(eventTracker), {
+    const provider = new ConfidenceServerProviderLocal({
+      eventTracker: Promise.resolve(eventTracker),
       flagClientSecret: 'test-secret',
       encryptionKey: '00'.repeat(32),
     });

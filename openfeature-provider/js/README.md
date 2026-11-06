@@ -1,11 +1,11 @@
 # Confidence OpenFeature Local Provider for JavaScript
 
-OpenFeature provider for the Spotify Confidence resolver (local mode, powered by WebAssembly). It periodically fetches resolver state, evaluates flags locally, and flushes evaluation logs to the Confidence backend.
+OpenFeature provider for the Spotify Confidence resolver (local mode, powered by WebAssembly). It fetches your credential's compiled client module — a WASM artifact that embeds the resolver — evaluates flags locally through pooled instances, and flushes evaluation logs to the Confidence backend.
 
 ## Features
 
-- Local flag evaluation via WASM (no per-eval network calls)
-- Automatic state refresh and batched flag log flushing
+- Local flag evaluation via a compiled client module (WASM, no per-eval network calls)
+- Automatic module refresh and batched flag log flushing
 - [Event tracking](#event-tracking) via the OpenFeature `track()` API
 - Pluggable `fetch` with retries, timeouts and routing
 - Optional logging using `debug`
@@ -49,7 +49,7 @@ You'll need a **client secret** from Confidence to use this provider.
 
 ## Encryption
 
-The provider fetches encrypted flag state and decrypts it when loading the resolver. Pass the encryption key for your client credential when creating the provider.
+The provider fetches the encrypted client module and decrypts it before instantiating the resolver. Pass the encryption key for your client credential when creating the provider.
 
 See the [Integration Guide](../INTEGRATION_GUIDE.md#encryption) for background and migration details.
 
@@ -76,12 +76,12 @@ const provider = createConfidenceServerProvider({
   flagClientSecret: process.env.CONFIDENCE_FLAG_CLIENT_SECRET!,
   encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
   // initializeTimeout?: number
-  // stateUpdateInterval?: number
+  // moduleUpdateInterval?: number
   // flushInterval?: number
   // fetch?: typeof fetch (Node <18 or custom transport)
 });
 
-// Wait for the provider to be ready (fetches initial resolver state)
+// Wait for the provider to be ready (fetches the initial client module)
 await OpenFeature.setProviderAndWait(provider);
 
 const client = OpenFeature.getClient();
@@ -156,18 +156,21 @@ if (details.errorCode) {
 ## Options
 
 - `flagClientSecret` (string, required): The flag client secret used during evaluation and authentication.
-- `encryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
-- `initializeTimeout` (number, optional): Total retry budget in ms for initial state loading. Defaults to 30_000. Initialization returns early on success. Transient failures exhaust this budget with a recoverable `PROVIDER_NOT_READY` error and `ERROR` status; background retries continue until valid state is available, then the provider emits `PROVIDER_READY`. Catch the initialization error if the application should start using flag defaults during an outage. HTTP 4xx (except 404/408/429), decryption/decoding failures, and rejected resolver state fail startup promptly with `PROVIDER_FATAL` and stop retries; correct the configuration and create a new provider.
-- `stateUpdateInterval` (number, optional): Interval in ms between state polling updates. Defaults to 30_000.
-- `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 10_000.
+- `encryptionKey` (string, required): Encryption key for decrypting the client module. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
+- `initializeTimeout` (number, optional): Total retry budget in ms for the initial module load. Defaults to 30_000. Initialization returns early on success. Failures (including a not-yet-published module, HTTP 404) exhaust this budget with a recoverable `PROVIDER_NOT_READY` error and `ERROR` status; background retries continue until a module is accepted, then the provider emits `PROVIDER_READY`. Catch the initialization error if the application should start using flag defaults during an outage.
+- `moduleUpdateInterval` (number, optional): Interval in ms between module refresh polls. Defaults to 30_000. The historical `stateUpdateInterval` option is accepted and mapped to the same cadence.
+- `flushInterval` (number, optional): Interval in ms for sending evaluation logs. Defaults to 15_000.
 - `fetch` (optional): Custom `fetch` implementation. Required for Node < 18; for Node 18+ you can omit.
+- `moduleBaseUrl` (string, optional): Base URL for the module CDN. Defaults to the production module CDN.
+- `ingestionBaseUrl` (string, optional): Base URL for log delivery. Defaults to the regionless ingestion host.
+- `maxInstances` / `warmInstances` (number, optional): WASM instance pool sizing.
 
-Network errors, timeouts, HTTP 408/429/5xx, and HTTP 404 are retried. A 404 may mean the client is still being provisioned, so background recovery has no provisioning deadline. Once state has been accepted, **all** refresh failures preserve the last accepted state, including authentication and invalid-payload errors. The provider stays `READY` and continues evaluating cached flags while retrying refreshes.
+Network errors, timeouts, HTTP 408/429/5xx, and HTTP 404 are retried. A 404 usually means the client credential has no published module yet, so background recovery has no provisioning deadline. Once a module has been accepted, **all** refresh failures preserve the last accepted module, including authentication and invalid-payload errors. The provider stays `READY` and continues evaluating flags through the previous module while retrying refreshes.
 
 The provider periodically:
 
-- Refreshes resolver state (configurable via `stateUpdateInterval`, default every 30s)
-- Flushes flag evaluation logs to the backend (configurable via `flushInterval`, default every 10s)
+- Refreshes the client module (configurable via `moduleUpdateInterval`, default every 30s)
+- Flushes flag evaluation logs to the backend (configurable via `flushInterval`, default every 15s)
 
 ---
 
@@ -195,7 +198,7 @@ const provider = createConfidenceServerProvider({
 
 ## Exports and WASM Loading
 
-The package provides multiple exports for different environments:
+The flag resolver ships as a **compiled client module fetched from the CDN at runtime** — nothing about it is bundled with the package. The only WASM asset loaded at startup is the (small) event engine powering `track()`; the exports below differ only in how that asset is loaded.
 
 ### Default export (recommended)
 
@@ -203,7 +206,7 @@ The package provides multiple exports for different environments:
 import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local';
 ```
 
-The WASM is **inlined as a data URL** — this is the most portable option and should work across virtually all environments. The tradeoff is a larger bundle (~700kB), but this isn't a problem for the intended server-side usage.
+The event-engine WASM is **inlined as a data URL** — this is the most portable option and should work across virtually all environments.
 
 No configuration needed.
 
@@ -213,17 +216,9 @@ No configuration needed.
 import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local/node';
 ```
 
-Uses `fs.readFile()` to load WASM from the installed package. Works well in a regular Node.js environment with node_modules.
+Uses `fs.readFile()` to load the event-engine WASM from the installed package. Works well in a regular Node.js environment with node_modules.
 
-You can customize the WASM path if needed:
-
-```ts
-const provider = createConfidenceServerProvider({
-  flagClientSecret: '...',
-  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
-  wasmPath: '/custom/path/to/confidence_resolver.wasm',
-});
-```
+The historical `wasmPath` option (previously pointing at the resolver WASM) is accepted for compatibility and ignored.
 
 ### `./fetch` — Modern and standards compliant environments
 
@@ -231,17 +226,9 @@ const provider = createConfidenceServerProvider({
 import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local/fetch';
 ```
 
-Uses `fetch()` with `import.meta.url` to load WASM. Works in Deno, Bun, and browsers with bundlers that properly handle asset URLs (Vite, Rollup, etc.).
+Uses `fetch()` with `import.meta.url` to load the event-engine WASM. Works in Deno, Bun, and browsers with bundlers that properly handle asset URLs (Vite, Rollup, etc.).
 
-You can customize the WASM URL if needed:
-
-```ts
-const provider = createConfidenceServerProvider({
-  flagClientSecret: '...',
-  encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
-  wasmUrl: '/assets/confidence_resolver.wasm',
-});
-```
+The historical `wasmUrl` option (previously pointing at the resolver WASM) is accepted for compatibility and ignored.
 
 ### `./react-server` and `./react-client` — React/Next.js Integration
 
@@ -261,8 +248,8 @@ React hooks and components for Next.js App Router with Server Components. Flags 
 
 While browsers are mentioned in this doc, this package is intended for server-side use only. Two concerns for browser usage:
 
-- Size: The WASM+JS is currently ~270kb gzipped, too large for typical client bundles.
-- Security: In a browser, all flag rules and variants are exposed to users.
+- Size: The event-engine WASM + JS adds non-trivial weight to client bundles.
+- Security: In a browser, all flag rules and variants are exposed to users through the client module.
 
 That said, the package does work in browsers, and there may be specialized use cases where these tradeoffs are acceptable.
 

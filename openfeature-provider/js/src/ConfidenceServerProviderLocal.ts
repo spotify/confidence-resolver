@@ -7,201 +7,264 @@ import type {
   ServerProviderEvents,
   TrackingEventDetails,
 } from '@openfeature/server-sdk';
-import { ResolveFlagsResponse } from './proto/confidence/flags/resolver/v1/api';
-import { ResolveProcessRequest, ResolveProcessResponse } from './proto/confidence/wasm/wasm_api';
-import { ResolveReason, SdkId } from './proto/confidence/flags/resolver/v1/types';
-import { VERSION } from './version';
-import { Fetch, withLogging, withResponse, withRetry, withRouter, withStallTimeout, withTimeout } from './fetch';
 import {
-  abortablePromise,
+  ErrorCode as WasmErrorCode,
+  ResolutionDetails as ModuleResolutionDetails,
+} from './proto/confidence/flags/wasm/v1/api';
+import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
+import { ErrorCode, type ResolutionDetails as LegacyResolutionDetails } from './types';
+import { VERSION } from './version';
+import { ProviderEvents } from './ProviderEvents';
+import {
   abortableSleep,
   castStringToEnum,
-  hexToBytes,
   scheduleWithFixedInterval,
   timeoutSignal,
   TimeUnit,
+  validateEncryptionKey,
 } from './util';
-import { ProviderEvents } from './ProviderEvents';
-import type { LocalResolver } from './LocalResolver';
-import { sha256Hex } from './hash';
-import { getLogger } from './logger';
-import {
-  ConfidenceRemoteMaterializationStore,
-  type MaterializationStore,
-  materializationRecordsToReadOps,
-  materializationRecordsToWriteOps,
-  readResultsToMaterializationRecords,
-} from './materialization';
-import { SetResolverStateRequest } from './proto/confidence/wasm/messages';
-import { ClientResolverState, LogDestination } from './proto/confidence/flags/admin/v1/resolver';
-import { IngestFlagLogsRequest, WriteFlagLogsRequest } from './proto/confidence/flags/resolver/v1/internal_api';
-import FlagBundleType, * as FlagBundle from './flag-bundle';
-import { ErrorCode, ResolutionDetails } from './types';
+export { validateEncryptionKey };
+import { ConfidenceRemoteMaterializationStore, type MaterializationStore } from './materialization';
+import FlagBundleDefault, * as FlagBundleModule from './flag-bundle';
+import { Fetch, withLogging, withRetry, withRouter, withTimeout } from './fetch';
 import type { EventTracker } from './EventWasmTracker';
 import { TrackEventRequest, FlushEventsResponse } from './proto/confidence/events/wasm/v1/wasm_api';
-import { SdkId as EventsSdkId } from './proto/confidence/events/v1/types';
+import { SdkId as EventsSdkId, EventError_Reason } from './proto/confidence/events/v1/types';
 import { PublishEventsRequest, PublishEventsResponse } from './proto/confidence/events/v1/api';
-import { EventError_Reason } from './proto/confidence/events/v1/types';
+import { DEFAULT_MODULE_BASE_URL, DEFAULT_MODULE_UPDATE_INTERVAL, ModuleClient } from './module-client';
+import {
+  DEFAULT_INGESTION_BASE_URL,
+  LocalResolver,
+  ResolveProcessError,
+  RuntimeNotReadyError,
+  type ResolveSession,
+} from './LocalResolver';
+import { getLogger } from './logger';
 
-type FlagBundle = FlagBundleType;
+type FlagBundle = FlagBundleDefault;
 const logger = getLogger('provider');
 
 export const DEFAULT_INITIALIZE_TIMEOUT = 30_000;
-export const DEFAULT_STATE_INTERVAL = 30_000;
 export const DEFAULT_FLUSH_INTERVAL = 15_000;
-export const NOT_READY_STATE_INTERVAL = 1_000;
-/** Upper bound on flush calls during shutdown drain, so a failing publish cannot spin forever. */
-const MAX_DRAIN_BATCHES = 100;
+/** Poll cadence while no module has been accepted yet. */
+export const NOT_READY_MODULE_INTERVAL = 1_000;
 
-class NonRetryableStateError extends Error {
-  readonly code = ErrorCode.PROVIDER_FATAL;
+const PROVIDER_NAME = 'ConfidenceServerProviderLocal';
+const MAX_DRAIN_BATCHES = 100;
+const EVENTS_PUBLISH_URL = 'https://events.confidence.dev/v1/events:publish';
+
+/** OpenFeature-shaped evaluation details. */
+export interface ProviderResolutionDetails<T> {
+  value: T;
+  reason: string;
+  variant?: string;
+  errorCode?: ErrorCode;
+  errorMessage?: string;
 }
 
 /**
  * Configuration for {@link ConfidenceServerProviderLocal.getPrometheusMetrics}.
- *
  * @experimental This API is subject to change.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface SnapshotConfig {}
+
 export interface ProviderOptions {
+  /** The credential's client secret; also derives the module path. */
   flagClientSecret: string;
-  /** Hex-encoded AES-256 encryption key for decrypting CDN state. */
+  /** Hex-encoded AES-256 encryption key paired with the credential. */
   encryptionKey: string;
+  /** Total retry budget in ms for the initial module load. Default 30_000. */
   initializeTimeout?: number;
-  /** Interval in milliseconds between state polling updates. Defaults to 30000ms. */
-  stateUpdateInterval?: number;
-  /** Interval in milliseconds between log flushes. Defaults to 15000ms. */
-  flushInterval?: number;
-  fetch?: typeof fetch;
-  materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
   /**
-   * Apply-event deduplication in the WASM resolver — repeated identical
-   * assignments within a short TTL window are logged once. On by default.
-   * Set to false to disable.
+   * Interval in ms between module refresh polls. Default 30_000ms.
+   * `stateUpdateInterval` is accepted as the historical name for the same
+   * polling cadence and takes precedence when `moduleUpdateInterval` is unset.
+   */
+  moduleUpdateInterval?: number;
+  /** @deprecated use moduleUpdateInterval; mapped to the module poll cadence. */
+  stateUpdateInterval?: number;
+  /** Interval in ms between flag-log flushes. Default 15_000. */
+  flushInterval?: number;
+  /** Custom fetch implementation. */
+  fetch?: typeof fetch;
+  /** Sticky assignments and materialized segments. */
+  materializationStore?: MaterializationStore | 'CONFIDENCE_REMOTE_STORE';
+  /** Module CDN base URL. Default: the production module CDN. */
+  moduleBaseUrl?: string;
+  /** Ingestion base URL for log delivery. Default: the regionless ingestion host. */
+  ingestionBaseUrl?: string;
+  /** Instance pool sizing. */
+  maxInstances?: number;
+  warmInstances?: number;
+  /** Disable exposure collection for every evaluation through this provider. */
+  disableExposureCollection?: boolean;
+  /**
+   * Apply deduplication is owned by the compiled module; accepted for
+   * compatibility with the state-based options and ignored.
    */
   enableApplyDedup?: boolean;
-  /**
-   * Disable exposure/assignment collection for all OpenFeature evaluations
-   * through this provider. Use only for exceptional no-exposure modes; resolve
-   * logs and telemetry are still sent.
-   */
-  disableExposureCollection?: boolean;
+  /** Event tracker powering `track()`; wired by the package entry points. */
+  eventTracker?: EventTracker | Promise<EventTracker>;
+}
+
+/** Map the module's evaluation result onto OpenFeature (guide section 9). */
+function mapModuleDetails<T extends JsonValue>(
+  details: ModuleResolutionDetails,
+  defaultValue: T,
+): ProviderResolutionDetails<T> {
+  const value = (details.value !== undefined ? details.value : defaultValue) as T;
+  if (details.errorCode !== WasmErrorCode.ERROR_CODE_UNSPECIFIED) {
+    return {
+      // OpenFeature: on error the provider returns the default value.
+      value: defaultValue,
+      reason: 'ERROR',
+      errorCode: mapModuleErrorCode(details.errorCode),
+      errorMessage: details.errorMessage || undefined,
+    };
+  }
+  return {
+    value,
+    reason: mapModuleReason(details.reason),
+    variant: details.variant || undefined,
+  };
+}
+
+function mapModuleReason(reason: ResolveReason): string {
+  switch (reason) {
+    case ResolveReason.RESOLVE_REASON_MATCH:
+      return 'TARGETING_MATCH';
+    case ResolveReason.RESOLVE_REASON_NO_SEGMENT_MATCH:
+    case ResolveReason.RESOLVE_REASON_NO_TREATMENT_MATCH:
+      return 'DEFAULT';
+    case ResolveReason.RESOLVE_REASON_FLAG_ARCHIVED:
+      return 'DISABLED';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
+function mapModuleErrorCode(code: WasmErrorCode): ErrorCode {
+  switch (code) {
+    case WasmErrorCode.ERROR_CODE_PROVIDER_NOT_READY:
+      return ErrorCode.PROVIDER_NOT_READY;
+    case WasmErrorCode.ERROR_CODE_FLAG_NOT_FOUND:
+      return ErrorCode.FLAG_NOT_FOUND;
+    case WasmErrorCode.ERROR_CODE_TYPE_MISMATCH:
+      return ErrorCode.TYPE_MISMATCH;
+    default:
+      return ErrorCode.GENERAL;
+  }
+}
+
+/** Map the host-side (flag-bundle) evaluation fallback onto OpenFeature. */
+function mapLegacyDetails<T extends JsonValue>(details: LegacyResolutionDetails<T>): ProviderResolutionDetails<T> {
+  if (details.errorCode) {
+    return {
+      value: details.value,
+      reason: 'ERROR',
+      errorCode: details.errorCode,
+      errorMessage: details.errorMessage,
+    };
+  }
+  return {
+    value: details.value,
+    reason: mapModuleReason(reasonStringToEnum(details.reason)),
+    variant: details.variant || undefined,
+  };
+}
+
+function reasonStringToEnum(reason: string): ResolveReason {
+  switch (reason) {
+    case 'MATCH':
+      return ResolveReason.RESOLVE_REASON_MATCH;
+    case 'NO_SEGMENT_MATCH':
+      return ResolveReason.RESOLVE_REASON_NO_SEGMENT_MATCH;
+    case 'NO_TREATMENT_MATCH':
+      return ResolveReason.RESOLVE_REASON_NO_TREATMENT_MATCH;
+    case 'FLAG_ARCHIVED':
+      return ResolveReason.RESOLVE_REASON_FLAG_ARCHIVED;
+    case 'TARGETING_KEY_ERROR':
+    case 'ERROR':
+      return ResolveReason.RESOLVE_REASON_ERROR;
+    default:
+      return ResolveReason.RESOLVE_REASON_UNSPECIFIED;
+  }
+}
+
+function convertEvaluationContext({
+  targetingKey: targeting_key,
+  ...rest
+}: EvaluationContext): Record<string, unknown> {
+  return { targeting_key, ...rest };
 }
 
 /**
- * OpenFeature Provider for Confidence Server SDK (Local Mode)
- * @public
+ * OpenFeature provider hosting one credential's compiled client module:
+ * fetches and verifies the artifact, resolves flags locally through pooled
+ * WASM instances, evaluates via the module's evaluation step, applies deferred
+ * exposures, and forwards the module's logs to the ingestion API with the
+ * wrapper's token. `track()` events flow through the injected event tracker.
+ *
+ * The public surface matches the historical state-based provider — the
+ * architecture change (state download → compiled module) is internal.
  */
 export class ConfidenceServerProviderLocal implements Provider {
-  /** Static data about the provider */
-  readonly metadata: ProviderMetadata = {
-    name: 'ConfidenceServerProviderLocal',
-  };
-  /** Current status of the provider. Can be READY, NOT_READY, ERROR, STALE and FATAL. */
+  readonly metadata: ProviderMetadata = { name: PROVIDER_NAME };
   status: ProviderStatus = castStringToEnum<ProviderStatus>('NOT_READY');
-  readonly events: ProviderEvents = new ProviderEvents(this.metadata.name);
+  readonly events: ProviderEvents = new ProviderEvents(PROVIDER_NAME);
 
   private readonly main = new AbortController();
-  private readonly fetch: Fetch;
-  private readonly stateUpdateInterval: number;
-  private hasResolverState = false;
+  private readonly options: ProviderOptions;
+  private readonly resolver: LocalResolver;
+  private readonly initializeTimeout: number;
+  private readonly moduleUpdateInterval: number;
   private readonly flushInterval: number;
-  private readonly materializationStore: MaterializationStore | null;
-  private readonly initLabels: Record<string, string>;
-  private initTelemetryState: 'pending' | 'sending' | 'sent' = 'pending';
-  private flushSucceeded = 0;
-  private flushFailed = 0;
-  private eventsPublished = 0;
-  private eventBatchesSucceeded = 0;
-  private eventBatchesFailed = 0;
-  private eventsRejected = 0;
-  private resolverInstance: LocalResolver | null = null;
+  private readonly eventsFetch: Fetch;
   private eventTracker: EventTracker | null = null;
-  private stateEtag: string | null = null;
-  private logDestinations: LogDestination[] = [];
-  private accountId = '';
 
-  private get resolver(): LocalResolver {
-    if (!this.resolverInstance) {
-      throw new Error('Resolver not ready');
-    }
-    return this.resolverInstance;
-  }
-
-  // TODO Maybe pass in a resolver factory, so that we can initialize it in initialize and transition to fatal if not.
-  constructor(
-    private readonly resolverOrPromise: LocalResolver | Promise<LocalResolver>,
-    private readonly eventTrackerOrPromise: EventTracker | Promise<EventTracker>,
-    private options: ProviderOptions,
-  ) {
+  constructor(options: ProviderOptions) {
     validateEncryptionKey(options.encryptionKey);
+    if (!options.flagClientSecret) {
+      throw new Error('flagClientSecret is required');
+    }
+    for (const [name, value] of [
+      [
+        'moduleUpdateInterval',
+        options.moduleUpdateInterval ?? options.stateUpdateInterval ?? DEFAULT_MODULE_UPDATE_INTERVAL,
+      ],
+      ['flushInterval', options.flushInterval ?? DEFAULT_FLUSH_INTERVAL],
+    ] as const) {
+      if (!Number.isInteger(value) || value < 1000) {
+        throw new Error(`${name} must be an integer >= 1000 (1s), currently: ${value}`);
+      }
+    }
     this.options = { ...options };
-    if (!(resolverOrPromise instanceof Promise)) {
-      this.resolverInstance = resolverOrPromise;
-    }
-    this.stateUpdateInterval = options.stateUpdateInterval ?? DEFAULT_STATE_INTERVAL;
-    if (!Number.isInteger(this.stateUpdateInterval) || this.stateUpdateInterval < 1000) {
-      throw new Error(`stateUpdateInterval must be an integer >= 1000 (1s), currently: ${this.stateUpdateInterval}`);
-    }
+    this.initializeTimeout = options.initializeTimeout ?? DEFAULT_INITIALIZE_TIMEOUT;
+    this.moduleUpdateInterval =
+      options.moduleUpdateInterval ?? options.stateUpdateInterval ?? DEFAULT_MODULE_UPDATE_INTERVAL;
     this.flushInterval = options.flushInterval ?? DEFAULT_FLUSH_INTERVAL;
-    if (!Number.isInteger(this.flushInterval) || this.flushInterval < 1000) {
-      throw new Error(`flushInterval must be an integer >= 1000 (1s), currently: ${this.flushInterval}`);
-    }
-    this.fetch = Fetch.create(
+
+    // The module client and log queue own their retry/poll cadence; the
+    // middleware below covers the fixed-host destinations (events publishing
+    // and remote materialization). Configurable base URLs pass through.
+    this.eventsFetch = Fetch.create(
       [
         withRouter({
-          'https://confidence-resolver-state-cdn.spotifycdn.com/*': [
-            next => (url, init) =>
-              withRetry({
-                maxAttempts: Infinity,
-                baseInterval: 500,
-                maxInterval: this.hasResolverState ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL,
-              })(next)(url, init),
-            withStallTimeout(1 * TimeUnit.SECOND),
+          'https://events.confidence.dev/*': [
+            withRetry({ maxAttempts: 3, baseInterval: 500 }),
+            withTimeout(5 * TimeUnit.SECOND),
           ],
           'https://resolver.confidence.dev/*': [
             withRouter({
               '*/v1/materialization:readMaterializedOperations': [
-                withRetry({
-                  maxAttempts: 3,
-                  baseInterval: 100,
-                }),
+                withRetry({ maxAttempts: 3, baseInterval: 100 }),
                 withTimeout(0.5 * TimeUnit.SECOND),
               ],
               '*/v1/materialization:writeMaterializedOperations': [
-                withRetry({
-                  maxAttempts: 3,
-                  baseInterval: 100,
-                }),
+                withRetry({ maxAttempts: 3, baseInterval: 100 }),
                 withTimeout(0.5 * TimeUnit.SECOND),
               ],
-              '*/v1/clientFlagLogs:write': [
-                withRetry({
-                  maxAttempts: 3,
-                  baseInterval: 500,
-                }),
-                withTimeout(5 * TimeUnit.SECOND),
-              ],
-            }),
-          ],
-          'https://epx-flags-logs.experimentation-platform.workers.dev/*': [
-            withRetry({
-              maxAttempts: 3,
-              baseInterval: 500,
-            }),
-            withTimeout(5 * TimeUnit.SECOND),
-          ],
-          'https://events.confidence.dev/*': [
-            withRetry({
-              maxAttempts: 3,
-              baseInterval: 500,
-            }),
-            withTimeout(5 * TimeUnit.SECOND),
-          ],
-          '*': [
-            withResponse(url => {
-              throw new Error(`Unknown route ${url}`);
             }),
           ],
         }),
@@ -209,93 +272,74 @@ export class ConfidenceServerProviderLocal implements Provider {
       ],
       options.fetch ?? fetch,
     );
-    if (options.materializationStore) {
-      if (options.materializationStore === 'CONFIDENCE_REMOTE_STORE') {
-        this.materializationStore = new ConfidenceRemoteMaterializationStore(
-          options.flagClientSecret,
-          this.fetch,
-          this.main.signal,
-        );
-      } else {
-        this.materializationStore = options.materializationStore;
-      }
-    } else {
-      this.materializationStore = null;
-    }
-    this.initLabels = { encryption: options.encryptionKey ? 'true' : 'false' };
+
+    const materializationStore =
+      options.materializationStore === 'CONFIDENCE_REMOTE_STORE'
+        ? new ConfidenceRemoteMaterializationStore(options.flagClientSecret, this.eventsFetch, this.main.signal)
+        : options.materializationStore;
+
+    this.resolver = new LocalResolver(
+      new ModuleClient({
+        clientSecret: options.flagClientSecret,
+        encryptionKey: options.encryptionKey,
+        baseUrl: options.moduleBaseUrl ?? DEFAULT_MODULE_BASE_URL,
+        fetch: options.fetch,
+      }),
+      {
+        clientSecret: options.flagClientSecret,
+        encryptionKey: options.encryptionKey,
+        ingestionBaseUrl: options.ingestionBaseUrl ?? DEFAULT_INGESTION_BASE_URL,
+        fetch: options.fetch,
+        materializationStore,
+        maxInstances: options.maxInstances,
+        warmInstances: options.warmInstances,
+        sdk: { customId: PROVIDER_NAME, version: VERSION },
+      },
+    );
   }
 
-  async initialize(context?: EvaluationContext): Promise<void> {
+  async initialize(_context?: EvaluationContext): Promise<void> {
     const signal = this.main.signal;
-    const initialUpdateSignal = AbortSignal.any([
-      signal,
-      timeoutSignal(this.options.initializeTimeout ?? DEFAULT_INITIALIZE_TIMEOUT),
-    ]);
-    try {
-      this.resolverInstance = await this.resolverOrPromise;
-      this.eventTracker = await this.eventTrackerOrPromise;
-    } catch (error) {
-      this.status = castStringToEnum<ProviderStatus>('ERROR');
-      throw error;
-    }
-
+    const budget = AbortSignal.any([signal, timeoutSignal(this.initializeTimeout)]);
     let initializationError: Error | undefined;
     try {
-      // Network retries happen inside fetch; retry provisioning responses within the same budget.
+      if (this.options.eventTracker) {
+        this.eventTracker = await this.options.eventTracker;
+      }
       while (true) {
-        initialUpdateSignal.throwIfAborted();
-        try {
-          await abortablePromise(this.updateState(initialUpdateSignal), initialUpdateSignal);
-          initialUpdateSignal.throwIfAborted();
-          this.status = castStringToEnum<ProviderStatus>('READY');
-          break;
-        } catch (error) {
-          initialUpdateSignal.throwIfAborted();
-          if (error instanceof NonRetryableStateError) throw error;
-          logger.warn('Initial state load failed, retrying:', error);
-          await abortableSleep(NOT_READY_STATE_INTERVAL, initialUpdateSignal);
-        }
+        budget.throwIfAborted();
+        const outcome = await this.resolver.updateState(budget);
+        if (outcome.type === 'accepted') break;
+        logger.info('Module not available yet, retrying:', outcome);
+        await abortableSleep(NOT_READY_MODULE_INTERVAL, budget);
       }
+      this.status = castStringToEnum<ProviderStatus>('READY');
     } catch (cause) {
-      if (cause instanceof NonRetryableStateError) {
-        this.status = castStringToEnum<ProviderStatus>('FATAL');
-        throw cause;
-      }
       this.status = castStringToEnum<ProviderStatus>('ERROR');
       initializationError = Object.assign(
-        new Error(signal.aborted ? 'Provider closed during initialization' : 'Timed out waiting for initial state'),
-        { code: ErrorCode.PROVIDER_NOT_READY, cause },
+        new Error(signal.aborted ? 'Provider closed during initialization' : 'Timed out waiting for initial module'),
+        { code: 'PROVIDER_NOT_READY', cause },
       );
-      logger.warn('Initial state unavailable:', initializationError);
+      logger.warn('Initial module unavailable:', initializationError);
     }
 
     if (!signal.aborted) {
-      scheduleWithFixedInterval(signal => this.flush(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
-      const stopStateUpdates = scheduleWithFixedInterval(
+      scheduleWithFixedInterval(
         async signal => {
-          try {
-            await this.updateState(signal);
-          } catch (error) {
-            if (!signal?.aborted && !this.hasResolverState && error instanceof NonRetryableStateError) {
-              this.status = castStringToEnum<ProviderStatus>('FATAL');
-              this.events.emit(castStringToEnum<ServerProviderEvents>('PROVIDER_ERROR'), {
-                errorCode: castStringToEnum('PROVIDER_FATAL'),
-                message: error.message,
-              });
-              stopStateUpdates();
-            }
-            throw error;
-          }
-          signal?.throwIfAborted();
-          if (this.status !== 'READY') {
+          const outcome = await this.resolver.updateState(signal);
+          if (this.status !== 'READY' && this.resolver.isReady) {
             this.status = castStringToEnum<ProviderStatus>('READY');
             this.events.emit(castStringToEnum<ServerProviderEvents>('PROVIDER_READY'));
           }
+          if (outcome.type === 'failed') {
+            logger.warn('Module refresh failed, keeping last good module:', outcome.reason);
+          }
         },
-        () => (this.hasResolverState ? this.stateUpdateInterval : NOT_READY_STATE_INTERVAL),
+        () => (this.resolver.isReady ? this.moduleUpdateInterval : NOT_READY_MODULE_INTERVAL),
         { signal },
       );
+      scheduleWithFixedInterval(() => this.resolver.flushLogs(), this.flushInterval, { maxConcurrent: 3, signal });
+      scheduleWithFixedInterval(signal => this.flushEvents(signal), this.flushInterval, { maxConcurrent: 3, signal });
     }
     if (initializationError) throw initializationError;
   }
@@ -304,10 +348,9 @@ export class ConfidenceServerProviderLocal implements Provider {
     this.main.abort();
     const signal = timeoutSignal(3000);
     try {
-      // Drain events BEFORE the final log flush. Event delivery outcomes are
-      // reported on the next WriteFlagLogs, so draining afterwards leaves the
-      // last batch's published/rejected/succeeded/failed counters stranded in
-      // process-local state. Java already orders it this way.
+      // Drain events BEFORE the final log flush: event delivery outcomes
+      // belong to the event batches themselves, and a stuck event publish
+      // must not block the module's log drain.
       if (this.eventTracker) {
         try {
           await this.drainEvents(signal);
@@ -315,22 +358,34 @@ export class ConfidenceServerProviderLocal implements Provider {
           // best-effort: provider is shutting down
         }
       }
-      try {
-        await this.flush(signal);
-      } catch {
-        // best-effort: try an init-only request below
-      }
-      if (this.initTelemetryState !== 'sent') {
-        try {
-          const request = this.enrichTelemetry(new Uint8Array(), true);
-          await this.sendFlagLogs(request, signal);
-          this.initTelemetryState = 'sent';
-        } catch {
-          // best-effort: provider is shutting down
-        }
-      }
-    } finally {
-      this.main.abort();
+      // Best-effort: flush what is buffered and give in-flight deliveries a
+      // bounded chance to finish before the queue closes.
+      await this.resolver.drainLogs(1000);
+    } catch {
+      // provider is shutting down
+    }
+    await this.resolver.close();
+  }
+
+  /**
+   * Track a custom event. No-op when no event tracker was injected; flushes
+   * happen on the flush-interval timer and on close.
+   */
+  track(trackingEventName: string, context?: EvaluationContext, details?: TrackingEventDetails): void {
+    if (!this.eventTracker) return;
+
+    const { value, ...customData } = details ?? {};
+    const trackRequest: TrackEventRequest = {
+      eventName: trackingEventName,
+      eventTime: new Date(),
+      value,
+      context: context ? convertEvaluationContext(context) : undefined,
+      data: Object.keys(customData).length > 0 ? customData : undefined,
+    };
+    try {
+      this.eventTracker.trackEvent(trackRequest);
+    } catch (err) {
+      logger.warn('Failed to track event:', err);
     }
   }
 
@@ -347,24 +402,6 @@ export class ConfidenceServerProviderLocal implements Provider {
       await this.sendEvents(batch, signal);
     }
     logger.warn(`Event drain hit the ${MAX_DRAIN_BATCHES}-batch limit on shutdown; dropping the rest`);
-  }
-
-  track(trackingEventName: string, context?: EvaluationContext, details?: TrackingEventDetails): void {
-    if (!this.eventTracker) return;
-
-    const { value, ...customData } = details ?? {};
-    const trackRequest: TrackEventRequest = {
-      eventName: trackingEventName,
-      eventTime: new Date(),
-      value,
-      context: context ? ConfidenceServerProviderLocal.convertEvaluationContext(context) : undefined,
-      data: Object.keys(customData).length > 0 ? customData : undefined,
-    };
-    try {
-      this.eventTracker.trackEvent(trackRequest);
-    } catch (err) {
-      logger.warn('Failed to track event:', err);
-    }
   }
 
   private async flushEvents(signal?: AbortSignal): Promise<void> {
@@ -384,484 +421,101 @@ export class ConfidenceServerProviderLocal implements Provider {
     const body = PublishEventsRequest.encode(request).finish();
 
     try {
-      const response = await this.fetch('https://events.confidence.dev/v1/events:publish', {
+      const response = await this.eventsFetch(EVENTS_PUBLISH_URL, {
         method: 'post',
         signal,
         headers: { 'Content-Type': 'application/x-protobuf' },
         body: body as Uint8Array<ArrayBuffer>,
       });
       if (!response.ok) {
-        this.eventBatchesFailed++;
         logger.error(`Failed to send events: ${response.status} ${response.statusText}`);
         return;
       }
       // Decode before recording anything: a 200 with an unreadable body is a
-      // failed batch, and counting success up front would let the catch below
-      // record the same batch as both succeeded and failed.
+      // failed batch, not a success.
       const { errors } = PublishEventsResponse.decode(new Uint8Array(await response.arrayBuffer()));
-      this.eventBatchesSucceeded++;
-      this.eventsPublished += (batch.events?.length ?? 0) - errors.length;
-      this.eventsRejected += errors.length;
       for (const error of errors) {
         logger.error(
           `Failed to publish event at index ${error.index}: ${EventError_Reason[error.reason]} ${error.message}`,
         );
       }
     } catch (err) {
-      this.eventBatchesFailed++;
       logger.warn('Failed to send events:', err);
     }
   }
 
-  async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
-    if (!this.hasResolverState) return FlagBundle.error(ErrorCode.PROVIDER_NOT_READY, 'Provider is not ready');
-    const startMs = performance.now();
-    let reason = ResolveReason.RESOLVE_REASON_BUNDLE;
-    try {
-      return await this.resolveFlags(context, flagNames, apply);
-    } catch (err) {
-      reason = ResolveReason.RESOLVE_REASON_ERROR;
-      return FlagBundle.error(ErrorCode.GENERAL, String(err));
-    } finally {
-      const latencyUs = Math.round((performance.now() - startMs) * 1000);
-      try {
-        this.resolver.registerResolve({ reason, latencyUs });
-      } catch {
-        // best-effort telemetry
-      }
-    }
-  }
-
-  private async resolveFlags(context: EvaluationContext, flagNames: string[], apply: boolean): Promise<FlagBundle> {
-    const resolveRequest = {
-      flags: flagNames.map(name => `flags/${name}`),
-      evaluationContext: ConfidenceServerProviderLocal.convertEvaluationContext(context),
-      apply,
-      clientSecret: this.options.flagClientSecret,
-      sdk: {
-        id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-        version: VERSION,
-      },
-    };
-
-    const processRequest: ResolveProcessRequest = this.materializationStore
-      ? { deferredMaterializations: resolveRequest }
-      : { withoutMaterializations: resolveRequest };
-
-    return FlagBundle.create(await this.resolveProcess(processRequest));
-  }
-
+  /**
+   * Evaluate one flag, logging exposure immediately. Public surface kept
+   * from the state-based provider for direct callers and the React layer.
+   */
   async evaluate<T extends JsonValue>(
     flagKey: string,
     defaultValue: T,
     context: EvaluationContext,
-  ): Promise<ResolutionDetails<T>> {
-    if (!this.hasResolverState) {
+  ): Promise<ProviderResolutionDetails<T>> {
+    const [flagName] = flagKey.split('.', 1);
+    const { _confidence_skip_apply, ...cleanContext } = context;
+    const skipApply = this.options.disableExposureCollection === true || _confidence_skip_apply === true;
+
+    if (!this.resolver.isReady) {
       return {
         value: defaultValue,
         reason: 'ERROR',
         errorCode: ErrorCode.PROVIDER_NOT_READY,
         errorMessage: 'Provider is not ready',
-        shouldApply: false,
       };
     }
-    const startMs = performance.now();
+
+    let session: ResolveSession | undefined;
     try {
-      const [flagName] = flagKey.split('.', 1);
-      const { _confidence_skip_apply, ...cleanContext } = context;
-      // apply=false covers both provider disableExposureCollection and per-eval
-      // `_confidence_skip_apply`. Provider disableExposureCollection is also set on the WASM
-      // guest via setResolverState so assign/token are skipped entirely;
-      // apply=false alone would still mint a deferred token.
-      const disableExposureCollection =
-        this.options.disableExposureCollection === true || _confidence_skip_apply === true;
-
-      let resolution: FlagBundle;
-      try {
-        resolution = await this.resolveFlags(cleanContext as EvaluationContext, [flagName], !disableExposureCollection);
-      } catch (err) {
-        resolution = FlagBundle.error(ErrorCode.GENERAL, String(err));
-      }
-      const result = FlagBundle.resolve(resolution, flagKey, defaultValue, logger);
-
-      const latencyUs = Math.round((performance.now() - startMs) * 1000);
-      let reason: ResolveReason;
-      if (resolution.errorCode) {
-        reason = ResolveReason.RESOLVE_REASON_ERROR;
-      } else {
-        const [flagNameForTelemetry] = flagKey.split('.', 1);
-        const flagResolution = resolution.flags[flagNameForTelemetry];
-        if (flagResolution?.reason === 'MATERIALIZATION_NOT_SUPPORTED') {
-          reason = ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED;
-        } else if (result.errorCode === ErrorCode.FLAG_NOT_FOUND) {
-          reason = ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND;
-        } else if (result.errorCode === ErrorCode.TYPE_MISMATCH) {
-          reason = ResolveReason.RESOLVE_REASON_TYPE_MISMATCH;
-        } else {
-          reason = reasonStringToEnum(result.reason);
-        }
-      }
-      try {
-        this.resolver.registerResolve({ reason, latencyUs });
-      } catch {
-        // best-effort telemetry
-      }
-
-      return result;
-    } finally {
-      if (this.options.disableExposureCollection !== true) {
-        this.flushAssigned();
-      }
-    }
-  }
-
-  private async resolveProcess(request: ResolveProcessRequest): Promise<ResolveFlagsResponse> {
-    const response = this.resolver.resolveProcess(request);
-
-    if (response.suspended) {
-      const { materializationsToRead, state } = response.suspended;
-      const readOps = materializationRecordsToReadOps(materializationsToRead);
-      const readResults = await this.readMaterializations(readOps);
-      const materializations = readResultsToMaterializationRecords(readResults);
-
-      // Resume with the fetched materializations
-      const resumeResponse = this.resolver.resolveProcess({
-        resume: { materializations, state },
+      session = await this.resolver.resolve({
+        flags: [flagName],
+        evaluationContext: convertEvaluationContext(cleanContext as EvaluationContext),
+        apply: !skipApply,
       });
-
-      if (!resumeResponse.resolved) {
-        throw new Error('Resolve still suspended after providing materializations');
+      if (session.canEvaluate) {
+        return mapModuleDetails(session.evaluate(flagKey, defaultValue), defaultValue);
       }
-
-      this.handleMaterializationWrites(resumeResponse.resolved.materializationsToWrite);
-      return ResolveFlagsResponse.create(resumeResponse.resolved.response);
-    }
-
-    if (!response.resolved) {
-      throw new Error('Unexpected empty resolve response');
-    }
-
-    this.handleMaterializationWrites(response.resolved.materializationsToWrite);
-    return ResolveFlagsResponse.create(response.resolved.response);
-  }
-
-  private handleMaterializationWrites(
-    records: { unit: string; materialization: string; rule: string; variant: string }[],
-  ): void {
-    if (records.length > 0) {
-      const writeOps = materializationRecordsToWriteOps(records);
-      this.writeMaterializations(writeOps);
-    }
-  }
-
-  async updateState(signal?: AbortSignal): Promise<void> {
-    const hashHex = await sha256Hex(this.options.flagClientSecret);
-    const { encryptionKey } = this.options;
-    const cdnPath = `${hashHex}.enc`;
-    const cdnUrl = `https://confidence-resolver-state-cdn.spotifycdn.com/${cdnPath}`;
-
-    const headers = new Headers();
-    if (this.stateEtag) {
-      headers.set('If-None-Match', this.stateEtag);
-    }
-    const resp = await this.fetch(cdnUrl, { headers, signal });
-    if (resp.status === 304) {
-      if (!this.hasResolverState) throw new Error('Received 304 before initial resolver state');
-      signal?.throwIfAborted();
-      return;
-    }
-    if (!resp.ok) {
-      if (resp.status >= 400 && resp.status < 500 && ![404, 408, 429].includes(resp.status)) {
-        throw new NonRetryableStateError(`Failed to fetch state: ${resp.status} ${resp.statusText}`);
-      }
-      throw new Error(`Failed to fetch state: ${resp.status} ${resp.statusText}`);
-    }
-
-    const bytes = new Uint8Array(await resp.arrayBuffer());
-    const sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
-
-    try {
-      await this.flush(signal);
-    } catch {
-      // best-effort: don't block state update if flush fails
-    }
-
-    let clientState: ClientResolverState;
-    try {
-      const plaintext = await decryptAesGcm(bytes, hexToBytes(encryptionKey));
-      signal?.throwIfAborted();
-      clientState = ClientResolverState.decode(plaintext);
-      this.resolver.setResolverState(
-        SetResolverStateRequest.create({
-          state: clientState.state,
-          accountId: clientState.account,
-          sdk,
-          enableApplyDedup: this.options.enableApplyDedup ?? true,
-          disableExposureCollection: this.options.disableExposureCollection === true,
-        }),
-      );
-    } catch (cause) {
-      signal?.throwIfAborted();
-      throw new NonRetryableStateError(`Invalid resolver state: ${String(cause)}`, { cause });
-    }
-    this.hasResolverState = true;
-    this.logDestinations = clientState.logDestinations;
-    this.accountId = clientState.account;
-    this.stateEtag = resp.headers.get('etag');
-  }
-
-  /**
-   * Enriches, delivers and accounts for one WriteFlagLogs request. Shared by
-   * the interval flush and the per-evaluation assign flush so both are counted
-   * — Go's `Write` and Java's `writeLogs` count assign flushes too.
-   *
-   * Deliberately NOT serialised. `enrichTelemetry` and
-   * `restoreDrainedCounters` are both fully synchronous, so a drain cannot be
-   * interleaved and a restore is purely additive — counter totals are conserved
-   * under any interleaving. Serialising instead put every per-evaluation assign
-   * delivery on one chain, which is unbounded: a delivery can take 15s+ (3
-   * retries at 500ms plus a 5s timeout, across primary then fallback), so above
-   * ~1 evaluation per delivery the chain grows without bound and the interval
-   * flush starves behind it.
-   *
-   * Only the interval flush may carry provider-init telemetry: allowing both
-   * paths would let two concurrent requests each report an init.
-   */
-  private async deliverFlagLogs(
-    encodedWriteFlagLogRequest: Uint8Array,
-    allowInit: boolean,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    const includeInit = allowInit && this.initTelemetryState === 'pending';
-    if (includeInit) {
-      this.initTelemetryState = 'sending';
-    }
-    const request = this.enrichTelemetry(encodedWriteFlagLogRequest, includeInit);
-    try {
-      const delivered = await this.sendFlagLogs(request, signal);
-      if (delivered) {
-        this.flushSucceeded++;
-      } else {
-        // Every destination answered non-OK: count the failure and put the
-        // drained delivery counters back so the next flush re-reports them.
-        this.flushFailed++;
-        this.restoreDrainedCounters(request);
-      }
-      // Provider init telemetry is best-effort and never retried after a
-      // response was received, successful or not.
-      if (includeInit) {
-        this.initTelemetryState = 'sent';
-      }
+      // Host-side fallback while a module lacks the evaluate export.
+      const bundle = FlagBundleModule.create(session.response);
+      return mapLegacyDetails(FlagBundleModule.resolve(bundle, flagKey, defaultValue, logger));
     } catch (error) {
-      this.flushFailed++;
-      this.restoreDrainedCounters(request);
-      if (includeInit) {
-        this.initTelemetryState = 'pending';
-      }
-      throw error;
-    }
-  }
-
-  // TODO should this return success/failure, or even throw?
-  async flush(signal?: AbortSignal): Promise<void> {
-    const writeFlagLogRequest = this.resolver.flushLogs();
-    if (writeFlagLogRequest.length === 0) return;
-    await this.deliverFlagLogs(writeFlagLogRequest, true, signal);
-  }
-
-  private async flushAssigned(): Promise<void> {
-    const writeFlagLogRequest = this.resolver.flushAssigned();
-    if (writeFlagLogRequest.length === 0) return;
-    try {
-      await this.deliverFlagLogs(writeFlagLogRequest, false, this.main.signal);
-    } catch (err) {
-      // Called unawaited from resolve's finally, so a rejection here would
-      // surface as an unhandled rejection in the host application.
-      logger.warn('Failed to flush assigned flag logs', err);
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: mapErrorToCode(error),
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      session?.release();
     }
   }
 
   /**
-   * Returns true when a destination accepted the payload, false when every
-   * destination answered with a non-OK response. Network-level failures on the
-   * last destination still throw, preserving the original contract that
-   * `flush()` rejects only on transport errors.
+   * Resolve flags into a bundle for React Server Components. Exposures are
+   * deferred: the client applies them later through `applyFlag`.
    */
-  private async sendFlagLogs(encodedWriteFlagLogRequest: Uint8Array, signal = this.main.signal): Promise<boolean> {
-    const destinations =
-      this.logDestinations.length > 0 ? this.logDestinations : [LogDestination.LOG_DESTINATION_SPOTIFY_EDGE];
-
-    for (let i = 0; i < destinations.length; i++) {
-      const isLast = i === destinations.length - 1;
-      try {
-        const ok = await this.sendFlagLogsToDestination(encodedWriteFlagLogRequest, destinations[i], signal);
-        if (ok) return true;
-        // Non-OK response — try fallback if available
-        if (!isLast) {
-          logger.warn('Primary flag log destination returned error, trying fallback');
-          continue;
-        }
-        logger.warn('All flag log destinations returned error responses');
-      } catch (err) {
-        if (!isLast) {
-          logger.warn('Primary flag log destination failed, trying fallback', err);
-          continue;
-        }
-        // Last destination failed with network error — preserve original behavior
-        logger.warn('Failed to send flag logs', err);
-        throw err;
-      }
-    }
-    return false;
-  }
-
-  private restoreDrainedCounters(encodedWriteFlagLogRequest: Uint8Array): void {
-    try {
-      const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
-      const td = request.telemetryData;
-      if (td?.flush) {
-        this.flushSucceeded += td.flush.succeeded;
-        this.flushFailed += td.flush.failed;
-      }
-      if (td?.events) {
-        this.eventsPublished += td.events.published;
-        this.eventBatchesSucceeded += td.events.batchesSucceeded;
-        this.eventBatchesFailed += td.events.batchesFailed;
-        this.eventsRejected += td.events.eventsRejected;
-      }
-    } catch {
-      // Best-effort restore — don't mask the original send error
-    }
-  }
-
-  /** Single decode→enrich→encode pass for init + delivery telemetry. */
-  private enrichTelemetry(encodedWriteFlagLogRequest: Uint8Array, includeInit: boolean): Uint8Array {
-    const hasFlush = this.flushSucceeded > 0 || this.flushFailed > 0;
-    const hasEvents =
-      this.eventsPublished > 0 ||
-      this.eventBatchesSucceeded > 0 ||
-      this.eventBatchesFailed > 0 ||
-      this.eventsRejected > 0;
-    if (!includeInit && !hasFlush && !hasEvents) {
-      return encodedWriteFlagLogRequest;
-    }
-    const request = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
-    if (!request.telemetryData) {
-      request.telemetryData = {
-        resolverVersion: '',
-        providerInitRate: [],
-        resolveRate: [],
-        memoryBytes: 0,
-      };
-    }
-    const td = request.telemetryData!;
-    if (includeInit) {
-      td.sdk = { id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER, version: VERSION };
-      td.providerInitRate.push({ count: 1, labels: this.initLabels });
-    }
-    if (hasFlush) {
-      td.flush = { succeeded: this.flushSucceeded, failed: this.flushFailed };
-    }
-    if (hasEvents) {
-      td.events = {
-        published: this.eventsPublished,
-        batchesSucceeded: this.eventBatchesSucceeded,
-        batchesFailed: this.eventBatchesFailed,
-        eventsRejected: this.eventsRejected,
-      };
-    }
-    this.flushSucceeded = 0;
-    this.flushFailed = 0;
-    this.eventsPublished = 0;
-    this.eventBatchesSucceeded = 0;
-    this.eventBatchesFailed = 0;
-    this.eventsRejected = 0;
-    return WriteFlagLogsRequest.encode(request).finish();
-  }
-
-  /**
-   * Send flag logs to a specific destination. Returns true on success (HTTP 2xx),
-   * false on a non-OK HTTP response. Throws on network errors.
-   */
-  private async sendFlagLogsToDestination(
-    encodedWriteFlagLogRequest: Uint8Array,
-    destination: LogDestination,
-    signal: AbortSignal,
-  ): Promise<boolean> {
-    if (destination === LogDestination.LOG_DESTINATION_CLOUDFLARE) {
-      const batch = WriteFlagLogsRequest.decode(encodedWriteFlagLogRequest);
-      const ingestRequest = IngestFlagLogsRequest.encode(
-        IngestFlagLogsRequest.create({ accountId: this.accountId, batch }),
-      ).finish();
-
-      const response = await this.fetch(
-        'https://epx-flags-logs.experimentation-platform.workers.dev/v1/flagLogs:ingest',
-        {
-          method: 'post',
-          signal,
-          headers: {
-            'Content-Type': 'application/x-protobuf',
-            Authorization: `ClientSecret ${this.options.flagClientSecret}`,
-          },
-          body: ingestRequest as Uint8Array<ArrayBuffer>,
-        },
-      );
-      if (!response.ok) {
-        logger.error(
-          `Failed to write flag logs to Cloudflare: ${response.status} ${
-            response.statusText
-          } - ${await response.text()}`,
-        );
-        return false;
-      }
-      return true;
-    }
-
-    // Edge (default — covers UNSPECIFIED and SPOTIFY_EDGE)
-    const response = await this.fetch('https://resolver.confidence.dev/v1/clientFlagLogs:write', {
-      method: 'post',
-      signal,
-      headers: {
-        'Content-Type': 'application/x-protobuf',
-        Authorization: `ClientSecret ${this.options.flagClientSecret}`,
-      },
-      body: encodedWriteFlagLogRequest as Uint8Array<ArrayBuffer>,
+  async resolve(context: EvaluationContext, flagNames: string[], apply = false): Promise<FlagBundle> {
+    const session = await this.resolver.resolve({
+      flags: flagNames,
+      evaluationContext: convertEvaluationContext(context),
+      apply,
     });
-    if (!response.ok) {
-      logger.error(`Failed to write flag logs: ${response.status} ${response.statusText} - ${await response.text()}`);
-      return false;
+    try {
+      return FlagBundleModule.create(session.response);
+    } finally {
+      session.release();
     }
-    return true;
   }
 
-  private async readMaterializations(
-    readOps: MaterializationStore.ReadOp[],
-  ): Promise<MaterializationStore.ReadResult[]> {
-    const materializationStore = this.materializationStore;
-    if (materializationStore && typeof materializationStore.readMaterializations === 'function') {
-      return materializationStore.readMaterializations(readOps);
-    }
-    throw new Error('Read materialization not supported');
-  }
-
-  private writeMaterializations(writeOps: MaterializationStore.WriteOp[]): void {
-    const materializationStore = this.materializationStore;
-    if (materializationStore && typeof materializationStore.writeMaterializations === 'function') {
-      materializationStore.writeMaterializations(writeOps).catch(e => {
-        logger.warn('Failed to write materialization', e);
-      });
-      return;
-    }
-    throw new Error('Write materialization not supported');
-  }
-
-  private static convertEvaluationContext({ targetingKey: targeting_key, ...rest }: EvaluationContext): {
-    [key: string]: any;
-  } {
-    return {
-      targeting_key,
-      ...rest,
-    };
+  /** Apply a previously resolved flag: logs that it was used/exposed. */
+  applyFlag(resolveToken: string, flagName: string): void {
+    void this.resolver
+      .applyFlags({
+        resolveToken: FlagBundleModule.decodeToken(resolveToken),
+        flags: [{ flag: `flags/${flagName}` }],
+      })
+      .catch(error => logger.warn('Failed to apply flag:', error));
   }
 
   /** Resolves with an evaluation of a Boolean flag */
@@ -869,104 +523,50 @@ export class ConfidenceServerProviderLocal implements Provider {
     flagKey: string,
     defaultValue: boolean,
     context: EvaluationContext,
-  ): Promise<ResolutionDetails<boolean>> {
-    return Promise.resolve(this.evaluate(flagKey, defaultValue, context));
+  ): Promise<ProviderResolutionDetails<boolean>> {
+    return this.evaluate(flagKey, defaultValue, context);
   }
+
   /** Resolves with an evaluation of a Numbers flag */
   resolveNumberEvaluation(
     flagKey: string,
     defaultValue: number,
     context: EvaluationContext,
-  ): Promise<ResolutionDetails<number>> {
-    return Promise.resolve(this.evaluate(flagKey, defaultValue, context));
+  ): Promise<ProviderResolutionDetails<number>> {
+    return this.evaluate(flagKey, defaultValue, context);
   }
+
   /** Resolves with an evaluation of an Object flag */
   resolveObjectEvaluation<T extends JsonValue>(
     flagKey: string,
     defaultValue: T,
     context: EvaluationContext,
-  ): Promise<ResolutionDetails<T>> {
-    return Promise.resolve(this.evaluate(flagKey, defaultValue, context));
+  ): Promise<ProviderResolutionDetails<T>> {
+    return this.evaluate(flagKey, defaultValue, context);
   }
+
   /** Resolves with an evaluation of a String flag */
   resolveStringEvaluation(
     flagKey: string,
     defaultValue: string,
     context: EvaluationContext,
-  ): Promise<ResolutionDetails<string>> {
-    return Promise.resolve(this.evaluate(flagKey, defaultValue, context));
+  ): Promise<ProviderResolutionDetails<string>> {
+    return this.evaluate(flagKey, defaultValue, context);
   }
 
-  /**
-   * Returns a Prometheus metrics snapshot from the WASM resolver.
-   *
-   * @experimental This API is subject to change.
-   */
-  getPrometheusMetrics(_request?: SnapshotConfig): string {
-    return this.resolver.prometheusSnapshot('0');
+  /** Returns a Prometheus metrics snapshot from the module. */
+  async getPrometheusMetrics(_request?: SnapshotConfig): Promise<string> {
+    return this.resolver.prometheusSnapshot(0);
   }
 
-  /**
-   * Applies a previously resolved flag, logging that it was used/exposed.
-   * Call this when a flag value is actually rendered or used in the client.
-   * @param resolveToken - Base64-encoded resolve token from the flag bundle
-   * @param flagName - Name of the flag to apply
-   */
-  applyFlag(resolveToken: string, flagName: string): void {
-    const request = {
-      flags: [
-        {
-          flag: `flags/${flagName}`,
-          applyTime: new Date(),
-        },
-      ],
-      clientSecret: this.options.flagClientSecret,
-      resolveToken: FlagBundle.decodeToken(resolveToken),
-      sendTime: new Date(),
-      sdk: {
-        id: SdkId.SDK_ID_JS_LOCAL_SERVER_PROVIDER,
-        version: VERSION,
-      },
-    };
-
-    this.resolver.applyFlags(request);
+  /** Flush buffered flag logs now. */
+  async flush(): Promise<void> {
+    this.resolver.flushLogs();
   }
 }
 
-async function decryptAesGcm(data: Uint8Array, rawKey: Uint8Array): Promise<Uint8Array> {
-  const NONCE_LEN = 12;
-  if (data.length < NONCE_LEN) {
-    throw new Error('Encrypted state too short (missing nonce)');
-  }
-  const iv = data.buffer.slice(data.byteOffset, data.byteOffset + NONCE_LEN) as ArrayBuffer;
-  const ciphertext = data.buffer.slice(data.byteOffset + NONCE_LEN, data.byteOffset + data.byteLength) as ArrayBuffer;
-  const key = await crypto.subtle.importKey('raw', rawKey.buffer as ArrayBuffer, 'AES-GCM', false, ['decrypt']);
-  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
-  return new Uint8Array(plaintext);
-}
-
-function reasonStringToEnum(reason: string): ResolveReason {
-  switch (reason) {
-    case 'MATCH':
-      return ResolveReason.RESOLVE_REASON_MATCH;
-    case 'NO_SEGMENT_MATCH':
-      return ResolveReason.RESOLVE_REASON_NO_SEGMENT_MATCH;
-    case 'NO_TREATMENT_MATCH':
-      return ResolveReason.RESOLVE_REASON_NO_TREATMENT_MATCH;
-    case 'FLAG_ARCHIVED':
-      return ResolveReason.RESOLVE_REASON_FLAG_ARCHIVED;
-    case 'TARGETING_KEY_ERROR':
-      return ResolveReason.RESOLVE_REASON_TARGETING_KEY_ERROR;
-    case 'ERROR':
-      return ResolveReason.RESOLVE_REASON_ERROR;
-    default:
-      return ResolveReason.RESOLVE_REASON_UNSPECIFIED;
-  }
-}
-
-/** Validate before allocating WASM resources or starting network activity. */
-export function validateEncryptionKey(key: string): void {
-  if (typeof key !== 'string' || key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
-    throw new Error('encryptionKey is required and must contain exactly 64 hexadecimal characters');
-  }
+function mapErrorToCode(error: unknown): ErrorCode {
+  if (error instanceof RuntimeNotReadyError) return ErrorCode.PROVIDER_NOT_READY;
+  if (error instanceof ResolveProcessError && error.code === 16) return ErrorCode.PROVIDER_FATAL;
+  return ErrorCode.GENERAL;
 }

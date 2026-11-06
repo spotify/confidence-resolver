@@ -7,11 +7,11 @@ ROOT := $(realpath $(CURDIR)/../..)
 INSTALL_STAMP := .install.stamp
 BUILD_STAMP := .build.stamp
 GEN_DIR := src/proto
-GEN_TS := $(GEN_DIR)/test-only.ts $(GEN_DIR)/confidence/wasm/messages.ts $(GEN_DIR)/confidence/wasm/wasm_api.ts $(GEN_DIR)/confidence/flags/resolver/v1/types.ts $(GEN_DIR)/confidence/flags/resolver/v1/api.ts $(GEN_DIR)/confidence/flags/resolver/v1/internal_api.ts $(GEN_DIR)/confidence/flags/types/v1/types.ts
-PROTO_SRC := proto/test-only.proto $(ROOT)/openfeature-provider/proto/confidence/wasm/messages.proto $(ROOT)/openfeature-provider/proto/confidence/wasm/wasm_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/types.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/internal_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/types/v1/types.proto
+GEN_TS := $(GEN_DIR)/confidence/wasm/messages.ts $(GEN_DIR)/confidence/wasm/wasm_api.ts $(GEN_DIR)/confidence/flags/resolver/v1/types.ts $(GEN_DIR)/confidence/flags/resolver/v1/api.ts $(GEN_DIR)/confidence/flags/resolver/v1/internal_api.ts $(GEN_DIR)/confidence/flags/types/v1/types.ts $(GEN_DIR)/confidence/flags/wasm/v1/metadata.ts $(GEN_DIR)/confidence/flags/wasm/v1/client_module.ts $(GEN_DIR)/confidence/flags/wasm/v1/api.ts $(GEN_DIR)/confidence/flags/wasm/v1/telemetry.ts $(GEN_DIR)/confidence/flags/admin/v1/types.ts $(GEN_DIR)/confidence/flags/resolver/v1/events/events.ts
+PROTO_SRC := $(ROOT)/openfeature-provider/proto/confidence/wasm/messages.proto $(ROOT)/openfeature-provider/proto/confidence/wasm/wasm_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/types.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/internal_api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/types/v1/types.proto $(ROOT)/openfeature-provider/proto/confidence/flags/wasm/v1/metadata.proto $(ROOT)/openfeature-provider/proto/confidence/flags/wasm/v1/client_module.proto $(ROOT)/openfeature-provider/proto/confidence/flags/wasm/v1/api.proto $(ROOT)/openfeature-provider/proto/confidence/flags/wasm/v1/telemetry.proto $(ROOT)/openfeature-provider/proto/confidence/flags/admin/v1/types.proto $(ROOT)/openfeature-provider/proto/confidence/flags/resolver/v1/events/events.proto
 SRC := $(shell find src -name '*.ts')
 CONFIG := package.json yarn.lock tsconfig.json tsdown.config.ts vitest.config.ts
-WASM_ARTIFACT := $(ROOT)/wasm/confidence_resolver.wasm
+WASM_ARTIFACT := $(ROOT)/wasm/confidence_event_engine.wasm
 
 .PHONY: install build test clean 
 
@@ -19,7 +19,7 @@ WASM_ARTIFACT := $(ROOT)/wasm/confidence_resolver.wasm
 ifneq ($(IN_DOCKER_BUILD),1)
 .PHONY: build-wasm
 build-wasm:
-	@$(MAKE) -C $(ROOT) wasm/confidence_resolver.wasm
+	@$(MAKE) -C $(ROOT) wasm/confidence_event_engine.wasm
 $(BUILD_STAMP): | build-wasm
 endif
 

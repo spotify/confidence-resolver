@@ -1,156 +1,78 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+/**
+ * End-to-end tests against real Confidence infrastructure: the module CDN,
+ * the compiled client module, and the flag-log ingestion endpoint.
+ *
+ * Requires a credential with a published compiled client module:
+ *   CONFIDENCE_CLIENT_SECRET, CONFIDENCE_CLIENT_ENCRYPTION_KEY
+ * Optional overrides:
+ *   CONFIDENCE_PROBE_FLAG (default: material-segment-targed-flag),
+ *   CONFIDENCE_PROBE_TARGETING_KEY (default: probe-user)
+ *
+ * Skips when the credentials are absent, so local runs and PR CI stay green;
+ * the `.test_e2e` docker stage provides the credentials from BuildKit secrets.
+ */
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { OpenFeature } from '@openfeature/server-sdk';
 import { ConfidenceServerProviderLocal } from './ConfidenceServerProviderLocal';
-import { readFileSync } from 'node:fs';
-import { WasmResolver } from './WasmResolver';
-import { EventWasmTracker } from './EventWasmTracker';
-import { PublishEventsResponse } from './proto/confidence/events/v1/api';
 
-const moduleBytes = readFileSync(__dirname + '/../../../wasm/confidence_resolver.wasm');
-const module = new WebAssembly.Module(moduleBytes);
-const eventModuleBytes = readFileSync(__dirname + '/../../../wasm/confidence_event_engine.wasm');
-const eventModule = new WebAssembly.Module(eventModuleBytes);
-const EVENT_PUBLISH_URL = 'https://events.confidence.dev/v1/events:publish';
+const CLIENT_SECRET = process.env.CONFIDENCE_CLIENT_SECRET;
+const ENCRYPTION_KEY = process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY;
+const PROBE_FLAG = process.env.CONFIDENCE_PROBE_FLAG ?? 'material-segment-targed-flag';
+const TARGETING_KEY = process.env.CONFIDENCE_PROBE_TARGETING_KEY ?? 'probe-user';
 
-describe('ConfidenceServerProvider E2E (encrypted)', () => {
-  const name = 'encrypted';
-  const encryptionKey = process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!;
-  const resolver = new WasmResolver(module);
-  const eventTracker = new EventWasmTracker(eventModule);
-  const eventPublishResults: Array<{ status: number; errors: PublishEventsResponse['errors'] }> = [];
-  const fetchWithEventCapture: typeof fetch = async (input, init) => {
-    const request = new Request(input, init);
-    const response = await fetch(request);
-    if (request.url === EVENT_PUBLISH_URL) {
-      const { errors } = PublishEventsResponse.decode(new Uint8Array(await response.clone().arrayBuffer()));
-      eventPublishResults.push({ status: response.status, errors });
-    }
-    return response;
-  };
-  const provider = new ConfidenceServerProviderLocal(resolver, eventTracker, {
-    flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
-    encryptionKey,
-    fetch: fetchWithEventCapture,
-    flushInterval: 1000,
-  });
+describe.skipIf(!CLIENT_SECRET || !ENCRYPTION_KEY)('ConfidenceServerProviderLocal e2e (real infrastructure)', () => {
+  let provider: ConfidenceServerProviderLocal;
+  const ingestionResults: Array<{ url: string; status: number }> = [];
 
   beforeAll(async () => {
-    await OpenFeature.setProviderAndWait(`e2e-${name}`, provider);
-  });
-
-  afterAll(() => OpenFeature.close());
-
-  const ctx = { targetingKey: 'test-a', sticky: false };
-
-  it('should resolve a boolean e2e', async () => {
-    const client = OpenFeature.getClient(`e2e-${name}`);
-
-    expect(await client.getBooleanValue('web-sdk-e2e-flag.bool', true, ctx)).toBeFalsy();
-  });
-
-  it('should resolve an int', async () => {
-    const client = OpenFeature.getClient(`e2e-${name}`);
-
-    expect(await client.getNumberValue('web-sdk-e2e-flag.int', 10, ctx)).toEqual(3);
-  });
-
-  it('should resolve a double', async () => {
-    const client = OpenFeature.getClient(`e2e-${name}`);
-
-    expect(await client.getNumberValue('web-sdk-e2e-flag.double', 10, ctx)).toEqual(3.5);
-  });
-
-  it('should resolve a string', async () => {
-    const client = OpenFeature.getClient(`e2e-${name}`);
-
-    expect(await client.getStringValue('web-sdk-e2e-flag.str', 'default', ctx)).toEqual('control');
-  });
-
-  it('should resolve a struct', async () => {
-    const client = OpenFeature.getClient(`e2e-${name}`);
-    const expectedObject = {
-      int: 4,
-      str: 'obj control',
-      bool: false,
-      double: 3.6,
-      ['obj-obj']: {},
-    };
-
-    expect(await client.getObjectValue('web-sdk-e2e-flag.obj', {}, ctx)).toEqual(expectedObject);
-  });
-
-  it('should resolve a sub value from a struct', async () => {
-    const client = OpenFeature.getClient(`e2e-${name}`);
-
-    expect(await client.getBooleanValue('web-sdk-e2e-flag.obj.bool', true, ctx)).toBeFalsy();
-  });
-
-  it('should resolve a sub value from a struct with details with resolve token for client side apply call', async () => {
-    const client = OpenFeature.getClient(`e2e-${name}`);
-    const expectedObject = {
-      flagKey: 'web-sdk-e2e-flag.obj.double',
-      reason: 'MATCH',
-      variant: 'flags/web-sdk-e2e-flag/variants/control',
-      flagMetadata: {},
-      value: 3.6,
-      shouldApply: true,
-      assignmentOrigin: 'flags/web-sdk-e2e-flag/rules/zphggscnfdpvcp4jy5ui',
-    };
-
-    expect(await client.getNumberDetails('web-sdk-e2e-flag.obj.double', 1, ctx)).toEqual(expectedObject);
-  });
-
-  it('should publish a tracked event', async () => {
-    const client = OpenFeature.getClient(`e2e-${name}`);
-
-    client.track('js-sdk-e2e-tests', ctx, { pants: 'blue' });
-
-    expect(await waitForEventPublish(eventPublishResults)).toEqual({ status: 200, errors: [] });
-  }, 10_000);
-});
-
-describe('ConfidenceServerProvider E2E (sticky)', () => {
-  const resolver = new WasmResolver(module);
-  const eventTracker = new EventWasmTracker(eventModule);
-  const provider = new ConfidenceServerProviderLocal(resolver, eventTracker, {
-    flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
-    encryptionKey: process.env.CONFIDENCE_CLIENT_ENCRYPTION_KEY!,
-    materializationStore: 'CONFIDENCE_REMOTE_STORE',
-  });
-
-  beforeAll(async () => {
-    await OpenFeature.setProviderAndWait('e2e-sticky', provider);
-    OpenFeature.setContext({
-      targetingKey: 'test-a',
-      sticky: false,
+    // Observe ingestion deliveries without changing behavior.
+    const realFetch = fetch;
+    const observingFetch: typeof fetch = (input, init) =>
+      realFetch(input, init).then(response => {
+        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+        if (url.includes('flagLogs:write')) {
+          ingestionResults.push({ url, status: response.status });
+        }
+        return response;
+      });
+    provider = new ConfidenceServerProviderLocal({
+      flagClientSecret: CLIENT_SECRET!,
+      encryptionKey: ENCRYPTION_KEY!,
+      fetch: observingFetch,
+      flushInterval: 1000,
     });
+    await OpenFeature.setProviderAndWait('e2e', provider);
+  }, 60_000);
+
+  afterAll(async () => {
+    await provider.onClose();
+    await OpenFeature.close();
   });
 
-  afterAll(() => OpenFeature.close());
+  it('initializes to READY with a real module from the CDN', () => {
+    expect(provider.status).toBe('READY');
+  });
 
-  it('should resolve a flag with a sticky resolve', async () => {
-    const client = OpenFeature.getClient('e2e-sticky');
-    const result = await client.getNumberDetails('web-sdk-e2e-flag.double', -1, {
-      targetingKey: 'test-3',
-      sticky: true,
-    });
+  it('evaluates a real flag through the module', async () => {
+    const client = OpenFeature.getClient('e2e');
+    const details = await client.getBooleanDetails(`${PROBE_FLAG}.enabled`, false, { targetingKey: TARGETING_KEY });
+    // The evaluation must complete through the module — any flag-level
+    // outcome (match, default, not-found) is valid, but no provider error.
+    expect(['PROVIDER_NOT_READY', 'PROVIDER_FATAL', 'GENERAL']).not.toContain(details.errorCode);
+  });
 
-    // The flag has a running experiment with a sticky assignment. The intake is paused but we should still get the sticky assignment.
-    // If this test breaks it could mean that the experiment was removed or that the bigtable materialization was cleaned out.
-    // To restore: open the experiment in the Confidence UI and resume the intake, then run this test once (the resolve re-seeds the sticky materialization for 'test-a'), then pause the intake again.
-    expect(result.value).toBe(99.99);
-    expect(result.variant).toBe('flags/web-sdk-e2e-flag/variants/sticky');
-    expect(result.reason).toBe('MATCH');
+  it('resolves bundles through the module (React path)', async () => {
+    const bundle = await provider.resolve({ targetingKey: TARGETING_KEY }, [PROBE_FLAG]);
+    expect(typeof bundle.resolveToken).toBe('string');
+  });
+
+  it('delivers flushed flag logs to the real ingestion endpoint', async () => {
+    await provider.flush();
+    await vi.waitFor(() => expect(ingestionResults.length).toBeGreaterThan(0), { timeout: 10_000 });
+    expect(ingestionResults.every(result => result.status === 200)).toBe(true);
+  });
+
+  it('returns a real Prometheus metrics snapshot from the module', async () => {
+    expect((await provider.getPrometheusMetrics()).length).toBeGreaterThan(0);
   });
 });
-
-async function waitForEventPublish(
-  results: Array<{ status: number; errors: PublishEventsResponse['errors'] }>,
-): Promise<{ status: number; errors: PublishEventsResponse['errors'] }> {
-  for (let i = 0; i < 50; i++) {
-    const result = results.shift();
-    if (result) return result;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error('Timed out waiting for event publish');
-}

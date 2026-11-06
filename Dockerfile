@@ -379,7 +379,6 @@ COPY \
     openfeature-provider/js/CHANGELOG.md \
     openfeature-provider/js/LICENSE \
     ./
-COPY openfeature-provider/js/proto ./proto
 
 # Copy proto files needed for proto generation
 COPY openfeature-provider/proto ../../../openfeature-provider/proto
@@ -394,8 +393,7 @@ COPY openfeature-provider/js/tsconfig.json openfeature-provider/js/tsdown.config
 COPY openfeature-provider/js/Makefile ./
 
 # Copy WASM modules. The paths mirror the repo layout because the tests load
-# them relative to src/ (see WasmResolver.test.ts / EventWasmResolver.test.ts).
-COPY --from=wasm-rust-guest.artifact /confidence_resolver.wasm ../../../wasm/confidence_resolver.wasm
+# them relative to src/ (see EventWasmTracker.test.ts).
 COPY --from=wasm-event-guest.artifact /confidence_event_engine.wasm ../../../wasm/confidence_event_engine.wasm
 
 
@@ -405,9 +403,6 @@ COPY --from=wasm-event-guest.artifact /confidence_event_engine.wasm ../../../was
 FROM openfeature-provider-js-base AS openfeature-provider-js.test
 
 # Copy files needed for testing
-COPY wasm/resolver_state.pb ../../../wasm/resolver_state.pb
-COPY data/resolver_state_encrypted.pb ../../../data/resolver_state_encrypted.pb
-COPY data/encryption_key_test.hex ../../../data/encryption_key_test.hex
 COPY openfeature-provider/js/prettier.config.cjs ./
 COPY openfeature-provider/js/.prettierignore ./
 

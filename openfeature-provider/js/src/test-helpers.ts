@@ -1,334 +1,283 @@
-import { createCipheriv, createDecipheriv, KeyObject } from 'node:crypto';
-import { afterEach, beforeEach, vi } from 'vitest';
-import { abortableSleep, isObject, TimeUnit } from './util';
-import { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { ClientResolverState } from './proto/confidence/flags/admin/v1/resolver';
-import type { EventTracker } from './EventWasmTracker';
+import { readFileSync } from 'node:fs';
+import type { GuestLogPayload, HostFunctions } from './WasmResolver';
+import { createCipheriv, createHash } from 'node:crypto';
+import {
+  ResolveProcessResponse,
+  ResolutionDetails as WasmResolutionDetails,
+} from './proto/confidence/flags/wasm/v1/api';
+import { ResolverMetadata } from './proto/confidence/flags/wasm/v1/metadata';
+import { ClientModule } from './proto/confidence/flags/wasm/v1/client_module';
+import { ResolveReason } from './proto/confidence/flags/resolver/v1/types';
 
-export const noopEventTracker: EventTracker = {
-  trackEvent() {},
-  flushEvents: () => ({ events: [] }),
-};
+// --- fixture loading -----------------------------------------------------------
 
-type PayloadFactory = (req: Request) => BodyInit | null;
-type ByteStream = ReadableStream<Uint8Array<ArrayBuffer>>;
-
-type RequestRecord = {
-  startTime: number;
-  url: string;
-  method: string;
-  status: number | string;
-};
-
-type HandlerFn = (req: Request) => Response | Promise<Response>;
-
-type StatusProvider = (req: Request) => number | string;
-
-class RequestHandler {
-  readonly requests: RequestRecord[] = [];
-  latency: number = 0;
-  bandwidth: number = Infinity;
-  error?: string;
-
-  constructor(public handler: HandlerFn) {}
-
-  get calls(): number {
-    return this.requests.length;
-  }
-
-  async handle(req: Request): Promise<Response> {
-    const startTime = Date.now();
-    let status: number | string = 'UNKNOWN';
-    try {
-      await abortableSleep(this.latency / 2, req.signal);
-      if (this.error) {
-        throw Object.assign(new Error(this.error), { name: this.error });
-      }
-      if (req.body && Number.isFinite(this.bandwidth)) {
-        req = new Request(req, { body: throttleStream(req.body, this.latency, req.signal) });
-      }
-      let resp = await this.handler(req);
-      status = resp.status;
-      await abortableSleep(this.latency / 2, req.signal);
-      if (resp.body && Number.isFinite(this.bandwidth)) {
-        resp = new Response(throttleStream(resp.body, this.bandwidth, req.signal), {
-          status: resp.status,
-          statusText: resp.statusText,
-          headers: resp.headers,
-        });
-      }
-      return resp;
-    } catch (err) {
-      status = stringifyErrorType(err);
-      throw err;
-    } finally {
-      this.requests.push({
-        startTime,
-        url: req.url,
-        method: req.method,
-        status,
-      });
-    }
-  }
-  clear(): void {
-    this.requests.length = 0;
-  }
+export function loadFixture(name: string): Uint8Array<ArrayBuffer> {
+  const bytes = readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url));
+  // Copy: Node's Buffer is Uint8Array<ArrayBufferLike>, wasm APIs want ArrayBuffer-backed bytes.
+  return new Uint8Array(bytes);
 }
 
-class RequestDispatcher<T extends RequestHandler> extends RequestHandler {
-  constructor(
-    private readonly keyFn: (req: Request) => string,
-    private readonly dispatchMap: Record<string, T>,
-  ) {
-    super(req => {
-      const key = this.keyFn(req);
-      const handler = this.dispatchMap[key] ?? this.dispatchMap['*'];
-      return handler ? handler.handle(req) : new Response(null, { status: 404 });
-    });
-  }
+// --- recording host functions ---------------------------------------------------
 
-  clear(): void {
-    super.clear();
-    return Object.values(this.dispatchMap).forEach(h => h.clear());
-  }
-}
-class EndpointMock extends RequestHandler {
-  status: number | string | StatusProvider = 200;
-
-  constructor(private payloadFactory: PayloadFactory = () => null) {
-    super(req => {
-      let status = this.status;
-      if (typeof status === 'function') {
-        status = status(req);
-      }
-      if (typeof status === 'string') {
-        throw new Error(status);
-      }
-      if (status === 200) {
-        return new Response(this.payloadFactory(req));
-      }
-      return new Response(null, { status });
-    });
-  }
+export interface RecordingHost {
+  host: HostFunctions;
+  randomSeeds: bigint[];
+  currentTimes: bigint[];
+  writeLogPayloads: Uint8Array[];
+  applySeenQueries: bigint[];
+  schemaSeenQueries: bigint[];
+  hostErrors: Array<{ where: string; error: unknown }>;
+  /** Fingerprints the host reports as already seen. */
+  applySeen: Set<bigint>;
+  schemaSeen: Set<bigint>;
+  /** When true, the writeLogs implementation acks the payload itself. */
+  writeLogsAcks: boolean;
+  /** When true, the writeLogs implementation throws. */
+  writeLogsThrows: boolean;
 }
 
-class ServerMock extends RequestDispatcher<EndpointMock> {
-  constructor(private endpoints: Record<string, EndpointMock>) {
-    super(req => new URL(req.url).pathname, endpoints);
-  }
-}
-
-class ResolverServerMock extends ServerMock {
-  readonly flagLogs: EndpointMock;
-  readonly readMaterializations: EndpointMock;
-  readonly writeMaterializations: EndpointMock;
-
-  constructor() {
-    const flagLogs = new EndpointMock();
-    const readMaterializations = new EndpointMock();
-    const writeMaterializations = new EndpointMock();
-    super({
-      '/v1/clientFlagLogs:write': flagLogs,
-      '/v1/materialization:readMaterializedOperations': readMaterializations,
-      '/v1/materialization:writeMaterializedOperations': writeMaterializations,
-    });
-    this.flagLogs = flagLogs;
-    this.readMaterializations = readMaterializations;
-    this.writeMaterializations = writeMaterializations;
-  }
-}
-
-class CdnServerMock extends ServerMock {
-  readonly state: EndpointMock;
-  constructor() {
-    const state = new EndpointMock(() =>
-      encryptTestState(
-        ClientResolverState.encode({
-          state: new Uint8Array(100), // Empty state for testing
-          account: '<account>',
-          logDestinations: [],
-        }).finish(),
-      ),
-    );
-    // CDN serves state at any path (using client secret as path)
-    super({
-      '*': state,
-    });
-    this.state = state;
-  }
-}
-
-export class NetworkMock extends RequestDispatcher<ServerMock> {
-  readonly resolver: ResolverServerMock;
-  readonly cdn: CdnServerMock;
-
-  constructor() {
-    const resolver = new ResolverServerMock();
-    const cdn = new CdnServerMock();
-
-    super(req => new URL(req.url).hostname, {
-      'resolver.confidence.dev': resolver,
-      'confidence-resolver-state-cdn.spotifycdn.com': cdn,
-    });
-    this.resolver = resolver;
-    this.cdn = cdn;
-  }
-
-  readonly fetch: typeof fetch = (input, init) => this.handle(new Request(input, init));
-}
-
-function throttleStream(stream: ByteStream, bandwidth: number, signal?: AbortSignal): ByteStream {
-  const iter = (async function* () {
-    for await (const chunk of stream) {
-      await abortableSleep((chunk.length / bandwidth) * 1000, signal);
-      yield chunk;
-    }
-  })();
-  return NodeReadableStream.from(iter) as ByteStream;
-}
-
-function stringifyErrorType(err: unknown): string {
-  if (isObject(err) && 'name' in err && typeof err.name === 'string') {
-    return err.name;
-  }
-  return String(err);
-}
-
-if (vi.isFakeTimers()) {
-  throw new Error('FakeTimers should not be on when test-helpers.ts is loaded!');
-}
-const realSetImmediate = setImmediate;
-
-export async function advanceTimersUntil(predicate: () => boolean): Promise<void>;
-export async function advanceTimersUntil(opt: { timeout?: number }, predicate: () => boolean): Promise<void>;
-export async function advanceTimersUntil<T>(promise: Promise<T>): Promise<T>;
-export async function advanceTimersUntil<T>(opt: { timeout: number }, promise: Promise<T>): Promise<T>;
-export async function advanceTimersUntil(...args: any[]): Promise<any> {
-  if (!vi.isFakeTimers()) {
-    throw new Error('FakeTimers are not enabled');
-  }
-  const opt: { timeout?: number } = args.length == 2 ? args.shift() : {};
-
-  let predicate: () => boolean;
-  let ret = undefined;
-  if (typeof args[0] === 'function') {
-    predicate = args[0];
-  } else {
-    let done = false;
-    ret = args[0];
-    ret.then(
-      () => {
-        done = true;
+/** A `HostFunctions` implementation that records every call. */
+export function createRecordingHost(): RecordingHost {
+  const recording: RecordingHost = {
+    randomSeeds: [],
+    currentTimes: [],
+    writeLogPayloads: [],
+    applySeenQueries: [],
+    schemaSeenQueries: [],
+    hostErrors: [],
+    applySeen: new Set(),
+    schemaSeen: new Set(),
+    writeLogsAcks: false,
+    writeLogsThrows: false,
+    host: {
+      currentTime: () => {
+        const now = 1_700_000_000_000n + BigInt(recording.currentTimes.length);
+        recording.currentTimes.push(now);
+        return now;
       },
-      () => {
-        done = true;
+      randomSeed: () => {
+        const seed = 1_000n + BigInt(recording.randomSeeds.length);
+        recording.randomSeeds.push(seed);
+        return seed;
       },
-    );
-    predicate = () => done;
-  }
-
-  if (opt.timeout) {
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-    }, opt.timeout);
-    const origPred = predicate;
-    predicate = () => {
-      if (timedOut) {
-        throw new Error('advanceTimersUntil: Timed out');
-      }
-      try {
-        if (origPred()) {
-          clearTimeout(timeout);
-          return true;
+      writeLogs: (payload: GuestLogPayload) => {
+        recording.writeLogPayloads.push(payload.bytes());
+        if (recording.writeLogsThrows) {
+          throw new Error('boom from writeLogs');
         }
-        return false;
-      } catch (err) {
-        clearTimeout(timeout);
-        throw err;
-      }
-    };
-  }
-
-  await new Promise(resolve => {
-    realSetImmediate(resolve);
-  });
-
-  while (!predicate()) {
-    // some code, notably NodeJS WHATWG streams and fetch impl. might schedule immediate calls
-    // that isn't mocked by fake timers, so we advance that first.
-    if (process.getActiveResourcesInfo().includes('Immediate')) {
-      await new Promise(resolve => {
-        realSetImmediate(resolve);
-      });
-      continue;
-    }
-    if (vi.getTimerCount() === 0) {
-      throw new Error('advanceTimersUntil: Condition not met and no timers left to advance');
-    }
-    await vi.advanceTimersToNextTimerAsync();
-  }
-  return ret;
-}
-
-export function createCapturingLoggingBackend() {
-  const logs: Array<{ namespace: string; message: string; args: any[] }> = [];
-
-  const backend = (namespace: string) => {
-    const logFn: any = (message: string, ...args: any[]) => {
-      logs.push({ namespace, message, args });
-    };
-    logFn.enabled = true;
-    return logFn;
+        if (recording.writeLogsAcks) {
+          payload.ack();
+        }
+      },
+      applyFilterSeen: (fingerprint: bigint) => {
+        recording.applySeenQueries.push(fingerprint);
+        return recording.applySeen.has(fingerprint);
+      },
+      schemaFilterSeen: (fingerprint: bigint) => {
+        recording.schemaSeenQueries.push(fingerprint);
+        return recording.schemaSeen.has(fingerprint);
+      },
+      onHostFunctionError: (where, error) => {
+        recording.hostErrors.push({ where, error });
+      },
+    },
   };
-
-  backend.hasErrorLogs = () => logs.some(log => log.namespace.includes(':error'));
-  backend.hasAnyLogs = () => logs.length > 0;
-  return backend;
+  return recording;
 }
 
-export async function sha256Hex(input: string): Promise<string> {
-  // Simple deterministic hash for testing - just convert string to hex
-  // This avoids the async crypto.subtle.digest that doesn't play well with fake timers
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    const char = input.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  // Pad to 64 hex chars (SHA-256 size)
-  return Math.abs(hash).toString(16).padStart(64, '0');
+// --- fake guest shared-memory layout --------------------------------------------
+
+/**
+ * Observable slots the fake guest keeps in shared memory:
+ * [0..4) bump top, [4..8) destroy counter, [8..16) last ack, [16..24) last
+ * write_logs payload, [24..32) last random_seed.
+ */
+export function guestLayout(memory: WebAssembly.Memory) {
+  return {
+    bumpTop: () => Atomics.load(new Int32Array(memory.buffer), 0),
+    destroyCount: () => Atomics.load(new Int32Array(memory.buffer), 1),
+    lastAck: () => Atomics.load(new BigInt64Array(memory.buffer), 1),
+    lastWriteLogs: () => Atomics.load(new BigInt64Array(memory.buffer), 2),
+    lastSeed: () => Atomics.load(new BigInt64Array(memory.buffer), 3),
+  };
 }
 
-export const TEST_ENCRYPTION_KEY = '00'.repeat(32);
-export function encryptTestState(data: Uint8Array): Uint8Array<ArrayBuffer> {
+// --- minimal wasm binary builders ------------------------------------------------
+
+const WASM_HEADER = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+
+function uleb(value: number): number[] {
+  const out: number[] = [];
+  let v = value >>> 0;
+  do {
+    let byte = v & 0x7f;
+    v >>>= 7;
+    if (v !== 0) byte |= 0x80;
+    out.push(byte);
+  } while (v !== 0);
+  return out;
+}
+
+function str(s: string): number[] {
+  const bytes = [...new TextEncoder().encode(s)];
+  return [...uleb(bytes.length), ...bytes];
+}
+
+function section(id: number, content: number[]): number[] {
+  return [id, ...uleb(content.length), ...content];
+}
+
+export function wasm(...sections: number[][]): Uint8Array<ArrayBuffer> {
+  return new Uint8Array([...WASM_HEADER, ...sections.flat()]);
+}
+
+export function hostMemoryImport(initial: number, maximum: number): number[] {
+  return [...str('host'), ...str('memory'), 0x02, 0b11, ...uleb(initial), ...uleb(maximum)];
+}
+
+/** A custom section: id 0, content = length-prefixed name + payload. */
+export function customSection(name: string, payload: Uint8Array | number[]): number[] {
+  const content = [...str(name), ...(payload instanceof Uint8Array ? [...payload] : payload)];
+  return section(0, content);
+}
+
+/**
+ * A module that imports a conforming shared host.memory but has no exports:
+ * passes `readSharedMemoryLimits`, fails `WasmResolver` export verification.
+ */
+export function guestModuleWithoutExports(): Uint8Array<ArrayBuffer> {
+  return wasm(section(2, [1, ...hostMemoryImport(1, 2)]));
+}
+
+/** An import section with the given entries. */
+export function importSection(...entries: number[][]): number[] {
+  return section(2, [...uleb(entries.length), ...entries.flat()]);
+}
+
+/** A module that does not import host.memory at all. */
+export function moduleWithoutHostMemory(): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(WASM_HEADER);
+}
+
+// --- canned-module fixtures (shared by resolver and provider tests) -------------
+
+export const CANNED_START = 0xe000;
+export const CANNED_RESUME = 0xe400;
+export const CANNED_DETAILS = 0xe800;
+
+/** A byte-level module artifact: the canned guest plus a conforming metadata section. */
+export function moduleArtifactBytes(
+  clientSecret: string,
+  variant = 1,
+  fixture = 'canned-guest.wasm',
+): Uint8Array<ArrayBuffer> {
+  const digest = new Uint8Array(createHash('sha256').update(clientSecret, 'utf8').digest());
+  const metadata = ResolverMetadata.encode({
+    schemaVersion: 1,
+    compilerVersion: '1.2.3',
+    compilerGitSha: 'deadbeef',
+    clientSecretSha256: [digest],
+  }).finish();
+  return new Uint8Array([
+    ...loadFixture(fixture),
+    ...customSection('confidence.metadata', metadata),
+    ...(variant > 1 ? customSection('variant', [variant]) : []),
+  ]);
+}
+
+/** Encrypt a ClientModule wrapper in the wire format: nonce || ciphertext || tag. */
+export function encryptModuleWrapper(
+  moduleBytes: Uint8Array,
+  logToken: string,
+  encryptionKey = '00'.repeat(32),
+): Uint8Array<ArrayBuffer> {
+  const wrapper = ClientModule.encode({ module: moduleBytes, logToken }).finish();
   const nonce = Buffer.alloc(12);
-  const cipher = createCipheriv('aes-256-gcm', Buffer.from(TEST_ENCRYPTION_KEY, 'hex'), nonce);
-  return new Uint8Array(Buffer.concat([nonce, cipher.update(data), cipher.final(), cipher.getAuthTag()]));
+  const cipher = createCipheriv('aes-256-gcm', Buffer.from(encryptionKey, 'hex'), nonce);
+  return new Uint8Array(Buffer.concat([nonce, cipher.update(wrapper), cipher.final(), cipher.getAuthTag()]));
 }
 
-/** Keep native crypto workers from racing fake clocks; real-timer tests use WebCrypto. */
-export function useFakeTimerCompatibleCrypto(): void {
-  const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
-  let restore: () => void;
-  beforeEach(() => {
-    const spy = vi.spyOn(crypto.subtle, 'decrypt').mockImplementation(async (algorithm, key, data) => {
-      if (!vi.isFakeTimers()) return decrypt(algorithm, key, data);
-      const params = algorithm as AesGcmParams;
-      if (params.name !== 'AES-GCM') throw new Error('Only AES-GCM is supported by the fake-timer adapter');
-      const bytes = (value: BufferSource) =>
-        ArrayBuffer.isView(value) ? Buffer.from(value.buffer, value.byteOffset, value.byteLength) : Buffer.from(value);
-      const ciphertext = bytes(data);
-      const tagLength = (params.tagLength ?? 128) / 8;
-      const decipher = createDecipheriv('aes-256-gcm', KeyObject.from(key), bytes(params.iv), {
-        authTagLength: tagLength,
-      });
-      if (params.additionalData) decipher.setAAD(bytes(params.additionalData));
-      decipher.setAuthTag(ciphertext.subarray(-tagLength));
-      const plaintext = Buffer.concat([decipher.update(ciphertext.subarray(0, -tagLength)), decipher.final()]);
-      return new Uint8Array(plaintext).buffer;
-    });
-    restore = () => spy.mockRestore();
-  });
-  afterEach(() => restore());
+export const cannedResolvedStart = ResolveProcessResponse.encode({
+  resolved: {
+    response: {
+      resolvedFlags: [
+        {
+          flag: 'flags/test-flag',
+          variant: 'control',
+          value: { fields: { enabled: true } },
+          reason: ResolveReason.RESOLVE_REASON_MATCH,
+          shouldApply: true,
+          assignmentOrigin: '',
+        },
+      ],
+      resolveToken: new Uint8Array([1, 2, 3, 4]),
+      resolveId: 'r1',
+    },
+    materializationToWrite: [],
+    clientIndex: 7,
+  },
+}).finish();
+
+export const cannedSuspended = ResolveProcessResponse.encode({
+  suspended: {
+    processId: 42,
+    materializationToRead: [{ unit: 'user-1', materialization: 'm1', rule: 'r1', variant: '' }],
+  },
+}).finish();
+
+export const cannedResolvedAfterResume = ResolveProcessResponse.encode({
+  resolved: {
+    response: {
+      resolvedFlags: [
+        {
+          flag: 'flags/test-flag',
+          variant: 'sticky',
+          value: { fields: { enabled: false } },
+          reason: ResolveReason.RESOLVE_REASON_MATCH,
+          shouldApply: true,
+          assignmentOrigin: '',
+        },
+      ],
+      resolveToken: new Uint8Array([5, 6]),
+      resolveId: 'r2',
+    },
+    materializationToWrite: [{ unit: 'user-1', materialization: 'm1', rule: 'r1', variant: 'sticky-1' }],
+    clientIndex: 7,
+  },
+}).finish();
+
+export const cannedError = ResolveProcessResponse.encode({
+  error: { code: 16, message: 'invalid credential' },
+}).finish();
+
+export const cannedDetails = (overrides?: Partial<WasmResolutionDetails>): Uint8Array =>
+  WasmResolutionDetails.encode({
+    value: true,
+    variant: 'on',
+    reason: ResolveReason.RESOLVE_REASON_MATCH,
+    errorCode: 0,
+    errorMessage: '',
+    shouldApply: true,
+    ...overrides,
+  }).finish();
+
+/** Stage canned responses into the canned guest's fixed shared-memory slots. */
+export function stageCannedResponses(
+  memory: WebAssembly.Memory,
+  start: Uint8Array,
+  resume?: Uint8Array,
+  details?: Uint8Array,
+): void {
+  const view = new Uint8Array(memory.buffer);
+  const dataView = new DataView(memory.buffer);
+  view.set(start, CANNED_START);
+  dataView.setInt32(32, start.length, true);
+  if (resume) {
+    view.set(resume, CANNED_RESUME);
+    dataView.setInt32(36, resume.length, true);
+  }
+  if (details) {
+    view.set(details, CANNED_DETAILS);
+    dataView.setInt32(40, details.length, true);
+  }
 }
