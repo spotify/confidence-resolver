@@ -12,16 +12,21 @@ import (
 	"time"
 )
 
-// defaultIngestionBaseURL is the regionless ingestion API base URL. The
-// regional pair (eu/us) is available as an explicit override.
+// defaultIngestionBaseURL is the regionless base URL of the flag-log
+// ingestion endpoint (epx-flags-ingestion's FlagLogIngestionService,
+// exposed as POST /v1/flagLogs:write). The regional pair (eu/us) is
+// available as an explicit override. The hostname currently fronts the
+// previous ingestion edge; the public routing to the new service is
+// tracked separately, and the base URL stays overridable for that window.
 const defaultIngestionBaseURL = "https://ingestion.confidence.dev"
 
-// logForwarderDefaults.
+// logForwarderDefaults. The per-send timeout matches the reference
+// forwarder's 5s delivery deadline (epx-wasm-resolver's FlagLogForwarder).
 const (
 	defaultLogQueueDepth    = 256
 	defaultLogRetryAttempts = 3
 	defaultLogRetryBackoff  = 500 * time.Millisecond
-	logForwardHTTPTimeout   = 10 * time.Second
+	logForwardHTTPTimeout   = 5 * time.Second
 )
 
 // LogBatchStats reports the forwarder's delivery accounting.

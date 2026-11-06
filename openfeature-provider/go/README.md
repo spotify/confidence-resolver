@@ -9,7 +9,7 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 - **Compiled Client Module**: Hosts a WASM module that already contains your credential's flag rules, fetched as an encrypted artifact from the Confidence module CDN
 - **Low Latency**: No network calls during flag evaluation
 - **Automatic Refresh**: Polls for recompiled modules; a published change becomes visible within about a minute
-- **Exposure Logging**: Fully supported exposure logging and resolve analytics, delivered to the Confidence ingestion API
+- **Exposure Logging**: Fully supported exposure logging and resolve analytics, delivered to the flag-log ingestion endpoint (`POST /v1/flagLogs:write`)
 - **[Event Tracking](#event-tracking)**: Send custom events via the OpenFeature `Track()` API
 - **OpenFeature Compatible**: Works with the standard OpenFeature Go SDK
 
@@ -228,7 +228,7 @@ The `ProviderConfig` struct contains all configuration options for the provider:
 - `LogFlushInterval` (time.Duration): Interval for flushing evaluation logs out of the module so low-volume credentials stay observable (default: 5 seconds)
 - `InitializationTimeout` (time.Duration): Total startup retry budget before initialization returns a recoverable timeout error (default: 30 seconds)
 - `ModuleBaseURL` (string): Module CDN base URL override (default: the production host). Intended for testing.
-- `IngestionBaseURL` (string): Flag-log ingestion API base URL override (default: the regionless `https://ingestion.confidence.dev`; the regional eu/us hosts can be set explicitly). Intended for testing.
+- `IngestionBaseURL` (string): Flag-log ingestion endpoint base URL override (default: the regionless `https://ingestion.confidence.dev`; the regional eu/us hosts can be set explicitly). The endpoint is `POST /v1/flagLogs:write` with the batch forwarded verbatim and the log token as a Bearer credential.
 - `UseWasmInterpreter` (bool): Run the WASM engines (the module host and the optional event engine) in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode).
 - `InstancePoolSize` (int): Bound how many module instances serve concurrent evaluations — one instance per in-flight call over the shared flag data. Defaults to `min(GOMAXPROCS, 4)`: measured tail latency is best at 2–4 instances; larger pools trade p99 and ~3 MB resident per compiler instance (steady state; higher transiently under load) for peak throughput.
 - `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
@@ -710,9 +710,12 @@ CDN. What changes for you:
 - `EnableApplyDedup` / `WithEventTracking`-style functional options are gone;
   everything is configured through `ProviderConfig`. Event tracking remains
   enabled by default via the embedded event engine.
-- Flag logs are delivered to the Confidence ingestion API using the
-  compiler-signed log token that ships inside the module wrapper, instead of
-  the previous per-account log destinations.
+- Flag logs are delivered to the flag-log ingestion endpoint
+  (`POST /v1/flagLogs:write`) with each batch forwarded verbatim — the
+  request is the module's own encoding — authenticated by the log token
+  (the module's compile-time token, or the wrapper's when the module was
+  compiled without one), instead of the previous per-account log
+  destinations.
 - A value path that does not exist inside a found flag now evaluates as
   TYPE_MISMATCH: path walking belongs to the module, whose evaluation
   semantics are shared by every provider on this architecture. The
