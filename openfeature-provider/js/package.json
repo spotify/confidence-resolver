@@ -71,7 +71,7 @@
     "@vitest/coverage-v8": "^4.1.7",
     "debug": "^4.4.3",
     "dotenv": "^17.2.2",
-    "happy-dom": "^20.3.4",
+    "happy-dom": "^21.0.4",
     "next": "^16.0.0",
     "prettier": "^3.9.6",
     "react": "^19",
@@ -80,7 +80,7 @@
     "ts-proto": "^2.7.3",
     "tsdown": "latest",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.7"
+    "vitest": "^5.1.0"
   },
   "peerDependencies": {
     "@openfeature/core": "^1.0.0",
