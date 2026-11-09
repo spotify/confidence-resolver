@@ -187,11 +187,17 @@ wasm_msg_guest! {
     }
 
     fn set_resolver_state(request: SetResolverStateRequest) -> WasmResult<Void> {
-        let state_pb = ResolverStatePb::decode(request.state.as_slice())
+        // Linear memory never shrinks, so the instance stays as large as this
+        // function's peak. The request bytes go before the state is built and
+        // the old state before the new one, so the peak is one decoded state
+        // plus the old one's structures, not three copies of the encoding.
+        let SetResolverStateRequest { state, account_id, sdk, enable_apply_dedup, disable_exposure_collection } = request;
+        let state_pb = ResolverStatePb::decode(state)
             .map_err(|e| format!("Failed to decode resolver state: {}", e))?;
-        let new_state = ResolverState::from_proto(state_pb, request.account_id.as_str(), request.sdk)?;
-        APPLY_DEDUP_ENABLED.store(request.enable_apply_dedup, Ordering::Relaxed);
-        DISABLE_EXPOSURE_COLLECTION.store(request.disable_exposure_collection, Ordering::Relaxed);
+        RESOLVER_STATE.store(None);
+        let new_state = ResolverState::from_proto(state_pb, account_id.as_str(), sdk)?;
+        APPLY_DEDUP_ENABLED.store(enable_apply_dedup, Ordering::Relaxed);
+        DISABLE_EXPOSURE_COLLECTION.store(disable_exposure_collection, Ordering::Relaxed);
         RESOLVER_STATE.store(Some(Arc::new(new_state)));
         // TODO: track state age once we decide on the right timestamp source
         // let now = WasmHost::current_time();
