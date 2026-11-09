@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.15.3...openfeature-provider-python-v0.15.4) (2026-11-09)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.7.2 to 0.8.0
+
 ## [0.15.3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-python-v0.15.2...openfeature-provider-python-v0.15.3) (2026-09-24)
 
 

@@ -581,7 +581,7 @@ dependencies = [
 
 [[package]]
 name = "event-guest"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "confidence-event-engine",
  "prost",
@@ -1397,28 +1397,28 @@ dependencies = [
 
 [[package]]
 name = "openfeature-provider-go"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-java"
-version = "0.23.3"
+version = "0.23.4"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-js"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "rust-guest",
 ]
 
 [[package]]
 name = "openfeature-provider-python"
-version = "0.15.3"
+version = "0.15.4"
 dependencies = [
  "rust-guest",
 ]
@@ -1986,7 +1986,7 @@ dependencies = [
 
 [[package]]
 name = "rust-guest"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -2907,7 +2907,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-msg"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "paste",
