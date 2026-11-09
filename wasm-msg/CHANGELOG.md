@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/spotify/confidence-resolver/compare/wasm-msg-v0.3.0...wasm-msg-v0.4.0) (2026-11-09)
+
+
+### Features
+
+* **go:** hold one copy of the resolver state while loading the next ([#678](https://github.com/spotify/confidence-resolver/issues/678)) ([55115f8](https://github.com/spotify/confidence-resolver/commit/55115f81d85827866425b6ab96b1d55696bda6c6))
+
 ## [0.3.0](https://github.com/spotify/confidence-resolver/compare/wasm-msg-v0.2.1...wasm-msg-v0.3.0) (2026-08-18)
 
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.25.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.24.2...openfeature-provider-js-v0.25.0) (2026-11-09)
+
+
+### Features
+
+* **go:** hold one copy of the resolver state while loading the next ([#678](https://github.com/spotify/confidence-resolver/issues/678)) ([55115f8](https://github.com/spotify/confidence-resolver/commit/55115f81d85827866425b6ab96b1d55696bda6c6))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * rust-guest bumped from 0.7.2 to 0.8.0
+
 ## [0.24.2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-js-v0.24.1...openfeature-provider-js-v0.24.2) (2026-11-03)
 
 
