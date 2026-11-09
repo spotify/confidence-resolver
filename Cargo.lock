@@ -2909,6 +2909,7 @@ dependencies = [
 name = "wasm-msg"
 version = "0.3.0"
 dependencies = [
+ "bytes",
  "paste",
  "prost",
  "tonic-build",

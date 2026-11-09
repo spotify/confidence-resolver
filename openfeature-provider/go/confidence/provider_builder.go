@@ -45,6 +45,17 @@ type ProviderConfig struct {
 	// OpenFeature evaluations through this provider. Use only for exceptional
 	// no-exposure modes; resolve logs and telemetry are still sent.
 	DisableExposureCollection bool
+	// DropStateBeforeValidation opts the WASM resolver into the
+	// memory-optimized state swap: the previous resolver state is freed
+	// before the new one is validated. By default the previous state is kept
+	// until the new one has passed validation, so a failed state update never
+	// leaves the resolver stateless; set this only when the swap's peak
+	// memory matters more than surviving a failed update.
+	//
+	// Experimental: this field, and the keep-previous-state default it opts
+	// out of, are experimental and may change or be removed in a future
+	// release.
+	DropStateBeforeValidation bool
 }
 
 type ProviderTestConfig struct {
@@ -66,6 +77,10 @@ type ProviderTestConfig struct {
 	// OpenFeature evaluations through this provider. Use only for exceptional
 	// no-exposure modes; resolve logs and telemetry are still sent.
 	DisableExposureCollection bool
+	// DropStateBeforeValidation opts the WASM resolver into the
+	// memory-optimized state swap (see WithDropStateBeforeValidation).
+	// Experimental: may change or be removed.
+	DropStateBeforeValidation bool
 }
 
 func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProvider, error) {
@@ -128,7 +143,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, initLabels)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection, config.DropStateBeforeValidation)
 	providerOpts = append(providerOpts,
 		WithEventTracking(et.EventEngineWasm),
 		WithUseWasmInterpreter(config.UseWasmInterpreter),
@@ -159,7 +174,7 @@ func newProviderForTest(ctx context.Context, config ProviderTestConfig) (*LocalR
 	}
 	resolverSupplier := newLocalResolverSupplier(config.ResolverPoolSize, config.UseWasmInterpreter, nil)
 	resolverSupplierWithMaterialization := wrapResolverSupplierWithMaterializations(resolverSupplier, materializationStore)
-	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection)
+	providerOpts := buildProviderOptions(config.StatePollInterval, config.LogPollInterval, config.InitializationTimeout, config.DisableApplyDedup, config.DisableExposureCollection, config.DropStateBeforeValidation)
 	provider := newLocalResolverProvider(resolverSupplierWithMaterialization, config.StateProvider, config.FlagLogger, config.ClientSecret, logger, providerOpts...)
 
 	return provider, nil
@@ -182,7 +197,7 @@ func newLocalResolverSupplier(poolSize int, useWasmInterpreter bool, initLabels 
 }
 
 // buildProviderOptions creates options slice from provider config
-func buildProviderOptions(statePollInterval, logPollInterval, initializationTimeout time.Duration, disableApplyDedup, disableExposureCollection bool) []Option {
+func buildProviderOptions(statePollInterval, logPollInterval, initializationTimeout time.Duration, disableApplyDedup, disableExposureCollection, dropStateBeforeValidation bool) []Option {
 	var opts []Option
 	if statePollInterval > 0 {
 		opts = append(opts, WithStatePollInterval(statePollInterval))
@@ -199,6 +214,9 @@ func buildProviderOptions(statePollInterval, logPollInterval, initializationTime
 	}
 	if disableExposureCollection {
 		opts = append(opts, WithDisableExposureCollection())
+	}
+	if dropStateBeforeValidation {
+		opts = append(opts, WithDropStateBeforeValidation())
 	}
 	return opts
 }

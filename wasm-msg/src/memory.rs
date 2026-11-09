@@ -53,14 +53,7 @@ pub extern "C" fn wasm_msg_free(ptr: *mut u8) {
 /// The returned slice is only valid as long as the memory at ptr is valid.
 fn view_buffer<'a>(ptr: *mut u8) -> &'a [u8] {
     // Safety: We trust the caller to provide valid memory
-    unsafe {
-        // Get pointer to the size (before the data)
-        let size_ptr = ptr.sub(mem::size_of::<usize>());
-        // Read the total allocation size and subtract the size field itself to get data length
-        let total_size = ptr::read(size_ptr as *const usize);
-        let len = total_size - mem::size_of::<usize>();
-        core::slice::from_raw_parts(ptr, len)
-    }
+    unsafe { core::slice::from_raw_parts(ptr, buffer_len(ptr)) }
 }
 
 pub(crate) fn consume_buffer<F, R>(ptr: *mut u8, f: F) -> R
@@ -82,4 +75,45 @@ pub(crate) fn transfer_buffer(buf: Vec<u8>) -> *mut u8 {
         ptr::copy_nonoverlapping(buf.as_ptr(), ptr, buf.len());
     }
     ptr
+}
+
+/// A wasm_msg buffer owned as `Bytes`: the allocation is freed when the last
+/// slice of it drops, so a decoded `bytes` field can point into it instead of
+/// copying, and the payload of a large message is held once rather than once
+/// per decoding layer. A `Bytes` kept past the call keeps the whole buffer alive.
+struct OwnedBuffer {
+    ptr: *mut u8,
+    len: usize,
+}
+
+// The buffer is a global-allocator allocation read only through this owner,
+// so it can be freed from any thread, like a Box<[u8]>.
+unsafe impl Send for OwnedBuffer {}
+
+impl AsRef<[u8]> for OwnedBuffer {
+    fn as_ref(&self) -> &[u8] {
+        unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+impl Drop for OwnedBuffer {
+    fn drop(&mut self) {
+        wasm_msg_free(self.ptr);
+    }
+}
+
+/// Takes ownership of the `wasm_msg_alloc` buffer at `ptr` as `Bytes`; see
+/// [`OwnedBuffer`].
+pub(crate) fn take_buffer(ptr: *mut u8) -> bytes::Bytes {
+    assert!(!ptr.is_null(), "take_buffer: called with null pointer");
+    let len = buffer_len(ptr);
+    bytes::Bytes::from_owner(OwnedBuffer { ptr, len })
+}
+
+/// Data length of the buffer at `ptr`, read from the size prefix.
+fn buffer_len(ptr: *mut u8) -> usize {
+    let total_size = unsafe { ptr::read(ptr.sub(mem::size_of::<usize>()) as *const usize) };
+    total_size
+        .checked_sub(mem::size_of::<usize>())
+        .expect("buffer_len: size prefix smaller than the prefix itself")
 }

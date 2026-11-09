@@ -84,7 +84,7 @@ func TestLocalResolverProvider_InitializationTimeoutConfig(t *testing.T) {
 	}
 
 	const configured = 17 * time.Millisecond
-	opts := buildProviderOptions(0, 0, configured, false, false)
+	opts := buildProviderOptions(0, 0, configured, false, false, false)
 	provider = newStartupTestProvider(nil, nil, opts...)
 	if provider.initializationTimeout != configured {
 		t.Fatalf("configured initialization timeout = %v, want %v", provider.initializationTimeout, configured)
