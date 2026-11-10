@@ -27,7 +27,7 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb"]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "openfeature-sdk", "~> 0.6.1"
+  spec.add_dependency "openfeature-sdk", ">= 0.6.1", "< 0.9.0"
   spec.add_dependency "openssl", ">= 3.3", "< 5.0" # Required for OpenSSL 3.6+ compatibility
 
   spec.add_development_dependency "rake", "~> 13.0"
