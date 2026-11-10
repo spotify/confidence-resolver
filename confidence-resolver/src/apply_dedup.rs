@@ -788,7 +788,7 @@ mod tests {
         // entries. Two different users must not dedup each other.
         let mut dedup = ApplyDedup::new(120, 1000);
 
-        let mut for_user = |user: &str| {
+        let for_user = |user: &str| {
             let mut assigned = make_assigned("flags/a", "", "");
             assigned.reason = 1; // NoSegmentMatch
             assigned.fallthrough_assignments = vec![FallthroughAssignment {
