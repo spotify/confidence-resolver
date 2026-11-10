@@ -7,6 +7,8 @@ from unittest.mock import patch
 from openfeature.evaluation_context import EvaluationContext
 from openfeature.exception import ErrorCode
 from openfeature.flag_evaluation import FlagResolutionDetails, Reason
+from openfeature.provider import ProviderStatus
+from pytest_httpx import HTTPXMock
 
 from confidence.local_resolver import LocalResolver
 from confidence.provider import (
@@ -16,9 +18,12 @@ from confidence.provider import (
 )
 from confidence.proto.confidence.events.v1 import api_pb2 as events_api_pb2
 from confidence.proto.confidence.events.wasm.v1 import wasm_api_pb2 as events_wasm_pb2
+from confidence.proto.confidence.flags.admin.v1.resolver_pb2 import ClientResolverState
 from confidence.proto.confidence.flags.resolver.v1 import internal_api_pb2, types_pb2
+from confidence.state_fetcher import StateFetcher
 from confidence.version import __version__
 from tests.conftest import MockFlagLogger, MockStateFetcher
+from tests.test_state_fetcher import TEST_KEY, encrypt_state, get_cdn_url
 
 
 class TestGetMetadata:
@@ -1467,3 +1472,90 @@ class TestApplyDedupDefault:
             )
             is False
         )
+
+
+class TestStateInstallRetry:
+    """Regression tests for #675: a failed state install must be retried."""
+
+    def test_failed_install_is_retried_not_304_skipped(
+        self,
+        httpx_mock: HTTPXMock,
+        wasm_bytes: bytes,
+        test_resolver_state: bytes,
+        test_account_id: str,
+        test_client_secret: str,
+    ) -> None:
+        """The ETag advances only after set_resolver_state succeeds (#675).
+
+        When the initial install fails, the next poll must re-fetch the full
+        state (no If-None-Match sent) and retry the install instead of letting
+        the CDN answer 304 for state that never installed.
+        """
+        url = get_cdn_url(test_client_secret)
+        encrypted = encrypt_state(
+            ClientResolverState(
+                state=test_resolver_state, account=test_account_id
+            ).SerializeToString()
+        )
+        # 1) initial fetch (install fails), 2) retry fetch (the CDN re-serves
+        # the state because no If-None-Match was sent), 3) steady-state poll
+        # answered with 304 once the state has installed.
+        httpx_mock.add_response(url=url, content=encrypted, headers={"ETag": "etag-1"})
+        httpx_mock.add_response(url=url, content=encrypted, headers={"ETag": "etag-1"})
+        httpx_mock.add_response(url=url, status_code=304)
+
+        real_set_resolver_state = LocalResolver.set_resolver_state
+        installs: list[Any] = []
+
+        def fail_first_install(
+            resolver: LocalResolver, *args: Any, **kwargs: Any
+        ) -> None:
+            installs.append(args)
+            if len(installs) == 1:
+                raise RuntimeError("simulated set_resolver_state failure")
+            real_set_resolver_state(resolver, *args, **kwargs)
+
+        provider = ConfidenceProvider(
+            client_secret=test_client_secret,
+            encryption_key=TEST_KEY,
+            state_fetcher=StateFetcher(test_client_secret, TEST_KEY),
+            flag_logger=MockFlagLogger(),
+            wasm_bytes=wasm_bytes,
+            state_poll_interval=0.2,
+            log_poll_interval=60.0,
+        )
+        try:
+            with patch.object(
+                LocalResolver,
+                "set_resolver_state",
+                autospec=True,
+                side_effect=fail_first_install,
+            ):
+                # The initial install fails inside initialize(); the provider
+                # starts NOT_READY and must not have advanced the ETag.
+                provider.initialize(EvaluationContext())
+                assert provider.get_status() == ProviderStatus.NOT_READY
+
+                # First poll (NOT_READY retry interval ~1s) re-fetches and
+                # retries the install; the following poll gets the 304.
+                deadline = time.monotonic() + 10.0
+                while (
+                    len(httpx_mock.get_requests()) < 3 or len(installs) < 2
+                ) and time.monotonic() < deadline:
+                    time.sleep(0.02)
+
+                status_after_retry = provider.get_status()
+        finally:
+            provider.shutdown()
+
+        # The same state was installed twice: the failed install was retried.
+        assert len(installs) == 2
+        assert installs[0] == installs[1]
+        # The retry was a full re-fetch, not a 304 skip: no If-None-Match was
+        # sent for state that had never installed.
+        requests = httpx_mock.get_requests()
+        assert "If-None-Match" not in requests[1].headers
+        # After the successful retry the ETag advanced, so the steady-state
+        # poll sends it, is answered with 304, and does not reinstall.
+        assert requests[2].headers.get("If-None-Match") == "etag-1"
+        assert status_after_retry == ProviderStatus.READY
