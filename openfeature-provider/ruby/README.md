@@ -117,6 +117,22 @@ class ApplicationController < ActionController::Base
 end
 ```
 
+### Configuring HTTP Timeouts
+
+By default, Ruby's standard `Net::HTTP` timeouts apply (60s). You can configure timeouts on `APIClient` to prevent network delays from stalling execution:
+
+```ruby
+api_client = Confidence::OpenFeature::APIClient.new(
+  client_secret: ENV['CONFIDENCE_CLIENT_SECRET'],
+  region: Confidence::OpenFeature::Region::EU,
+  open_timeout: 1.0,  # Connection open timeout in seconds
+  read_timeout: 2.0,  # Socket read timeout in seconds
+  write_timeout: 2.0  # Socket write timeout in seconds (optional)
+)
+```
+
+When a timeout fires, `APIClient` raises `Confidence::OpenFeature::APIError` wrapping the underlying `Net::OpenTimeout` or `Net::ReadTimeout`.
+
 ## Evaluation Context
 
 The evaluation context contains information about the user/session being evaluated for targeting and A/B testing.
