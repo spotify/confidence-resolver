@@ -1,3 +1,4 @@
+mod apply_diagnostic;
 mod flag_log;
 mod materialization;
 
@@ -587,11 +588,23 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                             Ok(resolver) => {
                                 match with_log(&mut log, || resolver.apply_flags(&apply_flag_req)) {
                                     Ok(()) => Response::from_json(&ApplyFlagsResponse::default()),
-                                    Err(msg) => Response::error(msg, 500)?
-                                        .with_cors_headers(&allowed_origin),
+                                    Err(msg) => {
+                                        apply_diagnostic::emit(
+                                            apply_diagnostic::Stage::Apply,
+                                            &msg,
+                                            500,
+                                        );
+                                        Response::error(msg, 500)?
+                                            .with_cors_headers(&allowed_origin)
+                                    }
                                 }
                             }
                             Err(msg) => {
+                                apply_diagnostic::emit(
+                                    apply_diagnostic::Stage::ResolverLookup,
+                                    &msg,
+                                    500,
+                                );
                                 Response::error(msg, 500)?.with_cors_headers(&allowed_origin)
                             }
                         };
