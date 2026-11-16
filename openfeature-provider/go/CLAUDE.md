@@ -4,40 +4,45 @@
 
 Go module: `github.com/spotify/confidence-resolver/openfeature-provider/go`
 
-Go OpenFeature provider using the Confidence resolver compiled to WASM, loaded via wazero (pure Go WASM runtime, no CGo).
+OpenFeature provider that resolves flags locally in a state-to-wasm **flag module**: a WebAssembly
+module compiled per client credential from that client's flags, fetched encrypted from the
+Confidence CDN and run on wazero (pure Go, no CGo).
 
 ## Architecture
 
-- **WASM runtime**: wazero — pure Go, zero dependencies, no CGo
-- **WASM embedding**: The WASM binary is embedded at compile time via `//go:embed` in `confidence/internal/local_resolver/wasm.go`
-- **Pool architecture**: Multiple WASM instances run in a pool (`pool.go`) sized to `GOMAXPROCS` by default. Each instance is mutex-protected.
-- **Crash recovery**: `recover.go` wraps resolvers with automatic WASM instance reload on panic/trap, preserving state and buffering logs through crashes.
-- **gRPC**: Flag logs are shipped via gRPC to `edge-grpc.spotify.com` using `InternalFlagLoggerServiceClient`.
+- **`confidence/`** — public API: `NewProvider(ctx, ProviderConfig)`, the OpenFeature evaluation
+  methods, `Resolve` / `ApplyFlags`, `MaterializationStore`, `ExposureMode`.
+- **`internal/host`** — runs a module on wazero: validation, a capped shared memory, a pool of
+  instances, resolve/evaluate/apply/flush calls, the host imports (`write_logs`, `current_time`,
+  materialization reads/writes), and the dedupe filters, linked to the module wasm to wasm.
+- **`internal/cdn`** — fetches and decrypts the credential's module (AES-GCM), with ETags.
+- **`internal/ingest`** — ships flag logs to `ingestion.confidence.dev/v1/flagLogs:write`, with
+  the module's log token as Bearer.
+- **`internal/engine`** — module generations: polls the CDN, swaps in a new module without
+  dropping evaluations, flushes logs on a timer and on swap and shutdown.
+- **`internal/s2wpb`** — generated from `../proto` (`make proto`); don't edit.
+- **`internal/testutil`** — a fake CDN and ingestion server for tests (`testutil.Backend`).
 
-## Key API
-
-- **`NewProvider(ctx, ProviderConfig)`** (`provider_builder.go`) — Main factory function. Creates gRPC connection, state fetcher, flag logger, and wires everything together.
-- **`newProviderForTest(ctx, ProviderTestConfig)`** — Factory with injectable `StateProvider` and `FlagLogger` for testing.
-- **`ProviderConfig`** — `ClientSecret`, `Logger`, `TransportHooks`, `MaterializationStore`, `UseRemoteMaterializationStore`, `StatePollInterval`, `LogPollInterval`, `ResolverPoolSize`, `UseWasmInterpreter`
-- **`TransportHooks`** interface — Allows customizing both gRPC and HTTP transports (for proxying or testing): `ModifyGRPCDial(target, opts)` and `WrapHTTP(transport)`.
+Test modules come from `../testdata/modules` (see its README). Event tracking (`Track()`) isn't
+supported yet; it will come through the module.
 
 ## Build & Test
 
 ```bash
 make build
-make test
+make test       # unit tests
+make test-e2e   # needs CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY
 make lint
-make proto
+make proto      # regenerate internal/s2wpb
 ```
 
-## Background Goroutines
+E2E tests are named `TestE2E_*`: `make test` skips them, `make test-e2e` runs only them, against
+the production CDN and ingestion.
 
-The provider starts background goroutines on `Init()`:
-1. **State polling** — Fetches resolver state from CDN at `StatePollInterval` (default 10s)
-2. **Log flushing** — Flushes resolve + assign logs via gRPC at `LogPollInterval` (default 15s)
+## Gotchas
 
-Both are cancelled via context on `Shutdown()`.
-
-## WASM Build
-
-WASM is automatically built from source and copied to `confidence/internal/local_resolver/assets/` when building locally (skipped in Docker where it's provided by the build stage).
+- wazero's JIT and Go's profiling signals: see `UseWasmInterpreter` in the README.
+- The race detector reports false positives on the shared memory's atomics; `internal/host`
+  annotates them (`race.go`).
+- A module's declared memory max is 4 GiB; the host caps it (`MaxMemoryBytes`, default 64 MiB),
+  and the capped memory is reserved up front, so it shows as heap.

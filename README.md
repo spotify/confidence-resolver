@@ -38,7 +38,7 @@ For providers this means:
 
 | Provider | Status |
 |----------|--------|
-| [Go](./openfeature-provider/go/README.md) | Rewrite in progress |
+| [Go](./openfeature-provider/go/README.md) | Rewritten; released as release candidates |
 | [Java](./openfeature-provider/java/README.md) | Reference, pending rewrite |
 | [JavaScript/TypeScript](./openfeature-provider/js/README.md) | Reference, pending rewrite |
 | [Python](./openfeature-provider/python/README.md) | Reference, pending rewrite |
