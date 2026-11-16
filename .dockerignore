@@ -1,33 +1,20 @@
 # macOS
 **/.DS_Store
 
-# Rust build artifacts
-/target
+# Build output
 **/target
 artifacts/
 
-# WASM artifacts (will be built in Docker)
-wasm/*.wasm
-*.wasm
-
 # Node modules
-/node_modules
 **/node_modules
 
 # Python
 __pycache__/
 *.pyc
-.venv/
 **/.venv/
 
 # Java
 *.class
-
-# Local runtime data
-# Note: Root /data/ is included (needed by confidence-cloudflare-resolver)
-# Exclude data dirs in subdirectories only
-wasm/*/data/
-confidence-resolver/data/
 
 # Logs
 *.log
