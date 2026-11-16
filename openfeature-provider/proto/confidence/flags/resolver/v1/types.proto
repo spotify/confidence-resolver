@@ -1,15 +1,21 @@
+// AUTO-GENERATED from vendor/epx-flags-resolver — do not edit.
+// To regenerate: python3 scripts/sync-upstream-protos.py
+
 syntax = "proto3";
 
 package confidence.flags.resolver.v1;
 
-option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver";
-option java_package = "com.spotify.confidence.sdk.flags.resolver.v1";
+option java_package = "com.spotify.confidence.flags.resolver.v1";
 option java_multiple_files = true;
-option java_outer_classname = "TypesProto";
+option java_outer_classname = "StateToWasmTypesProto";
 
-// Simplified from confidence-resolver/protos/confidence/flags/resolver/v1/types.proto
-// Annotations removed for minimal dependencies
+import "confidence/flags/types/v1/types.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/struct.proto";
 
+
+// (-- api-linter: core::0123::resource-annotation=disabled
+//     aip.dev/not-precedent: SDKs are not internal Confidence resources. --)
 message Sdk {
   // Identifier of the SDK used to interact with the API.
   oneof sdk {
@@ -22,6 +28,80 @@ message Sdk {
   // Version of the SDK.
   string version = 3;
 }
+
+
+
+message ResolvedFlag {
+  // The id of the flag that as resolved.
+  string flag = 1;
+
+  // The id of the resolved variant has the format `flags/abc/variants/xyz`.
+  string variant = 2;
+
+  // The value corresponding to the variant. It will always be a json object,
+  // for example `{ "color": "red", "size": 12 }`.
+  google.protobuf.Struct value = 3;
+
+  // The schema of the value that was returned. For example:
+  // ```
+  // {
+  //    "schema": {
+  //      "color": { "stringSchema": {} },
+  //      "size": { "intSchema": {} }
+  //    }
+  // }
+  // ```
+  types.v1.FlagSchema.StructFlagSchema flag_schema = 4;
+
+  // The reason to why the flag could be resolved or not.
+  ResolveReason reason = 5;
+
+  // Determines whether the flag should be applied in the clients
+  bool should_apply = 6;
+
+  // The origin of the assignment, e.g. a workflow instance reference or a rule type label.
+  string assignment_origin = 7;
+}
+
+
+message ResolveFlagsResponse {
+  // The list of all flags that could be resolved. Note: if any flag was
+  // archived it will not be included in this list.
+  repeated ResolvedFlag resolved_flags = 1;
+
+  // An opaque token that is used when `apply` is set to false in `ResolveFlags`.
+  // When `apply` is set to false, the token must be passed to `ApplyFlags`.
+  bytes resolve_token = 2;
+
+  // Unique identifier for this particular resolve request.
+  string resolve_id = 3;
+}
+
+
+message ResolveFlagsRequest {
+  // If non-empty, the specific flags are resolved, otherwise all flags
+  // available to the client will be resolved.
+  repeated string flags = 1 [(google.api.field_behavior) = OPTIONAL];
+
+  // An object that contains data used in the flag resolve. For example,
+  // the targeting key e.g. the id of the randomization unit, other attributes
+  // like country or version that are used for targeting.
+  google.protobuf.Struct evaluation_context = 2 [(google.api.field_behavior) = OPTIONAL];
+
+  // Credentials for the client. It is used to identify the client and find
+  // the flags that are available to it.
+  string client_secret = 3 [(google.api.field_behavior) = REQUIRED];
+
+  // Determines whether the flags should be applied directly as part of the
+  // resolve, or delayed until `ApplyFlag` is called. A flag is typically
+  // applied when it is used, if this occurs much later than the resolve, then
+  // `apply` should likely be set to false.
+  bool apply = 4 [(google.api.field_behavior) = REQUIRED];
+
+  // Information about the SDK used to initiate the request.
+  Sdk sdk = 5 [(google.api.field_behavior) = OPTIONAL];
+}
+
 
 enum ResolveReason {
   // Unspecified enum.
@@ -41,41 +121,69 @@ enum ResolveReason {
   RESOLVE_REASON_ERROR = 6;
   // The flag could not be resolved because a targeting rule was not recognized
   RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE = 7;
-  // The flag could not be resolved because a rule is using materialization
+  // The flag could not be resolved because materializations are required but not configured
   RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED = 8;
   // The resolved value type does not match the type requested by the SDK
   RESOLVE_REASON_TYPE_MISMATCH = 9;
   // The flag was not found in the resolve response
   RESOLVE_REASON_FLAG_NOT_FOUND = 10;
-  // A bundle resolve was performed (multiple flags resolved at once)
+  // The flag was resolved as part of a bundle
   RESOLVE_REASON_BUNDLE = 11;
 }
 
+
 enum SdkId {
+  // Unspecified enum.
   SDK_ID_UNSPECIFIED = 0;
+  // Confidence OpenFeature Java Provider.
   SDK_ID_JAVA_PROVIDER = 1;
+  // Confidence OpenFeature Kotlin Provider.
   SDK_ID_KOTLIN_PROVIDER = 2;
+  // Confidence OpenFeature Swift Provider.
   SDK_ID_SWIFT_PROVIDER = 3;
+  // Confidence OpenFeature JavaScript Provider for Web (client).
   SDK_ID_JS_WEB_PROVIDER = 4;
+  // Confidence OpenFeature JavaScript Provider for server.
   SDK_ID_JS_SERVER_PROVIDER = 5;
+  // Confidence OpenFeature Python Provider.
   SDK_ID_PYTHON_PROVIDER = 6;
+  // Confidence OpenFeature GO Provider.
   SDK_ID_GO_PROVIDER = 7;
+  // Confidence OpenFeature Ruby Provider.
   SDK_ID_RUBY_PROVIDER = 8;
+  // Confidence OpenFeature Rust Provider.
   SDK_ID_RUST_PROVIDER = 9;
+  // Confidence Java SDK.
   SDK_ID_JAVA_CONFIDENCE = 10;
+  // Confidence Kotlin SDK.
   SDK_ID_KOTLIN_CONFIDENCE = 11;
+  // Confidence Swift SDK.
   SDK_ID_SWIFT_CONFIDENCE = 12;
+  // Confidence JavaScript SDK.
   SDK_ID_JS_CONFIDENCE = 13;
+  // Confidence Python SDK.
   SDK_ID_PYTHON_CONFIDENCE = 14;
+  // Confidence GO SDK.
   SDK_ID_GO_CONFIDENCE = 15;
   SDK_ID_RUST_CONFIDENCE = 16;
   SDK_ID_FLUTTER_IOS_CONFIDENCE = 17;
   SDK_ID_FLUTTER_ANDROID_CONFIDENCE = 18;
+  // Confidence .NET SDK.
   SDK_ID_DOTNET_CONFIDENCE = 19;
+  // Confidence GO Local Provider.
   SDK_ID_GO_LOCAL_PROVIDER = 20;
+  // Confidence Java Local Provider.
   SDK_ID_JAVA_LOCAL_PROVIDER = 21;
+  // Confidence JS Server Local Provider.
   SDK_ID_JS_LOCAL_SERVER_PROVIDER = 22;
+  // Confidence Python Local Provider.
   SDK_ID_PYTHON_LOCAL_PROVIDER = 23;
+  // Confidence Rust Local Provider.
   SDK_ID_RUST_LOCAL_PROVIDER = 24;
+  // Confidence Cloudflare Resolver.
   SDK_ID_CLOUDFLARE_RESOLVER = 25;
+  // Confidence OpenFeature PHP Provider.
+  SDK_ID_PHP_PROVIDER = 26;
+  // Confidence Unity SDK.
+  SDK_ID_UNITY_CONFIDENCE = 27;
 }

@@ -1,16 +1,32 @@
+// AUTO-GENERATED from vendor/epx-flags-resolver — do not edit.
+// To regenerate: python3 scripts/sync-upstream-protos.py
+
 syntax = "proto3";
 
 package confidence.flags.types.v1;
 
-option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/types";
-option java_package = "com.spotify.confidence.sdk.flags.types.v1";
+option java_package = "com.spotify.confidence.flags.types.v1";
 option java_multiple_files = true;
-option java_outer_classname = "TypesProto";
+option java_outer_classname = "StateToWasmTypesProto";
 
-// Simplified from confidence-resolver/protos/confidence/flags/types/v1/types.proto
-// Annotations removed for minimal dependencies
 
 // Schema for the value of a flag.
+//
+// The value of a flag is always a struct with one or more nested fields.
+// Example of a struct schema with two fields, `color` (a string) and `len` (an int):
+//
+// ```
+// {
+//   "schema": {
+//     "color": {
+//       "stringSchema": {}
+//     },
+//     "len": {
+//       "intSchema": {}
+//     }
+//   }
+// }
+// ```
 message FlagSchema {
   oneof schema_type {
     // Schema if this is a struct
@@ -27,7 +43,10 @@ message FlagSchema {
     BoolFlagSchema bool_schema = 6;
   }
 
-  // A schema of nested fields.
+  // A schema of nested fields. The length of the field name is limited to
+  // 32 characters and can only contain alphanumeric characters, hyphens and
+  // underscores. The number of fields in a struct is limited to 64.
+  // Structs can not be nested more than four (4) levels.
   message StructFlagSchema {
     // Map of field name to the schema for the field
     map<string, FlagSchema> schema = 1;
@@ -41,7 +60,7 @@ message FlagSchema {
   message IntFlagSchema {
   }
 
-  // A string.
+  // A string. The length is limited to 250 characters.
   message StringFlagSchema {
   }
 
@@ -49,7 +68,8 @@ message FlagSchema {
   message BoolFlagSchema {
   }
 
-  // A list of values.
+  // A list of values. The values have the same data types which
+  // is defined by  `element_schema`.
   message ListFlagSchema {
     // The schema for the elements in the list
     FlagSchema element_schema = 1;

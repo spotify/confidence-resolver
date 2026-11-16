@@ -1,0 +1,635 @@
+// AUTO-GENERATED from vendor/epx-flags-resolver — do not edit.
+// To regenerate: python3 scripts/sync-upstream-protos.py
+
+syntax = "proto3";
+
+package confidence.flags.admin.v1;
+
+option java_package = "com.spotify.confidence.flags.admin.v1";
+option java_multiple_files = true;
+option java_outer_classname = "StateToWasmTypesProto";
+
+import "confidence/flags/types/v1/target.proto";
+import "confidence/flags/types/v1/types.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/type/decimal.proto";
+
+
+// A reusable slice of an entity population.
+message Segment {
+
+  // The resource name of the segment.
+  // For example:
+  // `segments/0smva5nxuhv4yts6paxt`
+  string name = 1;
+
+  // A human-friendly name for the segment.
+  string display_name = 12;
+
+  // A description for the segment.
+  string description = 18;
+
+  // The targeting that this segment adheres to.
+  flags.types.v1.Targeting targeting = 2;
+
+  // How much of the total population that is allocated to this segment,
+  // and the coordination with other segments.
+  Allocation allocation = 3;
+
+  // Current state of the segment.
+  State state = 5;
+
+  // A bitset representing the buckets that are allocated for this segment.
+  BitsetAllocation bitset_allocation = 6;
+
+  // General labels for this resource.
+  map<string, string> labels = 7;
+
+  // The workflow instance that created this segment. If set, permissions
+  // will be inherited from the workflow instance, in addition to the segment permissions.
+  string workflow_instance = 16;
+
+  // The flag owning the rule this segment is connected to. If set, permissions
+  // will be inherited from the flag, in addition to the segment permissions.
+  string flag = 17;
+
+  // Time when the segment was first created.
+  google.protobuf.Timestamp create_time = 8;
+
+  // Time when the segment was last updated.
+  google.protobuf.Timestamp update_time = 9;
+
+  // Reference to the identity that created this segment.
+  string creator = 13;
+
+  // Reference to the identity that last updated this segment.
+  string updater = 14;
+
+  // The owner of the resource. If not set will default to the creator.
+  string owner = 15;
+
+  // The state of a segment.
+  enum State {
+    // Unspecified state.
+    STATE_UNSPECIFIED = 0;
+
+    // Segment is ready for use (no allocation is needed).
+    OK = 4;
+
+    // Segment has is configured for exclusivity, but has not been allocated.
+    UNALLOCATED = 1;
+
+    // Segment has been allocated with an exclusive allocation.
+    ALLOCATED = 2;
+
+    // Segment is no longer used.
+    ARCHIVED = 3;
+  }
+
+  // Allocation and coordination of the segment.
+  message Allocation {
+    // Fraction of entity population that is eligible for this segment.
+    google.type.Decimal proportion = 1;
+
+    // Set of tags that can be used to coordinate this segment with others.
+    repeated string exclusivity_tags = 3;
+
+    // (-- api-linter: core::0140::prepositions=disabled
+    //     aip.dev/not-precedent: It means that we're exclusive to other tags, makes sense. --)
+    // List of tags that this segment is exclusive to, meaning that an entity
+    // cannot be in this segment and also in any segment that has a tag in the
+    // list.
+    repeated string exclusive_to = 4;
+  }
+
+  // A bit set where each bit represents a fixed fraction of the entity
+  // population.
+  message BitsetAllocation {
+    // Byte encoded bitset.
+    bytes bitset = 1;
+  }
+}
+
+
+// A flag controlling how entities are assigned variants.
+message Flag {
+
+  // The resource name of the flag.
+  // For example:
+  // `flags/my-flag`
+  string name = 1;
+
+  // The display name of the flag.
+  // For example:
+  // `my-flag`
+  string display_name = 18;
+
+  // A description for the flag.
+  string description = 13;
+
+  // Schema for the value of each variant.
+  flags.types.v1.FlagSchema.StructFlagSchema schema = 2;
+
+  // List of variants for this flag. When a client resolves this flag, it will
+  // be assigned exactly one of the variants in this list along with its value.
+  // (-- api-linter: core::0122::embedded-resource=disabled
+  //     aip.dev/not-precedent: these are embedded for historical reasons. --)
+  repeated Variant variants = 3;
+
+  // The current state of the flag.
+  State state = 4;
+
+  // List of ordered rules that determines how entities are assigned to
+  // variants. When a client resolves this flag, each rule will be tried in
+  // order, the first rule that match, will provide a variant assignment. If
+  // not rule matches, no variant will be assigned.
+  // (-- api-linter: core::0122::embedded-resource=disabled
+  //     aip.dev/not-precedent: these are embedded for historical reasons. --)
+  repeated Rule rules = 5;
+
+  // List of clients that this flag is enabled for.
+  repeated string clients = 12;
+
+  // Time when the flag was first created.
+  google.protobuf.Timestamp create_time = 6;
+
+  // Time when the flag was last updated.
+  google.protobuf.Timestamp update_time = 7;
+
+  // Time when the flag was archived.
+  google.protobuf.Timestamp archive_time = 17;
+
+  // Reference to the identity that created this flag.
+  string creator = 14;
+
+  // Reference to the identity that last updated this flag.
+  string updater = 15;
+
+  // General labels for this flag.
+  map<string, string> labels = 10;
+
+  // Semi-realtime usage statistics for the flag.
+  UsageMetadata usage_metadata = 11;
+
+  // The owner of the resource. If not set will default to the creator.
+  string owner = 16;
+
+  // State of the flag.
+  enum State {
+    // Unspecified state.
+    STATE_UNSPECIFIED = 0;
+
+    // The flag is active and can be resolved.
+    ACTIVE = 1;
+
+    // The flag is no longer active.
+    ARCHIVED = 2;
+  }
+
+  // Usage statistics for the flag.
+  message UsageMetadata {
+    // The total number of resolves of this flag.
+    int64 resolve_count = 1;
+
+    // The last time this flag was resolved.
+    google.protobuf.Timestamp last_resolve_time = 2;
+
+    // The last time this flag was applied.
+    google.protobuf.Timestamp last_apply_time = 3;
+  }
+
+  // A possible named value the flag can assign.
+  message Variant {
+
+    // The resource name of the variant.
+    // For example:
+    // `flags/my-flag/variants/control`
+    string name = 1;
+
+    // The value that this variant represents. A possibly nested json object.
+    google.protobuf.Struct value = 2;
+
+    // General set of labels for this resource.
+    map<string, string> labels = 3;
+
+    // A human-friendly description of the variant.
+    string description = 8;
+
+    // An image URL or path for the variant.
+    string image_uri = 11;
+
+    // Time when the flag was first created.
+    google.protobuf.Timestamp create_time = 4;
+
+    // Time when the flag was last updated.
+    google.protobuf.Timestamp update_time = 5;
+
+    // Reference to the identity that created this variant.
+    string creator = 9;
+
+    // Reference to the identity that last updated this variant.
+    string updater = 10;
+  }
+
+  // A rule that decides how a subset of the flags variants are assigned.
+  message Rule {
+
+    // The resource name of the rule.
+    // For example:
+    // `flags/my-flag/rules/1bhq4c2zqigdzqg6ufni`
+    string name = 1;
+
+    // A description for the rule.
+    string description = 17;
+
+    // A reference to the segment that this rule uses to specify entities
+    // that are eligible.
+    string segment = 2;
+
+    // Specification of how an entity should be randomly assigned to values.
+    AssignmentSpec assignment_spec = 12;
+
+    // Metadata about how the flag has been resolved.
+    UsageMetadata usage_metadata = 4;
+
+    // Selector of what key to randomize on from the evaluation context.
+    // "targeting_key" is the default if not specified
+    string targeting_key_selector = 5;
+
+    // Decides if the rule should be enabled for resolve or not.
+    bool enabled = 11;
+
+    // List of environments this rule is enabled for. If this list is empty, the rule
+    // is enabled for all environments.
+    repeated string environments = 16;
+
+
+    // Time when the rule was first created.
+    google.protobuf.Timestamp create_time = 6;
+
+    // Time when the flag was last updated.
+    google.protobuf.Timestamp update_time = 7;
+
+    // Reference to the identity that created this rule.
+    string creator = 14;
+
+    // Reference to the identity that last updated this rule.
+    string updater = 15;
+
+    // General set of labels for this resource.
+    map<string, string> labels = 10;
+
+    // Specifies if materializations are written to/read from
+    MaterializationSpec materialization_spec = 13;
+
+    // Specifies if materializations are written to/read from
+    message MaterializationSpec {
+      // Feeds assignments into materialization
+      string write_materialization = 1;
+      //Reads assignments from materialization
+      string read_materialization = 2;
+      // How materialization reads should be treated
+      MaterializationReadMode mode = 3;
+      // How materialization reads should be treated
+      message MaterializationReadMode {
+        // If the materialization must match, only units in the materialization will be in the rule, all other units
+        // will skip this rule (also known as paused intake). If this is set to false units will match if they are in
+        // the materialization or if they match the segment.
+        bool materialization_must_match = 1;
+
+        // By default materialization will only be seen as a match of the targeting of the segment that the rule
+        // references also matches. Depending on the type of targeting, this may or may not be the wanted behaviour.
+        // Setting this to true will mean that any unit in the materialization will match the rule no matter if
+        // they match the targeting. Irrespective if this is set to false or true the segment allocation
+        // proportion/bucketing is ignored for any unit in the materialization.
+        bool segment_targeting_can_be_ignored = 2;
+      }
+    }
+
+    // Describes how an entity is randomly assigned to a variant.
+    message AssignmentSpec {
+      // The total number of buckets to consider when randomizing.
+      int32 bucket_count = 1;
+
+      // A list that divides the total buckets into assignments
+      repeated Assignment assignments = 2;
+    }
+
+    // Maps a range of buckets to a value assignment.
+    message Assignment {
+      // Opaque identifier of this assignment.
+      string assignment_id = 1;
+
+      // Determines how the client should be assigned values.
+      oneof assignment {
+        // Assign a value from a variant.
+        VariantAssignment variant = 2;
+        // Assign a value from the first rule after this one that matches.
+        FallthroughAssignment fallthrough = 3;
+        // Assign the default values in the client.
+        ClientDefaultAssignment client_default = 4;
+      }
+
+      // The range of buckets that the variant occupies.
+      repeated BucketRange bucket_ranges = 5;
+
+      // Assignment of a variant
+      message VariantAssignment {
+        // Reference to a variant in the flag. Note: the variant must be located
+        // in the same flag.
+        string variant = 1;
+      }
+
+      // No value will be assigned and passed on to the next rule, an
+      // event with a fallthrough assignment will be generated.
+      message FallthroughAssignment {
+
+      }
+
+      // No variant will be assigned and the client should return the
+      // configured default values.
+      message ClientDefaultAssignment {
+
+      }
+    }
+
+    // The range of buckets that a variant occupies.
+    message BucketRange {
+      // The start bucket (inclusive).
+      int32 lower = 1;
+
+      // The end bucket (exclusive).
+      int32 upper = 2;
+    }
+
+    // Usage statistics for the rule.
+    message UsageMetadata {
+      // The total number of resolves of this rule.
+      int64 resolve_count = 1;
+
+      // Total number of applies to this rule.
+      int64 apply_count = 4;
+
+      // The last time this rule was resolved.
+      google.protobuf.Timestamp last_resolve_time = 2;
+
+      // The last time this rule was applied.
+      google.protobuf.Timestamp last_apply_time = 3;
+
+      // Usage statistics for each assignment.
+      repeated AssignmentUsageMetadata assignment_usage_metadata = 5;
+    }
+
+    // Usage statistics for a particular assignment.
+    message AssignmentUsageMetadata {
+      // The assignment id, empty means no assignment id was passed.
+      string assignment_id = 1;
+
+      // Total number of resolves.
+      int64 resolve_count = 2;
+
+      // Total number of applies.
+      int64 apply_count = 3;
+
+      // The last time this rule was applied.
+      google.protobuf.Timestamp last_apply_time = 4;
+
+      // Total number of applies with empty targeting key.
+      int64 empty_targeting_key_count = 5;
+    }
+  }
+}
+
+
+// Represents an evaluation context field that has been manually added
+message EvaluationContextFieldOverride {
+
+  // The resource name of the field.
+  // For example:
+  // `evaluationContextField/country`
+  string name = 1;
+
+  // The path to the field. i.e: `country` or `foo.bar`
+  string field = 8;
+
+  // The clients this field should be available for. Empty list means all.
+  repeated string clients = 9;
+
+  // The value type of this field
+  EvaluationContextSchemaField.Kind kind = 10;
+
+  // Semantic type of a field. Makes it possible to narrow the number of possible values for a field etc.
+  ContextFieldSemanticType semantic_type = 11;
+
+  // Human friendly name of the field
+  string display_name = 12;
+
+  // If this field should be hidden.
+  bool hidden = 13;
+
+  // If this field should be logged.
+  bool log = 14;
+
+  // If this field **does not** contain personally identifiable information (PII).
+  bool non_pii = 15;
+
+  // General labels for this resource.
+  map<string, string> labels = 2;
+
+  // Time when the field was first created.
+  google.protobuf.Timestamp create_time = 3;
+
+  // Time when the field was last updated.
+  google.protobuf.Timestamp update_time = 4;
+
+  // Reference to the identity that created this field.
+  string creator = 5;
+
+  // Reference to the identity that last updated this field.
+  string updater = 6;
+}
+
+
+// The type of fields observed in an evaluation context.
+message EvaluationContextSchemaField {
+  // The observed types.
+  repeated Kind types = 1;
+
+  // Human friendly name of the field
+  string display_name = 2;
+
+  // If the field should be visible or not
+  bool hidden = 3;
+
+  // Semantic type of a field. Makes it possible to narrow the number of possible values for a field etc.
+  ContextFieldSemanticType semantic_type = 4;
+
+  // Sample of values seen for this field.
+  repeated google.protobuf.Value seen_values = 5;
+
+  // The type of a field in the schema.
+  enum Kind {
+    // Unspecified kind.
+    KIND_UNSPECIFIED = 0;
+
+    // Null value observed.
+    NULL_KIND = 1;
+
+    // A number, integer or double, observed.
+    NUMBER_KIND = 2;
+
+    // A string observed.
+    STRING_KIND = 3;
+
+    // A boolean observed.
+    BOOL_KIND = 4;
+  }
+}
+
+
+// Defines values that have been seen for a context field.
+message ContextFieldSeenValues {
+  // List of unique values seen.
+  repeated google.protobuf.Value values = 1;
+}
+
+
+// Semantic type of a field. Makes it possible to narrow the number of possible values for a field etc.
+message ContextFieldSemanticType {
+  oneof type {
+    // (-- api-linter: core::0143::standardized-codes=disabled
+    //     aip.dev/not-precedent: We use country. --)
+    // If this is a country type, this specifies in what format.
+    CountrySemanticType country = 1;
+    // If this is an enum this specifies what value it has etc.
+    EnumSemanticType enum_type = 2;
+    // If this field is a reference to an entity.
+    EntitySemanticType entity_reference = 3;
+    // If this field is a semantic type.
+    VersionSemanticType version = 4;
+    // (-- api-linter: core::0142::time-field-type=disabled
+    //     aip.dev/not-precedent: This isn't a date but a spec of a date. --)
+    // If this field is a date.
+    DateSemanticType date = 5;
+    // (-- api-linter: core::0142::time-field-type=disabled
+    //     aip.dev/not-precedent: This isn't a timestamp but a spec of a timestamp. --)
+    // If this field is a timestamp.
+    TimestampSemanticType timestamp = 6;
+  }
+
+  // Specifies a semver semantic type
+  message VersionSemanticType {
+
+  }
+
+  // Specifies a date semantic type
+  message DateSemanticType {
+
+  }
+
+  // Specifies a timestamp semantic type
+  message TimestampSemanticType {
+
+  }
+
+  // Specifies a country semantic type.
+  message CountrySemanticType {
+    // What format the country is specified in.
+    CountryFormat format = 1;
+    // Enum of different formats that country should be in.
+    enum CountryFormat {
+      // No semantic type for the field.
+      COUNTRY_FORMAT_UNSPECIFIED = 0;
+      // The field is a country specified by a 2 letter code.
+      TWO_LETTER_ISO_CODE = 1;
+    }
+  }
+
+  // Specifies an enum semantic type.
+  message EnumSemanticType {
+    // What allowed values exist for this enum.
+    repeated EnumValue values = 1;
+
+    // An allowed value for the enum
+    message EnumValue {
+      // A possible value the enum can take.
+      string value = 1;
+    }
+  }
+
+  // Specifies a field that has a semantic type of entity.
+  message EntitySemanticType {
+    // A reference to the entity that exists in this field.-
+    string entity = 1;
+  }
+}
+
+
+// A request to write flag resolve info
+message WriteResolveInfoRequest {
+  // Information about how clients have resolved
+  repeated ClientResolveInfo client_resolve_info = 1;
+  // Information about how flags were resolved
+  repeated FlagResolveInfo flag_resolve_info = 2;
+
+  // Information about how a single flag has been resolved
+  message FlagResolveInfo {
+    // The flag the info is about
+    string flag = 1;
+    // Information about how variants were resolved.
+    repeated VariantResolveInfo variant_resolve_info = 2;
+    // Information about how rules were resolved.
+    repeated RuleResolveInfo rule_resolve_info = 3;
+
+    // Information about how a variant was resolved.
+    message VariantResolveInfo {
+      // If there was a variant assigned, otherwise not set
+      string variant = 1;
+      // Number of times the variant was resolved in this period
+      int64 count = 3;
+    }
+
+    // Information about how a rule was resolved.
+    message RuleResolveInfo {
+      // The rule that was resolved
+      string rule = 1;
+      // Number of times the rule was resolved in this period
+      int64 count = 2;
+
+      // Resolve counts on each assignment
+      repeated AssignmentResolveInfo assignment_resolve_info = 3;
+    }
+
+    // Information about the assignment that was resolved.
+    message AssignmentResolveInfo {
+      // The assignment id of the resolved value, otherwise not set.
+      string assignment_id = 1;
+
+      // Number of times the assignment id was resolved in this period.
+      int64 count = 2;
+    }
+  }
+
+  // Information about how a client resolved
+  message ClientResolveInfo {
+    // Resource reference to a client.
+    string client = 1;
+
+    // Resource reference to a credential.
+    string client_credential = 2;
+
+    // The different evaluation context schema of the client that have been seen recently.
+    repeated EvaluationContextSchemaInstance schema = 3;
+
+    // An instance of a schema that was seen
+    message EvaluationContextSchemaInstance {
+      // Schema of each field in the evaluation context.
+      map<string, EvaluationContextSchemaField.Kind> schema = 1;
+      // Optional semantic type per field.
+      map<string, ContextFieldSemanticType> semantic_types = 2;
+      // Optional sample of seen values of non pii.
+      map<string, ContextFieldSeenValues> seen_values = 3;
+    }
+  }
+}

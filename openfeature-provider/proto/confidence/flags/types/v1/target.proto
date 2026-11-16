@@ -1,12 +1,16 @@
+// AUTO-GENERATED from vendor/epx-flags-resolver — do not edit.
+// To regenerate: python3 scripts/sync-upstream-protos.py
+
 syntax = "proto3";
+
 package confidence.flags.types.v1;
+
+option java_package = "com.spotify.confidence.flags.types.v1";
+option java_multiple_files = true;
+option java_outer_classname = "StateToWasmTargetingProto";
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/types";
-option java_multiple_files = true;
-option java_package = "com.spotify.confidence.sdk.flags.types.v1";
-option java_outer_classname = "TargetingProto";
 
 
 message Targeting {
@@ -16,7 +20,7 @@ message Targeting {
   message Criterion {
     oneof criterion {
       AttributeCriterion attribute = 1;
-      SegmentCriterion segment = 2 ;
+      SegmentCriterion segment = 2;
       MaterializedSegmentCriterion materialized_segment = 3;
     }
     message AttributeCriterion {
@@ -28,6 +32,9 @@ message Targeting {
         RangeRule range_rule = 4;
         AnyRule any_rule = 5;
         AllRule all_rule = 6;
+        StartsWithRule starts_with_rule = 7;
+        EndsWithRule ends_with_rule = 8;
+        ContainsRule contains_rule = 9;
       }
     }
 
@@ -57,6 +64,9 @@ message Targeting {
       EqRule eq_rule = 1;
       SetRule set_rule = 2;
       RangeRule range_rule = 3;
+      StartsWithRule starts_with_rule = 4;
+      EndsWithRule ends_with_rule = 5;
+      ContainsRule contains_rule = 6;
     }
   }
 
@@ -87,6 +97,21 @@ message Targeting {
     }
   }
 
+  // matches if the string value starts with the given prefix
+  message StartsWithRule {
+    string value = 1;
+  }
+
+  // matches if the string value ends with the given suffix
+  message EndsWithRule {
+    string value = 1;
+  }
+
+  // matches if the string value contains the given substring
+  message ContainsRule {
+    string value = 1;
+  }
+
   // equality (==, !=, ∈) defined for all types
   // comparison (<, <=, >, >=) defined for number, timestamp, version
   message Value {
@@ -108,6 +133,7 @@ message Targeting {
     string version = 1;
   }
 }
+
 
 // A boolean expression with leaf nodes that reference criteria elements
 message Expression {
