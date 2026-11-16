@@ -9,26 +9,18 @@ CI is a **single `docker build .`** — the multi-stage Dockerfile is the entire
 
 ## Release & Publish (`release-please.yml`)
 
-Release Please detects version bumps per component independently. Each component has its own conditional publish job.
+Release Please runs on pushes to `main` and `next` and releases from the pushed branch, using that
+branch's `release-please-config.json` and manifest.
 
-### Publish dependency chain
-
-The Rust provider (`openfeature-provider/rust`) depends on `confidence-resolver` being published to crates.io first. The workflow enforces this:
-
-1. `publish-confidence-resolver-release` runs first
-2. `publish-rust-provider-release` waits for it, then **sleeps 30 seconds** for crates.io index propagation
-3. If only the Rust provider is released (resolver not changed), it skips the wait
-
-
-All publish jobs require the **`deployment` GitHub environment** (environment protection rules apply).
+On `next`, the config lists only the providers rewritten on state-to-wasm modules and releases
+release candidates (`versioning: prerelease`, `prerelease-type: rc`), e.g.
+`openfeature-provider/go/v0.30.0-rc.1`. Publish jobs come back with each provider's rewrite; they
+run in the **`deployment` GitHub environment**. npm releases must publish rcs under a dist-tag
+(`--tag next`) so they don't become `latest`.
 
 ### Post-release
 
 After a release is published, remember to update internal version registries with the new version numbers.
-
-### Cloudflare deployer
-
-On `confidence-cloudflare-resolver` release, the deployer Docker image is built and pushed to `ghcr.io/<owner>/confidence-cloudflare-deployer` with both a version tag and `latest`.
 
 ## PR Lint (`lint-pr-name.yaml`)
 

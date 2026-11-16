@@ -1,85 +1,9 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "bump-minor-pre-major": true,
+  "versioning": "prerelease",
+  "prerelease": true,
+  "prerelease-type": "rc",
   "pull-request-footer": "> **Post-release reminder:** After merging this PR, remember to update internal version registries with the new version numbers.",
-  "plugins": ["cargo-workspace"],
-  "packages": {
-    "confidence-resolver": {
-      "path": "confidence-resolver",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "initial-version": "0.1.0",
-      "extra-files": ["src/version.rs"]
-    },
-    "confidence-cloudflare-resolver": {
-      "path": "confidence-cloudflare-resolver",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "initial-version": "0.1.0"
-    },
-    "wasm-msg": {
-      "path": "wasm-msg",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "initial-version": "0.1.0"
-    },
-    "wasm/rust-guest": {
-      "path": "wasm/rust-guest",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "initial-version": "0.1.0"
-    },
-    "openfeature-provider/java": {
-      "path": "openfeature-provider/java",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "extra-files": [
-        {
-          "type": "pom",
-          "path": "pom.xml"
-        },
-        "README.md",
-        "src/main/java/com/spotify/confidence/sdk/Version.java"
-      ]
-    },
-    "openfeature-provider/js": {
-      "path": "openfeature-provider/js",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "extra-files": ["package.json", "src/version.ts"]
-    },
-    "openfeature-provider/go": {
-      "path": "openfeature-provider/go",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "include-component-in-tag": true,
-      "component": "openfeature-provider/go",
-      "tag-separator": "/",
-      "extra-files": ["confidence/version.go"],
-      "exclude-paths": ["confidence/internal/local_resolver/assets/confidence_resolver.wasm"]
-    },
-    "openfeature-provider/ruby": {
-      "release-type": "ruby",
-      "changelog-path": "CHANGELOG.md",
-      "component": "openfeature-provider/ruby",
-      "extra-files": [
-        "lib/confidence/openfeature/version.rb"
-      ]
-    },
-    "openfeature-provider/rust": {
-      "path": "openfeature-provider/rust",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "component": "openfeature-provider/rust",
-      "initial-version": "0.1.0",
-      "extra-files": ["src/version.rs"]
-    },
-    "openfeature-provider/python": {
-      "path": "openfeature-provider/python",
-      "release-type": "rust",
-      "changelog-path": "CHANGELOG.md",
-      "extra-files": ["pyproject.toml", "src/confidence/version.py"]
-    }
-  }
+  "packages": {}
 }
-
