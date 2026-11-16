@@ -1,70 +1,43 @@
-# Confidence Rust Flags Resolver
+# Confidence OpenFeature Providers
 
-![Status: Beta](https://img.shields.io/badge/status-beta-orange)
-
-The Confidence flag resolver implemented in Rust, local-resolve OpenFeature Providers and edge-compatible resolver runnables.
+> [!NOTE]
+> This is the `next` branch. It replaces the in-repo Rust resolver with state-to-wasm: each
+> credential's flags are compiled to a WebAssembly module, which the providers fetch from a CDN and
+> run locally. Providers are rewritten here one at a time and released as release candidates
+> (e.g. `openfeature-provider/go/v0.30.0-rc.1`). When all are done, `next` replaces `main`.
+>
+> For released versions, see [`main`](https://github.com/spotify/confidence-resolver/tree/main).
 
 ## Repository layout
 
-The tools and SDKs published for direct usage:
-- `confidence-cloudflare-resolver`: Confidence resolver service as a Cloudflare Worker (readme [here](./confidence-cloudflare-resolver/deployer/))
-- `openfeature-provider`: The OpenFeature providers for flag resolving
+- `openfeature-provider/`: the OpenFeature providers
   - [Go](./openfeature-provider/go/README.md)
   - [Java](./openfeature-provider/java/README.md)
   - [JavaScript/TypeScript](./openfeature-provider/js/README.md)
   - [Python](./openfeature-provider/python/README.md)
   - [Rust](./openfeature-provider/rust/README.md)
   - [Ruby](./openfeature-provider/ruby/README.md)
+- `openfeature-provider/proto/`: the state-to-wasm protos the providers share (verbatim copies)
+- `confidence-cloudflare-resolver/`: the Cloudflare Worker resolver
 
-Underlying building blocks:
-- `confidence-resolver`: Core resolver crate
-- `confidence-event-engine`: Event batching engine compiled to WASM (shared by all providers for `track()` support)
-- `wasm` and `wasm-msg`: WASM resolver with communication contract towards the hosting environment
-- `data`: Sample local development data (e.g., resolver state)
+Providers that haven't been rewritten yet are kept as API reference and say so at the top of their
+README; they don't build on this branch.
 
-
-## Development - Quick Start
+## Development
 
 ```bash
-# With Docker (reproducible, no setup needed)
-docker build .                    # Build, test, lint everything
+docker build .   # build, test and lint every rewritten provider (what CI runs)
+make             # the same with local tools
 ```
-Without docker, the building is managed via Makefile:
-```
-make                              # Same, using Makefile
 
-# E2E tests require Confidence credentials passed as Docker secret
-# Create openfeature-provider/js/.env.test with your credentials, then:
+E2E tests need Confidence credentials, passed as Docker secrets:
+
+```bash
 docker build \
-  --secret id=js_e2e_test_env,src=openfeature-provider/js/.env.test \
+  --secret id=confidence_client_secret,src=<file> \
+  --secret id=confidence_client_encryption_key,src=<file> \
   .
-
-# With local tools (fast iteration)
-make test                         # Run tests
-make lint                         # Run linting
-make build                        # Build WASM
-
-# Build the Cloudflare-compatible resolver (WASM):
-make cloudflare
 ```
-
-## Benchmarks
-
-Small local benchmarks exist for Go and Node.js to validate end-to-end wiring. They are a work-in-progress and do not produce meaningful or representative performance numbers yet.
-
-Run with Docker (streams all logs, cleans up containers afterward):
-
-```bash
-# Go benchmark
-make go-bench
-
-# Node.js benchmark
-make js-bench
-```
-
-Notes:
-- Each target starts a dedicated mock server container and a one-shot bench container, then tears everything down.
-- Use `docker compose up ... go-bench` or `... js-bench` to run them individually without Make.
 
 ## License
 

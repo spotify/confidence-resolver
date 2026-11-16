@@ -1,5 +1,9 @@
 # Confidence OpenFeature Local Provider for JavaScript
 
+> [!WARNING]
+> **`next` branch:** this provider is kept as API reference and does not build here. It is being
+> rewritten on state-to-wasm modules; until then, use the version on `main`.
+
 OpenFeature provider for the Spotify Confidence resolver (local mode, powered by WebAssembly). It periodically fetches resolver state, evaluates flags locally, and flushes evaluation logs to the Confidence backend.
 
 ## Features

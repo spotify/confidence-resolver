@@ -1,5 +1,9 @@
 # Confidence OpenFeature Provider for Rust
 
+> [!WARNING]
+> **`next` branch:** this provider is kept as API reference and does not build here. It is being
+> rewritten on state-to-wasm modules; until then, use the version on `main`.
+
 ![Status: Experimental](https://img.shields.io/badge/status-experimental-orange)
 
 A high-performance OpenFeature provider for [Confidence](https://confidence.spotify.com/) feature flags that evaluates flags locally for minimal latency.

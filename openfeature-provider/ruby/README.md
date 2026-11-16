@@ -1,5 +1,9 @@
 # Confidence OpenFeature Ruby Provider
 
+> [!WARNING]
+> **`next` branch:** this provider is kept as API reference and does not build here. It is being
+> rewritten on state-to-wasm modules; until then, use the version on `main`.
+
 This repo contains the OpenFeature Ruby flag provider for [Confidence](https://confidence.spotify.com/).
 
 ## Architecture
