@@ -28,7 +28,7 @@ install:
 
 # Regenerate protobuf files
 proto:
-	./scripts/generate_proto.sh
+	./scripts/generate_s2w_proto.sh
 
 # Build (compile check)
 $(BUILD_STAMP): go.mod go.sum $(GO_SRC)
