@@ -5,5 +5,16 @@
   "prerelease": true,
   "prerelease-type": "rc",
   "pull-request-footer": "> **Post-release reminder:** After merging this PR, remember to update internal version registries with the new version numbers.",
-  "packages": {}
+  "packages": {
+    "openfeature-provider/go": {
+      "release-type": "go",
+      "changelog-path": "CHANGELOG.md",
+      "include-component-in-tag": true,
+      "component": "openfeature-provider/go",
+      "tag-separator": "/",
+      "extra-files": [
+        "confidence/version.go"
+      ]
+    }
+  }
 }

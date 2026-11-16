@@ -2,7 +2,7 @@
 # Local development commands - delegates to the providers' Makefiles.
 
 # Providers rewritten on state-to-wasm modules. The others are API reference and don't build.
-PROVIDERS :=
+PROVIDERS := go
 
 .PHONY: build test test-e2e lint clean all
 
