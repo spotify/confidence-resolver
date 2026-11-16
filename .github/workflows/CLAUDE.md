@@ -5,7 +5,7 @@
 CI is a **single `docker build .`** — the multi-stage Dockerfile is the entire test/lint/build pipeline. There are no separate per-component jobs. If the Dockerfile's `all` stage succeeds, CI passes.
 
 - **ARM runners**: `ubuntu-24.04-arm` (not the default x86)
-- **Registry-based cache**: Docker layer cache is stored in GHCR (`ghcr.io/<repo>/cache:main`). Cache is only **pushed** on `main` branch pushes. PR builds read from cache but don't update it.
+- **Registry-based cache**: Docker layer cache is stored in GHCR, one per long-lived branch (`ghcr.io/<repo>/cache:main`, `cache:next`). Cache is only **pushed** on branch pushes. PR builds read their base branch's cache but don't update it.
 
 ## Release & Publish (`release-please.yml`)
 

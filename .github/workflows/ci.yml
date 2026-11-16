@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, next]
   pull_request:
   workflow_dispatch:
 
@@ -10,6 +10,7 @@ permissions:
   contents: read
   packages: write
 
+# Each long-lived branch (main, next) has its own layer cache; PRs read their base branch's.
 jobs:
   ci:
     name: Build & Test
@@ -41,7 +42,7 @@ jobs:
           context: .
           platforms: linux/arm64
           push: false
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:${{ github.base_ref || github.ref_name }}
           secret-files: |
             confidence_client_secret=/tmp/confidence_client_secret.txt
             confidence_client_encryption_key=/tmp/confidence_client_encryption_key.txt
@@ -53,8 +54,8 @@ jobs:
           context: .
           platforms: linux/arm64
           push: false
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/cache:main,mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:${{ github.base_ref || github.ref_name }}
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/cache:${{ github.base_ref || github.ref_name }},mode=max
           secret-files: |
             confidence_client_secret=/tmp/confidence_client_secret.txt
             confidence_client_encryption_key=/tmp/confidence_client_encryption_key.txt
