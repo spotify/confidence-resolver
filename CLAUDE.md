@@ -35,7 +35,8 @@ A rewritten provider adds itself to `PROVIDERS` in the root `Makefile` and adds 
 
 The Dockerfile uses multi-stage builds. Every provider has `.<action>` stages named
 `<component>.{build,test,test_e2e,lint,artifact,publish}` (e.g. `openfeature-provider-go.test`),
-and wires the ones CI runs into the `all` stage (the default target).
+and wires the ones CI runs into the `all` stage (the default target; no secrets) or, for
+`test_e2e`, into the `e2e` stage (secrets mounted).
 
 ## Publishing & Security
 

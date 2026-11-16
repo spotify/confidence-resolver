@@ -11,7 +11,12 @@ permissions:
   packages: write
 
 # Each long-lived branch (main, next) has its own layer cache; PRs read their base branch's.
+env:
+  CACHE_REF: ghcr.io/${{ github.repository }}/cache:${{ github.base_ref || github.ref_name }}
+
 jobs:
+  # Build, unit tests and lint (the Dockerfile's `all` stage). Needs no secrets, so it passes
+  # for pull requests from forks too.
   ci:
     name: Build & Test
     runs-on: ubuntu-24.04-arm
@@ -30,32 +35,47 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build and test
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          target: all
+          platforms: linux/arm64
+          push: false
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
+          # Only branch pushes update the cache.
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0},mode=max', env.CACHE_REF) || '' }}
+
+  # E2E tests against the Confidence backend (the Dockerfile's `e2e` stage). They need the
+  # repository's secrets, which pull requests from forks don't get, so they are skipped there; a
+  # maintainer can run them by pushing the PR's commits to a branch in this repository.
+  e2e:
+    name: E2E
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
       - name: Prepare secrets
+        env:
+          CONFIDENCE_CLIENT_SECRET: ${{ secrets.CONFIDENCE_CLIENT_SECRET }}
+          CONFIDENCE_CLIENT_ENCRYPTION_KEY: ${{ secrets.CONFIDENCE_CLIENT_ENCRYPTION_KEY }}
         run: |
-          echo "${{ secrets.CONFIDENCE_CLIENT_SECRET }}" > /tmp/confidence_client_secret.txt
-          echo "${{ secrets.CONFIDENCE_CLIENT_ENCRYPTION_KEY }}" > /tmp/confidence_client_encryption_key.txt
+          printf '%s' "$CONFIDENCE_CLIENT_SECRET" > "$RUNNER_TEMP/confidence_client_secret.txt"
+          printf '%s' "$CONFIDENCE_CLIENT_ENCRYPTION_KEY" > "$RUNNER_TEMP/confidence_client_encryption_key.txt"
 
-      - name: Build and test everything (PR)
-        if: github.event_name != 'push'
+      - name: E2E tests
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          target: e2e
           platforms: linux/arm64
           push: false
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:${{ github.base_ref || github.ref_name }}
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
           secret-files: |
-            confidence_client_secret=/tmp/confidence_client_secret.txt
-            confidence_client_encryption_key=/tmp/confidence_client_encryption_key.txt
-
-      - name: Build and test everything (Push - updates cache)
-        if: github.event_name == 'push'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
-        with:
-          context: .
-          platforms: linux/arm64
-          push: false
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:${{ github.base_ref || github.ref_name }}
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/cache:${{ github.base_ref || github.ref_name }},mode=max
-          secret-files: |
-            confidence_client_secret=/tmp/confidence_client_secret.txt
-            confidence_client_encryption_key=/tmp/confidence_client_encryption_key.txt
+            confidence_client_secret=${{ runner.temp }}/confidence_client_secret.txt
+            confidence_client_encryption_key=${{ runner.temp }}/confidence_client_encryption_key.txt

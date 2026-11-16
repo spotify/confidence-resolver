@@ -57,14 +57,14 @@ Not on `next` yet: `track()` (event tracking), which will return through the fla
 ## Development
 
 ```bash
-docker build .   # build, test and lint every rewritten provider (what CI runs)
+docker build .   # build, unit test and lint every rewritten provider (CI's Build & Test)
 make             # the same with local tools
 ```
 
-E2E tests need Confidence credentials, passed as Docker secrets:
+The e2e tests (CI's E2E) need Confidence credentials, passed as Docker secrets:
 
 ```bash
-docker build \
+docker build --target e2e \
   --secret id=confidence_client_secret,src=<file> \
   --secret id=confidence_client_encryption_key,src=<file> \
   .
