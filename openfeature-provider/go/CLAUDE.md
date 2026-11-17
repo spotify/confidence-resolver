@@ -11,7 +11,8 @@ Confidence CDN and run on wazero (pure Go, no CGo).
 ## Architecture
 
 - **`confidence/`** — public API: `NewProvider(ctx, ProviderConfig)`, the OpenFeature evaluation
-  methods, `Resolve` / `ApplyFlags`, `MaterializationStore`, `ExposureMode`.
+  methods, `Resolve` / `ApplyFlags`, `MaterializationStore`, `ExposureMode` and the
+  per-evaluation `_confidence_skip_apply` context key.
 - **`internal/host`** — runs a module on wazero: validation, a capped shared memory, a pool of
   instances, resolve/evaluate/apply/flush calls, the host imports (`write_logs`, `current_time`,
   materialization reads/writes), and the dedupe filters, linked to the module wasm to wasm.

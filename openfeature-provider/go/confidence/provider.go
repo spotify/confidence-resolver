@@ -216,7 +216,7 @@ func evaluate[T any](p *LocalResolverProvider, ctx context.Context, flag string,
 		return fail(openfeature.NewTypeMismatchResolutionError(err.Error()))
 	}
 	flagName, _, _ := cut(flag)
-	req, err := p.request(evalCtx, []string{flagName}, true)
+	req, err := p.request(evalCtx, []string{flagName}, evalCtx[skipApplyKey] != true)
 	if err != nil {
 		return fail(openfeature.NewInvalidContextResolutionError(err.Error()))
 	}
@@ -281,9 +281,16 @@ func (p *LocalResolverProvider) GetPrometheusMetrics(config SnapshotConfig) stri
 	return text
 }
 
+// skipApplyKey in an evaluation context, set to true, skips exposure for that evaluation (it resolves
+// with apply false). It's an instruction to the provider, so it never reaches the module.
+const skipApplyKey = "_confidence_skip_apply"
+
 func (p *LocalResolverProvider) request(evalCtx openfeature.FlattenedContext, flagNames []string, apply bool) (*resolverpb.ResolveFlagsRequest, error) {
 	fields := make(map[string]*structpb.Value, len(evalCtx))
 	for k, v := range evalCtx {
+		if k == skipApplyKey {
+			continue
+		}
 		if k == openfeature.TargetingKey {
 			k = "targeting_key"
 		}

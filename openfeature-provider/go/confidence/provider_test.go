@@ -198,6 +198,36 @@ func TestExposureModes(t *testing.T) {
 	}
 }
 
+// _confidence_skip_apply set to true skips exposure for that evaluation only; any other value is
+// ignored. The key never reaches the module, so it isn't in the logged context schema either.
+func TestSkipApply(t *testing.T) {
+	p, b := started(t, func(c *ProviderConfig) { c.ExposureMode = ExposureAll })
+	for _, skip := range []any{true, "true", false} {
+		evalCtx := openfeature.FlattenedContext{openfeature.TargetingKey: "user-1", skipApplyKey: skip}
+		if d := p.BooleanEvaluation(context.Background(), "plain.enabled", false, evalCtx); d.Error() != nil {
+			t.Fatalf("skip %v: %v", skip, d.Error())
+		}
+	}
+	p.Shutdown()
+	if n := assigned(b); n != 2 {
+		t.Errorf("%d exposures, want 2 (for the evaluations not skipped)", n)
+	}
+	resolves := 0
+	for _, req := range b.Logs() {
+		for _, info := range req.GetClientResolveInfo() {
+			for _, s := range info.GetSchema() {
+				resolves++
+				if _, ok := s.GetSchema()[skipApplyKey]; ok {
+					t.Errorf("%s reached the module", skipApplyKey)
+				}
+			}
+		}
+	}
+	if resolves == 0 {
+		t.Error("no resolve info logged")
+	}
+}
+
 func TestMetrics(t *testing.T) {
 	p, _ := started(t, nil)
 	p.BooleanEvaluation(context.Background(), "plain.enabled", false, user)

@@ -215,6 +215,28 @@ provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
 Only use `ExposureNone` for exceptional cases: without exposures, experiment results and exposure
 counts for those evaluations are incomplete. Resolve analytics are still sent.
 
+To skip exposure for a single evaluation, set `_confidence_skip_apply` to `true` in the evaluation
+context:
+
+```go
+evalCtx := openfeature.NewEvaluationContext("user-123", map[string]any{
+    "_confidence_skip_apply": true,
+})
+
+value, err := client.BooleanValue(ctx, "my-flag.enabled", false, evalCtx)
+```
+
+The provider removes the key before resolving, so it never reaches targeting or the logs. Other
+values than `true` are ignored.
+
+| Mechanism | Scope | Exposure events | Resolve analytics |
+| --- | --- | --- | --- |
+| `ExposureMode` provider config | Every evaluation through the provider | As the mode says | Still sent |
+| `_confidence_skip_apply` context key | One evaluation | None for that evaluation | Still sent |
+
+The context key is intended for exceptional cases. If you're considering it, reach out to the
+Confidence team to discuss the best approach for your setup.
+
 ## WASM interpreter mode
 
 By default the Go provider runs the flag module through [wazero](https://wazero.io/)'s **JIT compiler** (Wazevo), which compiles WASM to native code for low-latency flag evaluation. On **linux/arm64**, CPU profiling (`SIGPROF`) or goroutine preemption (`SIGURG`) can arrive while a thread is executing that JIT code. Go cannot attribute the signal to a goroutine in that state and may exit the process silently (exit code 139, no stack trace).
