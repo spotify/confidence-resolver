@@ -53,3 +53,27 @@ func TestEncodeDefaultSchema(t *testing.T) {
 		t.Error("slice default accepted")
 	}
 }
+
+// Values under a map have no schema for the module to check, so decode checks every kind itself.
+func TestDecodeChecksKindsUnderMaps(t *testing.T) {
+	type label struct{ Label int }
+	type named struct{ Label string }
+	nested, _ := structpb.NewValue(map[string]any{"nested": map[string]any{"label": "inner"}})
+	for name, tc := range map[string]struct {
+		def any
+		ok  bool
+	}{
+		"struct in map, string into int":    {map[string]label{}, false},
+		"pointer in map, string into int":   {map[string]*label{}, false},
+		"map in map, string into bool":      {map[string]map[string]bool{}, false},
+		"struct in map, matching":           {map[string]named{}, true},
+		"map in map, matching":              {map[string]map[string]string{}, true},
+		"map in map, any":                   {map[string]map[string]any{}, true},
+		"struct in map, struct into string": {map[string]string{}, false},
+	} {
+		_, err := decode(nested, tc.def)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: err=%v", name, err)
+		}
+	}
+}

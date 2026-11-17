@@ -127,6 +127,9 @@ func decodeTo(value *structpb.Value, t reflect.Type, path []string) (reflect.Val
 	if _, null := value.GetKind().(*structpb.Value_NullValue); null || value == nil {
 		return reflect.Zero(t), nil
 	}
+	if err := checkKind(value, t, path); err != nil {
+		return reflect.Value{}, err
+	}
 	switch t.Kind() {
 	case reflect.Pointer:
 		elem, err := decodeTo(value, t.Elem(), path)
@@ -170,9 +173,6 @@ func decodeTo(value *structpb.Value, t reflect.Type, path []string) (reflect.Val
 		}
 		out := reflect.MakeMapWithSize(t, len(s.StructValue.GetFields()))
 		for k, v := range s.StructValue.GetFields() {
-			if err := checkKind(v, t.Elem(), append(path, k)); err != nil {
-				return reflect.Value{}, err
-			}
 			ev, err := decodeTo(v, t.Elem(), append(path, k))
 			if err != nil {
 				return reflect.Value{}, err
@@ -206,7 +206,9 @@ func decodeInt(value *structpb.Value, t reflect.Type, path []string) (reflect.Va
 	return out, nil
 }
 
-// checkKind validates a map element, which evaluate can't type-check (no schema for maps).
+// checkKind checks that v's kind fits t before decodeTo reads it through protobuf getters, which
+// return zero values for other kinds. The module checks values against the default's schema, but
+// maps have none, so values under a map are only checked here.
 func checkKind(v *structpb.Value, t reflect.Type, path []string) error {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
