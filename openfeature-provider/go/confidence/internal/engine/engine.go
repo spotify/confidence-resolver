@@ -346,7 +346,9 @@ func (e *Engine) flush() {
 }
 
 // Close stops polling, retires the current module (flushing its logs) and waits for the log queue
-// to drain, bounded by ctx.
+// to drain, bounded by ctx. Retiring waits for in-flight evaluations, which may be in a slow
+// materialization read; if ctx ends first, Close returns its error and the rest of the cleanup
+// runs once they finish. New evaluations fail with ErrClosed either way.
 func (e *Engine) Close(ctx context.Context) error {
 	if e.closed.Swap(true) {
 		return nil
@@ -356,8 +358,29 @@ func (e *Engine) Close(ctx context.Context) error {
 	}
 	e.loops.Wait()
 	if g := e.current.Swap(nil); g != nil {
-		e.retire(g)
+		e.retiring.Add(1)
+		go func() {
+			defer e.retiring.Done()
+			e.retire(g)
+		}()
 	}
-	e.retiring.Wait()
-	return errors.Join(e.shipper.Close(ctx), e.closeAllFilters(ctx))
+	retired := make(chan struct{})
+	go func() {
+		e.retiring.Wait()
+		close(retired)
+	}()
+	select {
+	case <-retired:
+		// The filters and the shipper outlive every generation: modules link to the filters and
+		// flush their logs into the shipper when retired.
+		return errors.Join(e.shipper.Close(ctx), e.closeAllFilters(ctx))
+	case <-ctx.Done():
+		go func() {
+			<-retired
+			if err := errors.Join(e.shipper.Close(context.Background()), e.closeAllFilters(context.Background())); err != nil {
+				e.cfg.Logger.Warn("closing after in-flight evaluations finished", "error", err)
+			}
+		}()
+		return fmt.Errorf("evaluations still in flight: %w", ctx.Err())
+	}
 }

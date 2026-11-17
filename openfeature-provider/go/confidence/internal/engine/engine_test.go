@@ -227,3 +227,55 @@ func TestStartup(t *testing.T) {
 		}
 	})
 }
+
+// blockingStore's reads wait for release.
+type blockingStore struct {
+	noStore
+	entered, release chan struct{}
+}
+
+func (s blockingStore) Read(ctx context.Context, req []*wasmpb.Materialization_Record) ([]*wasmpb.Materialization_Record, error) {
+	close(s.entered)
+	<-s.release
+	return nil, nil
+}
+
+// Close honors its deadline while an evaluation is in a materialization read, and the evaluation's
+// generation is cleaned up, its logs shipped, once the read returns.
+func TestCloseDeadlineWithReadInFlight(t *testing.T) {
+	b := testutil.NewBackend(t)
+	b.Publish(fixture(t), "tok-1", `"v1"`)
+	e := newEngine(t, b, nil)
+	if err := e.Start(context.Background(), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	store := blockingStore{entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() {
+		ctx, _ := structpb.NewStruct(map[string]any{"targeting_key": "u"})
+		_, err := e.Evaluate(context.Background(), &resolverpb.ResolveFlagsRequest{
+			Flags: []string{"flags/sticky"}, EvaluationContext: ctx, ClientSecret: secret, Apply: true,
+		}, []*wasmpb.EvaluateRequest{{FlagKey: "sticky.value", DefaultValue: structpb.NewNumberValue(-1)}}, store)
+		done <- err
+	}()
+	<-store.entered
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := e.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Close = %v, want DeadlineExceeded", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("Close took %v with a 20ms deadline", d)
+	}
+	if err := evaluate(e, "u"); !errors.Is(err, ErrClosed) {
+		t.Errorf("after Close: %v", err)
+	}
+
+	close(store.release)
+	if err := <-done; err != nil {
+		t.Errorf("in-flight evaluation: %v", err)
+	}
+	eventually(t, "the retired generation's logs", func() bool { return tokens(b)["tok-1"] > 0 })
+}
