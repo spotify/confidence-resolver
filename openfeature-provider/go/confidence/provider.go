@@ -238,7 +238,8 @@ func evaluate[T any](p *LocalResolverProvider, ctx context.Context, flag string,
 }
 
 // Resolve resolves flags (names without the "flags/" prefix) and returns the full response. With
-// apply false, exposure is deferred: pass the response's resolve token to ApplyFlags later.
+// apply false, exposure is deferred: pass the response's resolve token to ApplyFlags later. The
+// token is neither encrypted nor authenticated; see the README before it leaves your backend.
 func (p *LocalResolverProvider) Resolve(ctx context.Context, evalCtx openfeature.FlattenedContext, flagNames []string, apply bool) (*resolverpb.ResolveFlagsResponse, error) {
 	req, err := p.request(evalCtx, flagNames, apply)
 	if err != nil {
@@ -248,7 +249,8 @@ func (p *LocalResolverProvider) Resolve(ctx context.Context, evalCtx openfeature
 }
 
 // ApplyFlags records exposure for flags resolved with apply=false. The request carries the resolve
-// token from that response. The client secret is filled in if empty.
+// token from that response. The client secret is filled in if empty. The token is trusted as is:
+// pass only tokens your backend issued, or authenticated on their way back.
 func (p *LocalResolverProvider) ApplyFlags(request *resolverpb.ApplyFlagsRequest) error {
 	if request.GetClientSecret() == "" {
 		request = proto.CloneOf(request)

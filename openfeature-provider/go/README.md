@@ -503,7 +503,17 @@ for _, f := range resp.ResolvedFlags {
 
 When `apply` is `false`, the response contains a `ResolveToken`. Pass it to `ApplyFlags` later to record exposure events — useful when you resolve flags on the server but only want to log exposure once the client actually renders the experience.
 
-> **⚠️ The `ResolveToken` is not encrypted.** It contains the full evaluation context and the resolved variant for each flag. If that data is sensitive, encrypt the token before it leaves your backend and decrypt it before passing it to `ApplyFlags`. See the [Integration Guide: Deferred Apply and Resolve Token Security](../INTEGRATION_GUIDE.md#deferred-apply-and-resolve-token-security).
+> **⚠️ The `ResolveToken` is neither encrypted nor authenticated.** It's a plain serialization of
+> the exposure events it stands for: the resolve ID, and for each flag the targeting key and the
+> variant, rule and segment it resolved to. Other evaluation context attributes aren't in it.
+> Anyone who can read the token sees that, and anyone who can change it before it reaches
+> `ApplyFlags` can make the provider log exposures that never happened. The encryption key doesn't
+> protect it: that key only decrypts the flag module.
+>
+> If the token leaves your backend, wrap it in authenticated encryption that only your backend can
+> undo (such as AES-GCM with a key of your own) and unwrap it before `ApplyFlags`, or keep the token
+> on the server and hand out a reference to it. See the
+> [Integration Guide: Deferred Apply and Resolve Token Security](../INTEGRATION_GUIDE.md#deferred-apply-and-resolve-token-security).
 
 ```go
 // 1. Resolve without applying
