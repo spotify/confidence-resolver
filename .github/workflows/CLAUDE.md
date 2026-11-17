@@ -2,10 +2,13 @@
 
 ## CI (`ci.yml`)
 
-CI is a **single `docker build .`** — the multi-stage Dockerfile is the entire test/lint/build pipeline. There are no separate per-component jobs. If the Dockerfile's `all` stage succeeds, CI passes.
+CI builds two Dockerfile stages; the multi-stage Dockerfile is the entire pipeline, with no per-component jobs.
+
+- **`Build & Test`** builds `all`: build, unit tests and lint. It needs no secrets, so it passes for PRs from forks. This is the check to require.
+- **`E2E`** builds `e2e`: the end-to-end tests, with the Confidence secrets mounted. It runs on pushes, manual runs and PRs from branches in this repository; for PRs from forks (which get no secrets) it is skipped. Never give fork code the secrets (e.g. via `pull_request_target`); a maintainer runs the e2e tests for a fork PR by pushing its commits to a branch here.
 
 - **ARM runners**: `ubuntu-24.04-arm` (not the default x86)
-- **Registry-based cache**: Docker layer cache is stored in GHCR, one per long-lived branch (`ghcr.io/<repo>/cache:main`, `cache:next`). Cache is only **pushed** on branch pushes. PR builds read their base branch's cache but don't update it.
+- **Registry-based cache**: Docker layer cache is stored in GHCR, one per long-lived branch (`ghcr.io/<repo>/cache:main`, `cache:next`). Only `Build & Test` on branch pushes writes the cache; PR builds and `E2E` read it.
 
 ## Release & Publish (`release-please.yml`)
 
