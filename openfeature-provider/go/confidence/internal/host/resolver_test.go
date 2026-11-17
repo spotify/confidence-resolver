@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/tetratelabs/wazero"
 	"google.golang.org/protobuf/proto"
@@ -296,4 +297,97 @@ func TestResolveReturnsResponseAndMetrics(t *testing.T) {
 	if !strings.Contains(text, "latency") {
 		t.Errorf("no latency series after a resolve: %s", text)
 	}
+}
+
+// allocatedBytes is the module's live allocation, from its allocated_bytes export.
+func allocatedBytes(t *testing.T, r *Resolver) uint32 {
+	t.Helper()
+	var n uint64
+	err := r.with(context.Background(), func(ctx context.Context, inst *instance) (err error) {
+		n, err = inst.call(ctx, inst.mod.ExportedFunction("allocated_bytes"))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return uint32(n)
+}
+
+// blockingStore's reads wait for release.
+type blockingStore struct {
+	fakeStore
+	entered, release chan struct{}
+}
+
+func (s *blockingStore) Read(ctx context.Context, req []*wasmpb.Materialization_Record) ([]*wasmpb.Materialization_Record, error) {
+	close(s.entered)
+	<-s.release
+	return s.fakeStore.Read(ctx, req)
+}
+
+// A resolve whose context ends after its materialization read, while every instance is busy,
+// can't resume; it must still discard its suspended process.
+func TestSuspendedProcessDiscardedWhenCanceledWhilePoolBusy(t *testing.T) {
+	bothEngines(t, func(t *testing.T, interp bool) {
+		r := newResolver(t, interp, Config{Instances: 1})
+		eval := &wasmpb.EvaluateRequest{FlagKey: "sticky.value", DefaultValue: structpb.NewNumberValue(-1)}
+		evaluate(t, r, request("u1", "flags/sticky"), &fakeStore{}, eval)
+		before := allocatedBytes(t, r)
+		for range 5 {
+			ctx, cancel := context.WithCancel(context.Background())
+			store := &blockingStore{entered: make(chan struct{}), release: make(chan struct{})}
+			done := make(chan error, 1)
+			go func() {
+				_, err := r.Evaluate(ctx, request("u1", "flags/sticky"), []*wasmpb.EvaluateRequest{eval}, store)
+				done <- err
+			}()
+			<-store.entered
+			held, unhold := make(chan struct{}), make(chan struct{})
+			go r.with(context.Background(), func(context.Context, *instance) error {
+				close(held)
+				<-unhold
+				return nil
+			})
+			<-held
+			cancel()
+			close(store.release)
+			select { // the resolve now waits for an instance to discard its process
+			case err := <-done:
+				t.Fatalf("returned while the pool was busy: %v", err)
+			case <-time.After(50 * time.Millisecond):
+			}
+			close(unhold)
+			if err := <-done; !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v, want context.Canceled", err)
+			}
+		}
+		if after := allocatedBytes(t, r); after != before {
+			t.Errorf("allocated bytes %d → %d: suspended processes leaked", before, after)
+		}
+	})
+}
+
+// A resume payload the module can't allocate is an error, not a resolve without materialization
+// support, and the suspended process is discarded.
+func TestResumeAllocationFailure(t *testing.T) {
+	bothEngines(t, func(t *testing.T, interp bool) {
+		r := newResolver(t, interp, Config{MaxMemoryBytes: 2 << 20})
+		eval := &wasmpb.EvaluateRequest{FlagKey: "sticky.value", DefaultValue: structpb.NewNumberValue(-1)}
+		evaluate(t, r, request("u1", "flags/sticky"), &fakeStore{}, eval)
+		before := allocatedBytes(t, r)
+		huge := proto.CloneOf(stickyRecord)
+		huge.Variant = strings.Repeat("x", 4<<20)
+		_, err := r.Evaluate(context.Background(), request("u1", "flags/sticky"), []*wasmpb.EvaluateRequest{eval},
+			&fakeStore{records: []*wasmpb.Materialization_Record{huge}})
+		if !errors.Is(err, ErrAlloc) {
+			t.Fatalf("err = %v, want ErrAlloc", err)
+		}
+		if after := allocatedBytes(t, r); after != before {
+			t.Errorf("allocated bytes %d → %d: suspended process leaked", before, after)
+		}
+		d := evaluate(t, r, request("u1", "flags/sticky"), &fakeStore{records: []*wasmpb.Materialization_Record{stickyRecord}}, eval)[0]
+		if d.GetVariant() != "flags/sticky/variants/sticky" {
+			t.Errorf("after the failure: %q (%v)", d.GetVariant(), d.GetErrorCode())
+		}
+	})
 }

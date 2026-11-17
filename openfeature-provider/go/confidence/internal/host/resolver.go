@@ -252,7 +252,11 @@ func (r *Resolver) process(ctx context.Context, req *resolverpb.ResolveFlagsRequ
 	}
 	var out outcome
 	err = r.with(ctx, func(ctx context.Context, inst *instance) error {
-		env, err := inst.call1(ctx, inst.start, inst.write(ctx, reqBytes))
+		arg, err := inst.write(ctx, reqBytes)
+		if err != nil {
+			return err
+		}
+		env, err := inst.call1(ctx, inst.start, arg)
 		if err != nil {
 			return err
 		}
@@ -263,28 +267,61 @@ func (r *Resolver) process(ctx context.Context, req *resolverpb.ResolveFlagsRequ
 		return out, r.write(ctx, store, out.writes, err)
 	}
 
-	suspended := out.suspended
-	records, readErr := store.Read(ctx, suspended.reads)
+	// From here this call owns the suspended process: every path that doesn't resume it discards
+	// it, or its context stays allocated in the module's memory.
+	id := out.suspended.processID
+	records, err := store.Read(ctx, out.suspended.reads)
+	var mat []byte
+	if err != nil {
+		err = fmt.Errorf("materialization read: %w", err)
+	} else {
+		mat, err = proto.Marshal(&wasmpb.Materialization{Records: records})
+	}
+	if err != nil {
+		return outcome{}, errors.Join(err, r.discard(ctx, id))
+	}
+	resumed := false
 	err = r.with(ctx, func(ctx context.Context, inst *instance) error {
-		if readErr != nil {
-			_, err := inst.call(ctx, inst.discard, uint64(suspended.processID))
-			return errors.Join(fmt.Errorf("materialization read: %w", readErr), err)
-		}
-		mat, err := proto.Marshal(&wasmpb.Materialization{Records: records})
+		arg, err := inst.write(ctx, mat)
 		if err != nil {
-			return err
+			return errors.Join(err, inst.discardProcess(ctx, id))
 		}
-		env, err := inst.call1(ctx, inst.resume, uint64(suspended.processID), inst.write(ctx, mat))
+		resumed = true
+		env, err := inst.call1(ctx, inst.resume, uint64(id), arg)
 		if err != nil {
 			return err
 		}
 		out, err = r.finish(ctx, inst, env, evals, wantResponse, started)
 		if err == nil && out.suspended != nil {
-			err = errors.New("resolve suspended after resume")
+			err = errors.Join(errors.New("resolve suspended after resume"), inst.discardProcess(ctx, out.suspended.processID))
 		}
 		return err
 	})
-	return out, r.write(ctx, store, out.writes, err)
+	if err != nil && !resumed {
+		// No instance (ctx ended while the pool was busy): the process is still ours to discard.
+		err = errors.Join(err, r.discard(ctx, id))
+	}
+	if err != nil {
+		return outcome{}, err
+	}
+	return out, r.write(ctx, store, out.writes, nil)
+}
+
+// discard discards a suspended process on any instance. It waits for one even if ctx has ended,
+// which is bounded: instances are held only for module calls. A closed resolver has freed it.
+func (r *Resolver) discard(ctx context.Context, id uint32) error {
+	err := r.with(context.WithoutCancel(ctx), func(ctx context.Context, inst *instance) error {
+		return inst.discardProcess(ctx, id)
+	})
+	if errors.Is(err, ErrClosed) {
+		return nil
+	}
+	return err
+}
+
+func (i *instance) discardProcess(ctx context.Context, id uint32) error {
+	_, err := i.call(ctx, i.discard, uint64(id))
+	return err
 }
 
 func (r *Resolver) write(ctx context.Context, store MaterializationStore, writes []*wasmpb.Materialization_Record, err error) error {
@@ -329,7 +366,11 @@ func (r *Resolver) finish(ctx context.Context, inst *instance, env uint64, evals
 		if err != nil {
 			return outcome{}, err
 		}
-		out, err := inst.call1(ctx, inst.eval, env, inst.write(ctx, req))
+		arg, err := inst.write(ctx, req)
+		if err != nil {
+			return outcome{}, err
+		}
+		out, err := inst.call1(ctx, inst.eval, env, arg)
 		if err != nil {
 			return outcome{}, err
 		}
@@ -388,7 +429,11 @@ const applyUnknownClient = 4
 // ApplyFlags forwards a serialized ApplyFlagsRequest.
 func (r *Resolver) ApplyFlags(ctx context.Context, req []byte) error {
 	return r.with(ctx, func(ctx context.Context, inst *instance) error {
-		res, err := inst.call(ctx, inst.apply, inst.write(ctx, req))
+		arg, err := inst.write(ctx, req)
+		if err != nil {
+			return err
+		}
+		res, err := inst.call(ctx, inst.apply, arg)
 		if err != nil {
 			return err
 		}
@@ -485,18 +530,25 @@ func (r *Resolver) writeLogs(ctx context.Context, m api.Module, payload uint64) 
 	r.cfg.WriteLogs(buf)
 }
 
+// ErrAlloc is a module allocation that failed: its memory is exhausted.
+var ErrAlloc = errors.New("module allocation failed")
+
 // write copies b into a fresh module allocation and returns it as a slice argument. A failed
-// allocation yields a null slice, which the module rejects.
-func (i *instance) write(ctx context.Context, b []byte) uint64 {
+// allocation is an error: a null slice means something else to some exports (to resume, no
+// materialization support).
+func (i *instance) write(ctx context.Context, b []byte) (uint64, error) {
 	res, err := i.call(ctx, i.alloc, uint64(len(b)))
-	if err != nil || (uint32(res) == 0 && len(b) > 0) {
-		return 0
+	if err != nil {
+		return 0, err
+	}
+	if uint32(res) == 0 && len(b) > 0 {
+		return 0, fmt.Errorf("%w (%d bytes)", ErrAlloc, len(b))
 	}
 	ptr := uint32(res)
 	raceAcquire(i.race)
 	i.mod.Memory().Write(ptr, b)
 	raceRelease(i.race)
-	return uint64(ptr) | uint64(len(b))<<32
+	return uint64(ptr) | uint64(len(b))<<32, nil
 }
 
 // call calls f with args through the instance's reusable stack, avoiding the results slice that
