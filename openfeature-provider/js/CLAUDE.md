@@ -8,19 +8,27 @@ TypeScript OpenFeature provider using the Confidence resolver compiled to WASM. 
 
 ## Entry Points & Exports
 
-The package has 5 build targets configured in `tsdown.config.ts`:
+The package has 6 build targets configured in `tsdown.config.ts` (plus 3 `pages-router/*` targets):
 
 | Export Path        | Entry File             | Platform | WASM Loading                    |
 | ------------------ | ---------------------- | -------- | ------------------------------- |
 | `"."` (default)    | `src/index.inlined.ts` | neutral  | WASM inlined as data URL        |
 | `"./node"`         | `src/index.node.ts`    | node     | `fs.readFile`                   |
 | `"./fetch"`        | `src/index.fetch.ts`   | neutral  | `fetch()` (Deno, Bun, browsers) |
+| `"./remote"`       | `src/index.remote.ts`  | neutral  | **none** — remote resolver      |
 | `"./react-server"` | `src/react/server.tsx` | neutral  | React Server Component          |
 | `"./react-client"` | `src/react/client.tsx` | neutral  | React Client Component          |
 
-Each entry point exports a `createConfidenceServerProvider` factory function.
+Every entry point except `./remote` exports a `createConfidenceServerProvider` factory function.
 
 The `./node` entry point extends options with `wasmPath?: string` and `./fetch` with `wasmUrl?: URL | string`.
+
+`./remote` is the odd one out: it ships neither WASM nor OpenFeature (~9 kB
+gzipped) and exports the standalone `ConfidenceClient` + pure `evaluate` instead
+of a provider. It talks to a remote resolver (a Confidence resolver Cloudflare
+Worker via service binding, or `resolver.confidence.dev`) over any
+fetch-compatible function. See `plans/thin-js-client.md`. Keep the export boundary
+clean — it ships no WASM and no OpenFeature, and that is the whole point.
 
 ## ProviderOptions
 
