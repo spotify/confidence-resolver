@@ -3,6 +3,10 @@
 Ports go commit `31cd404a` (host runtime) with the fixes from `c85edc44` (discard abandoned
 suspended processes; report failed allocations). One commit of the rewrite PR.
 
+**Status: ✅ landed — 23 tests green** (EnvelopeTest 5, ModuleTest 3, ResolverTest 10,
+HostBenchmarkTest 1, TestdataTest 4), verified in the harness (the real pom, module and
+fixtures, minus the old stack that still blocks compilation).
+
 ## Goal
 
 `com.spotify.confidence.sdk.internal.host` runs one module generation on Endive 1.2.0 (spike-verified;
@@ -73,5 +77,32 @@ resolve/evaluate/apply/flush/metrics/close. Port `internal/host` file by file:
 ## Done when
 
 All the above run against `basic.wasm` with Endive 1.2.0 (both engines), and `make test`
-in `openfeature-provider/java` passes (this PR may still be the only thing that builds — gate it
-behind whatever compiles cleanly; the full provider still isn't wired).
+in `openfeature-provider/java` passes (verified in the harness until the old stack's removal
+makes the module itself compile).
+
+## Deltas from the Go reference (as landed)
+
+- `MemoryLimits` comes from `run.endive.wasm.types`; the shared memory is a host-built
+  `ByteArrayMemory` — no shared-memory wasm module needed, as wazero forced on Go. A cap below
+  the module's declared minimum fails at build; an over-tight cap that the module can't even
+  initialize within makes it trap while instantiating, mapped to `InvalidModuleException` at the
+  first instance (fail fast, never mid-resolve).
+- Endive's shared memory grows on demand, so a 4 MiB resume record fits a 64 MiB cap — unlike
+  wazero, where the Go test's huge record fails at the default cap. The abandoned-process test
+  pins the same behavior with a 1 MiB cap: the allocation failure surfaces as
+  `AllocationException` and discards the process (exactly one discard, no leak).
+- The envelope is the generated protobuf parse of `ResolveProcessResponse` — one parse instead
+  of Go's hand-rolled partial decode; the raw envelope slice is kept for `evaluate`, which reads
+  the resolve result in place.
+- `MaterializationStore` is a top-level interface (as in Go); `Resolver` implements
+  `AutoCloseable` (idempotent close, final flush on the first instance).
+- Filter constants (`neverSeen`/`alwaysSeen`) are plain host functions; `DedupeFilter`
+  instantiates the embedded filter module per main instance and links it
+  (`ImportFunction.exportAsImport`); constant links have no instance, and the resolver closes
+  filter instances with their main instance.
+- Instances are not thread-safe in Endive; the pool (an `ArrayBlockingQueue` + creation lock,
+  mirroring Go's channel + mutex) serializes per instance.
+- `HostBenchmarkTest` reports ~99 µs per plain evaluate and ~109 µs per sticky-suspend evaluate
+  (single-threaded, four instances, macOS/arm64, runtime-compiler engine) — a full
+  resolve-process per evaluation; the spike's tight repeated-evaluate loop measured ~22 µs,
+  the number to compare with wazero's JIT.
