@@ -1,50 +1,26 @@
 # openfeature-provider/java Makefile
-# Java OpenFeature local provider
+# Targets follow the provider Makefile contract (see the root CLAUDE.md).
 
-ROOT := $(realpath $(CURDIR)/../..)
+.PHONY: build test test-e2e clean proto
 
-# Stamps and inputs
-BUILD_STAMP := .build.stamp
-SRC := $(shell find src -name '*.java' 2>/dev/null)
-RESOURCES_WASM := src/main/resources/wasm/confidence_resolver.wasm
-RESOURCES_EVENT_WASM := src/main/resources/wasm/confidence_event_engine.wasm
-LOCAL_WASM := $(ROOT)/wasm/confidence_resolver.wasm
-LOCAL_EVENT_WASM := $(ROOT)/wasm/confidence_event_engine.wasm
-
-.PHONY: build test test-e2e clean
-
-# Always build wasm if not in docker
-ifneq ($(IN_DOCKER_BUILD),1)
-.PHONY: build-wasm
-build-wasm:
-	@$(MAKE) -C $(ROOT) wasm/confidence_resolver.wasm
-$(BUILD_STAMP): | build-wasm
-endif
-
-$(RESOURCES_WASM): $(LOCAL_WASM)
-	@mkdir -p $(dir $@)
-	@cp -p $(LOCAL_WASM) $@
-
-$(RESOURCES_EVENT_WASM): $(LOCAL_EVENT_WASM)
-	@mkdir -p $(dir $@)
-	@cp -p $(LOCAL_EVENT_WASM) $@
-
-$(BUILD_STAMP): pom.xml $(RESOURCES_WASM) $(RESOURCES_EVENT_WASM) $(SRC)
+build:
 	mvn -q package -DskipTests
-	@touch $@
 
-build: $(BUILD_STAMP)
-
-test: $(BUILD_STAMP)
+# Unit tests (no credentials needed).
+test:
 	mvn -q test -Dtest='!**/*E2ETest'
 
-test-e2e: $(BUILD_STAMP)
+# End-to-end tests against the module CDN and ingestion.
+test-e2e:
+	@test -n "$$CONFIDENCE_CLIENT_SECRET" -a -n "$$CONFIDENCE_CLIENT_ENCRYPTION_KEY" || \
+		(echo "CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set" && exit 1)
 	mvn -q verify -Dsurefire.skip=true
-	
+
 clean:
 	mvn -q clean
-	rm -f $(BUILD_STAMP)
-	rm -f $(RESOURCES_WASM)
-	rm -f $(RESOURCES_EVENT_WASM)
 
+# Regenerate the state-to-wasm protobuf classes from ../proto.
+proto:
+	mvn -q protobuf:compile
 
+.DEFAULT_GOAL := build
