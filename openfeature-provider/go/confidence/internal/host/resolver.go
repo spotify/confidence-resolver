@@ -69,6 +69,7 @@ type instance struct {
 	stack                                                   [2]uint64
 	race                                                    *byte        // see race.go
 	latency                                                 api.Function // observe_client_resolve_latency, if exported
+	discards                                                int          // resolve_process_discard calls, for tests
 }
 
 // callCtx is passed to every call into an instance. Callers' contexts are deliberately not used:
@@ -284,7 +285,7 @@ func (r *Resolver) process(ctx context.Context, req *resolverpb.ResolveFlagsRequ
 	err = r.with(ctx, func(ctx context.Context, inst *instance) error {
 		arg, err := inst.write(ctx, mat)
 		if err != nil {
-			return errors.Join(err, inst.discardProcess(ctx, id))
+			return err // not resumed: discarded below, once
 		}
 		resumed = true
 		env, err := inst.call1(ctx, inst.resume, uint64(id), arg)
@@ -320,6 +321,7 @@ func (r *Resolver) discard(ctx context.Context, id uint32) error {
 }
 
 func (i *instance) discardProcess(ctx context.Context, id uint32) error {
+	i.discards++
 	_, err := i.call(ctx, i.discard, uint64(id))
 	return err
 }

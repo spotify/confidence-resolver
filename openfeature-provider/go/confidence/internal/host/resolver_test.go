@@ -374,7 +374,7 @@ func TestResumeAllocationFailure(t *testing.T) {
 		r := newResolver(t, interp, Config{MaxMemoryBytes: 2 << 20})
 		eval := &wasmpb.EvaluateRequest{FlagKey: "sticky.value", DefaultValue: structpb.NewNumberValue(-1)}
 		evaluate(t, r, request("u1", "flags/sticky"), &fakeStore{}, eval)
-		before := allocatedBytes(t, r)
+		before, discards := allocatedBytes(t, r), discardCalls(r)
 		huge := proto.CloneOf(stickyRecord)
 		huge.Variant = strings.Repeat("x", 4<<20)
 		_, err := r.Evaluate(context.Background(), request("u1", "flags/sticky"), []*wasmpb.EvaluateRequest{eval},
@@ -385,9 +385,24 @@ func TestResumeAllocationFailure(t *testing.T) {
 		if after := allocatedBytes(t, r); after != before {
 			t.Errorf("allocated bytes %d → %d: suspended process leaked", before, after)
 		}
+		if n := discardCalls(r) - discards; n != 1 {
+			t.Errorf("%d discards of the suspended process, want 1", n)
+		}
 		d := evaluate(t, r, request("u1", "flags/sticky"), &fakeStore{records: []*wasmpb.Materialization_Record{stickyRecord}}, eval)[0]
 		if d.GetVariant() != "flags/sticky/variants/sticky" {
 			t.Errorf("after the failure: %q (%v)", d.GetVariant(), d.GetErrorCode())
 		}
 	})
+}
+
+// discardCalls counts resolve_process_discard calls on all of r's instances. Call it while no
+// evaluation is in flight.
+func discardCalls(r *Resolver) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, inst := range r.all {
+		n += inst.discards
+	}
+	return n
 }
