@@ -1,7 +1,7 @@
 # 08 — Build, CI, release and docs: landing the provider
 
 Ports go commits `42610a23` (Docker stages, Makefile contract, release candidates) and `b8df8180`
-(README/CLAUDE.md for the flag-module provider). One PR; the last one.
+(README/CLAUDE.md for the flag-module provider). One commit of the rewrite PR; the last one.
 
 ## Makefile contract (root `CLAUDE.md`, commit `09392989`)
 

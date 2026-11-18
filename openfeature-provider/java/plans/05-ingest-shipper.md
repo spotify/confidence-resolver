@@ -1,6 +1,6 @@
 # 05 — Flag-log shipper
 
-Ports go commit `7b2a45ec`. One PR. Reference: `internal/ingest/shipper.go` on `origin/go-provider`.
+Ports go commit `7b2a45ec`. One commit of the rewrite PR. Reference: `internal/ingest/shipper.go` on `next` (merged as #700).
 
 ## Goal
 

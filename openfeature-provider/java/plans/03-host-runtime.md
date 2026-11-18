@@ -1,7 +1,7 @@
 # 03 — Host runtime for state-to-wasm modules
 
 Ports go commit `31cd404a` (host runtime) with the fixes from `c85edc44` (discard abandoned
-suspended processes; report failed allocations). One PR.
+suspended processes; report failed allocations). One commit of the rewrite PR.
 
 ## Goal
 

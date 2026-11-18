@@ -1,66 +1,66 @@
 # 02 — Protos and shared fixtures
 
-Ports go commit `93c7365e` (generate the state-to-wasm protos and add test modules). One PR.
+Ports go commit `93c7365e` (generate the state-to-wasm protos and add test modules). One commit of
+the rewrite PR.
 
 ## Goal
 
 Generate the Java protobuf classes for the module API from the shared copies in
-`openfeature-provider/proto`, and wire the shared test fixtures so tests can run modules without a
-compiler. The provider still doesn't build as a whole after this PR — only the generated code and
-fixtures land.
+`openfeature-provider/proto`, embed the dedupe filter module, and pin the shared fixtures. The
+module as a whole doesn't compile yet — the old stack stays until the provider commit (phase 7)
+removes it, as Go's merge did; per-commit buildability isn't required.
 
 ## Changes
 
 ### pom.xml — proto generation
 
-`protoSourceRoot` stays `${project.basedir}/../proto`. Replace the include set (the old rust-guest
-groups no longer exist on `next`):
+`protoSourceRoot` stays `${project.basedir}/../proto`. The include set is now only the
+state-to-wasm groups (the old rust-guest groups no longer exist on `next`):
 
 ```xml
-<!-- remove -->
-confidence/events/v1/**/*.proto
-confidence/events/wasm/v1/**/*.proto
-confidence/wasm/*.proto
-
-<!-- keep / add -->
 confidence/flags/resolver/v1/**/*.proto
 confidence/flags/types/v1/**/*.proto
 confidence/flags/admin/v1/**/*.proto
 confidence/flags/wasm/v1/**/*.proto
 ```
 
-- Drop the `compile-custom` (gRPC) goal and the grpc-java output dir — nothing generates gRPC
-  anymore; only `protobuf:compile` remains. Keep protoc at a version that builds the
-  `google.api.field_behavior` / `google.type.decimal` imports (both live in `../proto`).
-- The protos declare `java_package` per file (`com.spotify.confidence.flags.*.v1`) — keep the
-  declared packages; shading relocates them for consumers, as today.
-- Keep `build-helper` adding `generated-sources/protobuf/java` (drop the `grpc-java` source dir
-  and, later in phase 8, the endive-compiler one, if build-time compilation remains useful).
-- Add a `make proto` entry (phase 8 defines the Makefile contract fully) that re-runs the
-  generation, mirroring `openfeature-provider/go/scripts/generate_s2w_proto.sh`.
+- `protobuf-java`/`protoc` at **4.33.2**, paired with
+  `com.google.api.grpc:proto-google-common-protos:2.65.0` — the pairing state-to-wasm builds with
+  (2.65.0 needs a runtime with `com.google.protobuf.GeneratedFile`; 3.25.5 doesn't have it).
+  Spike-verified end to end.
+- The gRPC generation is gone: only `protobuf:compile`, no `compile-custom`, no grpc-java output
+  dir. The protos keep their declared `java_package`s (`com.spotify.confidence.flags.*.v1`);
+  shading relocates them for consumers.
+- Also removed with the old stack's needs: `io.grpc:*`, guava, `javax.annotation-api`, the Chicory
+  AOT compiler plugin and its wasm resource, the Chicory runtime/wasm deps (Endive arrives in phase
+  3), and the grpc/guava entries from the shade config (protobuf, gson, common-protos stay).
+- `mvn protobuf:compile` regenerates; the Makefile exposes it as `make proto`.
 
-### Fixtures
+### Fixtures and resources
 
 - Tests read `openfeature-provider/testdata` by relative path (Docker keeps the repository layout
-  under `/src/openfeature-provider/...`, as the Go stages do) — do **not** copy fixtures into
-  `src/test/resources`. The old `resolver_state_current.pb` fixture is deleted with the old
-  resolver stack.
-- The dedupe filter module (`dedupe-filter-threaded.wasm`, ~1.9 KB, state-to-wasm build — the Go
-  host embeds it at `internal/host/assets/`) is embedded as a **resource** at
-  `src/main/resources/wasm/dedupe-filter-threaded.wasm`. Copy it from the same state-to-wasm
-  revision recorded in `openfeature-provider/testdata/README.md` and say so in a short comment in
-  the host's `filter` class when phase 3 lands.
+  under `/src/openfeature-provider/...`, as the Go stages do) — fixtures are not copied into
+  `src/test/resources`.
+- The dedupe filter module is embedded at
+  `src/main/resources/wasm/dedupe-filter-threaded.wasm`, copied from the Go host's asset (same
+  state-to-wasm build as `testdata/`, compiler revision recorded in the testdata README). The
+  host loads it in phase 3.
 
-## Tests landing in this PR
+## Tests landing in this commit
 
-- A small test that parses `ClientModule` (the artifact proto: `module` bytes + `log_token`) and
-  `ResolverState` from `../testdata/states/basic.json` via `JsonFormat`, asserting the
-  `flags/plain` and `flags/sticky` shapes it documents.
-- A test that every generated package resolves (compiles).
+`TestdataTest` (runs green once the module compiles — verified in a standalone harness while the
+old stack still blocks compilation):
+
+- the module fixture exists by relative path, is well-sized and carries the wasm magic;
+- the state fixture carries the documented flags (`flags/plain`, `flags/sticky`,
+  `materializedSegments/sticky`) — the state's message is state-to-wasm's own, not part of the
+  provider protos, so the check reads the documented shapes rather than parsing a proto;
+- `ClientModule` (the CDN artifact: module bytes + log token) round-trips;
+- one type per generated package pins the pom's include set.
 
 ## Done when
 
-- `mvn generate-sources` emits only state-to-wasm classes; `make proto` regenerates them.
-- No reference to `confidence/events`, `confidence/wasm` or gRPC generation remains in the pom.
-- The fixture test runs green against `../testdata` from a plain `mvn test` in
-  `openfeature-provider/java`.
+- `mvn protobuf:compile` emits only the four state-to-wasm packages (`admin`, `resolver`, `types`,
+  `wasm`).
+- No gRPC generation, Chicory plugin, or grpc/guava dependency remains in the pom.
+- `TestdataTest` is green (harness-verified now; in-module once phase 7 removes the old stack).

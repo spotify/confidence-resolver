@@ -1,7 +1,7 @@
 # 06 — Engine: module generations and swap
 
-Ports go commit `fe0ddf42` (engine) with the close fix `e821478f`. One PR. Reference:
-`internal/engine/engine.go` on `origin/go-provider`.
+Ports go commit `fe0ddf42` (engine) with the close fix `e821478f`. One commit of the rewrite PR. Reference:
+`internal/engine/engine.go` on `next` (merged as #700).
 
 ## Goal
 

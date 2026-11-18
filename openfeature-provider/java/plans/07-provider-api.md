@@ -2,7 +2,7 @@
 
 Ports go commit `fb866c6d` (resolve with the credential's flag module), with `0ce35258`
 (`_confidence_skip_apply`), `870eb772` (type-check every decoded value) and `c7f91211` (token
-docs). One PR — the biggest one; reference `confidence/{provider,value}.go` on `origin/go-provider`.
+docs). One commit of the rewrite PR — the biggest one; reference `confidence/{provider,value}.go` on `next` (merged as #700).
 
 ## Goal
 

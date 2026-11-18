@@ -1,6 +1,6 @@
 # 04 — Module CDN fetcher
 
-Ports go commit `a1b35aa8`. One PR. Reference: `internal/cdn/fetcher.go` on `origin/go-provider`.
+Ports go commit `a1b35aa8`. One commit of the rewrite PR. Reference: `internal/cdn/fetcher.go` on `next` (merged as #700).
 
 ## Goal
 

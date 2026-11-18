@@ -2,7 +2,7 @@
 
 ## Goal
 
-Port the Go reference implementation (`origin/go-provider`) to Java: the provider fetches its
+Port the Go reference implementation (`next`, merged as #700) to Java: the provider fetches its
 credential's **compiled flag module** (a WebAssembly module holding only that client's flags and
 segments, built by state-to-wasm) from the module CDN, runs it locally in a JVM wasm runtime, and
 swaps in new modules as flags change. The resolver logic and state format live in the module, not
