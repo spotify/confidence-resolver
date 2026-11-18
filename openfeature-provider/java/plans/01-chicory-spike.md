@@ -1,69 +1,91 @@
-# 01 — Chicory spike: can the JVM run threaded flag modules?
+# 01 — Runtime spike: Endive runs threaded flag modules (passed)
 
-**Timeboxed gate. No PR; a decision recorded at the bottom of this file.** Everything after this
-phase assumes its outcome.
+**Risk gate for everything after this phase.** Originally framed as "can Chicory run threaded
+modules"; the answer required its successor: **Endive**, the Bytecode Alliance's JVM-native
+WebAssembly runtime (`run.endive:*`), a fork of Chicory by the same authors. Chicory on Maven
+Central stops at 1.4.0 (May 2025); Endive 1.2.0 is the current line, with **threads/atomics,
+multi-memory, GC, exception handling and tail calls completed** in both the interpreter and the
+runtime compiler.
 
-## Why
+## Verdict
 
-The Go host runs the *threaded* state-to-wasm variant: modules import a **shared** `host.memory`,
-use wasm **atomics** on it, and run as a pool of instances sharing that one memory. The current
-Java provider's Chicory 1.4.0 embeds a single-instance rust-guest module with no shared memory and
-no wasm-to-wasm linking — nothing in the current code proves Chicory can do what the new host
-needs. `openfeature-provider/testdata/README.md` records the modules are built `--threads -E`.
+**PASS — run.endive 1.2.0 (runtime + compiler), the runtime compiler as the default engine.**
+All 45 acceptance checks green on macOS/aarch64, linux/arm64 and linux/amd64, against
+`openfeature-provider/testdata/modules/basic.wasm` and `dedupe-filter-threaded.wasm`.
 
-Concrete requirements, from `wasm-objdump` on `openfeature-provider/testdata/modules/basic.wasm`
-and the Go host (`internal/host/{module,resolver,filter}.go` on `origin/go-provider`):
+## What was verified (per the acceptance criteria)
 
-1. **Runtime compilation** of arbitrary bytes (CDN-fetched, not build-time AOT): compile a
-   `Module` from a byte array, instantiate, re-instantiate for the pool.
-2. **Host-provided shared memory**: create one shared `Memory` (initial 1 page, max capped at 64
-   MiB — the module declares max 4 GiB; check Chicory's strictness about declared-max vs
-   provided-max mismatches) and supply it as the `host.memory` import to many instances.
-3. **Threads-proposal opcodes**: shared-memory atomic RMW/load/store must execute correctly.
-4. **Wasm-to-wasm linking**: instantiate the dedupe filter module against the *filter's* shared
-   memory and link its exported `seen(i64) -> i32` into the main module's `apply_filter.seen` /
-   `schema_filter.seen` imports (directly if Chicory supports instance-to-instance imports, else
-   via a host trampoline — measure the trampoline cost before accepting it).
-5. **Host imports**: `env.write_logs(i64)`, `env.current_time() -> i64`, `env.random_seed() -> i64`.
-6. **Re-entrancy**: call the module's `ack_logs` export from inside the `write_logs` host import
-   (Go acks re-entrantly). If Chicory forbids it, design the deferred-ack alternative and record
-   it here.
-7. **Concurrent instances**: several instances on one shared memory called from different Java
-   threads. Note any Chicory caveats about memory-visibility or lock-free correctness (wasm
-   atomics should make it correct; verify).
-8. **Error surface**: how Chicory reports traps (exception types) so evaluation errors map
-   cleanly, and that instance teardown (`destroy_instance` + free the runtime) doesn't leak.
+- **Runtime compilation of arbitrary bytes**: `Parser.parse(byte[])` at runtime;
+  `MachineFactoryCompiler.compile(module)` compiles **once per module** and returns a
+  `Function<Instance, Machine>` factory reused for every instance — exactly the
+  one-compile-per-generation, N-instances pattern. Compile + first instance: ~2–17 ms.
+- **Host-provided shared memory**: `new ByteArrayMemory(new MemoryLimits(1, 1024, true))`
+  (1 initial page, 64 MiB cap, shared) passed as `ImportMemory("host", "memory", mem)`. Endive
+  validates host memories against the import's declared limits (current ≥ initial,
+  host max ≤ import max, shared flags equal) — no hand-rolled import-section parsing needed.
+  A declared max of 65536 pages is treated as 32767 (JVM array ceiling), so any host cap ≤ 2 GiB
+  links.
+- **Threads opcodes**: shared-memory atomics execute correctly in **both engines** (resolve
+  correctness identical).
+- **Wasm-to-wasm linking**: each main instance instantiates its own filter instances
+  (`Instance.builder(filterModule).withImportValues(... env.memory = the filter's shared memory
+  ...)`) and links them via `ImportFunction.exportAsImport("apply_filter", "seen", filterInstance,
+  "seen")` — a thin Java trampoline around the target instance's machine call; no serialization.
+  Dedupe history in the filter memory outlives instances, as designed.
+- **Host imports**: `HostFunction("env", "write_logs", FunctionType.of(...), handle)` etc.
+- **Re-entrancy**: `ack_logs` called from inside the `write_logs` host import works (no deadlock,
+  no stack corruption) — the Go re-entrant ack ports as-is.
+- **Concurrency**: 2 instances on one shared memory, 8 Java threads, 16k evaluates — zero errors,
+  `allocated_bytes` stable. **Endive instances are not thread-safe**; the host serializes calls
+  per instance (an idle-instance pool with per-instance monitors, as the Go pool does).
+- **Error surface**: traps are `TrapException`/`WasmEngineException`; module-rejected resolves
+  arrive as the `Error` envelope (gRPC-style codes). A **memory cap too tight makes the module
+  trap during its own initialization** → `UninstantiableException` at instance build: over-tight
+  caps fail fast at generation build, which the engine maps to "invalid module, keep the current
+  one" — no silent degradation. Mid-run allocation failure still surfaces as the null slice
+  (`alloc` returns 0), the Go `ErrAlloc` path.
+- **Behavior parity with the Go host**: resolve (values, variants, reasons, resolve token with
+  `apply=false`), evaluate (struct merge, nested paths, unknown-flag fallback), sticky
+  suspension → store read → resume (and fallback when the store answers nothing), apply-dedupe
+  collapsing repeated applies (both evaluate and resolve paths; matches Go's
+  `TestDedupeFilterSharedAcrossResolvers`), `flush_logs` payloads (packed-slice
+  `WriteLogsPayload` → concatenated `WriteFlagLogsRequest`), Prometheus text from
+  `metrics_snapshot`, `unpack_bitsets` warm, `allocated_bytes` balanced across 100 resolves.
 
-## What to build (throwaway)
+## Latency (basic.wasm, `evaluate` path, per evaluation)
 
-A `cmdline`-style test (or `src/test/java` scratch, not committed) that, using `basic.wasm` and
-`../testdata/states/basic.json`:
+| Engine | macOS/aarch64 | linux/arm64 | linux/amd64 (emulated) |
+|---|---|---|---|
+| Interpreter | ~450 µs | ~380 µs | ~700 µs |
+| Runtime compiler | ~24 µs | ~22 µs | ~47 µs |
 
-- generates the protobuf classes from `../proto` (phase 2's pom wiring — do it early, informally),
-- fetches nothing — loads the module from disk,
-- builds a `ResolveFlagsRequest` (targeting key + the `flags/plain` and `flags/sticky` flags from
-  the state), writes it through `alloc`, calls `resolve_process_start`, decodes the envelope,
-  exercises a suspension against a stub store and `resolve_process_resume`,
-- calls `evaluate` with an `EvaluateRequest` (default value + schema) and decodes
-  `ResolutionDetails`,
-- links both filters and observes `seen` returning 0 then 1 for a repeated hash,
-- runs `flush_logs` and receives the payload in `write_logs`, acks, calls `destroy_instance`.
+The runtime compiler is ~20× the interpreter and lands within ~2× of wazero's JIT as measured on
+the Go provider (~12 µs) — comfortably in "fast" territory, with dynamic module loading. The
+interpreter is a viable fallback (and the only SIMD-capable engine, which flag modules don't use).
+Chicory 1.4.0 AOT (the current provider's engine) is build-time only and cannot compile
+CDN-fetched modules — Endive's runtime compiler is what makes per-credential modules work on the
+JVM.
 
-## Acceptance criteria
+## Spike artifact
 
-- All of the above runs on `basic.wasm` on the chosen Chicory version, on macOS (dev) and
-  linux/amd64 + linux/arm64 (CI images).
-- Instance pool of N ≥ 2 threads resolving concurrently for a minute without trap or leak
-  (`allocated_bytes` stable after `free`).
-- Rough latency shape recorded (not a gate, just to know): the Go JIT path is ~12 µs/eval; the
-  interpreter ~590 µs. Whatever Chicory's engine costs, it should be closer to the former.
+Throwaway, per the plan: `/tmp/s2w-spike` (session-local; `Spike.java` + the Endive wiring above,
+compiled with `javac -cp "libs/*"` and run on the shared testdata). The essential API recipe and
+verdict live here; phase 3 re-derives the wiring as real code. Say the word if you want the spike
+source checked in under this directory as a reference.
 
-## Outcome
+## Decisions carried forward
 
-Record here: Chicory version chosen (or runtime alternative), any ABI workarounds (host
-trampoline, deferred ack, memory-max handling), and a one-paragraph verdict per acceptance
-criterion. If something fails, escalate with the evidence before starting phase 3.
+- **Engine**: `MachineFactoryCompiler.compile(module)` per generation (compile once, reuse the
+  factory for the pool); interpreter stays available as a fallback, mirroring Go's
+  `UseWasmInterpreter` (rename to an engine option in `LocalProviderConfig`).
+- **Memory**: host-built `ByteArrayMemory` shared per generation, cap default 64 MiB;
+  filter memories `(8,8,true)` apply / `(2,2,true)` schema, engine-scoped, outliving swaps.
+- **No `RecoveringResolver`**: traps and engine exceptions surface as evaluation errors; a
+  broken generation is replaced only by a successful swap, as in Go.
+- **poms** switch `com.dylibso.chicory:*` → `run.endive:{runtime,compiler}` (keep protobuf at the
+  provider's pinned version; the spike ran 4.33.2 with protoc 29.3 gencode).
+- Endive requires **Java 11+**; the provider's 17 baseline stays.
 
-- **Status:** ☐ pending
-- **Chicory version:** _tbd_
-- **Verdict:** _tbd_
+- **Status:** ✅ passed (no PR, by design)
+- **Runtime:** run.endive:runtime + run.endive:compiler **1.2.0**
+- **Verdict:** proceed to phase 2; no fallback runtime needed

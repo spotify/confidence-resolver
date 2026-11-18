@@ -118,14 +118,15 @@ from its body is installed — a module that fails to install is refetched in fu
   schema filter (2 pages) stays on independently. `_confidence_skip_apply` in the evaluation
   context still skips apply for a single evaluation and is stripped from **every** request.
 - **Instances.** Pool bounded by `Instances` (default: available processors), lazily created,
-  shared-memory per generation. No `RecoveringResolver`: module call failures surface as errors and
+  shared-memory per generation, each call serialized per instance (Endive instances are not
+  thread-safe). No `RecoveringResolver`: module call failures surface as errors and
   the generation lives until the next successful swap.
 
 ## Dependency changes
 
 | Dependency | Decision |
 |---|---|
-| Chicory | stays, likely upgraded (phase 1 decides version) — must run threaded modules (shared memory + atomics), link instances, re-enter from host imports |
+| Endive (was Chicory) | **run.endive:runtime + run.endive:compiler 1.2.0** — the Bytecode Alliance's JVM wasm runtime, Chicory's successor; spike-verified on threaded modules (phase 1). Runtime compiler engine (JIT-equivalent, dynamic loading); interpreter fallback. Instances are not thread-safe — the host serializes per instance |
 | grpc-* , netty-shaded, guava | dropped — no gRPC anywhere in the new provider |
 | protobuf-java (+ util) | stays, generated from `../proto`, shaded as today |
 | openfeature sdk | stays |
@@ -148,9 +149,7 @@ leave the shaded jar, which shrinks it substantially.
 
 ## Open questions
 
-1. **Chicory version & capabilities** — phase 1 answers; if shared memory or atomics are
-   unsupported even after an upgrade, fallback options are a state-to-wasm non-threaded module
-   variant or a different JVM runtime. Escalate before phase 3 starts.
+1. **Runtime** — resolved by the phase-1 spike: Endive 1.2.0 (see `01-chicory-spike.md`).
 2. **Module metrics exposure** — the module's `metrics_snapshot` renders Prometheus/OpenMetrics
    text; expose via a provider method (the old `SnapshotConfig` placeholder suggested this).
    Match Go's shape.

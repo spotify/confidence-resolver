@@ -28,8 +28,8 @@ store):
 | `logger(...)` | SLF4J, as today |
 
 Removed options: `channelFactory` (no gRPC), `enableApplyDedup`, `disableExposureCollection`,
-`resolverPoolSize`, `useWasmInterpreter` (wazero-specific; Chicory has no JIT/interpreter toggle —
-if the spike found an engine choice, expose it here instead).
+`resolverPoolSize`, `useWasmInterpreter` (replaced by an engine option: Endive's runtime
+  compiler is the default, the interpreter the fallback — phase 1's verdict).
 
 ## Evaluation path
 

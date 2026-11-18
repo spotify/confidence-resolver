@@ -35,7 +35,7 @@ confidence/flags/wasm/v1/**/*.proto
 - The protos declare `java_package` per file (`com.spotify.confidence.flags.*.v1`) — keep the
   declared packages; shading relocates them for consumers, as today.
 - Keep `build-helper` adding `generated-sources/protobuf/java` (drop the `grpc-java` source dir
-  and, later in phase 8, the chicory-compiler one).
+  and, later in phase 8, the endive-compiler one, if build-time compilation remains useful).
 - Add a `make proto` entry (phase 8 defines the Makefile contract fully) that re-runs the
   generation, mirroring `openfeature-provider/go/scripts/generate_s2w_proto.sh`.
 

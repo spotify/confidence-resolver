@@ -5,14 +5,15 @@ suspended processes; report failed allocations). One PR.
 
 ## Goal
 
-`com.spotify.confidence.sdk.internal.host` runs one module generation on Chicory: validates the
+`com.spotify.confidence.sdk.internal.host` runs one module generation on Endive 1.2.0 (spike-verified;
+see `01-chicory-spike.md` for the API recipe): validates the
 module, owns its capped shared memory, lazily fills a bounded instance pool, and exposes
 resolve/evaluate/apply/flush/metrics/close. Port `internal/host` file by file:
 
 | Go file | Java class | Purpose |
 |---|---|---|
 | `module.go` | `Module` | compile + validate: required exports, required imports, `host.memory` shared flag, optional exports (`allocated_bytes`, `metrics_snapshot`, `observe_client_resolve_latency`, `unpack_bitsets`) |
-| `imports.go` | (in `Module`) | parse the import section to check the shared-memory flag — do whatever Chicory doesn't |
+| `imports.go` | (in `Module`) | Endive validates host memories against declared imports (limits + shared) itself; keep only the export/import-set validation |
 | `memory.go` | `SharedMemory` | build the shared memory, initial 1 page, max `min(MaxMemoryBytes, declared)`, default cap 64 MiB, **reserved up front** (it shows as heap) |
 | `resolver.go` | `Resolver` | one generation's runtime: filter links, env host module, lazy instance pool, the call surface below; `ErrClosed` |
 | `envelope.go` | `ProcessEnvelope` | decode only the envelope fields needed: result kind, suspension (process id + reads), materialization writes; the full resolve response is read in place |
@@ -71,6 +72,6 @@ resolve/evaluate/apply/flush/metrics/close. Port `internal/host` file by file:
 
 ## Done when
 
-All the above run against `basic.wasm` with the spike's chosen Chicory version, and `make test`
+All the above run against `basic.wasm` with Endive 1.2.0 (both engines), and `make test`
 in `openfeature-provider/java` passes (this PR may still be the only thing that builds — gate it
 behind whatever compiles cleanly; the full provider still isn't wired).

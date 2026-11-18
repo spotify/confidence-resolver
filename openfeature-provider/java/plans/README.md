@@ -13,7 +13,7 @@ as the Go provider (reference implementation) already did on `origin/go-provider
 | # | Plan | Ports (go commits) | Status |
 |---|------|--------------------|--------|
 | 0 | [00-architecture.md](00-architecture.md) | — | design |
-| 1 | [01-chicory-spike.md](01-chicory-spike.md) | risk gate, no PR | ☐ |
+| 1 | [01-chicory-spike.md](01-chicory-spike.md) | risk gate, no PR | ✅ passed — Endive 1.2.0 |
 | 2 | [02-protos-and-fixtures.md](02-protos-and-fixtures.md) | `93c7365e` | ☐ |
 | 3 | [03-host-runtime.md](03-host-runtime.md) | `31cd404a` (+ `c85edc44`) | ☐ |
 | 4 | [04-cdn-fetcher.md](04-cdn-fetcher.md) | `a1b35aa8` | ☐ |
