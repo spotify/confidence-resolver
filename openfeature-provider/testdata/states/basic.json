@@ -1,0 +1,59 @@
+{
+  "clients": [{"name": "clients/test"}],
+  "clientCredentials": [
+    {"name": "clients/test/clientCredentials/test", "clientSecret": {"secret": "test-secret"}}
+  ],
+  "segmentsNoBitsets": [
+    {"name": "segments/all", "allocation": {"proportion": {"value": "1.0"}}}
+  ],
+  "flags": [
+    {
+      "name": "flags/plain",
+      "clients": ["clients/test"],
+      "state": "ACTIVE",
+      "schema": {"schema": {
+        "enabled": {"boolSchema": {}},
+        "message": {"stringSchema": {}},
+        "count": {"intSchema": {}},
+        "ratio": {"doubleSchema": {}},
+        "nested": {"structSchema": {"schema": {"label": {"stringSchema": {}}}}}
+      }},
+      "variants": [
+        {"name": "flags/plain/variants/on", "value": {
+          "enabled": true, "message": "hello", "count": 42, "ratio": 0.5,
+          "nested": {"label": "inner"}
+        }}
+      ],
+      "rules": [
+        {"name": "flags/plain/rules/all", "segment": "segments/all", "targetingKeySelector": "targeting_key", "enabled": true,
+         "assignmentSpec": {"bucketCount": 100, "assignments": [
+           {"assignmentId": "on", "bucketRanges": [{"lower": 0, "upper": 100}],
+            "variant": {"variant": "flags/plain/variants/on"}}]}}
+      ]
+    },
+    {
+      "name": "flags/sticky",
+      "clients": ["clients/test"],
+      "state": "ACTIVE",
+      "schema": {"schema": {"value": {"doubleSchema": {}}}},
+      "variants": [
+        {"name": "flags/sticky/variants/sticky", "value": {"value": 99.99}},
+        {"name": "flags/sticky/variants/fresh", "value": {"value": 1.0}}
+      ],
+      "rules": [
+        {"name": "flags/sticky/rules/paused", "segment": "segments/all", "targetingKeySelector": "targeting_key", "enabled": true,
+         "materializationSpec": {
+           "readMaterialization": "materializedSegments/sticky",
+           "mode": {"materializationMustMatch": true}
+         },
+         "assignmentSpec": {"bucketCount": 100, "assignments": [
+           {"assignmentId": "sticky", "bucketRanges": [{"lower": 0, "upper": 100}],
+            "variant": {"variant": "flags/sticky/variants/sticky"}}]}},
+        {"name": "flags/sticky/rules/fallback", "segment": "segments/all", "targetingKeySelector": "targeting_key", "enabled": true,
+         "assignmentSpec": {"bucketCount": 100, "assignments": [
+           {"assignmentId": "fresh", "bucketRanges": [{"lower": 0, "upper": 100}],
+            "variant": {"variant": "flags/sticky/variants/fresh"}}]}}
+      ]
+    }
+  ]
+}

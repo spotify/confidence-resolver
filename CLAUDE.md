@@ -31,12 +31,29 @@ docker build . # the same in Docker; this is CI
 
 A rewritten provider adds itself to `PROVIDERS` in the root `Makefile` and adds its Docker stages.
 
+### Provider Makefiles
+
+Each provider has a small Makefile that hides its toolchain behind the same targets:
+
+| Target | Does | Credentials |
+|--------|------|-------------|
+| `build` | compile or package | – |
+| `test` | unit tests | – |
+| `test-e2e` | end-to-end tests against the Confidence backend | `CONFIDENCE_CLIENT_SECRET`, `CONFIDENCE_CLIENT_ENCRYPTION_KEY`; fails if unset |
+| `lint` | formatting and static checks | – |
+| `clean` | remove build output | – |
+
+The targets call the native tools (`go`, `npm`, `mvn`, …) directly. The Docker stages run these
+targets, so CI and a local `make` do the same thing. Keep them thin: no cross-provider logic and no
+generated artifacts shared between providers.
+
 ### Docker
 
 The Dockerfile uses multi-stage builds. Every provider has `.<action>` stages named
 `<component>.{build,test,test_e2e,lint,artifact,publish}` (e.g. `openfeature-provider-go.test`),
 and wires the ones CI runs into the `all` stage (the default target; no secrets) or, for
-`test_e2e`, into the `e2e` stage (secrets mounted).
+`test_e2e`, into the `e2e` stage (secrets mounted). Each stage runs the provider's Makefile
+target of the same name (`test_e2e` runs `make test-e2e`).
 
 ## Publishing & Security
 

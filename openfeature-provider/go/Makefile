@@ -1,57 +1,29 @@
-# openfeature-provider/go Makefile
-# Go OpenFeature local provider
+# Go OpenFeature provider. Targets follow the provider Makefile contract (see the root CLAUDE.md).
 
-ROOT := $(realpath $(CURDIR)/../..)
+.PHONY: build test test-e2e lint clean proto
 
-# Stamps and directories
-BUILD_STAMP := .build.stamp
-WASM_ARTIFACT := $(ROOT)/wasm/confidence_resolver.wasm
-
-# Source files
-GO_SRC := $(shell find confidence -name '*.go')
-
-.PHONY: install build test lint clean proto
-
-# Always build wasm if not in docker
-ifneq ($(IN_DOCKER_BUILD),1)
-.PHONY: build-wasm
-build-wasm:
-	@$(MAKE) -C $(ROOT) wasm/confidence_resolver.wasm
-	@cp $(WASM_ARTIFACT) confidence/internal/local_resolver/assets/
-$(BUILD_STAMP): | build-wasm
-endif
-
-# Install Go dependencies
-install:
-	go mod download
-	go mod verify
-
-# Regenerate protobuf files
-proto:
-	./scripts/generate_proto.sh
-
-# Build (compile check)
-$(BUILD_STAMP): go.mod go.sum $(GO_SRC)
+build:
 	go build ./...
-	@touch $@
 
-build: $(BUILD_STAMP)
+# Unit tests (no credentials needed).
+test:
+	go test -skip E2E ./...
 
-# Run tests
-test: $(BUILD_STAMP)
-	go test -v ./...
+# End-to-end tests against the module CDN and ingestion.
+test-e2e:
+	@test -n "$$CONFIDENCE_CLIENT_SECRET" -a -n "$$CONFIDENCE_CLIENT_ENCRYPTION_KEY" || \
+		(echo "CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set" && exit 1)
+	go test -count=1 -run E2E ./...
 
-# Lint using gofmt and go vet
 lint:
-	@echo "Checking gofmt..."
-	@test -z "$$(gofmt -l . | grep -v '^proto/' | tee /dev/stderr)" || (echo "Files need formatting. Run: gofmt -w ." && exit 1)
-	@echo "Running go vet..."
-	@go vet ./...
-	@echo "✅ Lint passed"
+	@test -z "$$(gofmt -l . | tee /dev/stderr)" || (echo "Files need formatting: gofmt -w ." && exit 1)
+	go vet ./...
 
-# Clean build artifacts
 clean:
-	rm -f $(BUILD_STAMP)
-	cd confidence && go clean -cache -testcache -modcache
+	go clean -testcache
+
+# Regenerate confidence/internal/s2wpb from ../proto.
+proto:
+	./scripts/generate_s2w_proto.sh
 
 .DEFAULT_GOAL := build

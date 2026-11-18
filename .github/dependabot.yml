@@ -1,3 +1,5 @@
+# Dependabot reads this file from the default branch only; on next it takes effect once next
+# replaces main.
 version: 2
 
 updates:
@@ -14,9 +16,6 @@ updates:
   - package-ecosystem: "docker"
     directories:
       - "/"
-      - "/mock-support-server"
-      - "/openfeature-provider/go/bench"
-      - "/openfeature-provider/js/bench"
     open-pull-requests-limit: 3
     schedule:
       interval: "monthly"
@@ -25,7 +24,9 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "cargo"
-    directory: "/"
+    directories:
+      - "/openfeature-provider/rust"
+      - "/confidence-cloudflare-resolver"
     open-pull-requests-limit: 3
     schedule:
       interval: "monthly"
@@ -42,9 +43,7 @@ updates:
 
   - package-ecosystem: "gomod"
     directories:
-      - "/mock-support-server"
       - "/openfeature-provider/go"
-      - "/openfeature-provider/go/bench"
       - "/openfeature-provider/go/demo"
     open-pull-requests-limit: 3
     schedule:
@@ -77,9 +76,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "npm"
-    directories:
-      - "/openfeature-provider/js"
-      - "/openfeature-provider/js/bench"
+    directory: "/openfeature-provider/js"
     open-pull-requests-limit: 3
     schedule:
       interval: "monthly"

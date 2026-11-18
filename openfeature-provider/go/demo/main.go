@@ -33,7 +33,6 @@ func main() {
 		EncryptionKey:                 os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"),
 		UseRemoteMaterializationStore: true,
 		StatePollInterval:             30 * time.Second,
-		LogPollInterval:               2 * time.Minute,
 	})
 
 	if err != nil {

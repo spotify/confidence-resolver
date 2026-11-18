@@ -2,7 +2,7 @@
 # with the new version numbers.
 #
 # On next, release-please-config.json releases release candidates (versioning: prerelease) of
-# the rewritten providers only (none yet). Each provider adds its package and publish job with
+# the rewritten providers only. Each provider adds its package and publish job with
 # its rewrite.
 name: Release Please
 

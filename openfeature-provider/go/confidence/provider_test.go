@@ -2,734 +2,295 @@ package confidence
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"slices"
+	"io"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
-	lr "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/local_resolver"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/resolver"
-	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/proto/wasm"
-	tu "github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
-	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/s2wpb/resolverpb"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
 )
 
-func TestNewLocalResolverProvider(t *testing.T) {
-	provider := newLocalResolverProvider(nil, nil, nil, "test-secret", nil)
-
-	if provider == nil {
-		t.Fatal("Expected provider to be created, got nil")
+func newTestProvider(t *testing.T, mod func(*ProviderConfig)) (*LocalResolverProvider, *testutil.Backend) {
+	t.Helper()
+	b := testutil.NewBackend(t)
+	b.Publish(testutil.Module(t, "basic.wasm"), "log-token", `"v1"`)
+	cfg := ProviderConfig{
+		ClientSecret: testutil.Secret, EncryptionKey: b.HexKey(), Instances: 2,
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cdnBaseURL: b.CDN.URL, ingestBaseURL: b.Ingest.URL, retryInterval: 5 * time.Millisecond,
 	}
-	if provider.clientSecret != "test-secret" {
-		t.Errorf("Expected client secret to be 'test-secret', got %s", provider.clientSecret)
+	if mod != nil {
+		mod(&cfg)
 	}
-}
-
-func TestLocalResolverProvider_Metadata(t *testing.T) {
-	provider := newLocalResolverProvider(nil, nil, nil, "secret", nil)
-	metadata := provider.Metadata()
-
-	if metadata.Name != "confidence-sdk-go-local" {
-		t.Errorf("Expected provider name to be 'confidence-sdk-go-local', got %s", metadata.Name)
-	}
-}
-
-func TestLocalResolverProvider_Hooks(t *testing.T) {
-	provider := newLocalResolverProvider(nil, nil, nil, "secret", nil)
-	hooks := provider.Hooks()
-
-	if hooks == nil {
-		t.Error("Expected hooks to not be nil")
-	}
-	if len(hooks) != 0 {
-		t.Errorf("Expected 0 hooks, got %d", len(hooks))
-	}
-}
-
-func TestParseFlagPath(t *testing.T) {
-	testCases := []struct {
-		name         string
-		input        string
-		expectedFlag string
-		expectedPath []string
-	}{
-		{
-			name:         "Simple flag name",
-			input:        "my-flag",
-			expectedFlag: "my-flag",
-			expectedPath: []string{},
-		},
-		{
-			name:         "Flag with path",
-			input:        "my-flag.nested.value",
-			expectedFlag: "my-flag",
-			expectedPath: []string{"nested", "value"},
-		},
-		{
-			name:         "Flag with single level path",
-			input:        "flag.value",
-			expectedFlag: "flag",
-			expectedPath: []string{"value"},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			flag, path := parseFlagPath(tc.input)
-			if flag != tc.expectedFlag {
-				t.Errorf("Expected flag '%s', got '%s'", tc.expectedFlag, flag)
-			}
-			if !slices.Equal(path, tc.expectedPath) {
-				t.Errorf("Expected path '%s', got '%s'", tc.expectedPath, path)
-			}
-		})
-	}
-}
-
-func TestProcessTargetingKey(t *testing.T) {
-	testCases := []struct {
-		name     string
-		input    openfeature.FlattenedContext
-		expected map[string]interface{}
-	}{
-		{
-			name: "Converts targetingKey to targeting_key",
-			input: openfeature.FlattenedContext{
-				"targetingKey": "user-123",
-				"other":        "value",
-			},
-			expected: map[string]interface{}{
-				"targeting_key": "user-123",
-				"other":         "value",
-			},
-		},
-		{
-			name: "No targetingKey",
-			input: openfeature.FlattenedContext{
-				"other": "value",
-			},
-			expected: map[string]interface{}{
-				"other": "value",
-			},
-		},
-		{
-			name:     "Empty context",
-			input:    openfeature.FlattenedContext{},
-			expected: map[string]interface{}{},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := processTargetingKey(tc.input)
-
-			if len(result) != len(tc.expected) {
-				t.Errorf("Expected %d keys, got %d", len(tc.expected), len(result))
-			}
-
-			for key, expectedValue := range tc.expected {
-				if result[key] != expectedValue {
-					t.Errorf("Expected key '%s' to have value '%v', got '%v'", key, expectedValue, result[key])
-				}
-			}
-
-			// Ensure targetingKey is not present if it was in input
-			if _, hasTargetingKey := tc.input["targetingKey"]; hasTargetingKey {
-				if _, stillHas := result["targetingKey"]; stillHas {
-					t.Error("Expected targetingKey to be removed")
-				}
-			}
-		})
-	}
-}
-
-func TestGoValueToProto(t *testing.T) {
-	testCases := []struct {
-		name        string
-		input       interface{}
-		expectError bool
-	}{
-		{
-			name:        "Nil value",
-			input:       nil,
-			expectError: false,
-		},
-		{
-			name:        "Bool value",
-			input:       true,
-			expectError: false,
-		},
-		{
-			name:        "Int value",
-			input:       42,
-			expectError: false,
-		},
-		{
-			name:        "Int64 value",
-			input:       int64(42),
-			expectError: false,
-		},
-		{
-			name:        "Float64 value",
-			input:       3.14,
-			expectError: false,
-		},
-		{
-			name:        "String value",
-			input:       "hello",
-			expectError: false,
-		},
-		{
-			name:        "Array value",
-			input:       []interface{}{1, "two", true},
-			expectError: false,
-		},
-		{
-			name: "Map value",
-			input: map[string]interface{}{
-				"key": "value",
-			},
-			expectError: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := goValueToProto(tc.input)
-			if tc.expectError {
-				if err == nil {
-					t.Error("Expected error, got nil")
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Expected no error, got %v", err)
-				}
-				if result == nil {
-					t.Error("Expected result to not be nil")
-				}
-			}
-		})
-	}
-}
-
-func TestProtoValueToGo(t *testing.T) {
-	testCases := []struct {
-		name     string
-		input    *structpb.Value
-		expected interface{}
-	}{
-		{
-			name:     "Nil value",
-			input:    nil,
-			expected: nil,
-		},
-		{
-			name:     "Null value",
-			input:    structpb.NewNullValue(),
-			expected: nil,
-		},
-		{
-			name:     "Bool value",
-			input:    structpb.NewBoolValue(true),
-			expected: true,
-		},
-		{
-			name:     "Number value",
-			input:    structpb.NewNumberValue(42.5),
-			expected: 42.5,
-		},
-		{
-			name:     "String value",
-			input:    structpb.NewStringValue("hello"),
-			expected: "hello",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := unmarshalProto(tc.input, any(nil), []string{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result != tc.expected {
-				t.Errorf("Expected %v, got %v", tc.expected, result)
-			}
-		})
-	}
-}
-
-func TestProtoStructToGo(t *testing.T) {
-	// Test nil struct
-	result, err := unmarshalProto(nil, map[string]any(nil), []string{})
+	p, err := NewProvider(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result != nil {
-		t.Error("Expected nil result for nil struct")
+	t.Cleanup(p.Shutdown)
+	return p, b
+}
+
+func started(t *testing.T, mod func(*ProviderConfig)) (*LocalResolverProvider, *testutil.Backend) {
+	p, b := newTestProvider(t, mod)
+	if err := p.Init(openfeature.EvaluationContext{}); err != nil {
+		t.Fatal(err)
+	}
+	return p, b
+}
+
+var user = openfeature.FlattenedContext{openfeature.TargetingKey: "user-1"}
+
+type plainFlag struct {
+	Enabled bool    `json:"enabled"`
+	Message string  `json:"message"`
+	Count   int     `json:"count"`
+	Ratio   float64 `json:"ratio"`
+	Nested  struct {
+		Label string
+	}
+}
+
+func TestEvaluations(t *testing.T) {
+	p, _ := started(t, nil)
+	ctx := context.Background()
+
+	if d := p.BooleanEvaluation(ctx, "plain.enabled", false, user); !d.Value || d.Variant != "flags/plain/variants/on" || d.Reason != openfeature.TargetingMatchReason {
+		t.Errorf("bool: %+v", d)
+	}
+	if d := p.StringEvaluation(ctx, "plain.message", "", user); d.Value != "hello" {
+		t.Errorf("string: %+v", d)
+	}
+	if d := p.IntEvaluation(ctx, "plain.count", 0, user); d.Value != 42 {
+		t.Errorf("int: %+v", d)
+	}
+	if d := p.FloatEvaluation(ctx, "plain.ratio", 0, user); d.Value != 0.5 {
+		t.Errorf("float: %+v", d)
+	}
+	if d := p.StringEvaluation(ctx, "plain.nested.label", "", user); d.Value != "inner" {
+		t.Errorf("nested path: %+v", d)
 	}
 
-	// Test struct with values
-	pbStruct := structpb.NewStructValue(&structpb.Struct{
-		Fields: map[string]*structpb.Value{
-			"name":   structpb.NewStringValue("test"),
-			"count":  structpb.NewNumberValue(42),
-			"active": structpb.NewBoolValue(true),
-		},
+	d := p.ObjectEvaluation(ctx, "plain", plainFlag{}, user)
+	got, ok := d.Value.(plainFlag)
+	if !ok || !got.Enabled || got.Message != "hello" || got.Count != 42 || got.Ratio != 0.5 || got.Nested.Label != "inner" {
+		t.Errorf("struct: %+v (%v)", d.Value, d.ResolutionError)
+	}
+	if d := p.ObjectEvaluation(ctx, "plain", &plainFlag{}, user); d.Value.(*plainFlag).Message != "hello" {
+		t.Errorf("pointer: %+v", d)
+	}
+	if d := p.ObjectEvaluation(ctx, "plain.nested", map[string]string{}, user); d.Value.(map[string]string)["label"] != "inner" {
+		t.Errorf("map: %+v (%v)", d.Value, d.ResolutionError)
+	}
+	if d := p.ObjectEvaluation(ctx, "plain", nil, user); d.Value.(map[string]any)["message"] != "hello" {
+		t.Errorf("nil default: %+v", d)
+	}
+}
+
+func TestEvaluationErrors(t *testing.T) {
+	p, _ := started(t, nil)
+	ctx := context.Background()
+	for name, tc := range map[string]struct {
+		d    openfeature.ProviderResolutionDetail
+		code openfeature.ErrorCode
+	}{
+		"unknown flag":      {p.BooleanEvaluation(ctx, "nope", true, user).ProviderResolutionDetail, openfeature.FlagNotFoundCode},
+		"type mismatch":     {p.BooleanEvaluation(ctx, "plain.message", true, user).ProviderResolutionDetail, openfeature.TypeMismatchCode},
+		"double as int":     {p.ObjectEvaluation(ctx, "plain", struct{ Ratio int }{}, user).ProviderResolutionDetail, openfeature.TypeMismatchCode},
+		"map element type":  {p.ObjectEvaluation(ctx, "plain.nested", map[string]int{}, user).ProviderResolutionDetail, openfeature.TypeMismatchCode},
+		"no store (sticky)": {p.FloatEvaluation(ctx, "sticky.value", -1, user).ProviderResolutionDetail, openfeature.GeneralCode},
+	} {
+		if got := tc.d.ResolutionDetail().ErrorCode; got != tc.code || tc.d.Reason != openfeature.ErrorReason {
+			t.Errorf("%s: code=%v reason=%v (%v), want %v", name, got, tc.d.Reason, tc.d.ResolutionError, tc.code)
+		}
+	}
+	// The default is returned on error.
+	if d := p.BooleanEvaluation(ctx, "plain.message", true, user); !d.Value {
+		t.Error("default not returned on type mismatch")
+	}
+}
+
+func TestNotReadyBeforeInit(t *testing.T) {
+	p, _ := newTestProvider(t, nil)
+	d := p.BooleanEvaluation(context.Background(), "plain.enabled", false, user)
+	if d.ResolutionDetail().ErrorCode != openfeature.ProviderNotReadyCode {
+		t.Errorf("before Init: %+v", d)
+	}
+}
+
+// stickyStore answers variant reads with the sticky variant.
+type stickyStore struct{ writes []WriteOp }
+
+func (s *stickyStore) Read(_ context.Context, ops []ReadOp) ([]ReadResult, error) {
+	var out []ReadResult
+	sticky := "flags/sticky/variants/sticky"
+	for _, op := range ops {
+		if v, ok := op.(*ReadOpVariant); ok {
+			out = append(out, v.ToResult(&sticky))
+		}
+	}
+	return out, nil
+}
+
+func (s *stickyStore) Write(_ context.Context, ops []WriteOp) error {
+	s.writes = append(s.writes, ops...)
+	return nil
+}
+
+func TestMaterializationStore(t *testing.T) {
+	p, _ := started(t, func(c *ProviderConfig) { c.MaterializationStore = &stickyStore{} })
+	d := p.FloatEvaluation(context.Background(), "sticky.value", -1, user)
+	if d.Value != 99.99 || d.Variant != "flags/sticky/variants/sticky" {
+		t.Errorf("sticky: %+v (%v)", d, d.ResolutionError)
+	}
+}
+
+func TestDeferredApply(t *testing.T) {
+	p, b := started(t, nil)
+	resp, err := p.Resolve(context.Background(), user, []string{"plain"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.GetResolveToken()) == 0 || resp.GetResolvedFlags()[0].GetVariant() != "flags/plain/variants/on" {
+		t.Fatalf("response: %v", resp)
+	}
+	err = p.ApplyFlags(&resolverpb.ApplyFlagsRequest{
+		ResolveToken: resp.GetResolveToken(),
+		Flags:        []*resolverpb.AppliedFlag{{Flag: "flags/plain"}},
 	})
-
-	result, err = unmarshalProto(pbStruct, map[string]any{}, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if result == nil {
-		t.Fatal("Expected non-nil result")
-	}
-
-	if result["name"] != "test" {
-		t.Errorf("Expected name to be 'test', got %v", result["name"])
-	}
-	if result["count"] != 42.0 {
-		t.Errorf("Expected count to be 42.0, got %v", result["count"])
-	}
-	if result["active"] != true {
-		t.Errorf("Expected active to be true, got %v", result["active"])
+	p.Shutdown()
+	if n := assigned(b); n != 1 {
+		t.Errorf("%d exposures logged after a deferred apply, want 1", n)
 	}
 }
 
-func TestGetValueForPath(t *testing.T) {
-	var testData *structpb.Struct
+func assigned(b *testutil.Backend) int {
+	n := 0
+	for _, req := range b.Logs() {
+		for _, fa := range req.GetFlagAssigned() {
+			n += len(fa.GetFlags())
+		}
+	}
+	return n
+}
 
-	err := json.Unmarshal([]byte(`{
-		"level1": {
-			"level2": {
-				"level3": "deep-value"
-			},
-			"simple": "simple-value"
-		},
-		"top": "top-value",
-		"nullval": null
-	}`), &testData)
+func TestExposureModes(t *testing.T) {
+	for mode, want := range map[ExposureMode]int{ExposureDeduplicated: 1, ExposureAll: 3, ExposureNone: 0} {
+		p, b := started(t, func(c *ProviderConfig) { c.ExposureMode = mode })
+		for range 3 {
+			p.BooleanEvaluation(context.Background(), "plain.enabled", false, user)
+		}
+		p.Shutdown()
+		if n := assigned(b); n != want {
+			t.Errorf("mode %v: %d exposures for 3 identical evaluations, want %d", mode, n, want)
+		}
+		for _, batch := range b.Batches() {
+			if batch.Token != "log-token" {
+				t.Errorf("batch sent with token %q", batch.Token)
+			}
+		}
+	}
+}
 
-	if err != nil {
+// _confidence_skip_apply set to true skips exposure for that evaluation only; any other value is
+// ignored. The key never reaches the module, so it isn't in the logged context schema either.
+func TestSkipApply(t *testing.T) {
+	p, b := started(t, func(c *ProviderConfig) { c.ExposureMode = ExposureAll })
+	for _, skip := range []any{true, "true", false} {
+		evalCtx := openfeature.FlattenedContext{openfeature.TargetingKey: "user-1", skipApplyKey: skip}
+		if d := p.BooleanEvaluation(context.Background(), "plain.enabled", false, evalCtx); d.Error() != nil {
+			t.Fatalf("skip %v: %v", skip, d.Error())
+		}
+	}
+	p.Shutdown()
+	if n := assigned(b); n != 2 {
+		t.Errorf("%d exposures, want 2 (for the evaluations not skipped)", n)
+	}
+	resolves := 0
+	for _, req := range b.Logs() {
+		for _, info := range req.GetClientResolveInfo() {
+			for _, s := range info.GetSchema() {
+				resolves++
+				if _, ok := s.GetSchema()[skipApplyKey]; ok {
+					t.Errorf("%s reached the module", skipApplyKey)
+				}
+			}
+		}
+	}
+	if resolves == 0 {
+		t.Error("no resolve info logged")
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	p, _ := started(t, nil)
+	p.BooleanEvaluation(context.Background(), "plain.enabled", false, user)
+	if m := p.GetPrometheusMetrics(SnapshotConfig{}); !strings.Contains(m, "resolve") {
+		t.Errorf("prometheus: %q", m)
+	}
+	if m := p.GetPrometheusMetrics(SnapshotConfig{OpenMetrics: true}); !strings.HasSuffix(strings.TrimSpace(m), "# EOF") {
+		t.Errorf("openmetrics doesn't end with # EOF: %q", m)
+	}
+}
+
+func TestConfigValidation(t *testing.T) {
+	good := strings.Repeat("ab", 32)
+	for name, cfg := range map[string]ProviderConfig{
+		"no secret":   {EncryptionKey: good},
+		"no key":      {ClientSecret: "s"},
+		"short key":   {ClientSecret: "s", EncryptionKey: good[2:]},
+		"non-hex key": {ClientSecret: "s", EncryptionKey: strings.Repeat("zz", 32)},
+		"both stores": {ClientSecret: "s", EncryptionKey: good, MaterializationStore: &stickyStore{}, UseRemoteMaterializationStore: true},
+	} {
+		if _, err := NewProvider(context.Background(), cfg); err == nil {
+			t.Errorf("%s: accepted", name)
+		} else if strings.Contains(err.Error(), good) {
+			t.Errorf("%s: error leaks the key", name)
+		}
+	}
+}
+
+func TestOpenFeature(t *testing.T) {
+	p, b := newTestProvider(t, nil)
+	if err := openfeature.SetNamedProviderAndWait(t.Name(), p); err != nil {
 		t.Fatal(err)
 	}
-
-	testCases := []struct {
-		name          string
-		path          []string
-		expected      interface{}
-		expectedFound bool
-		checkIsMap    bool
-	}{
-		{
-			name:          "Empty path",
-			path:          []string{},
-			expected:      nil, // Will check map separately
-			expectedFound: true,
-			checkIsMap:    true,
-		},
-		{
-			name:          "Top level value",
-			path:          []string{"top"},
-			expected:      "top-value",
-			expectedFound: true,
-		},
-		{
-			name:          "Nested value",
-			path:          []string{"level1", "simple"},
-			expected:      "simple-value",
-			expectedFound: true,
-		},
-		{
-			name:          "Deep nested value",
-			path:          []string{"level1", "level2", "level3"},
-			expected:      "deep-value",
-			expectedFound: true,
-		},
-		{
-			name:          "Non-existent path",
-			path:          []string{"does", "not", "exist"},
-			expected:      nil,
-			expectedFound: false,
-		},
-		{
-			name:          "Null value at path",
-			path:          []string{"nullval"},
-			expected:      nil,
-			expectedFound: true,
-		},
+	client := openfeature.NewClient(t.Name())
+	v, err := client.BooleanValue(context.Background(), "plain.enabled", false, openfeature.NewEvaluationContext("user-1", nil))
+	if err != nil || !v {
+		t.Fatalf("value=%v err=%v", v, err)
 	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result, found := getValueForPath(tc.path, testData)
-			if found != tc.expectedFound {
-				t.Errorf("expected=%v, got=%v for %v", tc.expectedFound, found, tc.path)
-			}
-			if tc.checkIsMap {
-				// For empty path, should return the original map
-				if _, ok := result.Kind.(*structpb.Value_StructValue); !ok {
-					t.Errorf("Expected result to be a map, got %T", result)
-				}
-			} else {
-				if result.AsInterface() != tc.expected {
-					t.Errorf("Expected %v, got %v", tc.expected, result)
-				}
-			}
-		})
+	openfeature.Shutdown()
+	if assigned(b) != 1 {
+		t.Errorf("shutdown didn't flush the exposure: %d", assigned(b))
 	}
 }
 
-func TestGetValueForPath_NonMapValue(t *testing.T) {
-	// Test with non-map value in path
-	testData := &structpb.Struct{
-		Fields: map[string]*structpb.Value{
-			"value": structpb.NewStringValue("string-value"),
-		},
+func TestStartupNotPublishedThenReady(t *testing.T) {
+	p, b := newTestProvider(t, func(c *ProviderConfig) {
+		c.InitializationTimeout = 30 * time.Millisecond
+		c.StatePollInterval = 10 * time.Millisecond
+	})
+	b.SetStatus(404)
+	if err := p.Init(openfeature.EvaluationContext{}); err == nil {
+		t.Fatal("Init succeeded without a module")
 	}
-
-	result, found := getValueForPath([]string{"value", "nested"}, testData)
-	if found {
-		t.Errorf("Expected found=false for path through non-map value, got found=true")
+	b.Publish(testutil.Module(t, "basic.wasm"), "log-token", `"v2"`)
+	select {
+	case ev := <-p.EventChannel():
+		if ev.EventType != openfeature.ProviderReady {
+			t.Fatalf("event %v", ev.EventType)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no ProviderReady")
 	}
-	if result != nil {
-		t.Errorf("Expected nil for path through non-map value, got %v", result)
+	if d := p.BooleanEvaluation(context.Background(), "plain.enabled", false, user); !d.Value {
+		t.Errorf("after recovery: %+v", d)
 	}
-}
-
-func TestFlattenedContextToProto(t *testing.T) {
-	ctx := openfeature.FlattenedContext{
-		"string": "value",
-		"number": 42,
-		"bool":   true,
-	}
-
-	result, err := flattenedContextToProto(ctx)
-	if err != nil {
-		t.Errorf("Expected no error, got %v", err)
-	}
-	if result == nil {
-		t.Fatal("Expected non-nil result")
-	}
-	if len(result.Fields) != 3 {
-		t.Errorf("Expected 3 fields, got %d", len(result.Fields))
-	}
-}
-
-func TestFlattenedContextToProto_InvalidValue(t *testing.T) {
-	ctx := openfeature.FlattenedContext{
-		"invalid": make(chan int), // Channels cannot be converted
-	}
-
-	_, err := flattenedContextToProto(ctx)
-	if err == nil {
-		t.Error("Expected error for invalid value type")
-	}
-}
-
-func TestLocalResolverProvider_Shutdown(t *testing.T) {
-	provider := newLocalResolverProvider(nil, nil, nil, "secret", nil)
-	provider.Shutdown()
-
-	// Verify the method can be called without panicking even with nil components
-	// The provider manages its own lifecycle now
-}
-
-func TestLocalResolverProvider_ShutdownWithCancelFunc(t *testing.T) {
-	provider := newLocalResolverProvider(nil, nil, nil, "secret", nil)
-
-	// Simulate Init having been called by setting cancelFunc
-	cancelCalled := false
-	_, cancel := context.WithCancel(context.Background())
-	provider.mu.Lock()
-	provider.cancelFunc = func() {
-		cancelCalled = true
-		cancel()
-	}
-	provider.mu.Unlock()
-
-	// Shutdown should call cancel
-	provider.Shutdown()
-
-	// Verify that cancel was called
-	if !cancelCalled {
-		t.Error("Expected cancel function to be called")
-	}
-}
-
-// Mock implementations for Init() testing
-
-type mockResolverAPIForInit struct {
-	updateStateFunc func(state []byte, accountID string) error
-	closeFunc       func(ctx context.Context)
-	resolveProcess  func(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error)
-}
-
-func mockResolverSupplier(_ context.Context, _ lr.LogSink) lr.LocalResolver {
-	return &mockResolverAPIForInit{}
-}
-
-func (m *mockResolverAPIForInit) SetResolverState(request *wasm.SetResolverStateRequest) error {
-	if m.updateStateFunc != nil {
-		return m.updateStateFunc(request.State, request.AccountId)
-	}
-	return nil
-}
-
-func (m *mockResolverAPIForInit) Close(ctx context.Context) error {
-	if m.closeFunc != nil {
-		m.closeFunc(ctx)
-	}
-	return nil
-}
-
-func (m *mockResolverAPIForInit) ResolveProcess(request *wasm.ResolveProcessRequest) (*wasm.ResolveProcessResponse, error) {
-	if m.resolveProcess != nil {
-		return m.resolveProcess(request)
-	}
-	return nil, nil
-}
-
-func (m *mockResolverAPIForInit) FlushAllLogs() error {
-	return nil
-}
-
-func (m *mockResolverAPIForInit) FlushAssignLogs() error {
-	return nil
-}
-
-func (m *mockResolverAPIForInit) PrometheusSnapshot(_ uint32, _ bool) string {
-	return ""
-}
-
-func (m *mockResolverAPIForInit) RegisterResolve(request *wasm.RegisterResolveRequest) {
-}
-
-func (m *mockResolverAPIForInit) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
-	return nil
-}
-
-// TestLocalResolverProvider_Init_NilStateProvider verifies Init fails when stateProvider is nil
-func TestLocalResolverProvider_Init_NilStateProvider(t *testing.T) {
-	provider := newLocalResolverProvider(
-		mockResolverSupplier,
-		nil, // nil state provider
-		&tu.MockFlagLogger{},
-		"secret",
-		nil,
-	)
-
-	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when stateProvider is nil")
-	}
-	if err.Error() != "state provider is nil, cannot initialize" {
-		t.Errorf("Expected specific error message, got: %v", err)
-	}
-}
-
-// TestLocalResolverProvider_Init_NilResolverAPI verifies Init fails when resolverAPI is nil
-func TestLocalResolverProvider_Init_NilResolverAPI(t *testing.T) {
-	provider := newLocalResolverProvider(
-		nil, // nil resolver API
-		&tu.StateProviderMock{},
-		&tu.MockFlagLogger{},
-		"secret",
-		nil,
-	)
-
-	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when resolverAPI is nil")
-	}
-	if err.Error() != "resolverSupplier is nil, cannot initialize" {
-		t.Errorf("Expected specific error message, got: %v", err)
-	}
-}
-
-// TestLocalResolverProvider_Init_NilFlagLogger verifies Init fails when FlagLogger is nil
-func TestLocalResolverProvider_Init_NilFlagLogger(t *testing.T) {
-	provider := newLocalResolverProvider(
-		mockResolverSupplier,
-		&tu.StateProviderMock{},
-		nil, // nil flag logger
-		"secret",
-		nil,
-	)
-
-	err := provider.Init(openfeature.EvaluationContext{})
-	if err == nil {
-		t.Fatal("Expected error when flagLogger is nil")
-	}
-	if err.Error() != "flag logger is nil, cannot initialize" {
-		t.Errorf("Expected specific error message, got: %v", err)
-	}
-}
-
-// TestLocalResolverProvider_Init_StateProviderError verifies Init starts retrying when stateProvider.Provide returns an error.
-func TestLocalResolverProvider_Init_StateProviderError(t *testing.T) {
-	mockStateProvider := &tu.StateProviderMock{
-		State:     []byte("cached-state"),
-		AccountID: "cached-account",
-		Err:       context.DeadlineExceeded,
-	}
-
-	mockFlagLogger := &tu.MockFlagLogger{}
-
-	provider := newLocalResolverProvider(
-		mockResolverSupplier,
-		mockStateProvider,
-		mockFlagLogger,
-		"secret",
-		nil,
-		WithInitializationTimeout(time.Millisecond),
-	)
-
-	err := provider.Init(openfeature.EvaluationContext{})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Expected recoverable initialization timeout, got: %v", err)
-	}
-	defer provider.Shutdown()
-
-	if provider.ready.Load() {
-		t.Fatal("Expected provider to remain not ready")
-	}
-}
-
-// TestLocalResolverProvider_Init_EmptyAccountID verifies malformed state fails startup.
-func TestLocalResolverProvider_Init_EmptyAccountID(t *testing.T) {
-	mockStateProvider := &tu.StateProviderMock{
-		State:     []byte("test-state"),
-		AccountID: "",
-		Err:       nil,
-	}
-
-	mockFlagLogger := &tu.MockFlagLogger{}
-
-	mockResolverAPI := &mockResolverAPIForInit{}
-
-	provider := newLocalResolverProvider(
-		func(ctx context.Context, ls lr.LogSink) lr.LocalResolver { return mockResolverAPI },
-		mockStateProvider,
-		mockFlagLogger,
-		"secret",
-		nil,
-		WithInitializationTimeout(time.Millisecond),
-	)
-
-	err := provider.Init(openfeature.EvaluationContext{})
-	var initErr *openfeature.ProviderInitError
-	if !errors.As(err, &initErr) || initErr.ErrorCode != openfeature.ProviderFatalCode {
-		t.Fatalf("Expected fatal initialization error, got: %v", err)
-	}
-	defer provider.Shutdown()
-
-	if provider.ready.Load() {
-		t.Fatal("Expected provider to remain not ready")
-	}
-}
-
-// TestLocalResolverProvider_Init_UpdateStateError verifies Init fails when UpdateStateAndFlushLogs fails
-func TestLocalResolverProvider_Init_UpdateStateError(t *testing.T) {
-	mockStateProvider := &tu.StateProviderMock{
-		State:     []byte("test-state"),
-		AccountID: "test-account",
-		Err:       nil,
-	}
-
-	mockFlagLogger := &tu.MockFlagLogger{}
-
-	mockResolver := &mockResolverAPIForInit{
-		updateStateFunc: func(state []byte, accountID string) error {
-			return context.DeadlineExceeded
-		},
-	}
-
-	mockResolverSupplier := func(_ context.Context, _ lr.LogSink) lr.LocalResolver {
-		return mockResolver
-	}
-
-	provider := newLocalResolverProvider(
-		mockResolverSupplier,
-		mockStateProvider,
-		mockFlagLogger,
-		"secret",
-		nil,
-		WithInitializationTimeout(time.Millisecond),
-	)
-
-	err := provider.Init(openfeature.EvaluationContext{})
-	var initErr *openfeature.ProviderInitError
-	if !errors.As(err, &initErr) || initErr.ErrorCode != openfeature.ProviderFatalCode {
-		t.Fatalf("Expected fatal initialization error, got: %v", err)
-	}
-	provider.Shutdown()
-}
-
-// TestLocalResolverProvider_Init_Success verifies successful Init
-func TestLocalResolverProvider_Init_Success(t *testing.T) {
-	updateStateCalled := false
-	var receivedState []byte
-	var receivedAccountID string
-
-	mockStateProvider := &tu.StateProviderMock{
-		State:     []byte("test-state-data"),
-		AccountID: "test-account-123",
-		Err:       nil,
-	}
-
-	mockResolver := &mockResolverAPIForInit{
-		updateStateFunc: func(state []byte, accountID string) error {
-			updateStateCalled = true
-			receivedState = state
-			receivedAccountID = accountID
-			return nil
-		},
-	}
-
-	mockFlagLogger := &tu.MockFlagLogger{}
-
-	mockResolverSupplier := func(_ context.Context, _ lr.LogSink) lr.LocalResolver {
-		return mockResolver
-	}
-
-	provider := newLocalResolverProvider(
-		mockResolverSupplier,
-		mockStateProvider,
-		mockFlagLogger,
-		"secret",
-		nil,
-	)
-
-	err := provider.Init(openfeature.EvaluationContext{})
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
-	}
-
-	if !updateStateCalled {
-		t.Error("Expected UpdateStateAndFlushLogs to be called")
-	}
-
-	if string(receivedState) != "test-state-data" {
-		t.Errorf("Expected state to be 'test-state-data', got: %s", string(receivedState))
-	}
-
-	if receivedAccountID != "test-account-123" {
-		t.Errorf("Expected accountID to be 'test-account-123', got: %s", receivedAccountID)
-	}
-
-	// Verify background tasks were started (cancelFunc should be set)
-	provider.mu.Lock()
-	hasCancelFunc := provider.cancelFunc != nil
-	provider.mu.Unlock()
-
-	if !hasCancelFunc {
-		t.Error("Expected cancelFunc to be set after Init")
-	}
-
-	// Clean up
-	provider.Shutdown()
 }

@@ -1,5 +1,9 @@
 # Confidence OpenFeature Provider Integration Guide
 
+> [!WARNING]
+> **`next` branch:** this guide was written for the providers on `main`, and is updated as
+> providers are rewritten. Where a rewritten provider's README differs, the README is right.
+
 This guide contains common integration steps that apply to all Confidence OpenFeature providers in this repository.
 
 For language-specific installation and quick start instructions, see your provider's README:

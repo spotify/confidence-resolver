@@ -1,8 +1,8 @@
 # Confidence OpenFeature Provider for Go
 
-> [!WARNING]
-> **`next` branch:** this provider is kept as API reference and does not build here. It is being
-> rewritten on state-to-wasm modules; until then, use the version on `main`.
+> [!NOTE]
+> This is the `next` version of the provider, built on compiled flag modules and released as
+> release candidates. For the current release, see the provider on `main`.
 
 ![Status: Experimental](https://img.shields.io/badge/status-experimental-orange)
 
@@ -10,12 +10,14 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 
 ## Features
 
-- **Local Resolution**: Evaluates feature flags locally using WebAssembly (WASM)
+- **Local Resolution**: Evaluates flags locally in a WebAssembly module compiled from your
+  client's flags, fetched from the Confidence CDN
 - **Low Latency**: No network calls during flag evaluation
-- **Automatic Sync**: Periodically syncs flag configurations from Confidence
-- **Exposure Logging**: Fully supported exposure logging and resolve analytics
-- **[Event Tracking](#event-tracking)**: Send custom events via the OpenFeature `Track()` API
+- **Automatic Sync**: Picks up new flag modules as flags change
+- **Exposure Logging**: Exposure logging and resolve analytics
 - **OpenFeature Compatible**: Works with the standard OpenFeature Go SDK
+
+Not yet supported in this version: event tracking (`Track()`).
 
 ## Installation
 
@@ -28,8 +30,6 @@ go mod tidy
 
 - Go 1.25+
 - OpenFeature Go SDK 1.16.0+
-
-> **Note:** Use v0.20.1 or later; the v0.20.0 tag shipped with an out-of-sync embedded WASM module.
 
 ## Getting Your Credentials
 
@@ -44,7 +44,7 @@ You'll need a **client secret** from Confidence to use this provider.
 
 ## Encryption
 
-The provider fetches encrypted flag state and decrypts it when loading the resolver. Pass the encryption key for your client credential when creating the provider.
+The provider fetches its flag module encrypted and decrypts it before loading it. Pass the encryption key for your client credential when creating the provider.
 
 See the [Integration Guide](../INTEGRATION_GUIDE.md#encryption) for background and migration details.
 
@@ -169,81 +169,77 @@ if err := openfeature.SetProviderAndWait(provider); err != nil {
 
 ## Configuration
 
-### Environment Variables
-
-Configure the provider behavior using environment variables:
-
-- `CONFIDENCE_MATERIALIZATION_READ_TIMEOUT_SECONDS`: Timeout for remote materialization store read operations (default: `2` seconds)
-- `CONFIDENCE_MATERIALIZATION_WRITE_TIMEOUT_SECONDS`: Timeout for remote materialization store write operations (default: `5` seconds)
-
-#### Deprecated Environment Variables
-
-The following environment variables are deprecated and will be removed in a future version. Use `ProviderConfig` fields instead:
-
-- `CONFIDENCE_STATE_POLL_INTERVAL_SECONDS`: Use `ProviderConfig.StatePollInterval` instead
-- `CONFIDENCE_LOG_POLL_INTERVAL_SECONDS`: Use `ProviderConfig.LogPollInterval` instead
-
 ### ProviderConfig
-
-The `ProviderConfig` struct contains all configuration options for the provider:
 
 #### Required Fields
 
 - `ClientSecret` (string): The client secret used for authentication and flag evaluation
-- `EncryptionKey` (string, required): Encryption key for decrypting the flag state. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
+- `EncryptionKey` (string): The credential's encryption key, 64 hexadecimal characters. Found in the [Confidence Admin view](https://app.confidence.spotify.com/admin/clients).
 
 #### Optional Fields
 
-- `Logger` (\*slog.Logger): Custom logger for provider operations. If not provided, a default text logger is created. See [Logging](#logging) for details.
-- `TransportHooks` (TransportHooks): Custom transport hooks for advanced use cases (e.g., custom gRPC interceptors, HTTP transport wrapping, TLS configuration). The default gRPC dial options include a retry policy for flag log writes (3 attempts with exponential backoff on `UNAVAILABLE`). Custom `TransportHooks` receive these options in `ModifyGRPCDial` and can keep, modify, or replace them. See [gRPC retry via service config](https://grpc.io/docs/guides/retry/) for details.
-- `StatePollInterval` (time.Duration): Interval for polling flag state updates (default: 10 seconds)
-- `LogPollInterval` (time.Duration): Interval for flushing evaluation logs (default: 60 seconds)
-- `InitializationTimeout` (time.Duration): Total startup retry budget before initialization returns a recoverable timeout error (default: 30 seconds)
-- `ResolverPoolSize` (int): Number of WASM resolver instances in the pool (default: `2`). Increase for higher concurrency (with the penalty of higher memory footprint).
-- `UseWasmInterpreter` (bool): Run the embedded WASM resolver in wazero **interpreter** mode instead of the default **JIT compiler** (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode) for when to enable this and the performance trade-offs.
-- `MaterializationStore` (MaterializationStore): Storage for sticky variant assignments and materialized segments. Options include:
+- `MaterializationStore` (MaterializationStore): Storage for sticky assignments and materialized segments. See [Materialization Stores](#materialization-stores).
+- `UseRemoteMaterializationStore` (bool): Use Confidence's hosted materialization store instead of your own. Requires `MaterializationStore` to be nil.
+- `ExposureMode` (ExposureMode): How exposure events are collected (default `ExposureDeduplicated`). See [Exposure logging](#exposure-logging).
+- `Instances` (int): The maximum number of concurrent evaluations (default: `GOMAXPROCS`).
+- `MaxMemoryBytes` (uint64): Caps the resolver's memory (default: 64 MiB).
+- `StatePollInterval` (time.Duration): How often to check for flag updates (default: 10 seconds).
+- `InitializationTimeout` (time.Duration): How long initialization waits for the first flag module (default: 30 seconds).
+- `UseWasmInterpreter` (bool): Run the flag module in wazero's interpreter instead of its compiler (default: `false`). See [WASM interpreter mode](#wasm-interpreter-mode).
+- `HTTPClient` (\*http.Client): Used for all requests to Confidence (default: `http.DefaultClient`). Use it for proxies, custom TLS or instrumentation.
+- `Logger` (\*slog.Logger): Custom logger. See [Logging](#logging).
 
-  - `nil` (default): Falls back to default values for flags requiring materializations
-  - `NewRemoteMaterializationStore()`: Uses remote gRPC storage (recommended for getting started)
-  - Custom implementation: Your own storage (Redis, DynamoDB, etc.) for optimal performance
+## Exposure logging
 
-  See [Materialization Stores](#materialization-stores) for details.
+By default the provider logs each unit's exposure to a variant once per deduplication window
+(`ExposureDeduplicated`), so repeatedly evaluating the same flag for the same targeting key
+produces one exposure event instead of many. Distinct units are never collapsed, so per-unit
+exposure counts are unaffected.
 
-#### Testing encrypted state
+`ExposureMode` changes this for every evaluation through the provider:
 
-Use `NewProvider` with a test `EncryptionKey` and `TransportHooks` that route CDN
-requests to a test server serving encrypted fixtures. Keyless construction helpers
-(`NewLocalResolverProvider` and `NewProviderForTest`) are now internal.
-
-## Apply-event deduplication
-
-Apply-event deduplication is **on by default**. The WASM resolver collapses
-byte-identical apply events for the same unit and variant within a 120-second
-TTL window (tracking up to 100,000 entries), so repeatedly resolving the same
-flag for the same targeting key produces one apply event instead of many.
-
-Upgrading without changing any code therefore reduces raw apply-event volume,
-substantially so for high-QPS traffic that resolves the same flag for the same
-unit. Distinct units are never collapsed, because the targeting key is part of
-the dedup key, so per-unit exposure counts are unaffected.
-
-To turn it off and log every apply:
+| Mode | Exposure events |
+| --- | --- |
+| `ExposureDeduplicated` (default) | Once per unit and variant per window |
+| `ExposureAll` | Every evaluation |
+| `ExposureNone` | None (error events are still sent) |
 
 ```go
 provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-    ClientSecret:      "your-client-secret",
-    EncryptionKey:     "your-encryption-key",
-    DisableApplyDedup: true,
+    ClientSecret:  "your-client-secret",
+    EncryptionKey: "your-encryption-key",
+    ExposureMode:  confidence.ExposureAll,
 })
 ```
 
-`EnableApplyDedup` is retained for compatibility but is now redundant. Because
-it is a plain `bool`, leaving it `false` is indistinguishable from not setting
-it, so `false` does **not** disable dedup — use `DisableApplyDedup`.
+Only use `ExposureNone` for exceptional cases: without exposures, experiment results and exposure
+counts for those evaluations are incomplete. Resolve analytics are still sent.
+
+To skip exposure for a single evaluation, set `_confidence_skip_apply` to `true` in the evaluation
+context:
+
+```go
+evalCtx := openfeature.NewEvaluationContext("user-123", map[string]any{
+    "_confidence_skip_apply": true,
+})
+
+value, err := client.BooleanValue(ctx, "my-flag.enabled", false, evalCtx)
+```
+
+The provider removes the key before resolving, so it never reaches targeting or the logs. Other
+values than `true` are ignored.
+
+| Mechanism | Scope | Exposure events | Resolve analytics |
+| --- | --- | --- | --- |
+| `ExposureMode` provider config | Every evaluation through the provider | As the mode says | Still sent |
+| `_confidence_skip_apply` context key | One evaluation | None for that evaluation | Still sent |
+
+The context key is intended for exceptional cases. If you're considering it, reach out to the
+Confidence team to discuss the best approach for your setup.
 
 ## WASM interpreter mode
 
-By default the Go provider runs the embedded resolver through [wazero](https://wazero.io/)'s **JIT compiler** (Wazevo), which compiles WASM to native code for low-latency flag evaluation. On **linux/arm64**, CPU profiling (`SIGPROF`) or goroutine preemption (`SIGURG`) can arrive while a thread is executing that JIT code. Go cannot attribute the signal to a goroutine in that state and may exit the process silently (exit code 139, no stack trace).
+By default the Go provider runs the flag module through [wazero](https://wazero.io/)'s **JIT compiler** (Wazevo), which compiles WASM to native code for low-latency flag evaluation. On **linux/arm64**, CPU profiling (`SIGPROF`) or goroutine preemption (`SIGURG`) can arrive while a thread is executing that JIT code. Go cannot attribute the signal to a goroutine in that state and may exit the process silently (exit code 139, no stack trace).
 
 Setting `UseWasmInterpreter: true` switches wazero to its **interpreter** engine. WASM runs as ordinary Go code on a normal goroutine stack, so profiling and preemption signals are handled safely. This is an **opt-in safety valve** — keep the default unless you need it.
 
@@ -261,25 +257,14 @@ Keep the default (`UseWasmInterpreter: false`) for:
 - Services where flag evaluation latency or throughput is critical
 - Environments where profiling does not sample during WASM execution
 
-Other local providers in this repository (Java, JavaScript, Python) use compiled WASM pipelines by default and do not expose an interpreter toggle. Rust uses the native resolver directly. Go interpreter mode is the slowest local execution path, but it is the practical in-process fix for the arm64 signal issue.
+Go interpreter mode is the slowest local execution path, but it is the practical in-process fix for the arm64 signal issue.
 
 ### Performance impact
 
-Interpreter mode is substantially slower than JIT for the WASM resolver hot path. On linux/arm64, a microbenchmark of `ResolveProcess` against real resolver state measured roughly:
-
-| Mode | Latency (approx.) | Throughput (approx.) |
-|------|-------------------|----------------------|
-| JIT (default) | ~12 µs / evaluation | ~80,000 evals/s |
-| Interpreter | ~590 µs / evaluation | ~1,700 evals/s |
-
-That is about **50× slower** at the WASM layer. End-to-end request latency depends on how often and how centrally you evaluate flags — a single evaluation per multi-millisecond workflow step may be acceptable; tight loops or very high QPS per pod may not.
-
-To reproduce the comparison locally (requires `data/resolver_state_current.pb` at the repository root):
-
-```bash
-go test ./confidence/internal/local_resolver/ -run TestReportInterpreterOverhead -v
-go test ./confidence/internal/local_resolver/ -bench=BenchmarkResolveProcess -benchmem -count=5
-```
+Interpreter mode is substantially slower than the compiler, on the order of 50× at the WASM
+layer. End-to-end request latency depends on how often and how centrally you evaluate flags: a
+single evaluation per multi-millisecond workflow step may be acceptable; tight loops or very high
+QPS per pod may not.
 
 ### Example
 
@@ -305,7 +290,7 @@ Materialization stores provide persistent storage for sticky variant assignments
 
 ### Remote Materialization Store
 
-For quick setup without managing your own storage infrastructure, enable the built-in remote materialization store. This implementation stores materialization data via gRPC to the Confidence service.
+For quick setup without managing your own storage infrastructure, enable the built-in remote materialization store. This implementation reads and writes materialization data through the Confidence service over HTTP.
 
 **When to use**:
 
@@ -344,7 +329,7 @@ func main() {
 }
 ```
 
-The remote store is created automatically by the provider with the correct gRPC connection and authentication.
+The provider creates the remote store itself, authenticated with your client secret.
 
 ### Custom Implementations
 
@@ -385,15 +370,6 @@ func main() {
     // ...
 }
 ```
-
-### In-Memory Store for Testing
-
-An in-memory reference implementation is provided for testing and development.
-**Warning**: An in-memory store should NOT be used in production because:
-
-- Data is lost on application restart (no persistence)
-- Memory grows unbounded
-- Not suitable for multi-instance deployments
 
 ### When to Use Materialization Stores
 
@@ -527,7 +503,17 @@ for _, f := range resp.ResolvedFlags {
 
 When `apply` is `false`, the response contains a `ResolveToken`. Pass it to `ApplyFlags` later to record exposure events — useful when you resolve flags on the server but only want to log exposure once the client actually renders the experience.
 
-> **⚠️ The `ResolveToken` is not encrypted.** It contains the full evaluation context and the resolved variant for each flag. If that data is sensitive, encrypt the token before it leaves your backend and decrypt it before passing it to `ApplyFlags`. See the [Integration Guide: Deferred Apply and Resolve Token Security](../INTEGRATION_GUIDE.md#deferred-apply-and-resolve-token-security).
+> **⚠️ The `ResolveToken` is neither encrypted nor authenticated.** It's a plain serialization of
+> the exposure events it stands for: the resolve ID, and for each flag the targeting key and the
+> variant, rule and segment it resolved to. Other evaluation context attributes aren't in it.
+> Anyone who can read the token sees that, and anyone who can change it before it reaches
+> `ApplyFlags` can make the provider log exposures that never happened. The encryption key doesn't
+> protect it: that key only decrypts the flag module.
+>
+> If the token leaves your backend, wrap it in authenticated encryption that only your backend can
+> undo (such as AES-GCM with a key of your own) and unwrap it before `ApplyFlags`, or keep the token
+> on the server and hand out a reference to it. See the
+> [Integration Guide: Deferred Apply and Resolve Token Security](../INTEGRATION_GUIDE.md#deferred-apply-and-resolve-token-security).
 
 ```go
 // 1. Resolve without applying
@@ -541,9 +527,7 @@ err = provider.ApplyFlags(&resolver.ApplyFlagsRequest{
     Flags: []*resolver.AppliedFlag{
         {Flag: "flags/checkout-flow", ApplyTime: timestamppb.Now()},
     },
-    ClientSecret: "your-client-secret",
-    EncryptionKey: "your-encryption-key",
-    ResolveToken: resp.ResolveToken,
+    ResolveToken: resp.ResolveToken, // the client secret is filled in by the provider
     SendTime:     timestamppb.Now(),
 })
 if err != nil {
@@ -585,79 +569,9 @@ The provider logs at different levels: `Debug` (flag resolution details), `Info`
 
 ### What Happens During Shutdown?
 
-1. **Flushes pending logs** to Confidence (exposure events, resolve analytics)
-2. **Closes gRPC connections** and releases network resources
-3. **Stops background tasks** (state polling, log batching)
-4. **Releases WASM instance** and memory
-
-The shutdown respects the context timeout you provide.
-
-## Event Tracking
-
-The provider supports the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking) for sending custom events to the Confidence events backend. Event tracking is automatically enabled when using `NewProvider` — no configuration needed.
-
-**📖 See the [Integration Guide: Event Tracking](../INTEGRATION_GUIDE.md#event-tracking)** for delivery guarantees, payload mapping rules, and cross-provider differences.
-
-### Usage
-
-```go
-client := openfeature.NewClient("my-app")
-
-evalCtx := openfeature.NewEvaluationContext("user-123", map[string]interface{}{
-    "country": "US",
-})
-
-// Track a simple event
-client.Track(ctx, "checkout_completed", evalCtx, openfeature.NewTrackingEventDetails(0))
-
-// Track with a numeric value
-client.Track(ctx, "purchase", evalCtx, openfeature.NewTrackingEventDetails(49.99))
-
-// Track with custom data
-details := openfeature.NewTrackingEventDetails(1)
-details.Add("sku", "ABC-123")
-details.Add("category", "electronics")
-client.Track(ctx, "item_added", evalCtx, details)
-```
-
-Events are batched internally and flushed to the Confidence events service at the same interval as flag logs (configurable via `LogPollInterval`). On shutdown, pending events are drained on a best-effort basis (up to 100 batches within a 3-second timeout).
-
-> **Note:** Go cannot distinguish `value: 0` from an unset value. The provider treats `0` as unset and omits it. If you need to record a zero-valued event, put it in the custom data instead of `value`. See the [Integration Guide](../INTEGRATION_GUIDE.md#known-provider-differences) for details.
-
-## Advanced: Controlling Exposure Events
-
-By default, every flag evaluation records an exposure event (apply). Only disable this for exceptional cases where this provider must not collect exposures at all.
-
-For normal feature delivery and experiments, keep applies enabled. When exposure collection is disabled, Confidence does not receive assignment/exposure events for those evaluations. Experiment results, exposure counts, assignment diagnostics, and downstream reporting that depend on exposures can be incomplete or unavailable. Resolve analytics and telemetry are still sent, so this is not a general logging or privacy-off switch.
-
-To disable exposure collection for **all** OpenFeature evaluations through this provider, set `DisableExposureCollection`:
-
-```go
-provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-    ClientSecret: "your-client-secret",
-    EncryptionKey: "your-encryption-key",
-    DisableExposureCollection: true,
-})
-```
-
-To skip exposure collection for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
-
-```go
-evalCtx := openfeature.NewEvaluationContext("user-123", map[string]interface{}{
-    "_confidence_skip_apply": true,
-})
-
-value, err := client.BooleanValue(ctx, "my-flag.enabled", false, evalCtx)
-```
-
-The key is automatically stripped from the context before it reaches the resolver.
-
-| Mechanism | Scope | Assignment/exposure events | Resolve logs and telemetry |
-| --- | --- | --- | --- |
-| `DisableExposureCollection` provider config | All OpenFeature evaluations through this provider | Never queued; no deferred apply token is returned | Still sent |
-| `_confidence_skip_apply` context key | One evaluation | No immediate exposure event for that evaluation | Still sent |
-
-This is an advanced feature intended for exceptional cases. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
+1. **Stops background tasks** (flag polling, timed log flushes)
+2. **Flushes pending logs** to Confidence (exposure events, resolve analytics)
+3. **Releases the flag module** and its memory
 
 ## License
 
@@ -675,6 +589,3 @@ has its own unique encryption key, available alongside it. Use the key paired wi
 your configured client secret. Configure and verify encryption on your existing
 SDK before upgrading.
 
-`NewFlagsAdminStateFetcher` and `NewFlagsAdminStateFetcherWithTransport` now take
-an encryption key after the client secret. All state-fetcher constructors return
-`(*FlagsAdminStateFetcher, error)`; handle configuration errors before using them.

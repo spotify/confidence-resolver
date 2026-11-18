@@ -8,161 +8,92 @@ import (
 	"github.com/open-feature/go-sdk/openfeature"
 )
 
-// End-to-end tests that verify WriteFlagLogs successfully sends to the real backend.
-
-var e2eClientSecret = os.Getenv("CONFIDENCE_CLIENT_SECRET")
-var e2eEncryptionKey = os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
+// End-to-end tests against the real module CDN, with the e2e credential. They need
+// CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY (set in CI; locally, see
+// openfeature-provider/js/.env.test). Flag logs go to production ingestion.
 
 const (
 	e2eIncludedTargetingKey = "user-a"
 	e2eExcludedTargetingKey = "user-x"
 )
 
-func requireE2EEnvironmentVariable(t *testing.T, name, value string) {
+func e2eClient(t *testing.T, mod func(*ProviderConfig)) *openfeature.Client {
 	t.Helper()
-	if value == "" {
-		t.Fatalf("%s must be set to run e2e tests", name)
+	secret, key := os.Getenv("CONFIDENCE_CLIENT_SECRET"), os.Getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY")
+	if secret == "" || key == "" {
+		if os.Getenv("CI") != "" {
+			t.Fatal("CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set in CI")
+		}
+		t.Skip("CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY not set")
+	}
+	cfg := ProviderConfig{ClientSecret: secret, EncryptionKey: key}
+	if mod != nil {
+		mod(&cfg)
+	}
+	p, err := NewProvider(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openfeature.SetNamedProviderAndWait(t.Name(), p); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Shutdown)
+	return openfeature.NewClient(t.Name())
+}
+
+func TestE2E_NonSticky(t *testing.T) {
+	client := e2eClient(t, nil)
+	ctx := context.Background()
+	evalCtx := openfeature.NewEvaluationContext("test-a", map[string]any{"sticky": false})
+	d, err := client.BooleanValueDetails(ctx, "web-sdk-e2e-flag.bool", true, evalCtx)
+	if err != nil || d.Value {
+		t.Errorf("bool: value=%v err=%v", d.Value, err)
+	}
+	if v, err := client.IntValue(ctx, "web-sdk-e2e-flag.int", 0, evalCtx); err != nil {
+		t.Errorf("int: %v %v", v, err)
 	}
 }
 
-func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStore(t *testing.T) {
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
-	ctx := context.Background()
-
-	// Create a real provider with a RemoteMaterializationStore
-	provider, err := NewProvider(ctx, ProviderConfig{
-		ClientSecret:                  e2eClientSecret,
-		EncryptionKey:                 e2eEncryptionKey,
-		UseRemoteMaterializationStore: true,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create provider: %v", err)
+// Without a store, the module decides materialized segment membership itself (from the bloom
+// filter compiled into it): both inclusion and exclusion.
+func TestE2E_MaterializedSegmentWithoutStore(t *testing.T) {
+	client := e2eClient(t, nil)
+	for unit, want := range map[string]string{
+		e2eIncludedTargetingKey: "flags/custom-targeted-flag/variants/cake-exclamation",
+		e2eExcludedTargetingKey: "flags/custom-targeted-flag/variants/default",
+	} {
+		d, err := client.StringValueDetails(context.Background(), "custom-targeted-flag.message", "client default",
+			openfeature.NewTargetlessEvaluationContext(map[string]any{"user_id": unit}))
+		if err != nil || d.Variant != want {
+			t.Errorf("%s: variant=%q err=%v, want %q", unit, d.Variant, err, want)
+		}
 	}
-
-	// Set provider and wait for ready
-	err = openfeature.SetProviderAndWait(provider)
-	if err != nil {
-		t.Fatalf("Failed to set provider: %v", err)
-	}
-
-	client := openfeature.NewClient("real-backend-e2e-test")
-
-	// Perform a resolve to generate logs
-	details, err := client.StringValueDetails(ctx, "custom-targeted-flag.message", "client default", openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
-		"user_id": e2eIncludedTargetingKey,
-	}))
-	if err != nil {
-		t.Fatalf("Failed to resolve string flag: %v", err)
-	}
-	if details.Variant != "flags/custom-targeted-flag/variants/cake-exclamation" {
-		t.Errorf("Expected Variant flags/custom-targeted-flag/variants/cake-exclamation, got %v", details.Variant)
-	}
-
-	openfeature.Shutdown()
 }
 
-func TestFlagResolve_WithMaterializedSegmentTargetingAndRemoteMaterializationStoreNotInSegment(t *testing.T) {
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
-	ctx := context.Background()
+func remoteStore(c *ProviderConfig) { c.UseRemoteMaterializationStore = true }
 
-	// Create a real provider with a RemoteMaterializationStore
-	provider, err := NewProvider(ctx, ProviderConfig{
-		ClientSecret:                  e2eClientSecret,
-		EncryptionKey:                 e2eEncryptionKey,
-		UseRemoteMaterializationStore: true,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create provider: %v", err)
+// The flag has a running experiment with a sticky assignment for test-3 and paused intake. If this
+// breaks, the experiment may have been removed or the materialization cleaned out (see the JS e2e
+// test for how to restore it).
+func TestE2E_StickyRemoteStore(t *testing.T) {
+	client := e2eClient(t, remoteStore)
+	d, err := client.FloatValueDetails(context.Background(), "web-sdk-e2e-flag.double", -1,
+		openfeature.NewEvaluationContext("test-3", map[string]any{"sticky": true}))
+	if err != nil || d.Value != 99.99 || d.Variant != "flags/web-sdk-e2e-flag/variants/sticky" {
+		t.Errorf("value=%v variant=%q reason=%v err=%v", d.Value, d.Variant, d.Reason, err)
 	}
-
-	// Set provider and wait for ready
-	err = openfeature.SetProviderAndWait(provider)
-	if err != nil {
-		t.Fatalf("Failed to set provider: %v", err)
-	}
-
-	client := openfeature.NewClient("real-backend-e2e-test")
-
-	// Perform a resolve to generate logs
-	details, err := client.StringValueDetails(ctx, "custom-targeted-flag.message", "client default", openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
-		"user_id": e2eExcludedTargetingKey,
-	}))
-	if err != nil {
-		t.Fatalf("Failed to resolve string flag: %v", err)
-	}
-	if details.Variant != "flags/custom-targeted-flag/variants/default" {
-		t.Errorf("Expected Variant flags/custom-targeted-flag/variants/default, got %v", details.Variant)
-	}
-
-	openfeature.Shutdown()
 }
 
-func TestFlagResolve_WithMaterializedSegmentTargetingAndNoMaterializationStoreUsesBloomFilter(t *testing.T) {
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
-	ctx := context.Background()
-
-	// Without a materialization store, the resolver uses bloom filters
-	// delivered in the state to check materialized segment membership locally.
-	provider, err := NewProvider(ctx, ProviderConfig{
-		ClientSecret:                  e2eClientSecret,
-		EncryptionKey:                 e2eEncryptionKey,
-		UseRemoteMaterializationStore: false,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create provider: %v", err)
-	}
-
-	err = openfeature.SetProviderAndWait(provider)
-	if err != nil {
-		t.Fatalf("Failed to set provider: %v", err)
-	}
-
-	client := openfeature.NewClient("real-backend-e2e-test")
-
-	details, err := client.StringValueDetails(ctx, "custom-targeted-flag.message", "client default", openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
-		"user_id": e2eIncludedTargetingKey,
-	}))
-	if err != nil {
-		t.Fatalf("Failed to resolve string flag via bloom filter: %v", err)
-	}
-	if details.Variant != "flags/custom-targeted-flag/variants/cake-exclamation" {
-		t.Errorf("Expected Variant flags/custom-targeted-flag/variants/cake-exclamation, got %v", details.Variant)
-	}
-
-	openfeature.Shutdown()
-}
-
-func TestFlagResolve_WithEncryptedState(t *testing.T) {
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_SECRET", e2eClientSecret)
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
-	requireE2EEnvironmentVariable(t, "CONFIDENCE_CLIENT_ENCRYPTION_KEY", e2eEncryptionKey)
-	ctx := context.Background()
-	provider, err := NewProvider(ctx, ProviderConfig{
-		ClientSecret:  e2eClientSecret,
-		EncryptionKey: e2eEncryptionKey,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create provider: %v", err)
-	}
-	err = openfeature.SetProviderAndWait(provider)
-	if err != nil {
-		t.Fatalf("Failed to set provider: %v", err)
-	}
-	defer provider.Shutdown()
-	client := openfeature.NewClient("encrypted-e2e")
-
-	// Same flag assertions as existing e2e tests
-	details, err := client.BooleanValueDetails(ctx, "web-sdk-e2e-flag.bool", true, openfeature.NewTargetlessEvaluationContext(map[string]interface{}{
-		"targeting_key": "test-a",
-		"sticky":        false,
-	}))
-	if err != nil {
-		t.Fatalf("Failed to resolve: %v", err)
-	}
-	if details.Value != false {
-		t.Errorf("Expected false, got %v", details.Value)
+func TestE2E_MaterializedSegmentRemoteStore(t *testing.T) {
+	client := e2eClient(t, remoteStore)
+	for unit, want := range map[string]string{
+		e2eIncludedTargetingKey: "flags/custom-targeted-flag/variants/cake-exclamation",
+		e2eExcludedTargetingKey: "flags/custom-targeted-flag/variants/default",
+	} {
+		d, err := client.StringValueDetails(context.Background(), "custom-targeted-flag.message", "client default",
+			openfeature.NewTargetlessEvaluationContext(map[string]any{"user_id": unit}))
+		if d.Variant != want {
+			t.Errorf("%s: variant=%q (%v), want %q", unit, d.Variant, err, want)
+		}
 	}
 }
