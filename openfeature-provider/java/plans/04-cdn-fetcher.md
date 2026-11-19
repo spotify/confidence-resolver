@@ -1,6 +1,11 @@
 # 04 — Module CDN fetcher
 
-Ports go commit `a1b35aa8`. One commit of the rewrite PR. Reference: `internal/cdn/fetcher.go` on `next` (merged as #700).
+Ports go commit `a1b35aa8`. One commit of the rewrite PR. Reference:
+`internal/cdn/fetcher.go` on `next` (merged as #700).
+
+**Status: ✅ landed** — `CdnFetcher` + `CdnFetcherTest` (ETag flow, decryption,
+classification, key parsing) and `CdnFetcherE2ETest` (self-skipping without credentials),
+verified in the harness; 27 tests green, 1 e2e skipped.
 
 ## Goal
 
@@ -44,3 +49,19 @@ module CDN, decrypts it, and answers a fetch outcome the engine's poll loop can 
 
 The fetcher is fully covered by unit tests against a local HTTP server and no production URL is
 hard-coded anywhere except the default constant.
+
+## Deltas from the Go reference (as landed)
+
+- Go's error values map to an exception taxonomy the engine can branch on:
+  `CdnException` (retryable base), `NotModifiedException`, `NotPublishedException`
+  (retryable: 404 while the credential has no module), and `TerminalCdnException`
+  (rejected credential, undecodable artifact). Errors never include key material.
+- The fetched artifact is `CdnFetcher.FetchedModule(wasm, logToken, etag)`, renamed from Go's
+  `Module` to avoid the host's `Module`.
+- The transport is `java.net.http.HttpClient` (injectable); classification, the ETag rules
+  (accepted only via `accept`), the `nonce ‖ ct ‖ tag` layout with empty AAD, and the
+  `sha256(clientSecret)` path are faithful to the Go fetcher.
+- The e2e test self-skips without credentials via `@EnabledIfEnvironmentVariable` and carries
+  the `*E2ETest` suffix; the Makefile's `test` excludes that suffix and `test-e2e` runs only it
+  (`mvn test -Dtest='**/*E2ETest'` — failsafe only picks up `*IT`, so the e2e set is surefire-run
+  by name, like Go's `-run E2E`).

@@ -18,7 +18,7 @@ as the Go provider (reference implementation) already did on `next` (merged as #
 | 1 | [01-chicory-spike.md](01-chicory-spike.md) | risk gate, no PR | ✅ passed — Endive 1.2.0 |
 | 2 | [02-protos-and-fixtures.md](02-protos-and-fixtures.md) | `93c7365e` | ✅ done |
 | 3 | [03-host-runtime.md](03-host-runtime.md) | `31cd404a` (+ `c85edc44`) | ✅ done |
-| 4 | [04-cdn-fetcher.md](04-cdn-fetcher.md) | `a1b35aa8` | ☐ |
+| 4 | [04-cdn-fetcher.md](04-cdn-fetcher.md) | `a1b35aa8` | ✅ done |
 | 5 | [05-ingest-shipper.md](05-ingest-shipper.md) | `7b2a45ec` | ☐ |
 | 6 | [06-engine.md](06-engine.md) | `fe0ddf42` (+ `e821478f`) | ☐ |
 | 7 | [07-provider-api.md](07-provider-api.md) | `fb866c6d` (+ `0ce35258`, `870eb772`, `c7f91211`) | ☐ |

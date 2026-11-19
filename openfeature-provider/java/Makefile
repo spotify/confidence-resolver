@@ -14,7 +14,7 @@ test:
 test-e2e:
 	@test -n "$$CONFIDENCE_CLIENT_SECRET" -a -n "$$CONFIDENCE_CLIENT_ENCRYPTION_KEY" || \
 		(echo "CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY must be set" && exit 1)
-	mvn -q verify -Dsurefire.skip=true
+	mvn -q test -Dtest='**/*E2ETest'
 
 clean:
 	mvn -q clean
