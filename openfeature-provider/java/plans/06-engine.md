@@ -1,7 +1,11 @@
 # 06 — Engine: module generations and swap
 
-Ports go commit `fe0ddf42` (engine) with the close fix `e821478f`. One commit of the rewrite PR. Reference:
-`internal/engine/engine.go` on `next` (merged as #700).
+Ports go commit `fe0ddf42` (engine) with the close fix `e821478f`. One commit of the rewrite PR.
+Reference: `internal/engine/engine.go` on `next` (merged as #700).
+
+**Status: ✅ landed** — `Engine` + `EngineTest` porting the Go engine suite (startup taxonomy,
+swap under load, broken-module refetch, close deadline with a read in flight); 40 tests green,
+1 e2e skipped. One TestBackend bug fixed along the way (null `If-None-Match` normalization).
 
 ## Goal
 
@@ -80,3 +84,22 @@ final class Engine {
 
 The engine, fed by `TestBackend` (phase 5) and `basic.wasm`, drives all of the above deterministically
 in tests, including swap-under-load with concurrent evaluators.
+
+## Deltas from the Go reference (as landed)
+
+- Go's `TerminalError` and its wrapped `ctx.DeadlineExceeded` become
+  `TerminalStartupException` and `StartupTimeoutException` from `start(Duration)`;
+  `ErrNotReady`/`ErrClosed` from evaluation are `NotReadyException`/`EngineClosedException`.
+- Loops run on one daemon `ScheduledExecutorService` (fixed-rate ≈ Go's tickers, never
+  overlapping a task with itself); `close` cancels it and retires the current generation
+  bounded by the caller's deadline, returning false when evaluations are still in flight — the
+  remaining cleanup (retire, final flush, shipper drain) finishes in the background.
+- Retires run on the common ForkJoinPool via `CompletableFuture.runAsync`; they are rare
+  (one per swap) and short, but the provider may hand the engine a dedicated executor later.
+- The generation swap itself is the Go pattern: `AtomicReference.getAndSet` publishes the new
+  generation, the old one's write lock is acquired and never released, and `tryLock` failures
+  send evaluations back to reload the reference. Filters (apply 8 pages, schema 2) and the
+  shipper are engine-scoped and outlive every generation; a Java `DedupeFilter` holds no runtime
+  to close, unlike Go's.
+- TestBackend gotcha (fixed): a request without `If-None-Match` yields a null header — normalize
+  before any use, or the handler dies and the client only sees "no bytes".

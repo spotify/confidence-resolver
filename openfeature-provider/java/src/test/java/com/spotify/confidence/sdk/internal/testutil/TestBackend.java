@@ -61,7 +61,8 @@ public final class TestBackend implements AutoCloseable {
             "/modules/",
             exchange -> {
               String inm = exchange.getRequestHeaders().getFirst("If-None-Match");
-              ifNoneMatch.add(inm == null ? "" : inm);
+              inm = inm == null ? "" : inm;
+              ifNoneMatch.add(inm);
               int code = status;
               byte[] body = new byte[0];
               if (code == 200 && !inm.isEmpty() && inm.equals(etag)) {
