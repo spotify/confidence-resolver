@@ -57,10 +57,46 @@ RUN --mount=type=secret,id=confidence_client_secret \
     make test-e2e
 
 # ==============================================================================
+# OpenFeature Provider (Java)
+# ==============================================================================
+FROM maven:3.9-eclipse-temurin-17 AS openfeature-provider-java.base
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends make \
+    && rm -rf /var/lib/apt/lists/*
+
+# The repository layout: the pom reads ../proto, and the tests read ../testdata.
+WORKDIR /src/openfeature-provider/java
+
+COPY openfeature-provider/java/pom.xml ./
+RUN --mount=type=cache,target=/root/.m2 mvn -q dependency:go-offline
+
+COPY openfeature-provider/proto/ /src/openfeature-provider/proto/
+COPY openfeature-provider/testdata/ /src/openfeature-provider/testdata/
+COPY openfeature-provider/java/ ./
+
+FROM openfeature-provider-java.base AS openfeature-provider-java.build
+RUN make build
+
+FROM openfeature-provider-java.base AS openfeature-provider-java.test
+RUN make test
+
+FROM openfeature-provider-java.base AS openfeature-provider-java.lint
+RUN make lint
+
+FROM openfeature-provider-java.base AS openfeature-provider-java.test_e2e
+RUN --mount=type=secret,id=confidence_client_secret \
+    --mount=type=secret,id=confidence_client_encryption_key \
+    CONFIDENCE_CLIENT_SECRET=$(cat /run/secrets/confidence_client_secret) \
+    CONFIDENCE_CLIENT_ENCRYPTION_KEY=$(cat /run/secrets/confidence_client_encryption_key) \
+    make test-e2e
+
+# ==============================================================================
 # E2E - end-to-end tests against the Confidence backend (needs secrets)
 # ==============================================================================
 FROM scratch AS e2e
 COPY --from=openfeature-provider-go.test_e2e /src/openfeature-provider/go/go.mod /markers/test-e2e-openfeature-go
+COPY --from=openfeature-provider-java.test_e2e /src/openfeature-provider/java/pom.xml /markers/test-e2e-openfeature-java
 
 # ==============================================================================
 # All - Build and validate everything (default target)
@@ -68,3 +104,5 @@ COPY --from=openfeature-provider-go.test_e2e /src/openfeature-provider/go/go.mod
 FROM scratch AS all
 COPY --from=openfeature-provider-go.test /src/openfeature-provider/go/go.mod /markers/test-openfeature-go
 COPY --from=openfeature-provider-go.lint /src/openfeature-provider/go/go.mod /markers/lint-openfeature-go
+COPY --from=openfeature-provider-java.test /src/openfeature-provider/java/pom.xml /markers/test-openfeature-java
+COPY --from=openfeature-provider-java.lint /src/openfeature-provider/java/pom.xml /markers/lint-openfeature-java

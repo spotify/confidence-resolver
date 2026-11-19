@@ -1,3 +1,4 @@
 {
-  "openfeature-provider/go": "0.29.0"
+  "openfeature-provider/go": "0.29.0",
+  "openfeature-provider/java": "0.23.4"
 }

@@ -12,19 +12,27 @@ The Materialization Store provides persistent storage for flag resolution data, 
 
 ## How It Works
 
-### Default: Server-Side Storage (UnsupportedMaterializationStore)
+### Default: No Materialization Support (UnsupportedMaterializationStore)
 
 **Flow:**
-1. Local WASM resolver attempts to resolve
-2. If materialization data needed → `UnsupportedMaterializationStore` throws exception
-3. Provider falls back to remote gRPC resolution via Confidence
-4. Confidence checks its materialization repository, returns variant/inclusion data
-5. Data stored server-side with 90-day TTL (auto-renewed on access)
+1. The flag module resolves locally and requests the materialization data it needs
+2. The default `UnsupportedMaterializationStore` reports "not supported"
+3. The evaluation falls back to the caller's default value (with a `GENERAL` error code);
+   materialized segments still resolve through the membership data compiled into the module
 
-**Server-side configuration (in Confidence UI):**
-- Optionally skip targeting criteria for sticky assignments
-- Pause/resume new entity intake
-- Automatic TTL management
+**To get server-side sticky assignments and segments**, configure either the
+[hosted store](#remote-materialization-store) (`useRemoteMaterializationStore(true)`) or your
+own. Confidence manages stored materializations server-side with a 90-day TTL (auto-renewed on
+access), and the Confidence UI can skip targeting criteria for sticky assignments and
+pause/resume new entity intake.
+
+### Hosted storage: RemoteMaterializationStore
+
+`useRemoteMaterializationStore(true)` points the store at Confidence's hosted materialization
+service: protobuf over HTTPS to the resolver gateway, authenticated with the client secret
+(reads 2s, writes 5s; overridable via `CONFIDENCE_MATERIALIZATION_READ_TIMEOUT_SECONDS` and
+`CONFIDENCE_MATERIALIZATION_WRITE_TIMEOUT_SECONDS`). See the README's
+[Materialization Stores](README.md#materialization-stores).
 
 ### Custom: Local Storage (MaterializationStore)
 
@@ -103,7 +111,7 @@ OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
 ## Best Practices
 
 1. **Thread-safe implementation** - Implementations must be thread-safe for concurrent flag resolution
-2. **Fail gracefully** - Storage errors shouldn't fail flag resolution; throw `MaterializationNotSupportedException` to trigger remote fallback
+2. **Fail gracefully** - Storage errors shouldn't fail flag resolution; throw `MaterializationNotSupportedException` and the evaluation falls back to the caller's default value
 3. **Use 90-day TTL** - Match Confidence's default behavior, renew on read
 4. **Idempotent writes** - Write operations should be idempotent
 5. **Batch operations** - Both `read` and `write` accept batches for efficiency
@@ -115,7 +123,8 @@ OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
 
 | Implementation | Best For | Trade-offs |
 |----------|----------|------------|
-| **UnsupportedMaterializationStore** (default) | Most apps | Simple, managed by Confidence. Network calls when needed. |
+| No store (default) | Apps without sticky assignments | Zero network calls; flags needing materializations fall back to defaults. |
+| **RemoteMaterializationStore** | Apps needing sticky assignments | Network calls during evaluation; managed by Confidence. |
 | **MaterializationStore** (in-memory) | Testing/development only | Fast, no network. **Lost on restart - do not use in production.** |
 | **MaterializationStore** (Redis/DB) | Production apps needing local storage | No network calls. Requires persistent storage infrastructure. |
 
@@ -123,7 +132,10 @@ OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
 
 ## Error Handling
 
-When implementing `read()`, throw `MaterializationNotSupportedException` to trigger fallback to remote gRPC resolution. This allows graceful degradation when local storage is unavailable.
+When implementing `read()`, throw `MaterializationNotSupportedException` for a graceful
+fallback: the evaluation returns the caller's default value with a `GENERAL` error code instead
+of failing. The engine joins reads (the store's `CompletionStage`), and writes are
+fire-and-forget — a slow or failing store never fails or delays a resolve.
 
 ## Additional Resources
 

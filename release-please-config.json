@@ -15,6 +15,17 @@
       "extra-files": [
         "confidence/version.go"
       ]
+    },
+    "openfeature-provider/java": {
+      "release-type": "maven",
+      "changelog-path": "CHANGELOG.md",
+      "include-component-in-tag": true,
+      "component": "openfeature-provider/java",
+      "tag-separator": "/",
+      "extra-files": [
+        "README.md",
+        "src/main/java/com/spotify/confidence/sdk/Version.java"
+      ]
     }
   }
 }

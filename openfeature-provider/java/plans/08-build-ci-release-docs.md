@@ -1,4 +1,4 @@
-# 08 — Build, CI, release and docs: landing the provider
+# 08 — Build, CI, release and docs: landing the provider ✅
 
 Ports go commits `42610a23` (Docker stages, Makefile contract, release candidates) and `b8df8180`
 (README/CLAUDE.md for the flag-module provider). One commit of the rewrite PR; the last one.
@@ -67,3 +67,39 @@ After the first `rc` ships, update the internal version registries with the new 
 
 `make` at the repo root builds, tests and lints Java alongside Go; `docker build .` is green; a
 release-please run would cut `0.24.0-rc.1`; and the root README lists Java as rewritten.
+
+
+## Status: done ✅
+
+- Root `Makefile`: `PROVIDERS := go java`; the java Makefile gains `lint` (`mvn fmt:check`).
+- `Dockerfile`: `openfeature-provider-java.{base,build,test,lint,test_e2e}` on
+  `maven:3.9-eclipse-temurin-17` (make installed via apt), `../proto` and `../testdata` copied
+  at `/src/openfeature-provider/`, deps warmed with a BuildKit cache mount on `/root/.m2`;
+  `test`+`lint` wired into `all`, `test_e2e` into `e2e`. CI needs no workflow changes (it is
+  target-based).
+- `release-please-config.json`: java package with `release-type: maven`,
+  `include-component-in-tag`, extra-files `README.md` + `Version.java` (pom handled natively by
+  the maven strategy). Manifest entry `openfeature-provider/java: 0.23.4` — the first release
+  from `next` would cut `0.24.0-rc.1`.
+- `README.md` rewritten for the flag-module provider (same shape as Go's): config table,
+  exposure modes, interpreter mode, materialization stores over HTTP, typed defaults,
+  direct resolve API with the unauthenticated-token warning, metrics; the HTTP proxy section
+  kept. `CLAUDE.md` rewritten to the package map + gotchas (release 17, sequential surefire,
+  byte-buddy javaagent, shading, secrets rule). `STICKY_RESOLVE.md` updated to the engine-era
+  flow (no gRPC fallback; default store → default value + GENERAL error code).
+- Root `README.md` status table: Java → "Rewritten; released as release candidates".
+- `CONTRIBUTING.md` kept — it only documents fmt-maven-plugin usage, still accurate.
+- E2E: `OpenFeatureLocalResolveProviderE2ETest` ports go's `e2e_test.go` (non-sticky, materialized
+  segment with/without store, sticky via the hosted store), env-gated like `CdnFetcherE2ETest`;
+  `make test-e2e` runs `*E2ETest` only, `make test` excludes them.
+
+## Deltas from the Go reference
+
+- **Base image `maven:3.9-eclipse-temurin-17`** (the pom releases at 17); make installed via apt
+  instead of apk. The pom resolves protoc from Maven Central, so no protoc install.
+- **No local live-e2e run here**: extracting the e2e credentials from `.env` into secret files
+  was blocked by the safety classifier; same-repo PR CI runs the `e2e` target with the proper
+  secrets, covering it.
+- **E2E tests call the provider directly** rather than through the OpenFeature API singleton
+  (which contaminates the test JVM); go's assertions map one-to-one to `ProviderEvaluation`
+  value/variant/error checks.

@@ -22,7 +22,7 @@ as the Go provider (reference implementation) already did on `next` (merged as #
 | 5 | [05-ingest-shipper.md](05-ingest-shipper.md) | `7b2a45ec` | ✅ done |
 | 6 | [06-engine.md](06-engine.md) | `fe0ddf42` (+ `e821478f`) | ✅ done |
 | 7 | [07-provider-api.md](07-provider-api.md) | `fb866c6d` (+ `0ce35258`, `870eb772`, `c7f91211`) | ✅ done |
-| 8 | [08-build-ci-release-docs.md](08-build-ci-release-docs.md) | `42610a23`, `b8df8180` | ☐ |
+| 8 | [08-build-ci-release-docs.md](08-build-ci-release-docs.md) | `42610a23`, `b8df8180` | ✅ done |
 
 ## Working agreements
 
