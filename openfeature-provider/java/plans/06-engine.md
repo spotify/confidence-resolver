@@ -103,3 +103,19 @@ in tests, including swap-under-load with concurrent evaluators.
   to close, unlike Go's.
 - TestBackend gotcha (fixed): a request without `If-None-Match` yields a null header — normalize
   before any use, or the handler dies and the client only sees "no bytes".
+
+
+## Self-review fixes (post-phase review)
+
+- 304 Not-Modified is the steady state, not an error: `load()` no-ops it (previously a
+  stack-trace warn every poll, and a warm-ETag `start()` would time out); regression-tested with
+  a same-ETag republish.
+- Start fetches are bounded by the remaining deadline (`fetch(Duration)` overload on the
+  fetcher; 30s per poll attempt), so `initialize()` returns within its budget against a stalling
+  CDN.
+- Poll and flush run on a two-thread scheduler, as Go's separate goroutines — a wedged fetch no
+  longer stalls timed log flushing.
+- Generation retirements run on a dedicated daemon executor, not `ForkJoinPool.commonPool()`
+  (which the host application depends on).
+- A trapping `observe_client_resolve_latency` report no longer fails the resolve (best-effort,
+  as Go).

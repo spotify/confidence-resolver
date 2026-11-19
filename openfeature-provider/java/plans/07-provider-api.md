@@ -141,3 +141,21 @@ classes, 27 old tests, `resolver_state_current.pb`). Suite: 89 tests green in th
   metadata/initialize/shutdown tests instead.
 - **`Sdk` identity**: `SDK_ID_JAVA_LOCAL_PROVIDER` (21) with `Version.VERSION`, as the old
   stack. Resolve tokens documented as neither encrypted nor authenticated.
+
+
+## Self-review fixes (post-phase review)
+
+- Evaluation `reason` now maps to the OpenFeature reasons (Go's `reason()`: `TARGETING_MATCH`,
+  `DEFAULT`, `DISABLED`, `ERROR`, `UNKNOWN`) instead of the raw proto enum names — the deltas
+  entry about "reason strings" above is superseded. Tests assert the mapped names.
+- Default instances is `Runtime.availableProcessors()`, as the Go provider's GOMAXPROCS default
+  (previously the engine's 1).
+- Absent struct fields zero-fill as Go's `decodeTo` (the caller's default no longer leaks into
+  fields the flag doesn't have).
+- Remote-store variant results with no variant string decode as "no assignment" (dropped), as
+  Go — instead of failing the whole read.
+- A non-finite double default is a `TYPE_MISMATCH` evaluation, not a raw
+  `IllegalArgumentException`; context instants serialize with full nanosecond precision, as Go's
+  RFC3339Nano.
+- The orphaned failsafe (shaded-jar IT) wiring is removed from the pom: no `*IT` classes remain
+  and no target reaches `verify`; `make build` asserts the shaded jar's relocations instead.

@@ -263,29 +263,9 @@
         </executions>
       </plugin>
 
-      <!-- Integration tests - run against shaded JAR to verify shading works -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-failsafe-plugin</artifactId>
-        <version>3.2.5</version>
-        <configuration>
-          <useModulePath>false</useModulePath>
-          <!-- Load main classes from the shaded JAR instead of target/classes -->
-          <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
-          <!-- Exclude the original unshaded artifact from classpath -->
-          <classpathDependencyExcludes>
-            <classpathDependencyExclude>${project.groupId}:${project.artifactId}</classpathDependencyExclude>
-          </classpathDependencyExcludes>
-        </configuration>
-        <executions>
-          <execution>
-            <goals>
-              <goal>integration-test</goal>
-              <goal>verify</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
+      <!-- Integration tests were removed with the old stack: no *IT classes remain and no
+           Makefile target reaches the verify phase. Shading is verified at build time by the
+           jar-layout assertion in the Makefile's build target instead. -->
 
       <!-- Generate sources JAR -->
       <plugin>

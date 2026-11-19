@@ -8,7 +8,10 @@ The Materialization Store provides persistent storage for flag resolution data, 
 
 2. **Custom Targeting via Materialized Segments** - Precomputed sets of identifiers from datasets that should be targeted. Instead of evaluating complex targeting rules at runtime, materializations allow efficient lookup of whether a unit (user, session, etc.) is included in a target segment.
 
-**Default behavior:** Materializations are managed by Confidence servers with automatic 90-day TTL. When needed, the provider makes a network call to Confidence. No setup required.
+**Default behavior:** no store is configured — flags that need materializations fall back to the
+caller's default value. To persist sticky assignments and materialized segments, enable the
+[hosted store](#how-it-works) (`useRemoteMaterializationStore(true)`) or provide your own; stored
+materializations are managed by Confidence with an automatic 90-day TTL (renewed on access).
 
 ## How It Works
 

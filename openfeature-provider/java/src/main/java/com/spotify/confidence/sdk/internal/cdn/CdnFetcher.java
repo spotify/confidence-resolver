@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
@@ -84,13 +85,19 @@ public final class CdnFetcher {
     this.url = baseUrl + "/modules/" + sum + ".wasm.enc";
   }
 
+  /** Fetches with the default 30-second request timeout. */
+  public FetchedModule fetch() {
+    return fetch(Duration.ofSeconds(30));
+  }
+
   /**
    * Downloads and decrypts the module. Throws {@link NotModifiedException} when the module matches
    * the last accepted ETag. Call {@link #accept(String)} once the module is installed, so that a
-   * module that fails to install is fetched again in full.
+   * module that fails to install is fetched again in full. The timeout bounds one attempt, so a
+   * stalling CDN cannot wedge the caller past its own deadline.
    */
-  public FetchedModule fetch() {
-    HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).GET();
+  public FetchedModule fetch(Duration timeout) {
+    HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(timeout).GET();
     String etag = acceptedEtag.get();
     if (etag != null && !etag.isEmpty()) {
       request.header("If-None-Match", etag);

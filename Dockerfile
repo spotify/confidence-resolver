@@ -104,5 +104,6 @@ COPY --from=openfeature-provider-java.test_e2e /src/openfeature-provider/java/po
 FROM scratch AS all
 COPY --from=openfeature-provider-go.test /src/openfeature-provider/go/go.mod /markers/test-openfeature-go
 COPY --from=openfeature-provider-go.lint /src/openfeature-provider/go/go.mod /markers/lint-openfeature-go
+COPY --from=openfeature-provider-java.build /src/openfeature-provider/java/pom.xml /markers/build-openfeature-java
 COPY --from=openfeature-provider-java.test /src/openfeature-provider/java/pom.xml /markers/test-openfeature-java
 COPY --from=openfeature-provider-java.lint /src/openfeature-provider/java/pom.xml /markers/lint-openfeature-java

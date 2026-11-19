@@ -124,4 +124,31 @@ class OpenFeatureValueMapperTest {
             Value.newBuilder().setNullValue(com.google.protobuf.NullValue.NULL_VALUE).build(),
             def));
   }
+
+  @Test
+  void absentStructFieldsAreZeroFilledAsInGo() {
+    // A field present in the default but absent from the resolved value is the type's zero,
+    // not the default's value (Go's decodeTo zero-fills; the module merges every schema'd
+    // field, so absence means the flag has no such field).
+    MutableStructure template =
+        new MutableStructure(
+            Map.of(
+                "count", new dev.openfeature.sdk.Value(7),
+                "ratio", new dev.openfeature.sdk.Value(0.5),
+                "label", new dev.openfeature.sdk.Value("default"),
+                "flag", new dev.openfeature.sdk.Value(true)));
+    Value resolved =
+        Value.newBuilder()
+            .setStructValue(
+                com.google.protobuf.Struct.newBuilder().putFields("count", number(3.0)).build())
+            .build();
+
+    dev.openfeature.sdk.Value out =
+        OpenFeatureValueMapper.decode(resolved, new dev.openfeature.sdk.Value(template));
+
+    assertEquals(3, out.asStructure().getValue("count").asInteger());
+    assertEquals(0.0, out.asStructure().getValue("ratio").asDouble());
+    assertEquals("", out.asStructure().getValue("label").asString());
+    assertEquals(false, out.asStructure().getValue("flag").asBoolean());
+  }
 }

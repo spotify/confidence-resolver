@@ -173,6 +173,9 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
                 });
     if (config.getInstances() > 0) {
       engine.instances(config.getInstances());
+    } else {
+      // One instance per processor, as the Go provider's GOMAXPROCS default.
+      engine.instances(Runtime.getRuntime().availableProcessors());
     }
     if (config.getMaxMemoryBytes() > 0) {
       engine.maxMemoryBytes(config.getMaxMemoryBytes());
@@ -393,8 +396,25 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
     ProviderEvaluation<T> out = new ProviderEvaluation<>();
     out.setValue(value);
     out.setVariant(details.getVariant());
-    out.setReason(details.getReason().name());
+    out.setReason(reason(details.getReason()).name());
     return out;
+  }
+
+  /**
+   * Maps the module's resolve reason onto the OpenFeature reasons, as the Go provider's reason().
+   */
+  private static dev.openfeature.sdk.Reason reason(
+      com.spotify.confidence.flags.resolver.v1.ResolveReason r) {
+    return switch (r) {
+      case RESOLVE_REASON_MATCH -> dev.openfeature.sdk.Reason.TARGETING_MATCH;
+      case RESOLVE_REASON_NO_SEGMENT_MATCH -> dev.openfeature.sdk.Reason.DEFAULT;
+      case RESOLVE_REASON_FLAG_ARCHIVED -> dev.openfeature.sdk.Reason.DISABLED;
+      case RESOLVE_REASON_TARGETING_KEY_ERROR,
+              RESOLVE_REASON_ERROR,
+              RESOLVE_REASON_UNRECOGNIZED_TARGETING_RULE ->
+          dev.openfeature.sdk.Reason.ERROR;
+      default -> dev.openfeature.sdk.Reason.UNKNOWN;
+    };
   }
 
   private static <T> ProviderEvaluation<T> failure(T def, ErrorCode code, String message) {

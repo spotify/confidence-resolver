@@ -8,9 +8,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Configuration for {@link OpenFeatureLocalResolveProvider}.
  *
- * <p>Defaults mirror the state-to-wasm engine: one resolver instance per available processor, 64
- * MiB of module memory per instance, a 10-second module poll, a 30-second initialization timeout,
- * and deduplicated exposure logging.
+ * <p>Defaults mirror the state-to-wasm engine: one resolver instance per available processor, a 64
+ * MiB memory cap per module generation, a 10-second module poll, a 30-second initialization
+ * timeout, and deduplicated exposure logging.
  *
  * <p>Example:
  *
@@ -84,7 +84,7 @@ public final class LocalProviderConfig {
     return instances;
   }
 
-  /** Per-instance module memory limit in bytes; zero or negative keeps the engine default. */
+  /** Module memory cap in bytes, per installed generation; zero or negative keeps the default. */
   public long getMaxMemoryBytes() {
     return maxMemoryBytes;
   }
@@ -177,7 +177,7 @@ public final class LocalProviderConfig {
       return this;
     }
 
-    /** Per-instance module memory limit in bytes; defaults to 64 MiB. */
+    /** Module memory cap in bytes, per installed generation; defaults to 64 MiB. */
     public Builder maxMemoryBytes(long maxMemoryBytes) {
       this.maxMemoryBytes = maxMemoryBytes;
       return this;

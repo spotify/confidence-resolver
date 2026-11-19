@@ -5,6 +5,12 @@
 
 build:
 	mvn -q package -DskipTests
+	@j="$$(ls target/openfeature-provider-local-*.jar | grep -v original | head -1)"; \
+	jar tf "$$j" | grep -q 'com/spotify/confidence/sdk/shaded/run/endive/' \
+		|| (echo "shading broken: run.endive not relocated in $$j" && exit 1); \
+	if jar tf "$$j" | grep -qE '^run/endive/'; then \
+		echo "shading broken: unrelocated run.endive classes in $$j"; exit 1; \
+	fi
 
 # Unit tests (no credentials needed).
 test:

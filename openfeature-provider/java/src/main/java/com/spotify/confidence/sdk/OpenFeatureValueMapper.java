@@ -5,7 +5,6 @@ import com.google.protobuf.Value;
 import com.spotify.confidence.flags.types.v1.FlagSchema;
 import dev.openfeature.sdk.EvaluationContext;
 import dev.openfeature.sdk.exceptions.TypeMismatchError;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -74,9 +73,7 @@ final class OpenFeatureValueMapper {
     }
     if (v.isInstant()) {
       // Struct values can only hold numbers; serialize as RFC 3339, as the Go provider does.
-      return Value.newBuilder()
-          .setStringValue(v.asInstant().truncatedTo(ChronoUnit.MILLIS).toString())
-          .build();
+      return Value.newBuilder().setStringValue(v.asInstant().toString()).build();
     }
     if (v.isStructure()) {
       Struct.Builder struct = Struct.newBuilder();
@@ -131,9 +128,11 @@ final class OpenFeatureValueMapper {
           Value.newBuilder().setNumberValue(def.asInteger()).build(), intSchema());
     }
     if (def.isNumber()) {
-      return new EncodedDefault(
-          Value.newBuilder().setNumberValue(requireFinite("default", def.asDouble())).build(),
-          doubleSchema());
+      double d = def.asDouble();
+      if (!Double.isFinite(d)) {
+        throw mismatch("default is not finite");
+      }
+      return new EncodedDefault(Value.newBuilder().setNumberValue(d).build(), doubleSchema());
     }
     if (def.isStructure()) {
       Struct.Builder struct = Struct.newBuilder();
@@ -220,11 +219,35 @@ final class OpenFeatureValueMapper {
                 dev.openfeature.sdk.Value fieldTemplate = template.get(k);
                 out.put(k, fieldTemplate == null ? natural(v) : decode(v, fieldTemplate));
               });
-      // The module merges defaults into nulls; keep the caller's default for absent fields.
-      template.forEach(out::putIfAbsent);
+      // Fields absent from the resolved value are zero-filled, as Go's decodeTo: the module
+      // merges defaults into every schema'd field, so an absent field means the flag's schema
+      // has none — the caller's default must not leak into it.
+      template.forEach((k, t) -> out.putIfAbsent(k, zeroOf(t)));
       return new dev.openfeature.sdk.Value(new dev.openfeature.sdk.MutableStructure(out));
     }
     return natural(value);
+  }
+
+  /** The zero value of the default field's type, as Go's reflect.Zero. */
+  private static dev.openfeature.sdk.Value zeroOf(dev.openfeature.sdk.Value template) {
+    if (template.isBoolean()) {
+      return new dev.openfeature.sdk.Value(false);
+    }
+    if (template.isString()) {
+      return new dev.openfeature.sdk.Value("");
+    }
+    if (template.isNumber()) {
+      return template.asObject() instanceof Integer
+          ? new dev.openfeature.sdk.Value(0)
+          : new dev.openfeature.sdk.Value(0.0);
+    }
+    if (template.isStructure()) {
+      return new dev.openfeature.sdk.Value(new dev.openfeature.sdk.MutableStructure());
+    }
+    if (template.isList()) {
+      return new dev.openfeature.sdk.Value(java.util.List.of());
+    }
+    return new dev.openfeature.sdk.Value();
   }
 
   private static int decodeInt(Value value) {

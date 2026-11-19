@@ -315,9 +315,8 @@ public final class RemoteMaterializationStore implements MaterializationStore {
         default -> in.skipField(tag);
       }
     }
-    if (variant.isEmpty() && included == null) {
-      throw new IOException("malformed materialization response: no result");
-    }
+    // An empty variant is "no assignment", which the store adapter drops — as in Go's
+    // decoder, where an empty message decodes to a variant result with an empty variant.
     return included != null
         ? new ReadResult.Inclusion(materialization, unit, included)
         : new ReadResult.Variant(

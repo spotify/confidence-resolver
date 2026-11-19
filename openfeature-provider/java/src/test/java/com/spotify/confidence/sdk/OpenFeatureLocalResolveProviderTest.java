@@ -134,7 +134,7 @@ class OpenFeatureLocalResolveProviderTest {
     ProviderEvaluation<Boolean> bool = p.getBooleanEvaluation("plain.enabled", false, USER);
     assertTrue(bool.getValue());
     assertEquals("flags/plain/variants/on", bool.getVariant());
-    assertEquals("RESOLVE_REASON_MATCH", bool.getReason());
+    assertEquals("TARGETING_MATCH", bool.getReason());
     assertEquals("confidence-sdk-java-local", p.getMetadata().getName());
 
     assertEquals("hello", p.getStringEvaluation("plain.message", "", USER).getValue());
@@ -145,7 +145,7 @@ class OpenFeatureLocalResolveProviderTest {
     ProviderEvaluation<Value> object =
         p.getObjectEvaluation("plain", new Value(plainStructure()), USER);
     assertEquals("flags/plain/variants/on", object.getVariant());
-    assertEquals("RESOLVE_REASON_MATCH", object.getReason());
+    assertEquals("TARGETING_MATCH", object.getReason());
     Value resolved = object.getValue();
     assertTrue(resolved.asStructure().getValue("enabled").asBoolean());
     assertEquals("hello", resolved.asStructure().getValue("message").asString());

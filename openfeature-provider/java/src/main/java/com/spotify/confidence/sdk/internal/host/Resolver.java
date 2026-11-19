@@ -302,7 +302,12 @@ public final class Resolver implements AutoCloseable {
       case RESOLVED -> {
         if (inst.latency != null) {
           long micros = (System.nanoTime() - started) / 1_000;
-          inst.latency.apply(env.getResolved().getClientIndex(), micros);
+          try {
+            // Best-effort, as in the Go host: a trapping report must not fail the resolve.
+            inst.latency.apply(env.getResolved().getClientIndex(), micros);
+          } catch (RuntimeException e) {
+            cfg.reportFailure.accept(e);
+          }
         }
         Outcome out = new Outcome();
         if (wantResponse) {

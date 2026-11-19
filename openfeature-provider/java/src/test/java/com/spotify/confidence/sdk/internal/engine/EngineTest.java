@@ -196,6 +196,28 @@ class EngineTest {
   }
 
   @Test
+  void a304KeepsTheCurrentGenerationQuietly() {
+    backend = new TestBackend();
+    byte[] module = TestBackend.module("basic.wasm");
+    backend.publish(module, "tok-1", "\"v1\"");
+    engine = newEngine(backend, null);
+    engine.start(Duration.ofSeconds(1));
+    Engine.Generation generation = engine.currentGeneration();
+
+    // Republishing the same ETag answers 304: the steady state after a module installs. It must
+    // neither fail (the old code logged a stack trace every poll) nor swap the generation.
+    backend.publish(module, "tok-1", "\"v1\"");
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .until(() -> backend.ifNoneMatch().size() >= 2); // a conditional fetch happened
+    Awaitility.await()
+        .during(2, TimeUnit.SECONDS) // and stayed quiet for further polls
+        .atMost(5, TimeUnit.SECONDS)
+        .until(() -> engine.currentGeneration() == generation);
+    evaluate(engine, "u");
+  }
+
+  @Test
   void startup404ThenPublishedBecomesReady() throws Exception {
     backend = new TestBackend();
     backend.setStatus(404);

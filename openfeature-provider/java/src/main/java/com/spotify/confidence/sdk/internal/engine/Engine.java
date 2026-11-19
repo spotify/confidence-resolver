@@ -6,6 +6,7 @@ import com.spotify.confidence.flags.wasm.v1.EvaluateRequest;
 import com.spotify.confidence.flags.wasm.v1.ResolutionDetails;
 import com.spotify.confidence.sdk.internal.cdn.CdnException;
 import com.spotify.confidence.sdk.internal.cdn.CdnFetcher;
+import com.spotify.confidence.sdk.internal.cdn.NotModifiedException;
 import com.spotify.confidence.sdk.internal.cdn.TerminalCdnException;
 import com.spotify.confidence.sdk.internal.host.DedupeFilter;
 import com.spotify.confidence.sdk.internal.host.Filter;
@@ -37,6 +38,18 @@ public final class Engine {
 
   /** Filter sizes, as in the Java host state-to-wasm builds with. */
   private static final int APPLY_FILTER_PAGES = 8;
+
+  /**
+   * Runs generation retirements. A retirement parks until the generation's in-flight evaluations
+   * finish, so it must never occupy the common pool, which the host application depends on.
+   */
+  private static final java.util.concurrent.ExecutorService RETIRE =
+      java.util.concurrent.Executors.newCachedThreadPool(
+          r -> {
+            Thread thread = new Thread(r, "confidence-engine-retire");
+            thread.setDaemon(true);
+            return thread;
+          });
 
   private static final int SCHEMA_FILTER_PAGES = 2;
 
@@ -101,7 +114,9 @@ public final class Engine {
     long deadline = System.nanoTime() + initTimeout.toNanos();
     while (true) {
       try {
-        load();
+        // Bound each attempt by the remaining deadline, as Go bounds the start fetch with its
+        // context, so initialize() returns within the budget even against a stalling CDN.
+        load(Duration.ofNanos(Math.max(1, deadline - System.nanoTime())));
         notified.set(true); // start reports readiness itself
         break;
       } catch (TerminalStartupException e) {
@@ -125,8 +140,11 @@ public final class Engine {
   }
 
   private void startLoops() {
+    // Two threads, as the Go engine runs poll and flush on separate goroutines: one slow
+    // fetch must not stall timed log flushing.
     loops =
-        Executors.newSingleThreadScheduledExecutor(
+        Executors.newScheduledThreadPool(
+            2,
             r -> {
               Thread thread = new Thread(r, "confidence-engine-loops");
               thread.setDaemon(true);
@@ -228,11 +246,19 @@ public final class Engine {
 
   // ---------------------------------------------------------------- module loading
 
-  /** Fetches the module and, if it changed, installs it as a new generation. */
+  /** Fetches the module (default timeout) and, if it changed, installs a new generation. */
   private void load() {
+    load(Duration.ofSeconds(30));
+  }
+
+  /** Fetches the module and, if it changed, installs it as a new generation. */
+  private void load(Duration fetchTimeout) {
     CdnFetcher.FetchedModule m;
     try {
-      m = fetcher.fetch();
+      m = fetcher.fetch(fetchTimeout);
+    } catch (NotModifiedException e) {
+      // The steady state after a module installs: nothing changed, nothing to do.
+      return;
     } catch (TerminalCdnException e) {
       throw new TerminalStartupException("module CDN rejected the credential", e);
     } catch (CdnException e) {
@@ -282,7 +308,7 @@ public final class Engine {
 
   /** Retires g (which must already be unpublished) on a background thread. */
   private void retireAsync(Generation g) {
-    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> retire(g));
+    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> retire(g), RETIRE);
     retiring.add(future);
     future.thenRun(() -> retiring.remove(future));
   }

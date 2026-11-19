@@ -92,6 +92,9 @@ release-please run would cut `0.24.0-rc.1`; and the root README lists Java as re
 - E2E: `OpenFeatureLocalResolveProviderE2ETest` ports go's `e2e_test.go` (non-sticky, materialized
   segment with/without store, sticky via the hosted store), env-gated like `CdnFetcherE2ETest`;
   `make test-e2e` runs `*E2ETest` only, `make test` excludes them.
+- `make build` now asserts the shaded jar really relocated `run.endive` (both that the shaded
+  package exists and no unrelocated classes remain), since the old failsafe ITs that exercised the
+  shaded jar were removed with the old stack.
 
 ## Deltas from the Go reference
 
@@ -103,3 +106,7 @@ release-please run would cut `0.24.0-rc.1`; and the root README lists Java as re
 - **E2E tests call the provider directly** rather than through the OpenFeature API singleton
   (which contaminates the test JVM); go's assertions map one-to-one to `ProviderEvaluation`
   value/variant/error checks.
+- **No failsafe ITs against the shaded jar**: the old stack's `*IT` suite went with the old
+  sources. The e2e set runs through surefire against plain classes; shading is verified cheaply at
+  build time (the relocation assertion above) instead of a full IT suite. Revisit if the shade
+  config grows.
