@@ -1,4 +1,4 @@
-# 07 — The provider: public API on the engine
+# 07 — The provider: public API on the engine ✅
 
 Ports go commit `fb866c6d` (resolve with the credential's flag module), with `0ce35258`
 (`_confidence_skip_apply`), `870eb772` (type-check every decoded value) and `c7f91211` (token
@@ -103,3 +103,41 @@ close the provider-owned remote store. The old executor cascade collapses into e
 
 The provider's public surface matches this doc, unit tests cover everything above, and the old
 resolver stack's classes are deleted from `src` in the same PR.
+
+
+## Status: done ✅
+
+`OpenFeatureLocalResolveProvider` rebuilt on the `Engine` and the old stack deleted (22 main
+classes, 27 old tests, `resolver_state_current.pb`). Suite: 89 tests green in the harness
+(40 internal from phases 3–6 + 49 provider-layer).
+
+## Deltas from the Go reference
+
+- **Typed evaluations throw → error codes.** The old Java provider threw OpenFeature exceptions
+  (`FlagNotFoundError`, `TypeMismatchError`, `GeneralError`); the new one follows Go and returns
+  the caller's default with `ErrorCode` + `reason ERROR` set on the evaluation (test assertions
+  adapted accordingly). `initialize()` does throw `GeneralError` — on terminal startup (state
+  FATAL) and on initialization timeout, while the engine keeps retrying and `onReady` flips the
+  state to READY.
+- **Int/Double defaults.** The OpenFeature Java `Value` does not separate int from double
+  numbers; the mapper distinguishes them via the boxed object (`asObject() instanceof Integer`).
+  The module rejects cross-scalar matches (an int flag with a double default is `TYPE_MISMATCH`,
+  and vice versa), so the Go `count`-as-float case is not asserted.
+- **Apply without send_time is accepted.** The state-to-wasm module carries an apply through
+  without `send_time`; the old module's swallow-and-log path no longer exists. `applyFlags` still
+  swallows and logs rejects (e.g. rotated secret → `UNAUTHENTICATED`).
+- **`MaterializationStore` public interface unchanged** (CompletionStage-based sealed records);
+  `StoreAdapter` joins reads (the engine is synchronous) and fire-and-forgets writes,
+  unwrapping `MaterializationNotSupportedException` through the engine's cause chain to Go's
+  GENERAL-code mapping. `RemoteMaterializationStore` is hand-encoded protobuf over HTTP exactly
+  as Go's, with the same env-var timeouts.
+- **`HttpURLConnection` factory → `java.net.http.HttpClient` factory.** `HttpClientFactory`
+  supplies the one client the provider shares between CDN, ingestion and the remote store.
+- **Surefire loads byte-buddy-agent via `-javaagent`** (dependency-plugin stages the jar) —
+  Mockito's inline mock maker cannot self-attach on modern JDKs, which broke the ported
+  `FlagResolverServiceTest`.
+- **OpenFeature-API singleton test dropped** (go's `TestOpenFeature`): the Java
+  `OpenFeatureAPI` singleton contaminates the test JVM; the wiring is covered by the
+  metadata/initialize/shutdown tests instead.
+- **`Sdk` identity**: `SDK_ID_JAVA_LOCAL_PROVIDER` (21) with `Version.VERSION`, as the old
+  stack. Resolve tokens documented as neither encrypted nor authenticated.

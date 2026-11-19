@@ -1,196 +1,253 @@
 package com.spotify.confidence.sdk;
 
-public class LocalProviderConfig {
-  /**
-   * Default number of WASM resolver instances in the pool. The actual pool size is capped at {@code
-   * Runtime.getRuntime().availableProcessors()}.
-   */
-  public static final int DEFAULT_RESOLVER_POOL_SIZE = 2;
+import com.spotify.confidence.sdk.internal.engine.ExposureMode;
+import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-  private final ChannelFactory channelFactory;
-  private final HttpClientFactory httpClientFactory;
+/**
+ * Configuration for {@link OpenFeatureLocalResolveProvider}.
+ *
+ * <p>Defaults mirror the state-to-wasm engine: one resolver instance per available processor, 64
+ * MiB of module memory per instance, a 10-second module poll, a 30-second initialization timeout,
+ * and deduplicated exposure logging.
+ *
+ * <p>Example:
+ *
+ * <pre>{@code
+ * LocalProviderConfig config = LocalProviderConfig.builder()
+ *     .materializationStore(new MyStore())
+ *     .exposureMode(ExposureMode.ALL)
+ *     .statePollInterval(Duration.ofSeconds(30))
+ *     .build();
+ * OpenFeatureLocalResolveProvider provider =
+ *     new OpenFeatureLocalResolveProvider(config, clientSecret, encryptionKey);
+ * }</pre>
+ */
+public final class LocalProviderConfig {
+
+  /** The default initialization budget, as in the engine's start. */
+  public static final Duration DEFAULT_INITIALIZATION_TIMEOUT = Duration.ofSeconds(30);
+
+  private final MaterializationStore materializationStore;
   private final boolean useRemoteMaterializationStore;
-  private final int resolverPoolSize;
-  private final boolean enableApplyDedup;
-  private final boolean disableExposureCollection;
+  private final String remoteMaterializationStoreUrl;
+  private final int instances;
+  private final long maxMemoryBytes;
+  private final Duration statePollInterval;
+  private final Duration initializationTimeout;
+  private final ExposureMode exposureMode;
+  private final boolean interpreter;
+  private final Duration retryInterval;
+  private final String cdnBaseUrl;
+  private final String ingestBaseUrl;
+  private final HttpClientFactory httpClientFactory;
+  private final Logger logger;
 
-  public LocalProviderConfig() {
-    this(null, null);
-  }
-
-  public LocalProviderConfig(ChannelFactory channelFactory) {
-    this(channelFactory, null);
-  }
-
-  public LocalProviderConfig(ChannelFactory channelFactory, HttpClientFactory httpClientFactory) {
-    this(channelFactory, httpClientFactory, false, DEFAULT_RESOLVER_POOL_SIZE);
-  }
-
-  public LocalProviderConfig(
-      ChannelFactory channelFactory,
-      HttpClientFactory httpClientFactory,
-      boolean useRemoteMaterializationStore) {
-    this(
-        channelFactory,
-        httpClientFactory,
-        useRemoteMaterializationStore,
-        DEFAULT_RESOLVER_POOL_SIZE);
-  }
-
-  public LocalProviderConfig(
-      ChannelFactory channelFactory,
-      HttpClientFactory httpClientFactory,
-      boolean useRemoteMaterializationStore,
-      int resolverPoolSize) {
-    this(
-        channelFactory,
-        httpClientFactory,
-        useRemoteMaterializationStore,
-        resolverPoolSize,
-        true,
-        false);
-  }
-
-  /**
-   * Overload that exposes apply-event deduplication. Dedup is on by default, so this is only needed
-   * to turn it off — every other constructor leaves it enabled. {@link
-   * Builder#enableApplyDedup(boolean)} does the same thing and is the preferred entry point for new
-   * code.
-   *
-   * @param enableApplyDedup false to log every apply instead of collapsing repeated identical
-   *     assignments for the same unit and variant within the dedup TTL window
-   */
-  public LocalProviderConfig(
-      ChannelFactory channelFactory,
-      HttpClientFactory httpClientFactory,
-      boolean useRemoteMaterializationStore,
-      int resolverPoolSize,
-      boolean enableApplyDedup) {
-    this(
-        channelFactory,
-        httpClientFactory,
-        useRemoteMaterializationStore,
-        resolverPoolSize,
-        enableApplyDedup,
-        false);
-  }
-
-  private LocalProviderConfig(
-      ChannelFactory channelFactory,
-      HttpClientFactory httpClientFactory,
-      boolean useRemoteMaterializationStore,
-      int resolverPoolSize,
-      boolean enableApplyDedup,
-      boolean disableExposureCollection) {
-    this.channelFactory = channelFactory != null ? channelFactory : new DefaultChannelFactory();
-    this.httpClientFactory =
-        httpClientFactory != null ? httpClientFactory : new DefaultHttpClientFactory();
-    this.useRemoteMaterializationStore = useRemoteMaterializationStore;
-    this.resolverPoolSize = resolverPoolSize > 0 ? resolverPoolSize : DEFAULT_RESOLVER_POOL_SIZE;
-    this.enableApplyDedup = enableApplyDedup;
-    this.disableExposureCollection = disableExposureCollection;
-  }
-
-  public ChannelFactory getChannelFactory() {
-    return channelFactory;
-  }
-
-  public HttpClientFactory getHttpClientFactory() {
-    return httpClientFactory;
-  }
-
-  public boolean isUseRemoteMaterializationStore() {
-    return useRemoteMaterializationStore;
-  }
-
-  /**
-   * Returns the number of WASM resolver instances in the pool. Defaults to {@link
-   * #DEFAULT_RESOLVER_POOL_SIZE}.
-   */
-  public int getResolverPoolSize() {
-    return resolverPoolSize;
-  }
-
-  /** Returns whether apply-event deduplication in the WASM resolver is enabled (on by default). */
-  public boolean isEnableApplyDedup() {
-    return enableApplyDedup;
-  }
-
-  /**
-   * Returns whether exposure/assignment collection is disabled for all OpenFeature evaluations
-   * through this provider. This is intended only for exceptional no-exposure modes; resolve logs
-   * and telemetry are still sent.
-   */
-  public boolean isDisableExposureCollection() {
-    return disableExposureCollection;
+  private LocalProviderConfig(Builder b) {
+    this.materializationStore = b.materializationStore;
+    this.useRemoteMaterializationStore = b.useRemoteMaterializationStore;
+    this.remoteMaterializationStoreUrl = b.remoteMaterializationStoreUrl;
+    this.instances = b.instances;
+    this.maxMemoryBytes = b.maxMemoryBytes;
+    this.statePollInterval = b.statePollInterval;
+    this.initializationTimeout = b.initializationTimeout;
+    this.exposureMode = b.exposureMode;
+    this.interpreter = b.interpreter;
+    this.retryInterval = b.retryInterval;
+    this.cdnBaseUrl = b.cdnBaseUrl;
+    this.ingestBaseUrl = b.ingestBaseUrl;
+    this.httpClientFactory = b.httpClientFactory;
+    this.logger = b.logger;
   }
 
   public static Builder builder() {
     return new Builder();
   }
 
-  public static class Builder {
-    private ChannelFactory channelFactory;
-    private HttpClientFactory httpClientFactory;
+  /** The configured store, or {@code null} when none was set (the provider picks the default). */
+  public MaterializationStore getMaterializationStore() {
+    return materializationStore;
+  }
+
+  public boolean isUseRemoteMaterializationStore() {
+    return useRemoteMaterializationStore;
+  }
+
+  /** Overrides the hosted materialization store's base URL; empty means the production default. */
+  public String getRemoteMaterializationStoreUrl() {
+    return remoteMaterializationStoreUrl;
+  }
+
+  /** Resolver instances; zero or negative keeps the engine default (one per processor). */
+  public int getInstances() {
+    return instances;
+  }
+
+  /** Per-instance module memory limit in bytes; zero or negative keeps the engine default. */
+  public long getMaxMemoryBytes() {
+    return maxMemoryBytes;
+  }
+
+  public Duration getStatePollInterval() {
+    return statePollInterval;
+  }
+
+  public Duration getInitializationTimeout() {
+    return initializationTimeout;
+  }
+
+  public ExposureMode getExposureMode() {
+    return exposureMode;
+  }
+
+  /** Runs the module on the interpreter instead of the compiled runtime. */
+  public boolean isInterpreter() {
+    return interpreter;
+  }
+
+  /** The CDN retry interval; zero keeps the engine default. */
+  public Duration getRetryInterval() {
+    return retryInterval;
+  }
+
+  /** Overrides the module CDN base URL (for tests); empty means the production default. */
+  public String getCdnBaseUrl() {
+    return cdnBaseUrl;
+  }
+
+  /** Overrides the flag-log ingestion base URL (for tests); empty means the production default. */
+  public String getIngestBaseUrl() {
+    return ingestBaseUrl;
+  }
+
+  public HttpClientFactory getHttpClientFactory() {
+    return httpClientFactory;
+  }
+
+  public Logger getLogger() {
+    return logger;
+  }
+
+  /** Builder for {@link LocalProviderConfig}. */
+  public static final class Builder {
+
+    private MaterializationStore materializationStore;
     private boolean useRemoteMaterializationStore;
-    private int resolverPoolSize;
-    private boolean enableApplyDedup = true;
-    private boolean disableExposureCollection;
+    private String remoteMaterializationStoreUrl = "";
+    private int instances;
+    private long maxMemoryBytes;
+    private Duration statePollInterval;
+    private Duration initializationTimeout = DEFAULT_INITIALIZATION_TIMEOUT;
+    private ExposureMode exposureMode = ExposureMode.DEDUPLICATED;
+    private boolean interpreter;
+    private Duration retryInterval;
+    private String cdnBaseUrl = "";
+    private String ingestBaseUrl = "";
+    private HttpClientFactory httpClientFactory = HttpClientFactory.defaultFactory();
+    private Logger logger = LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
 
-    public Builder channelFactory(ChannelFactory channelFactory) {
-      this.channelFactory = channelFactory;
+    /**
+     * A custom store for sticky assignments and materialized segments. Mutually exclusive with
+     * {@link #useRemoteMaterializationStore(boolean)}.
+     */
+    public Builder materializationStore(MaterializationStore materializationStore) {
+      this.materializationStore = materializationStore;
       return this;
     }
 
-    public Builder httpClientFactory(HttpClientFactory httpClientFactory) {
-      this.httpClientFactory = httpClientFactory;
-      return this;
-    }
-
+    /**
+     * Uses the hosted {@link RemoteMaterializationStore} instead of a local one. Mutually exclusive
+     * with {@link #materializationStore(MaterializationStore)}.
+     */
     public Builder useRemoteMaterializationStore(boolean useRemoteMaterializationStore) {
       this.useRemoteMaterializationStore = useRemoteMaterializationStore;
       return this;
     }
 
-    /**
-     * Sets the number of WASM resolver instances in the pool. Increase for higher concurrency (with
-     * the penalty of higher memory footprint). The value is capped at the number of available
-     * processors. Defaults to {@link #DEFAULT_RESOLVER_POOL_SIZE}.
-     *
-     * @param resolverPoolSize the desired pool size
-     */
-    public Builder resolverPoolSize(int resolverPoolSize) {
-      this.resolverPoolSize = resolverPoolSize;
+    /** Overrides the hosted store's base URL (for tests). */
+    public Builder remoteMaterializationStoreUrl(String url) {
+      this.remoteMaterializationStoreUrl = url == null ? "" : url;
       return this;
     }
 
-    /**
-     * Apply-event deduplication in the WASM resolver — repeated identical assignments within a
-     * short TTL window are logged once. On by default. Set to false to disable.
-     */
-    public Builder enableApplyDedup(boolean enableApplyDedup) {
-      this.enableApplyDedup = enableApplyDedup;
+    /** Resolver instances; defaults to one per available processor. */
+    public Builder instances(int instances) {
+      this.instances = instances;
       return this;
     }
 
-    /**
-     * Disables exposure/assignment collection for all OpenFeature evaluations through this
-     * provider. Use only for exceptional no-exposure modes; resolve logs and telemetry are still
-     * sent.
-     */
-    public Builder disableExposureCollection(boolean disableExposureCollection) {
-      this.disableExposureCollection = disableExposureCollection;
+    /** Per-instance module memory limit in bytes; defaults to 64 MiB. */
+    public Builder maxMemoryBytes(long maxMemoryBytes) {
+      this.maxMemoryBytes = maxMemoryBytes;
+      return this;
+    }
+
+    /** How often to check the CDN for a new module; defaults to 10 seconds. */
+    public Builder statePollInterval(Duration statePollInterval) {
+      this.statePollInterval = statePollInterval;
+      return this;
+    }
+
+    /** How long {@code initialize()} may wait for the first module; defaults to 30 seconds. */
+    public Builder initializationTimeout(Duration initializationTimeout) {
+      this.initializationTimeout = initializationTimeout;
+      return this;
+    }
+
+    /** How exposures are logged: {@code DEDUPLICATED} (default), {@code ALL}, or {@code NONE}. */
+    public Builder exposureMode(ExposureMode exposureMode) {
+      this.exposureMode = exposureMode == null ? ExposureMode.DEDUPLICATED : exposureMode;
+      return this;
+    }
+
+    /** Runs the module on the interpreter; the default is the compiled runtime. */
+    public Builder interpreter(boolean interpreter) {
+      this.interpreter = interpreter;
+      return this;
+    }
+
+    /** How quickly a failed module fetch retries; defaults to 1 second. */
+    public Builder retryInterval(Duration retryInterval) {
+      this.retryInterval = retryInterval;
+      return this;
+    }
+
+    /** Overrides the module CDN base URL (for tests). */
+    public Builder cdnBaseUrl(String cdnBaseUrl) {
+      this.cdnBaseUrl = cdnBaseUrl == null ? "" : cdnBaseUrl;
+      return this;
+    }
+
+    /** Overrides the flag-log ingestion base URL (for tests). */
+    public Builder ingestBaseUrl(String ingestBaseUrl) {
+      this.ingestBaseUrl = ingestBaseUrl == null ? "" : ingestBaseUrl;
+      return this;
+    }
+
+    public Builder httpClientFactory(HttpClientFactory httpClientFactory) {
+      this.httpClientFactory =
+          httpClientFactory == null ? HttpClientFactory.defaultFactory() : httpClientFactory;
+      return this;
+    }
+
+    public Builder logger(Logger logger) {
+      this.logger =
+          logger == null ? LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class) : logger;
       return this;
     }
 
     public LocalProviderConfig build() {
-      return new LocalProviderConfig(
-          channelFactory,
-          httpClientFactory,
-          useRemoteMaterializationStore,
-          resolverPoolSize,
-          enableApplyDedup,
-          disableExposureCollection);
+      if (materializationStore != null && useRemoteMaterializationStore) {
+        throw new IllegalArgumentException(
+            "materializationStore and useRemoteMaterializationStore are mutually exclusive");
+      }
+      if (initializationTimeout == null
+          || initializationTimeout.isZero()
+          || initializationTimeout.isNegative()) {
+        initializationTimeout = DEFAULT_INITIALIZATION_TIMEOUT;
+      }
+      return new LocalProviderConfig(this);
     }
   }
 }

@@ -136,6 +136,13 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <!-- Pinned so the surefire -javaagent below matches the runtime byte-buddy. -->
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy-agent</artifactId>
+      <version>1.17.6</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy</artifactId>
       <version>1.17.6</version>
@@ -224,7 +231,36 @@
           <!-- Run tests sequentially to avoid WASM/native library conflicts -->
           <forkCount>1</forkCount>
           <reuseForks>false</reuseForks>
+          <!-- Mockito's inline mock maker self-attaches byte-buddy-agent, which JDKs may refuse;
+               load it explicitly instead. -->
+          <argLine>-javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
         </configuration>
+      </plugin>
+
+      <!-- Stages the byte-buddy agent jar for the surefire -javaagent above. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>stage-byte-buddy-agent</id>
+            <phase>generate-test-resources</phase>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>net.bytebuddy</groupId>
+                  <artifactId>byte-buddy-agent</artifactId>
+                  <version>1.17.6</version>
+                  <destFileName>byte-buddy-agent.jar</destFileName>
+                </artifactItem>
+              </artifactItems>
+              <outputDirectory>${project.build.directory}</outputDirectory>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
 
       <!-- Integration tests - run against shaded JAR to verify shading works -->

@@ -1,321 +1,211 @@
 package com.spotify.confidence.sdk;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.google.protobuf.Struct;
-import com.google.protobuf.Timestamp;
-import com.spotify.confidence.sdk.events.v1.EventError;
-import com.spotify.confidence.sdk.events.v1.EventsServiceGrpc;
-import com.spotify.confidence.sdk.events.v1.PublishEventsRequest;
-import com.spotify.confidence.sdk.events.v1.PublishEventsResponse;
-import com.spotify.confidence.sdk.events.wasm.v1.FlushEventsResponse;
-import com.spotify.confidence.sdk.events.wasm.v1.TrackEventRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.RegisterResolveRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveProcessRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveReason;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
-import com.spotify.confidence.sdk.flags.resolver.v1.Sdk;
-import com.spotify.confidence.sdk.flags.resolver.v1.SdkId;
-import dev.openfeature.sdk.*;
-import dev.openfeature.sdk.exceptions.FlagNotFoundError;
+import com.spotify.confidence.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.flags.resolver.v1.ResolveFlagsRequest;
+import com.spotify.confidence.flags.resolver.v1.ResolveFlagsResponse;
+import com.spotify.confidence.flags.resolver.v1.Sdk;
+import com.spotify.confidence.flags.resolver.v1.SdkId;
+import com.spotify.confidence.flags.types.v1.FlagSchema;
+import com.spotify.confidence.flags.wasm.v1.EvaluateRequest;
+import com.spotify.confidence.flags.wasm.v1.ResolutionDetails;
+import com.spotify.confidence.sdk.OpenFeatureValueMapper.EncodedDefault;
+import com.spotify.confidence.sdk.internal.engine.Engine;
+import com.spotify.confidence.sdk.internal.engine.EngineClosedException;
+import com.spotify.confidence.sdk.internal.engine.EngineConfig;
+import com.spotify.confidence.sdk.internal.engine.NotReadyException;
+import com.spotify.confidence.sdk.internal.engine.StartupTimeoutException;
+import com.spotify.confidence.sdk.internal.engine.TerminalStartupException;
+import dev.openfeature.sdk.ErrorCode;
+import dev.openfeature.sdk.EvaluationContext;
+import dev.openfeature.sdk.FeatureProvider;
+import dev.openfeature.sdk.Metadata;
+import dev.openfeature.sdk.ProviderEvaluation;
+import dev.openfeature.sdk.ProviderState;
+import dev.openfeature.sdk.TrackingEventDetails;
+import dev.openfeature.sdk.Value;
 import dev.openfeature.sdk.exceptions.GeneralError;
 import dev.openfeature.sdk.exceptions.TypeMismatchError;
-import io.grpc.ManagedChannel;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import org.slf4j.Logger;
 
 /**
- * OpenFeature provider for Confidence feature flags using local resolution.
+ * OpenFeature provider resolving flags locally in-process: flag state is compiled to a WebAssembly
+ * module fetched from the Confidence CDN, and evaluation happens on the JVM through the state-to-
+ * wasm engine — no resolver service round trip per evaluation.
  *
- * <p>This provider evaluates feature flags locally using a WebAssembly (WASM) resolver. It
- * periodically syncs flag configurations from the Confidence service and caches them locally for
- * fast, low-latency flag evaluation.
+ * <p>Exposures (flag assignments) are logged to Confidence ingestion, deduplicated per default
+ * process (see {@link com.spotify.confidence.sdk.internal.engine.ExposureMode}); sticky assignments
+ * and materialized segments persist through the configured {@link MaterializationStore}.
  *
- * <p><strong>Usage Example:</strong>
+ * <p>Lifecycle: after construction the provider is {@link ProviderState#NOT_READY} and evaluations
+ * return caller defaults; {@link #initialize} installs the first module (throwing on a terminal
+ * credential rejection, or on an initialization timeout while the engine keeps retrying in the
+ * background); {@link #shutdown} flushes buffered logs and releases the engine within 10 seconds.
  *
- * <pre>{@code
- * String clientSecret = "your-application-client-secret";
- * String encryptionKey = "your-encryption-key";
- * LocalProviderConfig config = new LocalProviderConfig();
- * OpenFeatureLocalResolveProvider provider =
- *     new OpenFeatureLocalResolveProvider(config, clientSecret, encryptionKey);
- *
- * OpenFeatureAPI.getInstance().setProvider(provider);
- *
- * Client client = OpenFeatureAPI.getInstance().getClient();
- * String flagValue = client.getStringValue("my-flag", "default-value");
- * }</pre>
+ * <p>Unsupported, as in earlier versions: the resolve token is neither encrypted nor authenticated,
+ * so treat it as untrusted input when applying flags.
  */
-@Experimental
 public class OpenFeatureLocalResolveProvider implements FeatureProvider {
-  private final String clientSecret;
-  private static final Logger log =
-      org.slf4j.LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
-  private final LocalResolver resolver;
-  private final WasmFlagLogger flagLogger;
-  private final MaterializationStore materializationStore;
-  private final boolean disableExposureCollection;
-  private static final Duration ASSIGN_LOG_FLUSH_INTERVAL = Duration.ofMillis(100);
-  private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(15);
-  private static final Duration EVENT_FLUSH_INTERVAL = Duration.ofSeconds(15);
-  private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
-  private static final int MAX_DRAIN_BATCHES = 100;
 
-  /**
-   * Number of event publish attempts between failure-rate log lines. Mirrors {@code
-   * GrpcWasmFlagLogger.STATS_WINDOW}: publish failures are swallowed per batch so that a broken
-   * events backend cannot take down flag resolution, and this window is the only signal that they
-   * are happening.
-   */
-  private static final int EVENT_STATS_WINDOW = 10;
+  /** The provider name reported through {@link #getMetadata()}. */
+  public static final String PROVIDER_NAME = "confidence-sdk-java-local";
 
-  private final AtomicLong eventPublishAttempts = new AtomicLong();
-  private final AtomicLong eventPublishFailures = new AtomicLong();
-  private final AtomicLong telemetryEventsPublished = new AtomicLong();
-  private final AtomicLong telemetryEventBatchesSucceeded = new AtomicLong();
-  private final AtomicLong telemetryEventBatchesFailed = new AtomicLong();
-  private final AtomicLong telemetryEventsRejected = new AtomicLong();
-  private final ScheduledExecutorService flagsFetcherExecutor = newFlagsFetcherExecutor();
-  private final ScheduledExecutorService assignLogExecutor =
-      Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true).build());
-  private final AccountStateProvider stateProvider;
-  private final AtomicReference<ProviderState> state =
-      new AtomicReference<>(ProviderState.NOT_READY);
-  private final AtomicBoolean closed = new AtomicBoolean();
-  private volatile boolean initialized = false;
-  private volatile byte[] lastStateBytes = null;
-  @VisibleForTesting boolean forcedFetcherShutdown = false;
+  /** The budget for flushing logs and releasing the engine on {@link #shutdown()}. */
+  private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(10);
+
   private static final Sdk SDK =
       Sdk.newBuilder().setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER).setVersion(Version.VERSION).build();
 
-  /**
-   * SDK identity reported to the events service. This is a different {@code Sdk}/{@code SdkId} pair
-   * from the flag-resolver one above — same variant name, different proto package.
-   */
-  private static final com.spotify.confidence.sdk.events.v1.Sdk EVENTS_SDK =
-      com.spotify.confidence.sdk.events.v1.Sdk.newBuilder()
-          .setId(com.spotify.confidence.sdk.events.v1.SdkId.SDK_ID_JAVA_LOCAL_PROVIDER)
-          .setVersion(Version.VERSION)
-          .build();
-
-  // Event tracking (optional — null when not configured)
-  private final WasmEventTracker eventTracker;
-  private final ScheduledExecutorService eventFlushExecutor;
-  private final ManagedChannel eventsChannel;
-  private final EventsServiceGrpc.EventsServiceBlockingStub eventsStub;
-
-  private static ScheduledExecutorService newFlagsFetcherExecutor() {
-    final ScheduledThreadPoolExecutor executor =
-        new ScheduledThreadPoolExecutor(1, new ThreadFactoryBuilder().setDaemon(true).build());
-    // The poll task reschedules itself, so there is always one pending. Drop it on shutdown instead
-    // of letting awaitTermination wait for a poll that won't fire for another poll interval.
-    executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
-    return executor;
-  }
-
-  private static long getPollIntervalSeconds() {
-    return Optional.ofNullable(System.getenv("CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS"))
-        .map(Long::parseLong)
-        .orElse(DEFAULT_POLL_INTERVAL.toSeconds());
-  }
+  private final String clientSecret;
+  private final Engine engine;
+  private final com.spotify.confidence.sdk.internal.host.MaterializationStore hostStore;
+  private final RemoteMaterializationStore createdRemoteStore;
+  private final ExecutorService writeExecutor;
+  private final Duration initializationTimeout;
+  private final Logger logger;
+  private final AtomicReference<ProviderState> state =
+      new AtomicReference<>(ProviderState.NOT_READY);
+  private final AtomicBoolean closed = new AtomicBoolean();
 
   /**
-   * Creates a new OpenFeature provider for local flag resolution with default configuration.
-   *
-   * <p>This is the simplest way to create a provider. It uses the default gRPC channel factory and
-   * remote resolver fallback for sticky assignments.
-   *
-   * <p><strong>Example usage:</strong>
-   *
-   * <pre>{@code
-   * OpenFeatureLocalResolveProvider provider =
-   *     new OpenFeatureLocalResolveProvider("your-client-secret", "your-encryption-key");
-   * OpenFeatureAPI.getInstance().setProviderAndWait(provider);
-   * }</pre>
-   *
-   * @param clientSecret the client secret for your application, used for flag resolution
-   *     authentication
-   * @param encryptionKey the 64-character hexadecimal encryption key for this client credential
+   * Creates a provider with the default configuration: deduplicated exposures, one resolver
+   * instance per processor, and no materialization store (sticky assignments fall back to
+   * non-sticky evaluation).
    */
   public OpenFeatureLocalResolveProvider(String clientSecret, String encryptionKey) {
-    this(new LocalProviderConfig(), clientSecret, encryptionKey);
+    this(LocalProviderConfig.builder().build(), clientSecret, encryptionKey, null);
   }
 
-  /**
-   * Creates a new OpenFeature provider for local flag resolution with custom channel factory.
-   *
-   * @param config the provider configuration including optional channel factory
-   * @param clientSecret the client secret for your application, used for flag resolution
-   *     authentication
-   * @param encryptionKey the 64-character hexadecimal encryption key for this client credential
-   */
   public OpenFeatureLocalResolveProvider(
       LocalProviderConfig config, String clientSecret, String encryptionKey) {
-    this(
-        config,
-        clientSecret,
-        FlagsAdminStateFetcher.validateEncryptionKey(encryptionKey),
-        config.isUseRemoteMaterializationStore()
-            ? new RemoteMaterializationStore(clientSecret, config.getChannelFactory())
-            : new UnsupportedMaterializationStore());
+    this(config, clientSecret, encryptionKey, null);
   }
 
   /**
-   * Creates a new OpenFeature provider for local flag resolution with a custom sticky resolve
-   * implementation.
-   *
-   * @param clientSecret the client secret for your application, used for flag resolution
-   *     authentication
-   * @param encryptionKey the 64-character hexadecimal encryption key for this client credential
-   * @param materializationStore the implementation to use for handling sticky flag resolution
+   * Creates a provider with a materialization store for sticky assignments and materialized
+   * segments.
    */
   public OpenFeatureLocalResolveProvider(
       String clientSecret, String encryptionKey, MaterializationStore materializationStore) {
-    this(new LocalProviderConfig(), clientSecret, encryptionKey, materializationStore);
+    this(LocalProviderConfig.builder().build(), clientSecret, encryptionKey, materializationStore);
   }
 
-  /**
-   * Creates a new OpenFeature provider for local flag resolution with custom channel factory and
-   * sticky resolve implementation.
-   *
-   * @param config the provider configuration including optional channel factory
-   * @param clientSecret the client secret for your application, used for flag resolution
-   *     authentication
-   * @param encryptionKey the 64-character hexadecimal encryption key for this client credential
-   * @param materializationStore the implementation to use for handling sticky flag resolution
-   */
   public OpenFeatureLocalResolveProvider(
       LocalProviderConfig config,
       String clientSecret,
       String encryptionKey,
       MaterializationStore materializationStore) {
-    FlagsAdminStateFetcher.validateEncryptionKey(encryptionKey);
-    this.clientSecret = clientSecret;
-    this.materializationStore = materializationStore;
-    this.disableExposureCollection = config.isDisableExposureCollection();
-    this.stateProvider =
-        new FlagsAdminStateFetcher(clientSecret, config.getHttpClientFactory(), encryptionKey);
-    final var wasmFlagLogger =
-        new GrpcWasmFlagLogger(
-            clientSecret, config.getChannelFactory(), config.getHttpClientFactory());
-    this.flagLogger = wasmFlagLogger;
-    final Map<String, String> initLabels = Map.of("encryption", "true");
-    final int numInstances = PooledResolver.getNumInstances(config.getResolverPoolSize());
-    final LocalResolver telemetryResolver =
-        new ProviderTelemetryResolver(
-            flagLogger::write,
-            wasmFlagLogger::drainFlushCounters,
-            this::drainEventCounters,
-            wasmFlagLogger::drainRestoredEventCounters,
-            SDK,
-            initLabels,
-            providerLogSink ->
-                new PooledResolver(
-                    numInstances,
-                    () ->
-                        new RecoveringResolver(
-                            () ->
-                                new WasmLocalResolver(
-                                    providerLogSink,
-                                    config.isEnableApplyDedup(),
-                                    config.isDisableExposureCollection()))));
-    this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
-
-    // Initialize event tracking — WASM is loaded from classpath
-    this.eventTracker = new WasmEventTracker(WasmEventTracker.loadFromClasspath());
-    this.eventFlushExecutor =
-        Executors.newScheduledThreadPool(
-            1, new ThreadFactoryBuilder().setDaemon(true).setNameFormat("event-flush-%d").build());
-    this.eventsChannel = GrpcUtil.createConfidenceEventsChannel(config.getChannelFactory());
-    this.eventsStub = EventsServiceGrpc.newBlockingStub(this.eventsChannel);
-  }
-
-  /**
-   * Creates a new OpenFeature provider for testing with a custom WasmFlagLogger.
-   *
-   * @param accountStateProvider the state provider for resolver state
-   * @param clientSecret the client secret for authentication
-   * @param materializationStore the implementation for sticky flag resolution
-   * @param wasmFlagLogger the flag logger to use (e.g., CapturingWasmFlagLogger for testing)
-   */
-  @VisibleForTesting
-  OpenFeatureLocalResolveProvider(
-      AccountStateProvider accountStateProvider,
-      String clientSecret,
-      MaterializationStore materializationStore,
-      WasmFlagLogger wasmFlagLogger) {
-    this(accountStateProvider, clientSecret, materializationStore, wasmFlagLogger, true);
-  }
-
-  @VisibleForTesting
-  OpenFeatureLocalResolveProvider(
-      AccountStateProvider accountStateProvider,
-      String clientSecret,
-      MaterializationStore materializationStore,
-      WasmFlagLogger wasmFlagLogger,
-      boolean enableApplyDedup) {
     this(
-        accountStateProvider,
+        config == null ? LocalProviderConfig.builder().build() : config,
         clientSecret,
+        encryptionKey,
         materializationStore,
-        wasmFlagLogger,
-        enableApplyDedup,
-        false);
+        true);
   }
 
-  @VisibleForTesting
-  OpenFeatureLocalResolveProvider(
-      AccountStateProvider accountStateProvider,
+  private OpenFeatureLocalResolveProvider(
+      LocalProviderConfig config,
       String clientSecret,
-      MaterializationStore materializationStore,
-      WasmFlagLogger wasmFlagLogger,
-      boolean enableApplyDedup,
-      boolean disableExposureCollection) {
+      String encryptionKey,
+      MaterializationStore explicitStore,
+      boolean unused) {
+    if (clientSecret == null || clientSecret.isBlank()) {
+      throw new IllegalArgumentException("clientSecret must not be empty");
+    }
+    if (encryptionKey == null || !encryptionKey.matches("[0-9a-fA-F]{64}")) {
+      throw new IllegalArgumentException(
+          "encryptionKey must be 64 hexadecimal characters (32 bytes)");
+    }
+    if (explicitStore != null && config.getMaterializationStore() != null) {
+      throw new IllegalArgumentException(
+          "materializationStore was set both on the config and as a constructor argument");
+    }
+    if ((explicitStore != null || config.getMaterializationStore() != null)
+        && config.isUseRemoteMaterializationStore()) {
+      throw new IllegalArgumentException(
+          "materializationStore and useRemoteMaterializationStore are mutually exclusive");
+    }
     this.clientSecret = clientSecret;
-    this.materializationStore = materializationStore;
-    this.disableExposureCollection = disableExposureCollection;
-    this.stateProvider = accountStateProvider;
-    this.flagLogger = wasmFlagLogger;
-    final int numInstances =
-        PooledResolver.getNumInstances(LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE);
-    final LocalResolver telemetryResolver =
-        new ProviderTelemetryResolver(
-            wasmFlagLogger::write,
-            wasmFlagLogger::drainFlushCounters,
-            this::drainEventCounters,
-            wasmFlagLogger::drainRestoredEventCounters,
-            SDK,
-            Map.of(),
-            providerLogSink ->
-                new PooledResolver(
-                    numInstances,
-                    () ->
-                        new RecoveringResolver(
-                            () ->
-                                new WasmLocalResolver(
-                                    providerLogSink,
-                                    enableApplyDedup,
-                                    disableExposureCollection))));
-    this.resolver = new MaterializingResolver(telemetryResolver, materializationStore);
-    this.eventTracker = null;
-    this.eventFlushExecutor = null;
-    this.eventsChannel = null;
-    this.eventsStub = null;
+    this.initializationTimeout = config.getInitializationTimeout();
+    this.logger = config.getLogger();
+    java.net.http.HttpClient httpClient = config.getHttpClientFactory().createHttpClient();
+    this.writeExecutor =
+        Executors.newCachedThreadPool(
+            r -> {
+              Thread t = new Thread(r, "confidence-materialization-write");
+              t.setDaemon(true);
+              return t;
+            });
+    RemoteMaterializationStore remote = null;
+    MaterializationStore store =
+        explicitStore != null ? explicitStore : config.getMaterializationStore();
+    if (store == null && config.isUseRemoteMaterializationStore()) {
+      remote =
+          new RemoteMaterializationStore(
+              clientSecret, config.getRemoteMaterializationStoreUrl(), httpClient);
+      store = remote;
+    }
+    this.createdRemoteStore = remote;
+    this.hostStore =
+        new StoreAdapter(
+            store == null ? new UnsupportedMaterializationStore() : store, logger, writeExecutor);
+
+    EngineConfig.Builder engine =
+        new EngineConfig.Builder()
+            .clientSecret(clientSecret)
+            .encryptionKey(hexToBytes(encryptionKey))
+            .httpClient(httpClient)
+            .exposure(config.getExposureMode())
+            .interpreter(config.isInterpreter())
+            .logger(logger)
+            .onReady(
+                () -> {
+                  state.set(ProviderState.READY);
+                  logger.info("confidence provider ready");
+                });
+    if (config.getInstances() > 0) {
+      engine.instances(config.getInstances());
+    }
+    if (config.getMaxMemoryBytes() > 0) {
+      engine.maxMemoryBytes(config.getMaxMemoryBytes());
+    }
+    Duration poll = config.getStatePollInterval();
+    if (poll != null && !poll.isZero() && !poll.isNegative()) {
+      engine.pollInterval(poll);
+    }
+    Duration retry = config.getRetryInterval();
+    if (retry != null && !retry.isZero() && !retry.isNegative()) {
+      engine.retryInterval(retry);
+    }
+    if (!config.getCdnBaseUrl().isEmpty()) {
+      engine.cdnBaseUrl(config.getCdnBaseUrl());
+    }
+    if (!config.getIngestBaseUrl().isEmpty()) {
+      engine.ingestBaseUrl(config.getIngestBaseUrl());
+    }
+    this.engine = new Engine(engine.build());
   }
+
+  private static byte[] hexToBytes(String hex) {
+    byte[] out = new byte[hex.length() / 2];
+    for (int i = 0; i < out.length; i++) {
+      out[i] =
+          (byte)
+              ((Character.digit(hex.charAt(2 * i), 16) << 4)
+                  | Character.digit(hex.charAt(2 * i + 1), 16));
+    }
+    return out;
+  }
+
+  // ------------------------------------------------------------------ lifecycle
 
   @Override
   public ProviderState getState() {
@@ -323,616 +213,350 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
   }
 
   @Override
-  public void initialize(EvaluationContext evaluationContext) {
-    stateProvider.reload();
-    final AtomicReference<byte[]> resolverStateProtobuf =
-        new AtomicReference<>(stateProvider.provide());
-    final AtomicReference<String> accountIdRef = new AtomicReference<>(stateProvider.accountId());
-
-    // Only initialize WASM and set READY if we got valid state (non-empty accountId)
-    if (!accountIdRef.get().isEmpty()) {
-      resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
-      flagLogger.updateLogRouting(stateProvider.logDestinations(), accountIdRef.get());
-      initialized = true;
-      this.state.set(ProviderState.READY);
-    } else {
-      log.warn(
-          "Initial state load failed, provider starting in NOT_READY state, serving default"
-              + " values.");
-    }
-
-    final long pollIntervalSeconds = getPollIntervalSeconds();
-    scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
-
-    // Assign flush only. Resolve logs and telemetry still go out via
-    // flushAllLogs() on the state-refresh cycle and resolver.close() on shutdown.
-    if (!disableExposureCollection) {
-      assignLogExecutor.scheduleAtFixedRate(
-          () -> {
-            try {
-              if (initialized) {
-                resolver.flushAssignLogs();
-              }
-            } catch (RuntimeException e) {
-              log.error("Failed to flush assign logs", e);
-            }
-          },
-          ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
-          ASSIGN_LOG_FLUSH_INTERVAL.toMillis(),
-          TimeUnit.MILLISECONDS);
-    }
-
-    // Schedule event flushing if event tracking is enabled
-    if (eventFlushExecutor != null && eventTracker != null) {
-      eventFlushExecutor.scheduleAtFixedRate(
-          this::doFlushAndSendEvents,
-          EVENT_FLUSH_INTERVAL.toMillis(),
-          EVENT_FLUSH_INTERVAL.toMillis(),
-          TimeUnit.MILLISECONDS);
-    }
+  public Metadata getMetadata() {
+    return () -> PROVIDER_NAME;
   }
 
-  private void scheduleStateRefresh(
-      AtomicReference<byte[]> resolverStateProtobuf,
-      AtomicReference<String> accountIdRef,
-      long pollIntervalSeconds) {
-    if (flagsFetcherExecutor.isShutdown()) {
+  /**
+   * Installs the first resolver module, waiting up to the configuration's initialization timeout. A
+   * {@link TerminalStartupException} (the CDN rejected the credential) surfaces as a {@link
+   * GeneralError} and the provider will not become ready; a timeout throws while the engine keeps
+   * retrying in the background — the provider becomes {@link ProviderState#READY} on recovery.
+   */
+  @Override
+  public void initialize(EvaluationContext evaluationContext) {
+    if (closed.get()) {
       return;
     }
-    // Use short retry interval (1s) when not initialized, normal interval otherwise
-    long delaySeconds = initialized ? pollIntervalSeconds : 1;
-
-    flagsFetcherExecutor.schedule(
-        () -> {
-          try {
-            stateProvider.reload();
-            resolverStateProtobuf.set(stateProvider.provide());
-            accountIdRef.set(stateProvider.accountId());
-
-            if (!accountIdRef.get().isEmpty()) {
-              // Always update log routing — destinations can change independently of state bytes
-              flagLogger.updateLogRouting(stateProvider.logDestinations(), accountIdRef.get());
-
-              if (!initialized) {
-                resolver.setResolverState(resolverStateProtobuf.get(), accountIdRef.get(), SDK);
-                lastStateBytes = resolverStateProtobuf.get();
-                initialized = true;
-                this.state.set(ProviderState.READY);
-                log.info("Provider recovered and is now READY");
-              } else {
-                // Flush logs before state update to reduce WASM heap fragmentation (#455)
-                resolver.flushAllLogs();
-
-                // Only push state into the wasm instances when it actually changed — the wasm
-                // execution inside setResolverState is expensive (runs across all pool slots).
-                final byte[] newState = resolverStateProtobuf.get();
-                if (!java.util.Arrays.equals(newState, lastStateBytes)) {
-                  resolver.setResolverState(newState, accountIdRef.get(), SDK);
-                  lastStateBytes = newState;
-                }
-              }
-            }
-          } catch (RuntimeException e) {
-            log.error("State refresh failed", e);
-          } finally {
-            scheduleStateRefresh(resolverStateProtobuf, accountIdRef, pollIntervalSeconds);
-          }
-        },
-        delaySeconds,
-        TimeUnit.SECONDS);
-  }
-
-  @Override
-  public Metadata getMetadata() {
-    return () -> "confidence-sdk-java-local";
-  }
-
-  @Override
-  public ProviderEvaluation<Boolean> getBooleanEvaluation(
-      String key, Boolean defaultValue, EvaluationContext ctx) {
-    return getCastedEvaluation(key, defaultValue, ctx, Value::asBoolean);
-  }
-
-  @Override
-  public ProviderEvaluation<String> getStringEvaluation(
-      String key, String defaultValue, EvaluationContext ctx) {
-    return getCastedEvaluation(key, defaultValue, ctx, Value::asString);
-  }
-
-  @Override
-  public ProviderEvaluation<Integer> getIntegerEvaluation(
-      String key, Integer defaultValue, EvaluationContext ctx) {
-    return getCastedEvaluation(key, defaultValue, ctx, Value::asInteger);
-  }
-
-  @Override
-  public ProviderEvaluation<Double> getDoubleEvaluation(
-      String key, Double defaultValue, EvaluationContext ctx) {
-    return getCastedEvaluation(key, defaultValue, ctx, Value::asDouble);
-  }
-
-  private <T> ProviderEvaluation<T> getCastedEvaluation(
-      String key, T defaultValue, EvaluationContext ctx, Function<Value, T> cast) {
-    final long startNanos = System.nanoTime();
-    final Value wrappedDefaultValue;
     try {
-      wrappedDefaultValue = new Value(defaultValue);
-    } catch (InstantiationException e) {
-      throw new RuntimeException(e);
+      engine.start(initializationTimeout);
+      state.set(ProviderState.READY);
+    } catch (TerminalStartupException e) {
+      state.set(ProviderState.FATAL);
+      throw new GeneralError("module CDN rejected the credential: " + e.getMessage());
+    } catch (StartupTimeoutException e) {
+      // The engine keeps polling; onReady flips the state when the first module lands.
+      logger.warn("confidence provider initialization timed out; retrying in the background");
+      throw new GeneralError(e.getMessage());
     }
-
-    final ProviderEvaluation<Value> objectEvaluation =
-        getObjectEvaluationInternal(key, wrappedDefaultValue, ctx, startNanos);
-
-    final T castedValue = cast.apply(objectEvaluation.getValue());
-    if (castedValue == null) {
-      log.warn("Cannot cast value '{}' to expected type", objectEvaluation.getValue().toString());
-      doRegisterResolve(ResolveReason.RESOLVE_REASON_TYPE_MISMATCH, startNanos);
-      throw new TypeMismatchError(
-          String.format("Cannot cast value '%s' to expected type", objectEvaluation.getValue()));
-    }
-
-    final ProviderEvaluation<T> result =
-        ProviderEvaluation.<T>builder()
-            .value(castedValue)
-            .variant(objectEvaluation.getVariant())
-            .reason(objectEvaluation.getReason())
-            .errorMessage(objectEvaluation.getErrorMessage())
-            .errorCode(objectEvaluation.getErrorCode())
-            .build();
-
-    if (result.getErrorCode() != null) {
-      log.warn(
-          "Flag evaluation for '{}' returned error code: {}, message: {}",
-          key,
-          result.getErrorCode(),
-          result.getErrorMessage());
-    }
-
-    return result;
   }
 
+  /** Flushes buffered flag logs and releases the engine. Idempotent. */
   @Override
   public void shutdown() {
     if (!closed.compareAndSet(false, true)) {
       return;
     }
     state.set(ProviderState.NOT_READY);
-    log.debug("Shutting down scheduled executors");
-    flagsFetcherExecutor.shutdown();
-    assignLogExecutor.shutdown();
-    if (eventFlushExecutor != null) {
-      eventFlushExecutor.shutdown();
-    }
-
-    final long graceSeconds = SHUTDOWN_GRACE.toSeconds();
     try {
-      if (!flagsFetcherExecutor.awaitTermination(graceSeconds, TimeUnit.SECONDS)) {
-        log.warn(
-            "Flags fetcher executor did not terminate within {}s, forcing shutdown", graceSeconds);
-        forcedFetcherShutdown = true;
-        flagsFetcherExecutor.shutdownNow();
+      if (!engine.close(SHUTDOWN_GRACE)) {
+        logger.warn("provider shutdown hit the {} budget", SHUTDOWN_GRACE);
       }
-      if (!assignLogExecutor.awaitTermination(graceSeconds, TimeUnit.SECONDS)) {
-        log.warn(
-            "Assign log executor did not terminate within {}s, forcing shutdown", graceSeconds);
-        assignLogExecutor.shutdownNow();
-      }
-      if (eventFlushExecutor != null
-          && !eventFlushExecutor.awaitTermination(graceSeconds, TimeUnit.SECONDS)) {
-        log.warn(
-            "Event flush executor did not terminate within {}s, forcing shutdown", graceSeconds);
-        eventFlushExecutor.shutdownNow();
+    } catch (RuntimeException e) {
+      logger.warn("provider shutdown", e);
+    }
+    writeExecutor.shutdown();
+    try {
+      if (!writeExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+        writeExecutor.shutdownNow();
       }
     } catch (InterruptedException e) {
-      log.warn("Interrupted while waiting for scheduled executors to shut down", e);
-      flagsFetcherExecutor.shutdownNow();
-      assignLogExecutor.shutdownNow();
-      if (eventFlushExecutor != null) {
-        eventFlushExecutor.shutdownNow();
-      }
       Thread.currentThread().interrupt();
+      writeExecutor.shutdownNow();
     }
-
-    // Drain remaining events before closing the event resolver
-    drainEvents();
-    if (eventTracker != null) {
-      eventTracker.close();
+    if (createdRemoteStore != null) {
+      createdRemoteStore.shutdown();
     }
-    if (eventsChannel != null) {
-      eventsChannel.shutdown();
-      try {
-        if (!eventsChannel.awaitTermination(graceSeconds, TimeUnit.SECONDS)) {
-          eventsChannel.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        eventsChannel.shutdownNow();
-        Thread.currentThread().interrupt();
-      }
-    }
-
-    // if we created the materialization store ourselves we are responsible for shutting it down
-    if (materializationStore instanceof RemoteMaterializationStore remoteMaterializationStore) {
-      remoteMaterializationStore.shutdown();
-    }
-
-    // resolver.close() flushes remaining logs via the log sink
-    this.resolver.close();
-
-    // flagLogger.shutdown() waits for pending async writes to complete
-    this.flagLogger.shutdown();
-
     FeatureProvider.super.shutdown();
+  }
+
+  @Override
+  public void track(
+      String trackingEventName, EvaluationContext context, TrackingEventDetails details) {
+    logger.warn("event tracking is not supported by the local resolver provider yet");
+  }
+
+  // ---------------------------------------------------------------- evaluation
+
+  @Override
+  public ProviderEvaluation<Boolean> getBooleanEvaluation(
+      String key, Boolean defaultValue, EvaluationContext ctx) {
+    return evaluate(key, defaultValue, ctx, false);
+  }
+
+  @Override
+  public ProviderEvaluation<String> getStringEvaluation(
+      String key, String defaultValue, EvaluationContext ctx) {
+    return evaluate(key, defaultValue, ctx, null);
+  }
+
+  @Override
+  public ProviderEvaluation<Integer> getIntegerEvaluation(
+      String key, Integer defaultValue, EvaluationContext ctx) {
+    return evaluate(key, defaultValue, ctx, 0);
+  }
+
+  @Override
+  public ProviderEvaluation<Double> getDoubleEvaluation(
+      String key, Double defaultValue, EvaluationContext ctx) {
+    return evaluate(key, defaultValue, ctx, 0.0);
   }
 
   @Override
   public ProviderEvaluation<Value> getObjectEvaluation(
       String key, Value defaultValue, EvaluationContext ctx) {
-    return getObjectEvaluationInternal(key, defaultValue, ctx, System.nanoTime());
+    return evaluate(key, defaultValue, ctx, new Value());
   }
-
-  private ProviderEvaluation<Value> getObjectEvaluationInternal(
-      String key, Value defaultValue, EvaluationContext ctx, long startNanos) {
-
-    final FlagPath flagPath;
-    try {
-      flagPath = FlagPath.getPath(key);
-    } catch (Exceptions.IllegalValuePath e) {
-      log.warn(e.getMessage());
-      throw new RuntimeException(e);
-    }
-
-    // apply=false covers both provider disableExposureCollection and per-eval
-    // `_confidence_skip_apply`. Provider disableExposureCollection is also set on the WASM
-    // guest via setResolverState so assign/token are skipped entirely;
-    // apply=false alone would still mint a deferred token.
-    final boolean disableExposureCollection =
-        this.disableExposureCollection || OpenFeatureUtils.isSkipApply(ctx);
-    final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
-    ResolveFlagsResponse resolveFlagResponse;
-    try {
-      final String requestFlagName = "flags/" + flagPath.getFlag();
-
-      final var req =
-          ResolveFlagsRequest.newBuilder()
-              .addFlags(requestFlagName)
-              .setApply(!disableExposureCollection)
-              .setClientSecret(clientSecret)
-              .setEvaluationContext(
-                  Struct.newBuilder().putAllFields(evaluationContext.getFieldsMap()).build())
-              .setSdk(
-                  Sdk.newBuilder()
-                      .setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER)
-                      .setVersion(Version.VERSION)
-                      .build())
-              .build();
-
-      final var processResponse =
-          resolver
-              .resolveProcess(
-                  ResolveProcessRequest.newBuilder().setWithoutMaterializations(req).build())
-              .toCompletableFuture()
-              .join();
-      resolveFlagResponse = processResponse.getResolved().getResponse();
-
-      if (resolveFlagResponse.getResolvedFlagsList().isEmpty()) {
-        log.warn("No active flag '{}' was found", flagPath.getFlag());
-        doRegisterResolve(ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND, startNanos);
-        throw new FlagNotFoundError(
-            String.format("No active flag '%s' was found", flagPath.getFlag()));
-      }
-
-      final String responseFlagName = resolveFlagResponse.getResolvedFlags(0).getFlag();
-      if (!requestFlagName.equals(responseFlagName)) {
-        log.warn("Unexpected flag '{}' from remote", responseFlagName.replaceFirst("^flags/", ""));
-        doRegisterResolve(ResolveReason.RESOLVE_REASON_FLAG_NOT_FOUND, startNanos);
-        throw new FlagNotFoundError(
-            String.format(
-                "Unexpected flag '%s' from remote", responseFlagName.replaceFirst("^flags/", "")));
-      }
-
-      final ResolvedFlag resolvedFlag = resolveFlagResponse.getResolvedFlags(0);
-
-      if (resolvedFlag.getVariant().isEmpty()) {
-        doRegisterResolve(resolvedFlag.getReason(), startNanos);
-        return ProviderEvaluation.<Value>builder()
-            .value(defaultValue)
-            .reason(
-                "The server returned no assignment for the flag. Typically, this happens "
-                    + "if no configured rules matches the given evaluation context.")
-            .build();
-      } else {
-        final Value fullValue =
-            OpenFeatureTypeMapper.from(resolvedFlag.getValue(), resolvedFlag.getFlagSchema());
-
-        Value value = OpenFeatureUtils.getValueForPath(flagPath.getPath(), fullValue);
-
-        if (value.isNull()) {
-          value = defaultValue;
-        }
-
-        doRegisterResolve(resolvedFlag.getReason(), startNanos);
-        return ProviderEvaluation.<Value>builder()
-            .value(value)
-            .reason(resolvedFlag.getReason().toString())
-            .variant(resolvedFlag.getVariant())
-            .build();
-      }
-    } catch (CompletionException e) {
-      if (e.getCause() instanceof MaterializationNotSupportedException) {
-        log.warn(
-            "Flag '{}' requires materializations but no materialization store is configured. "
-                + "Enable it via LocalProviderConfig.builder().useRemoteMaterializationStore(true)",
-            flagPath.getFlag());
-        doRegisterResolve(ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED, startNanos);
-        return ProviderEvaluation.<Value>builder()
-            .value(defaultValue)
-            .reason(ResolveReason.RESOLVE_REASON_MATERIALIZATION_NOT_SUPPORTED.toString())
-            .build();
-      }
-      throw e;
-    } catch (StatusRuntimeException e) {
-      handleStatusRuntimeException(e);
-      throw new GeneralError("Unknown error occurred when calling the provider backend");
-    }
-  }
-
-  // ── Event Tracking ─────────────────────────────────────────────────────────
 
   /**
-   * Tracks an event through the Confidence event engine. Events are buffered in the WASM engine and
-   * periodically flushed to the Confidence events API.
+   * One evaluation path for every type, as the Go provider: encode the default with its schema,
+   * resolve the flag (name before the first dot; the rest is a value path the module evaluates),
+   * check every error code, and decode against the default's shape.
    *
-   * <p>This method is a no-op if event tracking was not configured (i.e., no event WASM binary was
-   * provided in {@link LocalProviderConfig}).
-   *
-   * @param trackingEventName the event name (e.g., "purchase_completed")
-   * @param context the OpenFeature evaluation context
-   * @param details tracking event details including an optional numeric value and custom data
+   * @param zero substitutes for a null default when the module resolved to null
    */
-  @Override
-  public void track(
-      String trackingEventName, EvaluationContext context, TrackingEventDetails details) {
-    if (eventTracker == null) {
-      return;
-    }
+  private <T> ProviderEvaluation<T> evaluate(
+      String flag, T defaultValue, EvaluationContext ctx, T zero) {
+    T def = defaultValue == null ? zero : defaultValue;
+    Value defValue = wrap(def);
     try {
-      final Instant now = Instant.now();
-      final TrackEventRequest.Builder reqBuilder =
-          TrackEventRequest.newBuilder()
-              .setEventName(trackingEventName)
-              .setEventTime(
-                  Timestamp.newBuilder()
-                      .setSeconds(now.getEpochSecond())
-                      .setNanos(now.getNano())
-                      .build());
-
-      if (context != null) {
-        reqBuilder.setContext(OpenFeatureUtils.convertToProto(context));
+      EncodedDefault encoded = OpenFeatureValueMapper.encodeDefault(defValue);
+      ResolutionDetails details;
+      try {
+        details = evaluateOne(flag, defValue, encoded, ctx);
+      } catch (NotReadyException e) {
+        return failure(def, ErrorCode.PROVIDER_NOT_READY, "provider is not ready");
+      } catch (EngineClosedException e) {
+        return failure(def, ErrorCode.PROVIDER_FATAL, "provider is closed");
+      } catch (InvalidContextException e) {
+        return failure(def, ErrorCode.INVALID_CONTEXT, e.getMessage());
+      } catch (MaterializationRequiredException e) {
+        logger.warn(
+            "flag {} needs materializations, but no MaterializationStore is configured", flag);
+        return failure(def, ErrorCode.GENERAL, e.getMessage());
+      } catch (RuntimeException e) {
+        logger.error("flag resolve failed: {}", flag, e);
+        return failure(def, ErrorCode.GENERAL, e.getMessage());
       }
-
-      if (details != null) {
-        details.getValue().ifPresent(v -> reqBuilder.setValue(v.doubleValue()));
-        // Convert custom data fields from TrackingEventDetails (which extends Structure)
-        if (!details.isEmpty()) {
-          final Struct.Builder dataBuilder = Struct.newBuilder();
-          details
-              .asMap()
-              .forEach(
-                  (key, value) -> dataBuilder.putFields(key, OpenFeatureTypeMapper.from(value)));
-          reqBuilder.setData(dataBuilder.build());
-        }
+      if (details.getErrorCode()
+          != com.spotify.confidence.flags.wasm.v1.ErrorCode.ERROR_CODE_UNSPECIFIED) {
+        return failure(def, resolutionError(details.getErrorCode()), details.getErrorMessage());
       }
-
-      eventTracker.trackEvent(reqBuilder.build());
-    } catch (RuntimeException e) {
-      log.warn("Failed to track event '{}'", trackingEventName, e);
+      Value resolved = OpenFeatureValueMapper.decode(details.getValue(), defValue);
+      return success(extract(resolved, def), details);
+    } catch (TypeMismatchError e) {
+      return failure(def, ErrorCode.TYPE_MISMATCH, e.getMessage());
     }
   }
 
-  /**
-   * Flushes buffered events from the WASM engine and publishes them to the Confidence events
-   * service.
-   */
-  private void doFlushAndSendEvents() {
-    if (eventTracker == null) {
-      return;
-    }
-    try {
-      final FlushEventsResponse batch = eventTracker.flushEvents();
-      if (batch.getEventsCount() > 0) {
-        sendEvents(batch);
-      }
-    } catch (RuntimeException e) {
-      log.warn("Failed to flush events", e);
-    }
-  }
-
-  /**
-   * Drains all remaining events from the WASM engine by calling flush in a loop until no events
-   * remain.
-   */
-  private void drainEvents() {
-    if (eventTracker == null) {
-      return;
-    }
-    try {
-      final long deadline = System.nanoTime() + SHUTDOWN_GRACE.toNanos();
-      for (int i = 0; i < MAX_DRAIN_BATCHES; i++) {
-        final FlushEventsResponse batch = eventTracker.flushEvents();
-        if (batch.getEventsCount() == 0) {
-          return;
-        }
-        sendEvents(batch);
-        if (System.nanoTime() >= deadline) {
-          log.warn(
-              "Event drain hit the {}s deadline on shutdown; dropping the rest",
-              SHUTDOWN_GRACE.toSeconds());
-          return;
-        }
-      }
-      log.warn(
-          "Event drain hit the {}-batch limit on shutdown; dropping the rest", MAX_DRAIN_BATCHES);
-    } catch (RuntimeException e) {
-      log.warn("Failed to drain events on shutdown", e);
-    }
-  }
-
-  /** Publishes a batch of events to the Confidence events service over gRPC. */
-  private void sendEvents(FlushEventsResponse batch) {
-    if (eventsStub == null) {
-      return;
-    }
-    final Instant now = Instant.now();
-    final PublishEventsRequest request =
-        PublishEventsRequest.newBuilder()
+  private ResolutionDetails evaluateOne(
+      String flag, Value defValue, EncodedDefault encoded, EvaluationContext ctx) {
+    String flagName = cut(flag);
+    ResolveFlagsRequest.Builder request =
+        ResolveFlagsRequest.newBuilder()
+            .addFlags("flags/" + flagName)
             .setClientSecret(clientSecret)
-            .addAllEvents(batch.getEventsList())
-            .setSendTime(
-                Timestamp.newBuilder().setSeconds(now.getEpochSecond()).setNanos(now.getNano()))
-            .setSdk(EVENTS_SDK)
+            .setApply(!OpenFeatureValueMapper.skipApply(ctx))
+            .setSdk(SDK);
+    try {
+      request.setEvaluationContext(OpenFeatureValueMapper.toProtoContext(ctx));
+    } catch (RuntimeException e) {
+      throw new InvalidContextException(e.getMessage(), e);
+    }
+    EvaluateRequest eval =
+        EvaluateRequest.newBuilder()
+            .setFlagKey(flag)
+            .setDefaultValue(encoded.value())
+            .setExpectedSchema(
+                encoded.schema() == null ? FlagSchema.getDefaultInstance() : encoded.schema())
             .build();
     try {
-      final PublishEventsResponse response = eventsStub.publishEvents(request);
-      final int rejected = response.getErrorsCount();
-      telemetryEventsPublished.addAndGet(batch.getEventsCount() - rejected);
-      telemetryEventBatchesSucceeded.incrementAndGet();
-      telemetryEventsRejected.addAndGet(rejected);
-      for (final EventError error : response.getErrorsList()) {
-        log.error(
-            "Failed to publish event at index {}: {} {}",
-            error.getIndex(),
-            error.getReason(),
-            error.getMessage());
-      }
-    } catch (StatusRuntimeException e) {
-      eventPublishFailures.incrementAndGet();
-      telemetryEventBatchesFailed.incrementAndGet();
-      log.warn("Failed to send events", e);
-    }
-    if (eventPublishAttempts.incrementAndGet() % EVENT_STATS_WINDOW == 0) {
-      final long failCount = eventPublishFailures.getAndSet(0);
-      if (failCount > 0) {
-        log.warn("Event publish failures: {}/{}", failCount, EVENT_STATS_WINDOW);
-      }
+      List<ResolutionDetails> details = engine.evaluate(request.build(), List.of(eval), hostStore);
+      return details.get(0);
+    } catch (RuntimeException e) {
+      throw unwrapStoreError(e);
     }
   }
 
-  long[] drainEventCounters() {
-    return new long[] {
-      telemetryEventsPublished.getAndSet(0),
-      telemetryEventBatchesSucceeded.getAndSet(0),
-      telemetryEventBatchesFailed.getAndSet(0),
-      telemetryEventsRejected.getAndSet(0)
+  private static RuntimeException unwrapStoreError(RuntimeException e) {
+    Throwable cause = e.getCause();
+    while (cause != null) {
+      if (cause instanceof MaterializationNotSupportedException) {
+        return new MaterializationRequiredException();
+      }
+      cause = cause.getCause();
+    }
+    return e;
+  }
+
+  private <T> ProviderEvaluation<T> success(T value, ResolutionDetails details) {
+    ProviderEvaluation<T> out = new ProviderEvaluation<>();
+    out.setValue(value);
+    out.setVariant(details.getVariant());
+    out.setReason(details.getReason().name());
+    return out;
+  }
+
+  private static <T> ProviderEvaluation<T> failure(T def, ErrorCode code, String message) {
+    ProviderEvaluation<T> out = new ProviderEvaluation<>();
+    out.setValue(def);
+    out.setErrorCode(code);
+    out.setErrorMessage(message);
+    out.setReason(dev.openfeature.sdk.Reason.ERROR.name());
+    return out;
+  }
+
+  /** {@code a.b.c} resolves flag {@code a} at value path {@code b.c}, as in earlier versions. */
+  private static String cut(String flag) {
+    int i = flag.indexOf('.');
+    return i < 0 ? flag : flag.substring(0, i);
+  }
+
+  private static dev.openfeature.sdk.ErrorCode resolutionError(
+      com.spotify.confidence.flags.wasm.v1.ErrorCode code) {
+    return switch (code) {
+      case ERROR_CODE_FLAG_NOT_FOUND -> ErrorCode.FLAG_NOT_FOUND;
+      case ERROR_CODE_TYPE_MISMATCH -> ErrorCode.TYPE_MISMATCH;
+      case ERROR_CODE_PROVIDER_NOT_READY -> ErrorCode.PROVIDER_NOT_READY;
+      case ERROR_CODE_PROVIDER_FATAL -> ErrorCode.PROVIDER_FATAL;
+      default -> ErrorCode.GENERAL;
     };
   }
 
-  private void doRegisterResolve(ResolveReason reason, long startNanos) {
-    long latencyUs = (System.nanoTime() - startNanos) / 1000;
-    try {
-      resolver.registerResolve(
-          RegisterResolveRequest.newBuilder()
-              .setReason(reason)
-              .setLatencyUs((int) Math.min(latencyUs, Integer.MAX_VALUE))
-              .build());
-    } catch (Exception e) {
-      log.warn("Failed to register resolve telemetry", e);
+  private static dev.openfeature.sdk.Value wrap(Object value) {
+    if (value instanceof Value v) {
+      return v;
     }
+    if (value == null) {
+      return new Value();
+    }
+    if (value instanceof Boolean b) {
+      return new Value(b);
+    }
+    if (value instanceof String s) {
+      return new Value(s);
+    }
+    if (value instanceof Integer i) {
+      return new Value(i);
+    }
+    if (value instanceof Double d) {
+      return new Value(d);
+    }
+    return Value.objectToValue(value);
   }
 
-  /**
-   * Resolves multiple flags at once for the given evaluation context. This method is intended for
-   * use by {@link FlagResolverService} to proxy resolve requests from client SDKs.
-   *
-   * @param ctx the evaluation context containing targeting key and other attributes
-   * @param flagNames the names of flags to resolve (without "flags/" prefix)
-   * @param apply whether to mark the flags as applied immediately
-   * @return the resolve response containing all resolved flags
-   */
-  CompletionStage<ResolveFlagsResponse> resolve(
-      EvaluationContext ctx, List<String> flagNames, boolean apply) {
-    final long startNanos = System.nanoTime();
-    final Struct evaluationContext = OpenFeatureUtils.convertToProto(ctx);
-
-    final var reqBuilder =
-        ResolveFlagsRequest.newBuilder()
-            .setApply(apply)
-            .setClientSecret(clientSecret)
-            .setEvaluationContext(
-                Struct.newBuilder().putAllFields(evaluationContext.getFieldsMap()).build())
-            .setSdk(
-                Sdk.newBuilder()
-                    .setId(SdkId.SDK_ID_JAVA_LOCAL_PROVIDER)
-                    .setVersion(Version.VERSION)
-                    .build());
-
-    // Add flags with proper prefix
-    for (String flagName : flagNames) {
-      if (flagName.startsWith("flags/")) {
-        reqBuilder.addFlags(flagName);
-      } else {
-        reqBuilder.addFlags("flags/" + flagName);
+  @SuppressWarnings("unchecked")
+  private static <T> T extract(dev.openfeature.sdk.Value resolved, T def) {
+    if (def instanceof Value) {
+      return (T) resolved;
+    }
+    if (resolved.isNull()) {
+      return def;
+    }
+    if (def == null) {
+      // A null default: yield the natural representation.
+      return (T) resolved.asObject();
+    }
+    if (def instanceof Boolean) {
+      if (!resolved.isBoolean()) {
+        throw new TypeMismatchError("resolved value is not a boolean");
       }
+      return (T) resolved.asBoolean();
     }
-
-    return resolver
-        .resolveProcess(
-            ResolveProcessRequest.newBuilder()
-                .setWithoutMaterializations(reqBuilder.build())
-                .build())
-        .thenApply(processResponse -> processResponse.getResolved().getResponse())
-        .whenComplete(
-            (response, error) -> {
-              ResolveReason reason =
-                  error != null
-                      ? ResolveReason.RESOLVE_REASON_ERROR
-                      : ResolveReason.RESOLVE_REASON_BUNDLE;
-              doRegisterResolve(reason, startNanos);
-            });
+    if (def instanceof String) {
+      if (!resolved.isString()) {
+        throw new TypeMismatchError("resolved value is not a string");
+      }
+      return (T) resolved.asString();
+    }
+    if (def instanceof Integer) {
+      if (!(resolved.isNumber() && resolved.asObject() instanceof Integer)) {
+        throw new TypeMismatchError("resolved value is not an integer");
+      }
+      return (T) resolved.asInteger();
+    }
+    if (def instanceof Double) {
+      if (!resolved.isNumber()) {
+        throw new TypeMismatchError("resolved value is not a number");
+      }
+      return (T) resolved.asDouble();
+    }
+    return (T) resolved.asObject();
   }
 
+  // --------------------------------------------------------- resolve service API
+
   /**
-   * Applies flags that were previously resolved with apply=false. This method is intended for use
-   * by {@link FlagResolverService} to proxy apply requests from client SDKs. When
-   * disableExposureCollection is configured, apply requests are ignored by the resolver.
-   *
-   * @param request the apply flags request containing resolve token and flags to apply
+   * Resolves flags by name (the {@code flags/} prefix is added when missing) and returns the full
+   * response, including the resolve token for deferred apply. When {@code apply} is false, the
+   * returned token is neither encrypted nor authenticated — treat it as untrusted input.
    */
-  void applyFlags(ApplyFlagsRequest request) {
-    resolver.applyFlags(request);
+  public CompletionStage<ResolveFlagsResponse> resolve(
+      EvaluationContext ctx, List<String> flagNames, boolean apply) {
+    try {
+      ResolveFlagsRequest.Builder request =
+          ResolveFlagsRequest.newBuilder()
+              .setClientSecret(clientSecret)
+              .setApply(apply)
+              .setSdk(SDK);
+      for (String name : flagNames) {
+        request.addFlags(name.startsWith("flags/") ? name : "flags/" + name);
+      }
+      request.setEvaluationContext(OpenFeatureValueMapper.toProtoContext(ctx));
+      return CompletableFuture.completedFuture(engine.resolve(request.build(), hostStore));
+    } catch (RuntimeException e) {
+      CompletableFuture<ResolveFlagsResponse> failed = new CompletableFuture<>();
+      failed.completeExceptionally(e);
+      return failed;
+    }
   }
 
   /**
-   * Returns a Prometheus metrics snapshot aggregated from all resolver instances in the pool.
+   * Applies flags resolved with {@code apply=false}: sends the flag assignments to Confidence
+   * ingestion with the resolve token. Failures are swallowed and logged, as in earlier versions —
+   * applies are best-effort telemetry.
+   */
+  public void applyFlags(ApplyFlagsRequest request) {
+    if (request == null) {
+      return;
+    }
+    ApplyFlagsRequest filled =
+        request.toBuilder()
+            .setClientSecret(
+                request.getClientSecret().isEmpty() ? clientSecret : request.getClientSecret())
+            .build();
+    if (!filled.getSdk().hasId() && !filled.getSdk().hasCustomId()) {
+      filled = filled.toBuilder().setSdk(SDK).build();
+    }
+    try {
+      engine.applyFlags(filled.toByteArray());
+    } catch (NotReadyException | EngineClosedException e) {
+      logger.warn("Failed to apply flags: {}", e.getMessage());
+    } catch (RuntimeException e) {
+      logger.warn("Failed to apply flags", e);
+    }
+  }
+
+  /**
+   * The module's cumulative telemetry in Prometheus text format, or OpenMetrics format when the
+   * config asks for it. Empty before the first module.
    *
    * <p><b>Experimental:</b> this API is subject to change.
-   *
-   * @param request the snapshot config (currently unused, reserved for future options)
-   * @return the concatenated Prometheus metrics text from all pool slots
    */
-  public String getPrometheusMetrics(SnapshotConfig request) {
-    return resolver.prometheusSnapshot();
+  public String getPrometheusMetrics(SnapshotConfig config) {
+    return engine.metrics(config != null && config.isOpenMetrics());
   }
 
-  private static void handleStatusRuntimeException(StatusRuntimeException e) {
-    if (e.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED) {
-      log.error("Deadline exceeded when calling provider backend", e);
-      throw new GeneralError("Deadline exceeded when calling provider backend");
-    } else if (e.getStatus().getCode() == Status.Code.UNAVAILABLE) {
-      log.error("Provider backend is unavailable", e);
-      throw new GeneralError("Provider backend is unavailable");
-    } else if (e.getStatus().getCode() == Status.Code.UNAUTHENTICATED) {
-      log.error("UNAUTHENTICATED", e);
-      throw new GeneralError("UNAUTHENTICATED");
-    } else {
-      log.error(
-          "Unknown error occurred when calling the provider backend. Grpc status code {}",
-          e.getStatus().getCode(),
-          e);
-      throw new GeneralError(
-          String.format(
-              "Unknown error occurred when calling the provider backend. Exception: %s",
-              e.getMessage()));
+  /** Not-ready from the engine: evaluations serve defaults. */
+  private static final class InvalidContextException extends RuntimeException {
+    InvalidContextException(String message, Throwable cause) {
+      super(message, cause);
+    }
+  }
+
+  private static final class MaterializationRequiredException extends RuntimeException {
+    MaterializationRequiredException() {
+      super("flag requires materializations; configure a MaterializationStore");
     }
   }
 }

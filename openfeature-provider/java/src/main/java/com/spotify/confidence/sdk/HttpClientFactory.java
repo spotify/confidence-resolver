@@ -1,42 +1,43 @@
 package com.spotify.confidence.sdk;
 
-import java.io.IOException;
-import java.net.HttpURLConnection;
+import java.net.http.HttpClient;
+import java.time.Duration;
 
 /**
- * HttpClientFactory is an advanced/testing hook allowing callers to customize how HTTP connections
- * are created. The provider will pass the URL that needs to be fetched.
+ * Advanced/testing hook supplying the {@link HttpClient} the provider uses for every network call:
+ * module downloads from the CDN, flag-log delivery, and the hosted {@link
+ * RemoteMaterializationStore}.
  *
- * <p>Implementations may modify request properties, change URLs, or replace the connection creation
- * mechanism entirely. This is particularly useful for:
+ * <p>The provider calls {@link #createHttpClient()} once and shares the client across those
+ * components for the provider's lifetime. The factory itself owns the lifecycle of whatever it
+ * creates; {@code java.net.http.HttpClient} needs no explicit shutdown.
+ *
+ * <p>Useful for:
  *
  * <ul>
- *   <li>Unit testing: inject mock HTTP responses
- *   <li>Integration testing: point to local mock HTTP servers
- *   <li>Production customization: custom timeouts, proxies, headers
- *   <li>Debugging: add custom logging or request tracking
+ *   <li>Unit testing: inject clients wired to local mock servers
+ *   <li>Production customization: proxies, custom timeouts
  * </ul>
- *
- * <p><strong>Lifecycle:</strong> The factory is responsible for managing any resources it creates.
- * When {@link #shutdown()} is called, it should clean up any resources that were allocated.
  */
+@FunctionalInterface
 public interface HttpClientFactory {
-  /**
-   * Creates an HTTP connection for the given URL.
-   *
-   * @param url the URL to connect to (e.g.,
-   *     "https://confidence-resolver-state-cdn.spotifycdn.com/...")
-   * @return a configured HttpURLConnection
-   * @throws IOException if an I/O error occurs while opening the connection
-   */
-  HttpURLConnection create(String url) throws IOException;
 
   /**
-   * Shuts down this factory and cleans up any resources. This method should be called when the
-   * provider is shutting down to ensure proper resource cleanup.
+   * Creates the HTTP client the provider will use for all its network traffic.
    *
-   * <p>Implementations should clean up any resources that were created and wait for them to
-   * terminate gracefully if applicable.
+   * @return a configured {@link HttpClient}
    */
-  void shutdown();
+  HttpClient createHttpClient();
+
+  /**
+   * The default factory: a client with a 10-second connect timeout that follows redirects, as the
+   * module CDN and ingestion endpoints may answer with one.
+   */
+  static HttpClientFactory defaultFactory() {
+    return () ->
+        HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+  }
 }
