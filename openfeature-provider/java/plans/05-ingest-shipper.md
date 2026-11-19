@@ -2,6 +2,10 @@
 
 Ports go commit `7b2a45ec`. One commit of the rewrite PR. Reference: `internal/ingest/shipper.go` on `next` (merged as #700).
 
+**Status: ✅ landed** — `LogShipper` + `LogShipperTest` (verbatim delivery with per-batch tokens,
+retry classification, drops-not-blocks, close deadline) and `TestBackend` in `internal.testutil`;
+31 tests green, 1 e2e skipped.
+
 ## Goal
 
 `com.spotify.confidence.sdk.internal.ingest.LogShipper` forwards serialized
@@ -54,3 +58,18 @@ bearer tokens and bodies). Shared by the engine and provider tests. `Publish`, `
 
 Shipper behavior matches Go's on every case above, and `TestBackend` can serve a published
 encrypted `basic.wasm` round-trip (used by phases 6–7).
+
+## Deltas from the Go reference (as landed)
+
+- The queue is an `ArrayBlockingQueue`; `enqueue` is synchronized only against closing (a
+  microsecond monitor, never the queue or network), drops are counted, and the single delivery
+  thread drains until the queue is empty and the shipper is closed.
+- `close(Duration)` returns whether the queue drained in time (Go returns an error); retries are
+  3 attempts with 200 ms→400 ms backoff, network/429/5xx retryable, other 4xx dropped — all as in
+  Go, with retryability carried by an `IOException` subtype in the delivery thread.
+- `TestBackend` lives in test sources (`internal.testutil`) with `SECRET`, `module(name)`
+  (classpath resource first, `../testdata` fallback), `publish`, `setStatus`, `ifNoneMatch`,
+  `batches`, `logs`, `hexKey`, and base URLs — the Java twin of Go's `testutil.Backend`.
+- Gotcha recorded for posterity: a fake server's handler must not capture a **constructor
+  parameter** that shadows the mutable field — `List.of(...)` is immutable and `remove(0)`
+  throws inside the handler, which surfaces only as "header parser received no bytes".
