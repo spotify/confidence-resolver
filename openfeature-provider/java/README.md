@@ -1,8 +1,8 @@
-# Confidence OpenFeature Local Provider for Java
+# Confidence OpenFeature Provider for Java
 
-> [!WARNING]
-> **`next` branch:** this provider is kept as API reference and does not build here. It is being
-> rewritten on state-to-wasm modules; until then, use the version on `main`.
+> [!NOTE]
+> This is the `next` version of the provider, built on compiled flag modules and released as
+> release candidates. For the current release, see the provider on `main`.
 
 ![Status: Experimental](https://img.shields.io/badge/status-experimental-orange)
 
@@ -10,13 +10,16 @@ A high-performance OpenFeature provider for [Confidence](https://confidence.spot
 
 ## Features
 
-- **Local Resolution**: Evaluates feature flags locally using WebAssembly (WASM)
+- **Local Resolution**: Evaluates flags locally in a WebAssembly **flag module** compiled from
+  your client credential's flags, fetched encrypted from the Confidence CDN
 - **Low Latency**: No network calls during flag evaluation
-- **Automatic Sync**: Periodically syncs flag configurations from Confidence
-- **Exposure Logging**: Fully supported exposure logging (and other resolve analytics)
-- **[Event Tracking](#event-tracking)**: Send custom events via the OpenFeature `track()` API
-- **OpenFeature Compatible**: Works with the standard OpenFeature SDK
+- **Automatic Sync**: Picks up a new flag module as your flags change
+- **Exposure Logging**: Exposure logging and resolve analytics
+- **OpenFeature Compatible**: Works with the standard OpenFeature Java SDK
 - **HTTP Proxy Service**: Proxy requests from client SDKs through your backend for enhanced control
+
+Not yet supported in this version: event tracking (`track()`). It will return through the flag
+modules.
 
 ## Installation
 
@@ -38,12 +41,11 @@ You'll need a **client secret** from Confidence to use this provider.
 **📖 See the [Integration Guide: Getting Your Credentials](../INTEGRATION_GUIDE.md#getting-your-credentials)** for step-by-step instructions on:
 - How to navigate the Confidence dashboard
 - Creating a Backend integration
-- Creating a test flag for verification
-- Best practices for credential storage
 
 ## Encryption
 
-The provider fetches encrypted flag state and decrypts it when loading the resolver. Pass the encryption key for your client credential when creating the provider.
+The provider fetches the flag module as an encrypted artifact and decrypts it when loading.
+Pass the encryption key for your client credential when creating the provider.
 
 See the [Integration Guide](../INTEGRATION_GUIDE.md#encryption) for background and migration details.
 
@@ -84,6 +86,10 @@ System.out.println("Flag value: " + enabled);
 // Don't forget to shutdown when your application exits (see Shutdown section)
 ```
 
+`setProviderAndWait` calls `initialize()`, which installs the credential's first flag module —
+throwing on a rejected credential, or on timeout while the provider keeps retrying in the
+background. Evaluations before the first module (and after errors) return your defaults.
+
 ## Evaluation Context
 
 The evaluation context contains information about the user/session being evaluated for targeting and A/B testing.
@@ -100,7 +106,8 @@ ctx.add("age", 25);
 
 ## Error Handling
 
-The provider uses a **default value fallback** pattern - when evaluation fails, it returns your specified default value instead of throwing an error.
+The provider uses a **default value fallback** pattern - when evaluation fails, it returns your
+specified default value with an error code set on the details, instead of throwing.
 
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
 - Common failure scenarios
@@ -123,17 +130,6 @@ if (details.getErrorCode() != null) {
 }
 ```
 
-## Shutdown
-
-Call `shutdown()` when your application exits to flush exposure logs and clean up resources:
-
-```java
-// Shutdown the provider to flush logs and clean up resources
-OpenFeatureAPI.getInstance().shutdown();
-```
-
-> **Note**: OpenFeature Java SDK 1.20.2+ properly awaits provider shutdown ([#1744](https://github.com/open-feature/java-sdk/pull/1744)). If you are using an older SDK version (< 1.20.2), call `OpenFeatureAPI.getInstance().getProvider().shutdown()` directly instead to avoid losing exposure logs.
-
 ## Configuration
 
 ### Provider Configuration
@@ -142,118 +138,98 @@ Pass the client secret and encryption key to the constructor. Use `LocalProvider
 
 ```java
 LocalProviderConfig config = LocalProviderConfig.builder()
-    .resolverPoolSize(4) // Number of WASM resolver instances (default: 2). Increase for higher concurrency.
+    .materializationStore(new MyRedisStore())       // sticky assignments + materialized segments
+    .exposureMode(ExposureMode.ALL)                 // log every exposure
+    .instances(8)                                   // concurrent evaluation capacity
     .build();
 
 OpenFeatureLocalResolveProvider provider =
     new OpenFeatureLocalResolveProvider(config, "your-client-secret", "your-encryption-key");
 ```
 
+| Option | Default | Description |
+|--------|---------|-------------|
+| `materializationStore(MaterializationStore)` | none (unsupported) | Storage for sticky assignments and materialized segments. See [Materialization Stores](#materialization-stores). |
+| `useRemoteMaterializationStore(boolean)` | `false` | Use Confidence's hosted materialization store instead of your own. Mutually exclusive with `materializationStore`. |
+| `exposureMode(ExposureMode)` | `DEDUPLICATED` | How exposures are logged. See [Exposure logging](#exposure-logging). |
+| `instances(int)` | one per processor | The maximum number of concurrent evaluations. |
+| `maxMemoryBytes(long)` | 64 MiB | Caps the flag module's memory. |
+| `statePollInterval(Duration)` | 10 seconds | How often to check for a new flag module. |
+| `initializationTimeout(Duration)` | 30 seconds | How long `initialize()` waits for the first module. |
+| `interpreter(boolean)` | `false` | Run the flag module on the interpreter instead of the compiled runtime. See [WASM interpreter mode](#wasm-interpreter-mode). |
+| `httpClientFactory(HttpClientFactory)` | shared `HttpClient` | Hook supplying the `java.net.http.HttpClient` used for every request to Confidence (module CDN, flag logs, hosted materialization store). Use it for proxies, custom TLS or instrumentation. |
+| `logger(Logger)` | SLF4J default | Custom logger. See [Logging](#logging). |
+
 ### Environment Variables
 
-Configure the provider behavior using environment variables:
+- `CONFIDENCE_MATERIALIZATION_READ_TIMEOUT_SECONDS`: Timeout for materialization read operations when using the remote materialization store (default: `2` seconds)
+- `CONFIDENCE_MATERIALIZATION_WRITE_TIMEOUT_SECONDS`: Timeout for materialization write operations when using the remote materialization store (default: `5` seconds)
 
-- `CONFIDENCE_RESOLVER_POLL_INTERVAL_SECONDS`: How often to poll Confidence to get updates (default: `30` seconds)
-- `CONFIDENCE_MATERIALIZATION_READ_TIMEOUT_SECONDS`: Timeout for materialization read operations when using remote materialization store (default: `2` seconds)
-- `CONFIDENCE_MATERIALIZATION_WRITE_TIMEOUT_SECONDS`: Timeout for materialization write operations when using remote materialization store (default: `5` seconds)
+Everything else is configured through `LocalProviderConfig.builder()`.
 
-#### Deprecated Environment Variables
+## Exposure logging
 
-The following environment variables are deprecated and will be removed in a future version. Use `LocalProviderConfig.builder()` instead:
+By default the provider logs each unit's exposure to a variant once per deduplication window
+(`ExposureMode.DEDUPLICATED`), so repeatedly evaluating the same flag for the same targeting key
+produces one exposure event instead of many. Distinct units are never collapsed, so per-unit
+exposure counts are unaffected.
 
-- `CONFIDENCE_NUMBER_OF_WASM_INSTANCES`: Use `.resolverPoolSize()` instead
-- `CONFIDENCE_DOMAIN`: Use a custom `ChannelFactory` instead
-- `CONFIDENCE_GRPC_PLAINTEXT`: Use a custom `ChannelFactory` instead
+`exposureMode` changes this for every evaluation through the provider:
 
-### Custom Channel Factory (Advanced)
-
-The built-in `DefaultChannelFactory` configures sensible gRPC connection defaults:
-
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| `keepAliveTime` | 5 min | Sends HTTP/2 pings to detect dead connections |
-| `keepAliveTimeout` | 20s | Time to wait for a keepalive ping response |
-| `idleTimeout` | 30 min | Closes channels with no active RPCs |
-| Retry on `UNAVAILABLE` | 3 attempts, 1s → 10s exponential backoff | Retries flag log writes on transient gRPC failures |
-
-These defaults prevent connection-reset errors when intermediate load balancers (e.g., Envoy) cycle long-lived HTTP/2 connections. The retry policy handles transient failures (e.g., pod recycling, TLS resets) transparently via gRPC service config. If you provide a custom `ChannelFactory`, you may want to replicate these settings — see [gRPC retry via service config](https://grpc.io/docs/guides/retry/).
-
-For testing or advanced production scenarios, you can provide a custom `ChannelFactory` to control how gRPC channels are created:
-
-```java
-import com.spotify.confidence.sdk.LocalProviderConfig;
-import com.spotify.confidence.sdk.ChannelFactory;
-
-// Example: Custom channel factory for testing with in-process server
-ChannelFactory mockFactory = (target, interceptors) ->
-    InProcessChannelBuilder.forName("test-server")
-        .usePlaintext()
-        .intercept(interceptors.toArray(new ClientInterceptor[0]))
-        .build();
-
-LocalProviderConfig config = new LocalProviderConfig(mockFactory);
-OpenFeatureLocalResolveProvider provider =
-    new OpenFeatureLocalResolveProvider(config, "client-secret", "your-encryption-key");
-```
-
-This is particularly useful for:
-- **Unit testing**: Inject in-process channels with mock gRPC servers
-- **Integration testing**: Point to local test servers
-- **Production customization**: Custom TLS settings, proxies, or connection pooling
-- **Debugging**: Add custom logging or tracing interceptors
-
-## Apply-event deduplication
-
-Apply-event deduplication is **on by default**. The WASM resolver collapses
-byte-identical apply events for the same unit and variant within a 120-second
-TTL window (tracking up to 100,000 entries), so repeatedly resolving the same
-flag for the same targeting key produces one apply event instead of many.
-
-Upgrading without changing any code therefore reduces raw apply-event volume,
-substantially so for high-QPS traffic that resolves the same flag for the same
-unit. Distinct units are never collapsed, because the targeting key is part of
-the dedup key, so per-unit exposure counts are unaffected.
-
-To turn it off and log every apply:
+| Mode | Exposure events |
+| --- | --- |
+| `DEDUPLICATED` (default) | Once per unit and variant per window |
+| `ALL` | Every evaluation |
+| `NONE` | None (resolve analytics are still sent) |
 
 ```java
 LocalProviderConfig config = LocalProviderConfig.builder()
-    .enableApplyDedup(false)
+    .exposureMode(ExposureMode.ALL)
     .build();
 ```
 
-The builder is the recommended way to opt out. If you construct
-`LocalProviderConfig` directly, use the overload that takes `enableApplyDedup`
-as its last argument:
+## WASM interpreter mode
+
+By default the flag module is compiled to JVM bytecode on first load (Endive's compiler) for
+near-native evaluation speed. `interpreter(true)` runs the module on the interpreter instead.
+
+### When to enable interpreter mode
+
+- Environments where runtime code generation is restricted (some security managers,
+  hardened JVMs)
+- Troubleshooting module loading: interpreter-mode failures come with clearer stack traces
+
+### Performance impact
+
+The interpreter is roughly an order of magnitude slower per evaluation. For typical flag
+evaluation rates this is still sub-millisecond, but high-QPS services should stay on the
+default.
+
+### Example
 
 ```java
-LocalProviderConfig config =
-    new LocalProviderConfig(
-        channelFactory,
-        httpClientFactory,
-        /* useRemoteMaterializationStore= */ false,
-        LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE,
-        /* enableApplyDedup= */ false);
+LocalProviderConfig config = LocalProviderConfig.builder()
+    .interpreter(true)
+    .build();
 ```
 
-Every other constructor leaves dedup on.
-
-## Materializations
+## Materialization Stores
 
 The provider supports **materializations** for two key use cases:
 
 1. **Sticky Assignments**: Maintain consistent variant assignments across evaluations even when targeting attributes change. This enables pausing intake (stopping new users from entering an experiment) while keeping existing users in their assigned variants.
 **📖 See the [Integration Guide: Sticky Assignments](../INTEGRATION_GUIDE.md#sticky-assignments)** for how sticky assignments work and their benefits.
 
-1. **Custom Targeting via Materialized Segments**: Efficiently target precomputed sets of identifiers from datasets. Instead of evaluating complex targeting rules at runtime, materializations allow for fast lookups of whether a unit (user, session, etc.) is included in a target segment.
+2. **Custom Targeting via Materialized Segments**: Efficiently target precomputed sets of identifiers from datasets. Instead of evaluating complex targeting rules at runtime, materializations allow for fast lookups of whether a unit (user, session, etc.) is included in a target segment.
 
 ### Materialization Storage Options
 
-The provider offers three options for managing materialization data:
-
 #### 1. No Materialization Support (Default)
 
-By default, materializations are not supported. If a flag requires materialization data (sticky assignments or custom targeting), the evaluation will fail and return the default value.
+By default, materializations are not supported. If a flag requires materialization data (sticky
+assignments or custom targeting), the evaluation returns your default value with a `GENERAL`
+error code; materialized segments still resolve through the membership data compiled into the
+module.
 
 ```java
 // Default behavior - no materialization support
@@ -263,10 +239,12 @@ OpenFeatureLocalResolveProvider provider =
 
 #### 2. Remote Materialization Store
 
-Enable remote materialization storage to have Confidence manage materialization data server-side. When sticky assignment data or materialized segment targeting data is needed, the provider makes a gRPC call to Confidence:
+Enable the hosted materialization store to have Confidence manage materialization data
+server-side. Reads and writes speak protobuf over HTTPS to the resolver gateway, authenticated
+with the client secret:
 
 ```java
-// Enable remote materialization storage
+// Enable the hosted materialization store
 LocalProviderConfig config = LocalProviderConfig.builder()
     .useRemoteMaterializationStore(true)
     .build();
@@ -275,15 +253,9 @@ OpenFeatureLocalResolveProvider provider =
     new OpenFeatureLocalResolveProvider(config, "your-client-secret", "your-encryption-key");
 ```
 
-**⚠️ Important Performance Impact**: This option fundamentally changes how the provider operates:
-- **Without materialization (default)**: Flag evaluation requires **zero network calls** - all evaluations happen locally with minimal latency
-- **With remote materialization**: Flag evaluation **requires network calls** to Confidence for materialization reads/writes, adding latency to each evaluation
-
-This option:
 - Requires network calls for materialization reads/writes during flag evaluation
 - Automatically handles TTL and cleanup
 - Requires no additional infrastructure
-- Suitable for production use cases where sticky assignments or materialized segment targeting are required
 
 #### 3. Custom Materialization Storage
 
@@ -293,7 +265,7 @@ For advanced use cases requiring minimal latency, implement a custom `Materializ
 // Custom storage for materialization data
 MaterializationStore store = new RedisMaterializationStore(jedisPool);
 OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
-    new LocalProviderConfig(),
+    LocalProviderConfig.builder().build(),
     "your-client-secret",
     "your-encryption-key",
     store
@@ -302,6 +274,97 @@ OpenFeatureLocalResolveProvider provider = new OpenFeatureLocalResolveProvider(
 
 For detailed information on how to implement custom storage backends, see [STICKY_RESOLVE.md](STICKY_RESOLVE.md).
 See the `InMemoryMaterializationStoreExample` class in the test sources for a reference implementation, or review the `MaterializationStore` javadoc for detailed API documentation.
+
+## Flag Evaluation
+
+Flag keys carry a path: `my-flag.enabled` resolves flag `my-flag` and evaluates its `enabled`
+field. When a flag has no assignment for the context, the module merges your default into the
+resolved value.
+
+### Typed Default Values
+
+Every typed evaluation encodes your default value with its schema, so the module can merge it
+into nulls and verify types:
+
+- `Boolean`, `String`, `Integer`, `Double` defaults — scalar schemas
+- `Structure` default — per-field schemas; **all-or-nothing**: every field must have a schema
+  representation (`Boolean`/`String`/`Integer`/`Double`/nested `Structure`), and a `null` or
+  `List` field makes the whole default a type mismatch
+- `List` and `Instant` defaults are not supported (they have no schema representation)
+
+The decoded value is type-checked against the default's shape everywhere — including fields
+under structures, where the wire schema cannot express the expected type. A mismatch anywhere
+returns the default with `TYPE_MISMATCH`.
+
+## Direct Resolve API
+
+Resolve flags by name and receive the full response, or defer applying exposures to a later
+`applyFlags` call:
+
+### Resolve with immediate apply
+
+```java
+ResolveFlagsResponse response = provider
+    .resolve(evaluationContext, List.of("my-flag"), true)
+    .toCompletableFuture()
+    .join();
+```
+
+### Deferred apply
+
+```java
+ResolveFlagsResponse response = provider
+    .resolve(evaluationContext, List.of("my-flag"), false) // apply = false
+    .toCompletableFuture()
+    .join();
+
+provider.applyFlags(ApplyFlagsRequest.newBuilder()
+    .setResolveToken(response.getResolveToken())
+    .setSendTime(Timestamps.now())
+    .addFlags(AppliedFlag.newBuilder()
+        .setFlag("flags/my-flag")
+        .setApplyTime(Timestamps.now()))
+    .build());
+```
+
+> [!WARNING]
+> The resolve token is **neither encrypted nor authenticated**. Treat it as untrusted input
+> when handling apply requests proxied from clients.
+
+`applyFlags` is best-effort: rejected applies (e.g. a rotated client secret) are swallowed and
+logged, never thrown.
+
+## Metrics
+
+The flag module exposes cumulative telemetry as Prometheus text:
+
+```java
+String prometheus = provider.getPrometheusMetrics(new SnapshotConfig());
+String openMetrics = provider.getPrometheusMetrics(new SnapshotConfig(true)); // # HELP/# TYPE lines
+```
+
+## Logging
+
+Pass an SLF4J `Logger` via the config for structured logging of module swaps, shutdown
+warnings and apply failures:
+
+```java
+LocalProviderConfig config = LocalProviderConfig.builder()
+    .logger(LoggerFactory.getLogger("confidence"))
+    .build();
+```
+
+## Shutdown
+
+Call `shutdown()` when your application exits to flush exposure logs and clean up resources.
+The provider flushes and releases within 10 seconds; shutdown is idempotent:
+
+```java
+// Shutdown the provider to flush logs and clean up resources
+OpenFeatureAPI.getInstance().shutdown();
+```
+
+> **Note**: OpenFeature Java SDK 1.20.2+ properly awaits provider shutdown ([#1744](https://github.com/open-feature/java-sdk/pull/1744)). If you are using an older SDK version (< 1.20.2), call `OpenFeatureAPI.getInstance().getProvider().shutdown()` directly instead to avoid losing exposure logs.
 
 ## HTTP Proxy Service (FlagResolverService)
 
@@ -436,77 +499,23 @@ const confidence = Confidence.create({
 });
 ```
 
-## Event Tracking
-
-The provider supports the [OpenFeature tracking API](https://openfeature.dev/specification/sections/tracking) for sending custom events to the Confidence events backend. Event tracking is automatically enabled — no configuration needed.
-
-**📖 See the [Integration Guide: Event Tracking](../INTEGRATION_GUIDE.md#event-tracking)** for delivery guarantees, payload mapping rules, and cross-provider differences.
-
-### Usage
-
-```java
-Client client = OpenFeatureAPI.getInstance().getClient();
-
-// Track a simple event
-MutableContext ctx = new MutableContext("user-123");
-client.track("checkout_completed", ctx);
-
-// Track with a numeric value
-client.track("purchase", ctx, new MutableTrackingEventDetails(49.99f));
-
-// Track with custom data
-MutableTrackingEventDetails details = new MutableTrackingEventDetails(1.0f);
-details.add("sku", "ABC-123");
-details.add("category", "electronics");
-client.track("item_added", ctx, details);
-```
-
-Events are batched internally and flushed to the Confidence events service every 15 seconds. On shutdown, pending events are drained on a best-effort basis (up to 100 batches within a 5-second grace period).
-
-## Advanced: Controlling Exposure Events
-
-By default, every flag evaluation records an exposure event (apply). Only disable this for exceptional cases where this provider must not collect exposures at all.
-
-For normal feature delivery and experiments, keep applies enabled. When exposure collection is disabled, Confidence does not receive assignment/exposure events for those evaluations. Experiment results, exposure counts, assignment diagnostics, and downstream reporting that depend on exposures can be incomplete or unavailable. Resolve analytics and telemetry are still sent, so this is not a general logging or privacy-off switch.
-
-To disable exposure collection for **all** OpenFeature evaluations through this provider, set `disableExposureCollection` on the provider config:
-
-```java
-LocalProviderConfig config = LocalProviderConfig.builder().disableExposureCollection(true).build();
-OpenFeatureLocalResolveProvider provider =
-    new OpenFeatureLocalResolveProvider(config, clientSecret, encryptionKey);
-```
-
-To skip exposure collection for a single evaluation, pass `_confidence_skip_apply` in the evaluation context:
-
-```java
-MutableContext context = new MutableContext("user-123");
-context.add("_confidence_skip_apply", true);
-
-boolean value = client.getBooleanValue("my-flag.enabled", false, context);
-```
-
-The key is automatically stripped from the context before it reaches the resolver.
-
-| Mechanism | Scope | Assignment/exposure events | Resolve logs and telemetry |
-| --- | --- | --- | --- |
-| `disableExposureCollection` provider config | All OpenFeature evaluations through this provider | Never queued; no deferred apply token is returned | Still sent |
-| `_confidence_skip_apply` context key | One evaluation | No immediate exposure event for that evaluation | Still sent |
-
-This is an advanced feature intended for exceptional cases. If you're considering using it, reach out to the Confidence team to discuss the best approach for your setup.
-
 ## Requirements
 
-- Java 17+
-- OpenFeature SDK 1.20.2+
+- Java 17 or later
+- A Confidence backend integration (client secret + encryption key)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for code formatting (`mvn fmt:format`) and the root
+README for the provider Makefile contract.
+
+## License
+
+See the root `LICENSE` file.
 
 ### Migrating to mandatory encryption
 
-`encryptionKey` is now required when constructing the provider. Supply exactly 64
+`EncryptionKey` is now required when constructing the provider. Supply exactly 64
 hexadecimal characters. Missing, empty, or malformed keys fail before network
 activity. The provider only fetches encrypted state and never falls back to plaintext.
 
@@ -515,10 +524,3 @@ select your client, and locate the credential used by the provider. Each credent
 has its own unique encryption key, available alongside it. Use the key paired with
 your configured client secret. Configure and verify encryption on your existing
 SDK before upgrading.
-
-All public provider constructors take the encryption key immediately after the
-client secret, including `new OpenFeatureLocalResolveProvider(clientSecret, encryptionKey)`
-and `new OpenFeatureLocalResolveProvider(config, clientSecret, encryptionKey)`.
-Move existing `.encryptionKey(key)` configuration into the provider constructor.
-`LocalProviderConfig` contains optional settings only. Constructors accepting
-injected state are package-private.

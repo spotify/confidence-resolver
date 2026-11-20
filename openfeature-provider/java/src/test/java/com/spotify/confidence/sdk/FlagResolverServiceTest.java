@@ -1,785 +1,407 @@
 package com.spotify.confidence.sdk;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.google.protobuf.ByteString;
-import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsResponse;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveReason;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolvedFlag;
+import com.spotify.confidence.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.flags.resolver.v1.ResolveFlagsResponse;
+import com.spotify.confidence.flags.resolver.v1.ResolveReason;
+import com.spotify.confidence.flags.resolver.v1.ResolvedFlag;
 import dev.openfeature.sdk.EvaluationContext;
-import dev.openfeature.sdk.ImmutableContext;
+import dev.openfeature.sdk.Value;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+/**
+ * The JSON HTTP service, as the old stack's FlagResolverServiceTest; that file is the reference for
+ * the status codes and the context extraction. The provider is mocked, so these tests only cover
+ * the service layer.
+ */
 class FlagResolverServiceTest {
 
-  private OpenFeatureLocalResolveProvider mockProvider;
-  private FlagResolverService<ConfidenceHttpRequest> service;
+  /** The old request adapter, kept verbatim. */
+  record TestRequest(String method, byte[] body, Map<String, List<String>> headers)
+      implements ConfidenceHttpRequest {}
+
+  static TestRequest post(String body) {
+    return request("POST", "application/json", body);
+  }
+
+  static TestRequest request(String method, String contentType, String body) {
+    Map<String, List<String>> headers = new HashMap<>();
+    if (contentType != null) {
+      headers.put("Content-Type", List.of(contentType));
+    }
+    return new TestRequest(method, body.getBytes(StandardCharsets.UTF_8), headers);
+  }
+
+  static TestRequest withHeader(TestRequest request, String name, String value) {
+    Map<String, List<String>> headers = new HashMap<>(request.headers());
+    headers.put(name, List.of(value));
+    return new TestRequest(request.method(), request.body(), headers);
+  }
+
+  private OpenFeatureLocalResolveProvider provider;
+  private FlagResolverService<TestRequest> service;
 
   @BeforeEach
   void setUp() {
-    mockProvider = mock(OpenFeatureLocalResolveProvider.class);
-    service = new FlagResolverService<>(mockProvider);
+    provider = mock(OpenFeatureLocalResolveProvider.class);
+    when(provider.resolve(any(), anyList(), anyBoolean()))
+        .thenReturn(CompletableFuture.completedFuture(cannedResponse()));
+    service = new FlagResolverService<>(provider);
   }
 
-  @Nested
-  class HandleResolve {
-
-    @Test
-    void shouldReturn405ForNonPostMethod() {
-      ConfidenceHttpRequest request = createRequest("GET", "{}");
-
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(405);
-    }
-
-    @Test
-    void shouldReturn415ForNonJsonContentType() {
-      ConfidenceHttpRequest request =
-          createRequestWithHeaders("POST", "{}", Map.of("Content-Type", List.of("text/plain")));
-
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(415);
-    }
-
-    @Test
-    void shouldReturn415ForMissingContentType() {
-      ConfidenceHttpRequest request = createRequestWithHeaders("POST", "{}", Map.of());
-
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(415);
-    }
-
-    @Test
-    void shouldReturn400ForInvalidJson() {
-      ConfidenceHttpRequest request = createRequest("POST", "not valid json {{{");
-
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(400);
-    }
-
-    @Test
-    void shouldResolveFlags() {
-      String requestBody =
-          """
-          {
-            "flags": ["flag1", "flag2"],
-            "evaluationContext": {
-              "targeting_key": "user123"
-            },
-            "apply": false
-          }
-          """;
-
-      ResolveFlagsResponse mockResponse =
-          ResolveFlagsResponse.newBuilder()
-              .addResolvedFlags(
-                  ResolvedFlag.newBuilder()
-                      .setFlag("flags/flag1")
-                      .setVariant("flags/flag1/variants/control")
-                      .setReason(ResolveReason.RESOLVE_REASON_MATCH)
-                      .build())
-              .setResolveToken(ByteString.copyFromUtf8("test-token"))
-              .setResolveId("resolve-123")
-              .build();
-
-      when(mockProvider.resolve(any(EvaluationContext.class), anyList(), eq(false)))
-          .thenReturn(CompletableFuture.completedFuture(mockResponse));
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-      assertThat(response.headers().get("Content-Type")).isEqualTo("application/json");
-
-      String body = readBody(response);
-      assertThat(body).contains("flags/flag1");
-      assertThat(body).contains("RESOLVE_REASON_MATCH");
-      assertThat(body).contains("resolveId");
-
-      verify(mockProvider)
-          .resolve(any(EvaluationContext.class), eq(List.of("flag1", "flag2")), eq(false));
-    }
-
-    @Test
-    void shouldResolveFlagsWithApplyTrue() {
-      String requestBody =
-          """
-          {
-            "flags": ["my-flag"],
-            "evaluationContext": {},
-            "apply": true
-          }
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), eq(true)))
-          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-      verify(mockProvider).resolve(any(), eq(List.of("my-flag")), eq(true));
-    }
-
-    @Test
-    void shouldHandleFlagsWithPrefix() {
-      String requestBody =
-          """
-          {
-            "flags": ["flags/already-prefixed"],
-            "evaluationContext": {},
-            "apply": false
-          }
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request).toCompletableFuture().join();
-
-      verify(mockProvider).resolve(any(), eq(List.of("flags/already-prefixed")), eq(false));
-    }
-
-    @Test
-    void shouldExtractTargetingKeyFromContext() {
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {
-              "targeting_key": "user-abc-123"
-            },
-            "apply": false
-          }
-          """;
-
-      AtomicReference<EvaluationContext> capturedContext = new AtomicReference<>();
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenAnswer(
-              invocation -> {
-                capturedContext.set(invocation.getArgument(0));
-                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-              });
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(capturedContext.get().getTargetingKey()).isEqualTo("user-abc-123");
-    }
-
-    @Test
-    void shouldExtractStringValuesFromContext() {
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {
-              "country": "US",
-              "version": "1.2.3"
-            },
-            "apply": false
-          }
-          """;
-
-      AtomicReference<EvaluationContext> capturedContext = new AtomicReference<>();
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenAnswer(
-              invocation -> {
-                capturedContext.set(invocation.getArgument(0));
-                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-              });
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(capturedContext.get().getValue("country").asString()).isEqualTo("US");
-      assertThat(capturedContext.get().getValue("version").asString()).isEqualTo("1.2.3");
-    }
-
-    @Test
-    void shouldExtractNumberValuesFromContext() {
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {
-              "age": 25,
-              "score": 99.5
-            },
-            "apply": false
-          }
-          """;
-
-      AtomicReference<EvaluationContext> capturedContext = new AtomicReference<>();
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenAnswer(
-              invocation -> {
-                capturedContext.set(invocation.getArgument(0));
-                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-              });
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(capturedContext.get().getValue("age").asDouble()).isEqualTo(25.0);
-      assertThat(capturedContext.get().getValue("score").asDouble()).isEqualTo(99.5);
-    }
-
-    @Test
-    void shouldExtractBooleanValuesFromContext() {
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {
-              "premium": true,
-              "trial": false
-            },
-            "apply": false
-          }
-          """;
-
-      AtomicReference<EvaluationContext> capturedContext = new AtomicReference<>();
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenAnswer(
-              invocation -> {
-                capturedContext.set(invocation.getArgument(0));
-                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-              });
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(capturedContext.get().getValue("premium").asBoolean()).isTrue();
-      assertThat(capturedContext.get().getValue("trial").asBoolean()).isFalse();
-    }
-
-    @Test
-    void shouldExtractListValuesFromContext() {
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {
-              "tags": ["a", "b", "c"]
-            },
-            "apply": false
-          }
-          """;
-
-      AtomicReference<EvaluationContext> capturedContext = new AtomicReference<>();
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenAnswer(
-              invocation -> {
-                capturedContext.set(invocation.getArgument(0));
-                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-              });
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      service.handleResolve(request).toCompletableFuture().join();
-
-      var tagsList = capturedContext.get().getValue("tags").asList();
-      assertThat(tagsList).hasSize(3);
-      assertThat(tagsList.get(0).asString()).isEqualTo("a");
-      assertThat(tagsList.get(1).asString()).isEqualTo("b");
-      assertThat(tagsList.get(2).asString()).isEqualTo("c");
-    }
-
-    @Test
-    void shouldExtractComplexContextWithNestedStructsAndLists() {
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {
-              "targeting_key": "user-xyz-789",
-              "country": "SE",
-              "age": 30,
-              "premium": true,
-              "score": 95.5,
-              "tags": ["beta", "internal", "early-adopter"],
-              "numbers": [1, 2, 3],
-              "mixed_list": ["hello", 42, true],
-              "user": {
-                "id": "u123",
-                "name": "Test User",
-                "settings": {
-                  "theme": "dark"
-                }
-              },
-              "features": ["feature-a", "feature-b"]
-            },
-            "apply": true
-          }
-          """;
-
-      AtomicReference<EvaluationContext> capturedContext = new AtomicReference<>();
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenAnswer(
-              invocation -> {
-                capturedContext.set(invocation.getArgument(0));
-                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-              });
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-
-      EvaluationContext ctx = capturedContext.get();
-
-      // Verify targeting key
-      assertThat(ctx.getTargetingKey()).isEqualTo("user-xyz-789");
-
-      // Verify string value
-      assertThat(ctx.getValue("country").asString()).isEqualTo("SE");
-
-      // Verify number value
-      assertThat(ctx.getValue("age").asDouble()).isEqualTo(30.0);
-      assertThat(ctx.getValue("score").asDouble()).isEqualTo(95.5);
-
-      // Verify boolean value
-      assertThat(ctx.getValue("premium").asBoolean()).isTrue();
-
-      // Verify string list
-      var tagsList = ctx.getValue("tags").asList();
-      assertThat(tagsList).hasSize(3);
-      assertThat(tagsList.get(0).asString()).isEqualTo("beta");
-      assertThat(tagsList.get(1).asString()).isEqualTo("internal");
-      assertThat(tagsList.get(2).asString()).isEqualTo("early-adopter");
-
-      // Verify number list
-      var numbersList = ctx.getValue("numbers").asList();
-      assertThat(numbersList).hasSize(3);
-      assertThat(numbersList.get(0).asDouble()).isEqualTo(1.0);
-      assertThat(numbersList.get(1).asDouble()).isEqualTo(2.0);
-      assertThat(numbersList.get(2).asDouble()).isEqualTo(3.0);
-
-      // Verify mixed list (numbers become doubles, booleans stay booleans)
-      var mixedList = ctx.getValue("mixed_list").asList();
-      assertThat(mixedList).hasSize(3);
-      assertThat(mixedList.get(0).asString()).isEqualTo("hello");
-      assertThat(mixedList.get(1).asDouble()).isEqualTo(42.0);
-      assertThat(mixedList.get(2).asBoolean()).isTrue();
-
-      // Verify nested struct is properly converted to Structure
-      var userStruct = ctx.getValue("user").asStructure();
-      assertThat(userStruct.getValue("id").asString()).isEqualTo("u123");
-      assertThat(userStruct.getValue("name").asString()).isEqualTo("Test User");
-      // Verify deeply nested struct
-      var settingsStruct = userStruct.getValue("settings").asStructure();
-      assertThat(settingsStruct.getValue("theme").asString()).isEqualTo("dark");
-
-      // Verify features list
-      var featuresList = ctx.getValue("features").asList();
-      assertThat(featuresList).hasSize(2);
-      assertThat(featuresList.get(0).asString()).isEqualTo("feature-a");
-      assertThat(featuresList.get(1).asString()).isEqualTo("feature-b");
-
-      // Verify the correct flags and apply value were passed
-      verify(mockProvider).resolve(any(), eq(List.of("test-flag")), eq(true));
-    }
-
-    @Test
-    void shouldReturn500WhenProviderThrowsException() {
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {},
-            "apply": false
-          }
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenThrow(new RuntimeException("Provider error"));
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(500);
-    }
-
-    @Test
-    void shouldHandleEmptyFlagsList() {
-      String requestBody =
-          """
-          {
-            "flags": [],
-            "evaluationContext": {},
-            "apply": false
-          }
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-      verify(mockProvider).resolve(any(), eq(List.of()), eq(false));
-    }
-
-    @Test
-    void shouldIgnoreUnknownFieldsInRequest() {
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {},
-            "apply": false,
-            "clientSecret": "should-be-ignored",
-            "sdk": {"id": "ignored"},
-            "unknownField": "also-ignored"
-          }
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-    }
+  private static ResolveFlagsResponse cannedResponse() {
+    return ResolveFlagsResponse.newBuilder()
+        .setResolveId("resolve-id-1")
+        .addResolvedFlags(
+            ResolvedFlag.newBuilder()
+                .setFlag("flags/flag-1")
+                .setVariant("flags/flag-1/variants/on")
+                .setReason(ResolveReason.RESOLVE_REASON_MATCH))
+        .build();
   }
 
-  @Nested
-  class HandleApply {
+  // ----------------------------------------------------------------- resolve
 
-    @Test
-    void shouldReturn405ForNonPostMethod() {
-      ConfidenceHttpRequest request = createRequest("GET", "{}");
-
-      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(405);
-    }
-
-    @Test
-    void shouldReturn415ForNonJsonContentType() {
-      ConfidenceHttpRequest request =
-          createRequestWithHeaders(
-              "POST", "{}", Map.of("Content-Type", List.of("application/xml")));
-
-      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(415);
-    }
-
-    @Test
-    void shouldReturn400ForInvalidJson() {
-      ConfidenceHttpRequest request = createRequest("POST", "invalid json");
-
-      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(400);
-    }
-
-    @Test
-    void shouldApplyFlags() {
-      String requestBody =
-          """
-          {
-            "flags": [{"flag": "flags/my-flag", "applyTime": "2025-02-12T12:34:56Z"}],
-            "resolveToken": "dGVzdC10b2tlbg=="
-          }
-          """;
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-      assertThat(readBody(response)).isEqualTo("{}");
-
-      ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
-      verify(mockProvider).applyFlags(captor.capture());
-      ApplyFlagsRequest captured = captor.getValue();
-      assertThat(captured.getFlagsCount()).isEqualTo(1);
-      assertThat(captured.getFlags(0).getFlag()).isEqualTo("flags/my-flag");
-    }
-
-    @Test
-    void shouldApplyMultipleFlags() {
-      String requestBody =
-          """
-          {
-            "flags": [
-              {"flag": "flags/flag1", "applyTime": "2025-02-12T12:34:56Z"},
-              {"flag": "flags/flag2", "applyTime": "2025-02-12T12:34:57Z"}
-            ],
-            "resolveToken": "dGVzdC10b2tlbg=="
-          }
-          """;
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-
-      ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
-      verify(mockProvider).applyFlags(captor.capture());
-      assertThat(captor.getValue().getFlagsCount()).isEqualTo(2);
-    }
-
-    @Test
-    void shouldReturn500WhenProviderThrowsException() {
-      String requestBody =
-          """
-          {
-            "flags": [{"flag": "flags/test-flag"}],
-            "resolveToken": "dGVzdA=="
-          }
-          """;
-
-      doThrow(new RuntimeException("Apply failed")).when(mockProvider).applyFlags(any());
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(500);
-    }
-
-    @Test
-    void shouldHandleEmptyFlagsList() {
-      String requestBody =
-          """
-          {
-            "flags": [],
-            "resolveToken": "dGVzdA=="
-          }
-          """;
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      ConfidenceHttpResponse response = service.handleApply(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-
-      ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
-      verify(mockProvider).applyFlags(captor.capture());
-      assertThat(captor.getValue().getFlagsCount()).isEqualTo(0);
-    }
+  @Test
+  void shouldReturn405ForNonPostMethod() {
+    assertEquals(
+        405,
+        service
+            .handleResolve(request("GET", "application/json", "{}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
   }
 
-  @Nested
-  class ContextDecoration {
-
-    @Test
-    void shouldApplyContextDecorator() {
-      ContextDecorator<ConfidenceHttpRequest> decorator =
-          ContextDecorator.sync(
-              (ctx, req) -> {
-                var userIds = req.headers().get("X-User-Id");
-                if (userIds != null && !userIds.isEmpty()) {
-                  return ctx.merge(
-                      new ImmutableContext(
-                          Map.of(
-                              "decorated_user_id", new dev.openfeature.sdk.Value(userIds.get(0)))));
-                }
-                return ctx;
-              });
-
-      FlagResolverService<ConfidenceHttpRequest> serviceWithDecorator =
-          new FlagResolverService<>(mockProvider, decorator);
-
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {},
-            "apply": false
-          }
-          """;
-
-      AtomicReference<EvaluationContext> capturedContext = new AtomicReference<>();
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenAnswer(
-              invocation -> {
-                capturedContext.set(invocation.getArgument(0));
-                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-              });
-
-      ConfidenceHttpRequest request =
-          createRequestWithHeaders(
-              "POST",
-              requestBody,
-              Map.of(
-                  "Content-Type", List.of("application/json"),
-                  "X-User-Id", List.of("decorated-123")));
-      serviceWithDecorator.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(capturedContext.get().getValue("decorated_user_id").asString())
-          .isEqualTo("decorated-123");
-    }
-
-    @Test
-    void shouldCombineRequestContextWithDecorator() {
-      ContextDecorator<ConfidenceHttpRequest> decorator =
-          ContextDecorator.sync(
-              (ctx, req) ->
-                  ctx.merge(
-                      new ImmutableContext(
-                          Map.of("source", new dev.openfeature.sdk.Value("backend_proxy")))));
-
-      FlagResolverService<ConfidenceHttpRequest> serviceWithDecorator =
-          new FlagResolverService<>(mockProvider, decorator);
-
-      String requestBody =
-          """
-          {
-            "flags": ["test-flag"],
-            "evaluationContext": {
-              "country": "SE"
-            },
-            "apply": false
-          }
-          """;
-
-      AtomicReference<EvaluationContext> capturedContext = new AtomicReference<>();
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenAnswer(
-              invocation -> {
-                capturedContext.set(invocation.getArgument(0));
-                return CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance());
-              });
-
-      ConfidenceHttpRequest request = createRequest("POST", requestBody);
-      serviceWithDecorator.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(capturedContext.get().getValue("country").asString()).isEqualTo("SE");
-      assertThat(capturedContext.get().getValue("source").asString()).isEqualTo("backend_proxy");
-    }
+  @Test
+  void shouldReturn415ForNonJsonContentType() {
+    assertEquals(
+        415,
+        service
+            .handleResolve(request("POST", "text/plain", "{}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
   }
 
-  @Nested
-  class ContentTypeCaseInsensitivity {
-
-    @Test
-    void shouldAcceptLowercaseContentType() {
-      String requestBody =
-          """
-          {"flags": [], "evaluationContext": {}, "apply": false}
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
-
-      ConfidenceHttpRequest request =
-          createRequestWithHeaders(
-              "POST", requestBody, Map.of("content-type", List.of("application/json")));
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-    }
-
-    @Test
-    void shouldAcceptMixedCaseContentType() {
-      String requestBody =
-          """
-          {"flags": [], "evaluationContext": {}, "apply": false}
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
-
-      ConfidenceHttpRequest request =
-          createRequestWithHeaders(
-              "POST", requestBody, Map.of("Content-type", List.of("application/json")));
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-    }
+  @Test
+  void shouldReturn415ForMissingContentType() {
+    assertEquals(
+        415,
+        service
+            .handleResolve(request("POST", null, "{}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
   }
 
-  @Nested
-  class MethodCaseInsensitivity {
-
-    @Test
-    void shouldAcceptLowercasePost() {
-      String requestBody =
-          """
-          {"flags": [], "evaluationContext": {}, "apply": false}
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
-
-      ConfidenceHttpRequest request = createRequest("post", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-    }
-
-    @Test
-    void shouldAcceptMixedCasePost() {
-      String requestBody =
-          """
-          {"flags": [], "evaluationContext": {}, "apply": false}
-          """;
-
-      when(mockProvider.resolve(any(), anyList(), anyBoolean()))
-          .thenReturn(CompletableFuture.completedFuture(ResolveFlagsResponse.getDefaultInstance()));
-
-      ConfidenceHttpRequest request = createRequest("Post", requestBody);
-      ConfidenceHttpResponse response = service.handleResolve(request).toCompletableFuture().join();
-
-      assertThat(response.statusCode()).isEqualTo(200);
-    }
+  @Test
+  void shouldReturn400ForInvalidJson() {
+    assertEquals(
+        400, service.handleResolve(post("not json")).toCompletableFuture().join().statusCode());
+    assertEquals(400, service.handleResolve(post("")).toCompletableFuture().join().statusCode());
   }
 
-  private ConfidenceHttpRequest createRequest(String method, String body) {
-    return createRequestWithHeaders(
-        method, body, Map.of("Content-Type", List.of("application/json")));
+  @Test
+  void shouldAcceptLowercaseAndMixedCaseMethodAndContentType() {
+    assertEquals(
+        200,
+        service
+            .handleResolve(request("post", "application/json", "{\"flags\":[\"flag-1\"]}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
+    assertEquals(
+        200,
+        service
+            .handleResolve(request("PoSt", "APPLICATION/JSON", "{\"flags\":[\"flag-1\"]}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
   }
 
-  private ConfidenceHttpRequest createRequestWithHeaders(
-      String method, String body, Map<String, List<String>> headers) {
-    return new ConfidenceHttpRequest() {
-      @Override
-      public String method() {
-        return method;
+  @Test
+  void shouldResolveFlags() {
+    ConfidenceHttpResponse response =
+        service
+            .handleResolve(
+                post(
+                    "{\"flags\":[\"flag1\",\"flag2\"],"
+                        + "\"evaluationContext\":{\"targeting_key\":\"user123\",\"country\":\"US\"},"
+                        + "\"apply\":false}"))
+            .toCompletableFuture()
+            .join();
+
+    assertEquals(200, response.statusCode());
+    String body = new String(response.body(), StandardCharsets.UTF_8);
+    assertTrue(body.contains("flags/flag-1"), body);
+    assertTrue(body.contains("RESOLVE_REASON_MATCH"), body);
+    assertTrue(body.contains("resolveId"), body);
+
+    ArgumentCaptor<EvaluationContext> ctx = ArgumentCaptor.forClass(EvaluationContext.class);
+    verify(provider)
+        .resolve(
+            ctx.capture(), argThat(flags -> flags.equals(List.of("flag1", "flag2"))), eq(false));
+    assertEquals("user123", ctx.getValue().getTargetingKey());
+    assertEquals("US", ctx.getValue().getValue("country").asString());
+  }
+
+  @Test
+  void shouldHandleFlagsWithPrefix() {
+    service.handleResolve(post("{\"flags\":[\"flags/my-flag\"]}")).toCompletableFuture().join();
+    verify(provider)
+        .resolve(any(), argThat(flags -> flags.equals(List.of("flags/my-flag"))), anyBoolean());
+  }
+
+  @Test
+  void shouldExtractValuesFromContext() {
+    service
+        .handleResolve(
+            post(
+                "{\"flags\":[\"flag-1\"],\"evaluationContext\":{"
+                    + "\"targeting_key\":\"user-abc-123\",\"country\":\"SE\",\"version\":\"1.2.3\","
+                    + "\"age\":25.0,\"score\":99.5,\"premium\":true,"
+                    + "\"tags\":[\"a\",\"b\",\"c\"],"
+                    + "\"user\":{\"id\":\"u123\",\"name\":\"Test User\"}}}"))
+        .toCompletableFuture()
+        .join();
+
+    ArgumentCaptor<EvaluationContext> ctx = ArgumentCaptor.forClass(EvaluationContext.class);
+    verify(provider).resolve(ctx.capture(), anyList(), anyBoolean());
+    EvaluationContext context = ctx.getValue();
+    assertEquals("user-abc-123", context.getTargetingKey());
+    assertEquals("SE", context.getValue("country").asString());
+    assertEquals("1.2.3", context.getValue("version").asString());
+    assertEquals(25.0, context.getValue("age").asDouble());
+    assertEquals(99.5, context.getValue("score").asDouble());
+    assertEquals(Boolean.TRUE, context.getValue("premium").asBoolean());
+    assertEquals(
+        List.of("a", "b", "c"),
+        context.getValue("tags").asList().stream().map(Value::asString).toList());
+    assertEquals("u123", context.getValue("user").asStructure().getValue("id").asString());
+    assertEquals("Test User", context.getValue("user").asStructure().getValue("name").asString());
+  }
+
+  @Test
+  void shouldIgnoreUnknownFieldsInRequest() {
+    // clientSecret, sdk and unknown fields are the provider's business, not the request's.
+    ConfidenceHttpResponse response =
+        service
+            .handleResolve(
+                post(
+                    "{\"flags\":[\"flag-1\"],\"clientSecret\":\"nope\","
+                        + "\"sdk\":{\"id\":1},\"unknown\":{\"nested\":true}}"))
+            .toCompletableFuture()
+            .join();
+    assertEquals(200, response.statusCode());
+  }
+
+  @Test
+  void shouldHandleEmptyFlagsList() {
+    assertEquals(
+        200,
+        service.handleResolve(post("{\"flags\":[]}")).toCompletableFuture().join().statusCode());
+    verify(provider).resolve(any(), argThat(flags -> flags.isEmpty()), anyBoolean());
+  }
+
+  @Test
+  void shouldReturn500WhenProviderThrowsException() {
+    when(provider.resolve(any(), anyList(), anyBoolean()))
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException("boom")));
+    assertEquals(
+        500,
+        service
+            .handleResolve(post("{\"flags\":[\"flag-1\"]}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
+  }
+
+  // ------------------------------------------------------------------- apply
+
+  @Test
+  void applyShouldReturn405ForNonPostMethod() {
+    assertEquals(
+        405,
+        service
+            .handleApply(request("GET", "application/json", "{}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
+  }
+
+  @Test
+  void applyShouldReturn415ForNonJsonContentType() {
+    assertEquals(
+        415,
+        service
+            .handleApply(request("POST", "text/plain", "{}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
+  }
+
+  @Test
+  void applyShouldReturn400ForInvalidJson() {
+    assertEquals(
+        400, service.handleApply(post("not json")).toCompletableFuture().join().statusCode());
+    assertEquals(400, service.handleApply(post("")).toCompletableFuture().join().statusCode());
+  }
+
+  @Test
+  void shouldApplyFlags() {
+    ConfidenceHttpResponse response =
+        service
+            .handleApply(
+                post(
+                    "{\"flags\":[{\"flag\":\"flags/my-flag\","
+                        + "\"applyTime\":\"2025-01-01T00:00:00Z\"}],"
+                        + "\"resolveToken\":\"dG9rZW4=\",\"sendTime\":\"2025-01-01T00:00:00Z\"}"))
+            .toCompletableFuture()
+            .join();
+
+    assertEquals(200, response.statusCode());
+    assertEquals("{}", new String(response.body(), StandardCharsets.UTF_8));
+
+    ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
+    verify(provider).applyFlags(captor.capture());
+    assertEquals(1, captor.getValue().getFlagsCount());
+    assertEquals("flags/my-flag", captor.getValue().getFlags(0).getFlag());
+  }
+
+  @Test
+  void shouldApplyMultipleFlags() {
+    service
+        .handleApply(
+            post(
+                "{\"flags\":[{\"flag\":\"flags/a\","
+                    + "\"applyTime\":\"2025-01-01T00:00:00Z\"},"
+                    + "{\"flag\":\"flags/b\",\"applyTime\":\"2025-01-01T00:00:00Z\"}],"
+                    + "\"resolveToken\":\"dG9rZW4=\",\"sendTime\":\"2025-01-01T00:00:00Z\"}"))
+        .toCompletableFuture()
+        .join();
+
+    ArgumentCaptor<ApplyFlagsRequest> captor = ArgumentCaptor.forClass(ApplyFlagsRequest.class);
+    verify(provider).applyFlags(captor.capture());
+    assertEquals(2, captor.getValue().getFlagsCount());
+  }
+
+  @Test
+  void shouldHandleEmptyFlagsListOnApply() {
+    ConfidenceHttpResponse response =
+        service
+            .handleApply(
+                post(
+                    "{\"flags\":[],\"resolveToken\":\"dG9rZW4=\","
+                        + "\"sendTime\":\"2025-01-01T00:00:00Z\"}"))
+            .toCompletableFuture()
+            .join();
+    assertEquals(200, response.statusCode());
+    verify(provider).applyFlags(any());
+  }
+
+  @Test
+  void applyShouldReturn500WhenProviderThrowsException() {
+    doThrow(new RuntimeException("boom")).when(provider).applyFlags(any());
+    assertEquals(
+        500,
+        service
+            .handleApply(
+                post(
+                    "{\"flags\":[],\"resolveToken\":\"dG9rZW4=\","
+                        + "\"sendTime\":\"2025-01-01T00:00:00Z\"}"))
+            .toCompletableFuture()
+            .join()
+            .statusCode());
+  }
+
+  // --------------------------------------------------------------- decorators
+
+  @Test
+  void shouldApplyContextDecorator() {
+    FlagResolverService<TestRequest> decorated =
+        new FlagResolverService<>(
+            provider,
+            ContextDecorator.sync(
+                (ctx, req) -> {
+                  String userId = req.headers().getOrDefault("X-User-Id", List.of()).get(0);
+                  dev.openfeature.sdk.MutableContext out =
+                      new dev.openfeature.sdk.MutableContext(ctx.getTargetingKey());
+                  out.add("decorated_user_id", userId);
+                  return out;
+                }));
+
+    decorated
+        .handleResolve(withHeader(post("{\"flags\":[\"flag-1\"]}"), "X-User-Id", "decorated-123"))
+        .toCompletableFuture()
+        .join();
+
+    ArgumentCaptor<EvaluationContext> ctx = ArgumentCaptor.forClass(EvaluationContext.class);
+    verify(provider).resolve(ctx.capture(), anyList(), anyBoolean());
+    assertEquals("decorated-123", ctx.getValue().getValue("decorated_user_id").asString());
+  }
+
+  @Test
+  void shouldCombineRequestContextWithDecorator() {
+    FlagResolverService<TestRequest> decorated =
+        new FlagResolverService<>(
+            provider,
+            ContextDecorator.sync(
+                (ctx, req) -> {
+                  dev.openfeature.sdk.MutableContext out =
+                      new dev.openfeature.sdk.MutableContext(ctx.getTargetingKey());
+                  out.add("source", "backend_proxy");
+                  ctx.asMap().forEach((k, v) -> copyValue(out, k, v));
+                  return out;
+                }));
+
+    decorated
+        .handleResolve(
+            post(
+                "{\"flags\":[\"flag-1\"],"
+                    + "\"evaluationContext\":{\"targeting_key\":\"user-1\",\"country\":\"SE\"}}"))
+        .toCompletableFuture()
+        .join();
+
+    ArgumentCaptor<EvaluationContext> ctx = ArgumentCaptor.forClass(EvaluationContext.class);
+    verify(provider).resolve(ctx.capture(), anyList(), anyBoolean());
+    assertEquals("SE", ctx.getValue().getValue("country").asString());
+    assertEquals("backend_proxy", ctx.getValue().getValue("source").asString());
+  }
+
+  private static void copyValue(dev.openfeature.sdk.MutableContext out, String key, Value v) {
+    if (v.isString()) {
+      out.add(key, v.asString());
+    } else if (v.isNumber()) {
+      if (v.asObject() instanceof Integer i) {
+        out.add(key, i);
+      } else {
+        out.add(key, v.asDouble());
       }
-
-      @Override
-      public byte[] body() {
-        return body.getBytes(StandardCharsets.UTF_8);
-      }
-
-      @Override
-      public Map<String, List<String>> headers() {
-        return headers;
-      }
-    };
-  }
-
-  private String readBody(ConfidenceHttpResponse response) {
-    byte[] body = response.body();
-    if (body == null) {
-      return null;
+    } else if (v.isBoolean()) {
+      out.add(key, v.asBoolean());
+    } else if (v.isStructure()) {
+      out.add(key, v.asStructure());
+    } else if (v.isList()) {
+      out.add(key, v.asList());
     }
-    return new String(body, StandardCharsets.UTF_8);
   }
 }

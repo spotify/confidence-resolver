@@ -3,8 +3,8 @@ package com.spotify.confidence.sdk;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
-import com.spotify.confidence.sdk.flags.resolver.v1.ApplyFlagsRequest;
-import com.spotify.confidence.sdk.flags.resolver.v1.ResolveFlagsRequest;
+import com.spotify.confidence.flags.resolver.v1.ApplyFlagsRequest;
+import com.spotify.confidence.flags.resolver.v1.ResolveFlagsRequest;
 import dev.openfeature.sdk.EvaluationContext;
 import dev.openfeature.sdk.ImmutableContext;
 import dev.openfeature.sdk.MutableContext;
@@ -47,21 +47,21 @@ import org.slf4j.LoggerFactory;
  *
  * // Register endpoints
  * app.post("/v1/flags:resolve", ctx -> {
- *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
- *     flagResolver.handleResolve(request).thenAccept(response -> {
- *         ctx.status(response.statusCode())
- *            .contentType("application/json")
- *            .result(response.body());
- *     });
+ *   ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
+ *   flagResolver.handleResolve(request).thenAccept(response -> {
+ *     ctx.status(response.statusCode())
+ *        .contentType("application/json")
+ *        .result(response.body());
+ *   });
  * });
  *
  * app.post("/v1/flags:apply", ctx -> {
- *     ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
- *     flagResolver.handleApply(request).thenAccept(response -> {
- *         ctx.status(response.statusCode())
- *            .contentType("application/json")
- *            .result(response.body());
- *     });
+ *   ConfidenceHttpRequest request = new JavalinConfidenceHttpRequest(ctx);
+ *   flagResolver.handleApply(request).thenAccept(response -> {
+ *     ctx.status(response.statusCode())
+ *        .contentType("application/json")
+ *        .result(response.body());
+ *   });
  * });
  * }</pre>
  */
@@ -78,17 +78,18 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
   /**
    * Creates a new FlagResolverService with no context decoration.
    *
-   * @param provider the local resolve provider to use for flag resolution
+   * @param provider the provider to resolve flags with
    */
   public FlagResolverService(OpenFeatureLocalResolveProvider provider) {
-    this(provider, ContextDecorator.sync((ctx, req) -> ctx));
+    this(provider, (ctx, req) -> CompletableFuture.completedFuture(ctx));
   }
 
   /**
-   * Creates a new FlagResolverService with context decoration.
+   * Creates a new FlagResolverService with the given context decorator.
    *
-   * @param provider the local resolve provider to use for flag resolution
-   * @param contextDecorator decorator to add additional context from requests
+   * @param provider the provider to resolve flags with
+   * @param contextDecorator decorates the evaluation context before resolving, e.g. to set the
+   *     targeting key from request headers
    */
   public FlagResolverService(
       OpenFeatureLocalResolveProvider provider, ContextDecorator<R> contextDecorator) {
@@ -98,8 +99,6 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
 
   /**
    * Handles POST /v1/flags:resolve requests from client SDKs.
-   *
-   * <p>Note: clientSecret and sdk fields from client are ignored - provider's credentials are used.
    *
    * @param request the incoming HTTP request
    * @return a CompletionStage that completes with the response to send back to the client
@@ -142,12 +141,11 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
               return contextDecorator
                   .decorate(ctx, req)
                   .thenCompose(
-                      decoratedCtx -> {
-                        return provider.resolve(
-                            decoratedCtx,
-                            resolveRequestBuilder.getFlagsList(),
-                            resolveRequestBuilder.getApply());
-                      })
+                      decoratedCtx ->
+                          provider.resolve(
+                              decoratedCtx,
+                              resolveRequestBuilder.getFlagsList(),
+                              resolveRequestBuilder.getApply()))
                   .thenApply(
                       response -> {
                         try {
@@ -221,7 +219,7 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
             (key, value) -> {
               switch (value.getKindCase()) {
                 case STRING_VALUE -> {
-                  if ("targeting_key".equals(key)) {
+                  if (OpenFeatureValueMapper.TARGETING_KEY.equals(key)) {
                     ctx.setTargetingKey(value.getStringValue());
                   } else {
                     ctx.add(key, value.getStringValue());
@@ -263,7 +261,7 @@ public class FlagResolverService<R extends ConfidenceHttpRequest> {
                 .toList();
         yield new dev.openfeature.sdk.Value(list);
       }
-      default -> new dev.openfeature.sdk.Value(value.toString());
+      default -> new dev.openfeature.sdk.Value();
     };
   }
 
