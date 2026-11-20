@@ -29,7 +29,7 @@ For providers this means:
   lands, a provider is kept as API reference: its source stays, it doesn't build, and its README
   says so.
 - Rewritten providers are released as release candidates from `next`
-  (e.g. `openfeature-provider/go/v0.30.0-rc.1`), so they can be tried before GA.
+  (e.g. `openfeature-provider/go/v0.30.0-rc1`), so they can be tried before GA.
 - Nothing is merged from `main`. Provider fixes made on `main` are carried over when that provider
   is rewritten.
 - When every provider is done, `next` replaces `main` and the GA releases ship from there.

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.30.0-rc1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.29.0...openfeature-provider/go/v0.30.0-rc1) (2026-11-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **go:** the Go provider on state-to-wasm flag modules ([#700](https://github.com/spotify/confidence-resolver/issues/700))
+* release candidates of rewritten providers from next
+* remove the rust-guest resolver stack
+
+### Features
+
+* **go:** the Go provider on state-to-wasm flag modules ([#700](https://github.com/spotify/confidence-resolver/issues/700)) ([37e7ce5](https://github.com/spotify/confidence-resolver/commit/37e7ce5269920047415b2d856af9726be6eb5428))
+
+
+### Miscellaneous Chores
+
+* remove the rust-guest resolver stack ([6531285](https://github.com/spotify/confidence-resolver/commit/6531285dcce874b498204cc69480def308f871d1))
+
+
+### Continuous Integration
+
+* release candidates of rewritten providers from next ([ea2f3f3](https://github.com/spotify/confidence-resolver/commit/ea2f3f3dc224170b1f7f9a3199d72fa0947b38a1))
+
 ## [0.29.0](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.28.0...openfeature-provider/go/v0.29.0) (2026-11-09)
 
 

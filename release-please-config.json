@@ -3,7 +3,7 @@
   "bump-minor-pre-major": true,
   "versioning": "prerelease",
   "prerelease": true,
-  "prerelease-type": "rc",
+  "prerelease-type": "rc1",
   "pull-request-footer": "> **Post-release reminder:** After merging this PR, remember to update internal version registries with the new version numbers.",
   "packages": {
     "openfeature-provider/go": {

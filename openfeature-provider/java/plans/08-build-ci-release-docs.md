@@ -37,7 +37,7 @@ Stages `openfeature-provider-java.{base,build,test,lint,test_e2e}`, mirroring th
   `maven`, component `openfeature-provider/java`, tag-separator `/`, changelog
   `openfeature-provider/java/CHANGELOG.md`, extra-files `src/main/java/.../Version.java` if the
   version constant is kept (else pom only). The root config already sets `prerelease-type: rc`,
-  so releases from `next` are `rc`s (first: `0.24.0-rc.1` from today's `0.23.4`). Add the manifest
+  so releases from `next` are `rc`s (first: `0.24.0-rc1` from today's `0.23.4`). Add the manifest
   entry.
 - Publishing keeps `central-publishing-maven-plugin` with secrets mounted as Docker secrets only.
 
@@ -66,7 +66,7 @@ After the first `rc` ships, update the internal version registries with the new 
 ## Done when
 
 `make` at the repo root builds, tests and lints Java alongside Go; `docker build .` is green; a
-release-please run would cut `0.24.0-rc.1`; and the root README lists Java as rewritten.
+release-please run would cut `0.24.0-rc1`; and the root README lists Java as rewritten.
 
 
 ## Status: done ✅
@@ -80,7 +80,7 @@ release-please run would cut `0.24.0-rc.1`; and the root README lists Java as re
 - `release-please-config.json`: java package with `release-type: maven`,
   `include-component-in-tag`, extra-files `README.md` + `Version.java` (pom handled natively by
   the maven strategy). Manifest entry `openfeature-provider/java: 0.23.4` — the first release
-  from `next` would cut `0.24.0-rc.1`.
+  from `next` would cut `0.24.0-rc1`.
 - `README.md` rewritten for the flag-module provider (same shape as Go's): config table,
   exposure modes, interpreter mode, materialization stores over HTTP, typed defaults,
   direct resolve API with the unauthenticated-token warning, metrics; the HTTP proxy section
