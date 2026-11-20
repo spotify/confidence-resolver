@@ -164,6 +164,19 @@ public final class Resolver implements AutoCloseable {
     if (!closed.compareAndSet(false, true)) {
       return;
     }
+    // The final flush and destroy_instance must not be interrupted either: Endive aborts the
+    // wasm call when the flag is set, dropping buffered logs.
+    boolean interrupted = Thread.interrupted();
+    try {
+      closeAfterStrippingInterrupts();
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
+  private void closeAfterStrippingInterrupts() {
     List<Throwable> errors = new ArrayList<>();
     List<ModuleInstance> snapshot;
     synchronized (lock) {
@@ -347,7 +360,7 @@ public final class Resolver implements AutoCloseable {
   /** Discards a suspended process on any instance, even one that must be waited for. */
   private List<Throwable> discard(int id) {
     try {
-      with(
+      withUninterruptibly(
           inst -> {
             inst.discardProcess(id);
             return null;
@@ -378,11 +391,47 @@ public final class Resolver implements AutoCloseable {
     if (closed.get()) {
       throw new ClosedException();
     }
+    // Endive aborts a module call when the calling thread is interrupted, which can leave the
+    // shared memory inconsistent. A thread that arrives already interrupted never enters: the
+    // module is untouched, and the caller sees an ordinary error (the flag stays set, as the
+    // JVM's unchecked-interrupt convention). claim()'s wait below stays interruptible: no
+    // module call is running there.
+    if (Thread.currentThread().isInterrupted()) {
+      throw new InterruptedCallException("module call skipped: thread already interrupted");
+    }
     ModuleInstance inst = claim();
     try {
       return call.run(inst);
+    } catch (RuntimeException e) {
+      if (e instanceof run.endive.runtime.WasmInterruptedException
+          || e instanceof run.endive.runtime.TrapException) {
+        // The call was aborted midway (a routine JVM interrupt — Future.cancel(true),
+        // shutdownNow() — or a trap); the instance returns to the pool with state that may be
+        // inconsistent. Recovery (retiring the generation) is a planned follow-up for both
+        // providers; report so we can see whether it happens in the wild.
+        cfg.reportTrap.accept(e);
+      }
+      throw e;
     } finally {
       release(inst);
+    }
+  }
+
+  /**
+   * Runs a cleanup call that must not be interruptible: an interrupt in {@link #claim()} turns into
+   * {@link ClosedException}, which cleanup paths read as "already closed, nothing to do" — leaking
+   * a suspended process — and Endive would abort the wasm call itself if the flag were still set.
+   * As state-to-wasm's InstanceSlots.awaitClaim (and Go's context.WithoutCancel), the flag comes
+   * off for the duration and goes back on in finally.
+   */
+  private <T> T withUninterruptibly(ModuleCall<T> call) {
+    boolean interrupted = Thread.interrupted();
+    try {
+      return with(call);
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
     }
   }
 

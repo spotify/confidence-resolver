@@ -29,6 +29,12 @@ public final class HostConfig {
   /** Receives errors raised inside host callbacks. */
   public final Consumer<Throwable> reportFailure;
 
+  /**
+   * Receives traps and interrupts that aborted a module call midway, after which the module's state
+   * may be inconsistent; the resolver still rethrows them. Recovery is a planned follow-up.
+   */
+  public final Consumer<Throwable> reportTrap;
+
   /** Runs the module on the interpreter engine instead of the runtime compiler. */
   public final boolean interpreter;
 
@@ -39,6 +45,7 @@ public final class HostConfig {
     this.applyFilter = b.applyFilter;
     this.schemaFilter = b.schemaFilter;
     this.reportFailure = b.reportFailure;
+    this.reportTrap = b.reportTrap;
     this.interpreter = b.interpreter;
   }
 
@@ -50,6 +57,7 @@ public final class HostConfig {
     private Filter applyFilter = Filter.neverSeen();
     private Filter schemaFilter = Filter.neverSeen();
     private Consumer<Throwable> reportFailure = t -> {};
+    private Consumer<Throwable> reportTrap = t -> {};
     private boolean interpreter = false;
 
     /** Instances bounds concurrent calls into the module. Default 1. */
@@ -85,6 +93,12 @@ public final class HostConfig {
     /** Receives errors raised inside host callbacks. */
     public Builder reportFailure(Consumer<Throwable> reportFailure) {
       this.reportFailure = reportFailure;
+      return this;
+    }
+
+    /** Receives traps and interrupts that aborted a module call midway. */
+    public Builder reportTrap(Consumer<Throwable> reportTrap) {
+      this.reportTrap = reportTrap;
       return this;
     }
 

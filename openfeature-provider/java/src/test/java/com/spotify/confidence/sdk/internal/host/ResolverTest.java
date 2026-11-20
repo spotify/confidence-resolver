@@ -19,7 +19,11 @@ import com.spotify.confidence.flags.wasm.v1.ResolutionDetails;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
+import run.endive.runtime.HostFunction;
+import run.endive.wasm.types.FunctionType;
+import run.endive.wasm.types.ValType;
 
 /** Ports the Go host's resolver_test.go. */
 class ResolverTest {
@@ -249,6 +253,153 @@ class ResolverTest {
       }
       assertThat(r.metrics(false)).contains("latency");
     }
+  }
+
+  @Test
+  void anInterruptedThreadDoesNotEnterTheModule() {
+    bothEngines(
+        interp -> {
+          try (Resolver r = newResolver(interp, new HostConfig.Builder())) {
+            EvaluateRequest eval =
+                EvaluateRequest.newBuilder()
+                    .setFlagKey("plain.enabled")
+                    .setDefaultValue(Value.newBuilder().setBoolValue(false).build())
+                    .build();
+            try {
+              Thread.currentThread().interrupt();
+              assertThatThrownBy(
+                      () ->
+                          evaluate(
+                              r,
+                              request("u1", "flags/plain"),
+                              new HostTestSupport.FakeStore(),
+                              eval))
+                  .isInstanceOf(InterruptedCallException.class);
+              // The interrupt status survives for the caller to notice.
+              assertThat(Thread.interrupted()).isTrue();
+              // With the flag consumed, the module never saw the thread and works as before.
+              ResolutionDetails d =
+                  evaluate(r, request("u1", "flags/plain"), new HostTestSupport.FakeStore(), eval)
+                      .get(0);
+              assertThat(d).isNotNull();
+            } finally {
+              Thread.interrupted(); // never leak the flag into the test machinery
+            }
+          }
+        });
+  }
+
+  @Test
+  void anInterruptBeforeTheDiscardStillDiscardsWithoutLeaking() {
+    // The store read interrupts the thread, so the resume is refused at the entry check — and
+    // the discard of the suspended process must still run rather than being read as "closed".
+    try (Resolver r =
+        new Resolver(
+            Module.parse(HostTestSupport.fixture()),
+            new HostConfig.Builder().maxMemoryBytes(1L << 20).build())) {
+      EvaluateRequest eval =
+          EvaluateRequest.newBuilder()
+              .setFlagKey("sticky.value")
+              .setDefaultValue(Value.newBuilder().setNumberValue(-1).build())
+              .build();
+      evaluate(r, request("u1", "flags/sticky"), new HostTestSupport.FakeStore(), eval);
+      long before = r.allocatedBytes();
+      int discards = r.discardCalls();
+
+      Record huge = STICKY_RECORD.toBuilder().setVariant("x".repeat(4 << 20)).build();
+      MaterializationStore interruptingStore =
+          requested -> {
+            Thread.currentThread().interrupt();
+            return List.of(huge);
+          };
+      assertThatThrownBy(() -> evaluate(r, request("u1", "flags/sticky"), interruptingStore, eval))
+          .isInstanceOf(InterruptedCallException.class);
+
+      // The interrupt status survives for the caller; consume it before the follow-up module
+      // calls (allocatedBytes is one too).
+      assertThat(Thread.interrupted()).isTrue();
+      assertThat(r.allocatedBytes()).isEqualTo(before); // the suspended process did not leak
+      assertThat(r.discardCalls() - discards).isEqualTo(1);
+
+      ResolutionDetails sticky =
+          evaluate(
+                  r,
+                  request("u1", "flags/sticky"),
+                  new HostTestSupport.FakeStore(STICKY_RECORD),
+                  eval)
+              .get(0);
+      assertThat(sticky.getVariant()).isEqualTo("flags/sticky/variants/sticky");
+    }
+  }
+
+  @Test
+  void aTrapMidCallIsReportedAndFailsTheEvaluation() {
+    // Endive aborts the module call at its next interruption check when a host import sets the
+    // flag. The abort must surface as a failure (rethrown) and be reported for observability;
+    // recovering the generation is the planned follow-up.
+    CopyOnWriteArrayList<Throwable> traps = new CopyOnWriteArrayList<>();
+    Filter interruptingFilter =
+        importModule ->
+            new Filter.Link(
+                new HostFunction(
+                    importModule,
+                    "seen",
+                    FunctionType.of(List.of(ValType.I64), List.of(ValType.I32)),
+                    (instance, args) -> {
+                      Thread.currentThread().interrupt();
+                      return new long[] {0};
+                    }),
+                null);
+    bothEngines(
+        interp -> {
+          // The aborted call may leave the module's lock held with the instance back in the
+          // pool; closing the resolver could block on it. Recovery (retiring the generation)
+          // is the planned follow-up for both providers, so this test deliberately leaves the
+          // poisoned resolver unclosed.
+          Resolver r =
+              newResolver(
+                  interp,
+                  new HostConfig.Builder()
+                      .applyFilter(interruptingFilter)
+                      .reportTrap((Consumer<Throwable>) traps::add));
+          try {
+            assertThatThrownBy(
+                    () ->
+                        evaluate(
+                            r,
+                            request("u1", "flags/plain"),
+                            new HostTestSupport.FakeStore(),
+                            EvaluateRequest.newBuilder()
+                                .setFlagKey("plain.enabled")
+                                .setDefaultValue(Value.newBuilder().setBoolValue(false).build())
+                                .build()))
+                .isInstanceOf(RuntimeException.class)
+                .isNotInstanceOf(InterruptedCallException.class); // aborted midway, not at entry
+            assertThat(traps).isNotEmpty();
+            Thread.interrupted(); // Endive may leave the flag set after the abort
+          } finally {
+            Thread.interrupted();
+          }
+        });
+  }
+
+  @Test
+  void closeFlushesLogsEvenWhenTheThreadIsInterrupted() {
+    bothEngines(
+        interp -> {
+          CopyOnWriteArrayList<byte[]> logs = new CopyOnWriteArrayList<>();
+          try (Resolver r = newResolver(interp, new HostConfig.Builder().writeLogs(logs::add))) {
+            try {
+              evaluate(r, request("u1", "flags/plain"), new HostTestSupport.FakeStore());
+              Thread.currentThread().interrupt();
+              r.close();
+              assertThat(logs).isNotEmpty(); // the flush ran despite the flag
+              assertThat(Thread.interrupted()).isTrue(); // and the flag is still set
+            } finally {
+              Thread.interrupted();
+            }
+          }
+        });
   }
 
   @Test

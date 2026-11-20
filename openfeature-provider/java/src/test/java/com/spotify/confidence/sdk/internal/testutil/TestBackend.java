@@ -48,6 +48,7 @@ public final class TestBackend implements AutoCloseable {
   private final HttpClient client = HttpClient.newHttpClient();
 
   private volatile int status = 404;
+  private volatile long cdnDelayMillis = 0;
   private volatile byte[] module = new byte[0];
   private volatile String etag = "";
   private final List<String> ifNoneMatch = new CopyOnWriteArrayList<>();
@@ -63,6 +64,14 @@ public final class TestBackend implements AutoCloseable {
               String inm = exchange.getRequestHeaders().getFirst("If-None-Match");
               inm = inm == null ? "" : inm;
               ifNoneMatch.add(inm);
+              long delay = cdnDelayMillis;
+              if (delay > 0) {
+                try {
+                  Thread.sleep(delay);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                }
+              }
               int code = status;
               byte[] body = new byte[0];
               if (code == 200 && !inm.isEmpty() && inm.equals(etag)) {
@@ -118,6 +127,11 @@ public final class TestBackend implements AutoCloseable {
   /** Makes the CDN answer with status instead of a module. */
   public void setStatus(int status) {
     this.status = status;
+  }
+
+  /** Delays every CDN response by millis, to hold a fetch in flight from the caller's side. */
+  public void delayCdn(long millis) {
+    this.cdnDelayMillis = millis;
   }
 
   /** The If-None-Match header of every CDN request so far. */

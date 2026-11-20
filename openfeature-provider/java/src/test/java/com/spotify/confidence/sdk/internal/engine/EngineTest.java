@@ -196,6 +196,28 @@ class EngineTest {
   }
 
   @Test
+  void closeDrainsAnInFlightPollInsteadOfInterruptingIt() {
+    // Endive aborts a module call when its thread is interrupted, so shutdownNow() on the
+    // engine's own loops could abort a poll's wasm call midway. close() drains instead: the
+    // in-flight fetch finishes (bounded by its request timeout) and no poll failure is logged.
+    org.slf4j.Logger logger = org.mockito.Mockito.mock(org.slf4j.Logger.class);
+    backend = new TestBackend();
+    backend.publish(TestBackend.module("basic.wasm"), "tok-1", "\"v1\"");
+    engine = newEngine(backend, c -> c.pollInterval(Duration.ofMillis(20)).logger(logger));
+    engine.start(Duration.ofSeconds(1));
+    backend.delayCdn(400); // hold every subsequent fetch in flight server-side
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .until(() -> backend.ifNoneMatch().size() >= 2); // a poll fetch is in flight
+    assertThat(engine.close(Duration.ofSeconds(5))).isTrue();
+    org.mockito.Mockito.verify(logger, org.mockito.Mockito.never())
+        .warn(
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.any(Throwable.class));
+    assertThat(engine.currentGeneration()).isNull(); // close cleared it, as always
+  }
+
+  @Test
   void a304KeepsTheCurrentGenerationQuietly() {
     backend = new TestBackend();
     byte[] module = TestBackend.module("basic.wasm");

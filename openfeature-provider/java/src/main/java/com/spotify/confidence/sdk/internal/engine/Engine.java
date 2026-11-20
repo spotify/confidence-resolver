@@ -283,6 +283,10 @@ public final class Engine {
                         }
                       })
                   .reportFailure(t -> cfg.logger.warn("resolver host callback failed", t))
+                  .reportTrap(
+                      t ->
+                          cfg.logger.error(
+                              "module call aborted; the generation's state may be inconsistent", t))
                   .build());
     } catch (InvalidModuleException e) {
       throw new TerminalStartupException("the fetched module is invalid", e);
@@ -354,9 +358,12 @@ public final class Engine {
     }
     long deadline = System.nanoTime() + timeout.toNanos();
     if (loops != null) {
-      loops.shutdownNow();
+      // Drain, don't interrupt: shutdownNow() would abort an in-flight module call (Endive
+      // checks the thread flag at every call), possibly half-flushing logs. The ticks exit on
+      // the closed flag, and an in-flight fetch is bounded by its request timeout.
+      loops.shutdown();
       try {
-        loops.awaitTermination(1, TimeUnit.SECONDS);
+        loops.awaitTermination(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
       }
