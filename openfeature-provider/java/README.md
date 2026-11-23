@@ -329,7 +329,9 @@ provider.applyFlags(ApplyFlagsRequest.newBuilder()
 
 > [!WARNING]
 > The resolve token is **neither encrypted nor authenticated**. Treat it as untrusted input
-> when handling apply requests proxied from clients.
+> when handling apply requests proxied from clients. If its contents are sensitive, encrypt
+> the token in your proxy before returning it to the client SDK and decrypt it again on the
+> apply endpoint before forwarding to `FlagResolverService`.
 
 `applyFlags` is best-effort: rejected applies (e.g. a rotated client secret) are swallowed and
 logged, never thrown.
@@ -374,8 +376,6 @@ The `FlagResolverService` enables you to proxy flag resolution requests from cli
 - **Backend-controlled credentials**: Client SDKs don't need their own client secrets
 - **Context enrichment**: Add server-side context (user ID from auth, request metadata) before resolution
 - **JSON only**: Only `application/json` content type is supported. Requests with other content types will receive a 415 response.
-
-> **⚠️ Resolve tokens returned with `apply=false` are not encrypted.** When a client SDK requests resolution with `apply=false`, the response includes a resolve token containing the full evaluation context and the resolved variant for each flag. If that data is sensitive, encrypt the token in your proxy before returning it to the client SDK and decrypt it again on the apply endpoint before forwarding to `FlagResolverService`. See the [Integration Guide: Deferred Apply and Resolve Token Security](../INTEGRATION_GUIDE.md#deferred-apply-and-resolve-token-security).
 
 ### Basic Setup
 
