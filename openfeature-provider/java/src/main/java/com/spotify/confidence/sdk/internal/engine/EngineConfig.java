@@ -1,5 +1,6 @@
 package com.spotify.confidence.sdk.internal.engine;
 
+import com.spotify.confidence.sdk.internal.host.Filter;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import org.slf4j.Logger;
@@ -36,6 +37,9 @@ public final class EngineConfig {
   /** Called once, when the first module installs after {@code start} returned without one. */
   public final Runnable onReady;
 
+  /** Overrides the apply filter the exposure mode selects (tests). */
+  final Filter applyFilter;
+
   private EngineConfig(Builder b) {
     this.clientSecret = b.clientSecret;
     this.encryptionKey = b.encryptionKey;
@@ -51,6 +55,7 @@ public final class EngineConfig {
     this.retryInterval = b.retryInterval;
     this.logger = b.logger;
     this.onReady = b.onReady;
+    this.applyFilter = b.applyFilter;
   }
 
   public static final class Builder {
@@ -69,6 +74,7 @@ public final class EngineConfig {
     private Duration retryInterval = Duration.ofSeconds(1);
     private Logger logger = LoggerFactory.getLogger(EngineConfig.class);
     private Runnable onReady = () -> {};
+    private Filter applyFilter;
 
     public Builder clientSecret(String clientSecret) {
       this.clientSecret = clientSecret;
@@ -132,6 +138,11 @@ public final class EngineConfig {
 
     public Builder logger(Logger logger) {
       this.logger = logger;
+      return this;
+    }
+
+    Builder applyFilter(Filter applyFilter) {
+      this.applyFilter = applyFilter;
       return this;
     }
 

@@ -30,10 +30,12 @@ public final class HostConfig {
   public final Consumer<Throwable> reportFailure;
 
   /**
-   * Receives traps and interrupts that aborted a module call midway, after which the module's state
-   * may be inconsistent; the resolver still rethrows them. Recovery is a planned follow-up.
+   * Called once, with the error, when a trap or an interrupt aborts a module call midway. The
+   * module's shared state may then be inconsistent: later calls fail with {@link
+   * PoisonedException}, calls in flight on other instances may never return, and close abandons the
+   * module without calling into it. It must not block.
    */
-  public final Consumer<Throwable> reportTrap;
+  public final Consumer<Throwable> onPoison;
 
   /** Runs the module on the interpreter engine instead of the runtime compiler. */
   public final boolean interpreter;
@@ -45,7 +47,7 @@ public final class HostConfig {
     this.applyFilter = b.applyFilter;
     this.schemaFilter = b.schemaFilter;
     this.reportFailure = b.reportFailure;
-    this.reportTrap = b.reportTrap;
+    this.onPoison = b.onPoison;
     this.interpreter = b.interpreter;
   }
 
@@ -57,7 +59,7 @@ public final class HostConfig {
     private Filter applyFilter = Filter.neverSeen();
     private Filter schemaFilter = Filter.neverSeen();
     private Consumer<Throwable> reportFailure = t -> {};
-    private Consumer<Throwable> reportTrap = t -> {};
+    private Consumer<Throwable> onPoison = t -> {};
     private boolean interpreter = false;
 
     /** Instances bounds concurrent calls into the module. Default 1. */
@@ -97,8 +99,8 @@ public final class HostConfig {
     }
 
     /** Receives traps and interrupts that aborted a module call midway. */
-    public Builder reportTrap(Consumer<Throwable> reportTrap) {
-      this.reportTrap = reportTrap;
+    public Builder onPoison(Consumer<Throwable> onPoison) {
+      this.onPoison = onPoison;
       return this;
     }
 

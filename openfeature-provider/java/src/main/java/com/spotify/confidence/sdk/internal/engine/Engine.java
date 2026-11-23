@@ -62,6 +62,8 @@ public final class Engine {
   private final AtomicReference<Generation> current = new AtomicReference<>();
   private final AtomicBoolean closed = new AtomicBoolean();
   private final AtomicBoolean notified = new AtomicBoolean();
+  // Orders install's publish against close: nothing is published after it.
+  private final Object publishLock = new Object();
   private final ConcurrentLinkedQueue<CompletableFuture<Void>> retiring =
       new ConcurrentLinkedQueue<>();
   private ScheduledExecutorService loops;
@@ -75,12 +77,13 @@ public final class Engine {
   static final class Generation {
 
     final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    final Resolver resolver;
-    final String etag;
+    // Kept to rebuild the generation if its module traps.
+    final CdnFetcher.FetchedModule module;
+    // Set before the generation is published.
+    Resolver resolver;
 
-    Generation(Resolver resolver, String etag) {
-      this.resolver = resolver;
-      this.etag = etag;
+    Generation(CdnFetcher.FetchedModule module) {
+      this.module = module;
     }
   }
 
@@ -89,10 +92,14 @@ public final class Engine {
     this.cfg = cfg;
     this.fetcher =
         new CdnFetcher(cfg.clientSecret, cfg.encryptionKey, cfg.cdnBaseUrl, cfg.httpClient);
-    switch (cfg.exposure) {
-      case ALL -> this.applyFilter = Filter.neverSeen();
-      case NONE -> this.applyFilter = Filter.alwaysSeen();
-      default -> this.applyFilter = new DedupeFilter(APPLY_FILTER_PAGES);
+    if (cfg.applyFilter != null) {
+      this.applyFilter = cfg.applyFilter;
+    } else {
+      switch (cfg.exposure) {
+        case ALL -> this.applyFilter = Filter.neverSeen();
+        case NONE -> this.applyFilter = Filter.alwaysSeen();
+        default -> this.applyFilter = new DedupeFilter(APPLY_FILTER_PAGES);
+      }
     }
     this.schemaFilter = new DedupeFilter(SCHEMA_FILTER_PAGES);
     this.shipper =
@@ -264,7 +271,13 @@ public final class Engine {
     } catch (CdnException e) {
       throw e; // retryable
     }
+    install(m);
+  }
+
+  /** Creates a generation for m and publishes it, retiring the one it replaces. */
+  private void install(CdnFetcher.FetchedModule m) {
     String token = m.logToken();
+    Generation g = new Generation(m);
     Resolver resolver;
     try {
       resolver =
@@ -283,10 +296,7 @@ public final class Engine {
                         }
                       })
                   .reportFailure(t -> cfg.logger.warn("resolver host callback failed", t))
-                  .reportTrap(
-                      t ->
-                          cfg.logger.error(
-                              "module call aborted; the generation's state may be inconsistent", t))
+                  .onPoison(t -> RETIRE.execute(() -> replace(g, t)))
                   .build());
     } catch (InvalidModuleException e) {
       throw new TerminalStartupException("the fetched module is invalid", e);
@@ -297,16 +307,42 @@ public final class Engine {
       resolver.close();
       throw new IllegalStateException("warming up module: " + e.getMessage(), e);
     }
-    if (closed.get()) {
-      resolver.close();
+    g.resolver = resolver;
+    Generation old;
+    synchronized (publishLock) {
+      if (closed.get()) {
+        resolver.close();
+        return;
+      }
+      old = current.getAndSet(g);
+    }
+    fetcher.accept(m.etag());
+    if (old == null) {
+      if (!notified.getAndSet(true)) {
+        cfg.onReady.run();
+      }
+    } else if (!old.resolver.isPoisoned()) {
+      retireAsync(old);
+    } // else abandoned, not retired: its readers may be blocked on a lock the failed call holds
+  }
+
+  /**
+   * Rebuilds g from its module after a module call was aborted, unless g has been replaced already.
+   * If that fails, the next poll fetches the module again.
+   */
+  private void replace(Generation g, Throwable cause) {
+    cfg.logger.error(
+        "resolver module call aborted; replacing the module. Its buffered flag logs are lost, and"
+            + " evaluations in flight on it may not return",
+        cause);
+    if (closed.get() || current.get() != g) {
       return;
     }
-    Generation old = current.getAndSet(new Generation(resolver, m.etag()));
-    fetcher.accept(m.etag());
-    if (old != null) {
-      retireAsync(old);
-    } else if (!notified.getAndSet(true)) {
-      cfg.onReady.run();
+    try {
+      install(g.module);
+    } catch (RuntimeException e) {
+      cfg.logger.error("replacing the aborted resolver module failed; refetching it", e);
+      fetcher.accept(null);
     }
   }
 
@@ -368,8 +404,11 @@ public final class Engine {
         Thread.currentThread().interrupt();
       }
     }
-    Generation g = current.getAndSet(null);
-    if (g != null) {
+    Generation g;
+    synchronized (publishLock) {
+      g = current.getAndSet(null);
+    }
+    if (g != null && !g.resolver.isPoisoned()) {
       retireAsync(g);
     }
     // The filters and the shipper outlive every generation: modules link to the filters and

@@ -9,6 +9,7 @@ import com.spotify.confidence.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.flags.wasm.v1.EvaluateRequest;
 import com.spotify.confidence.flags.wasm.v1.Materialization.Record;
 import com.spotify.confidence.sdk.internal.cdn.CdnFetcher;
+import com.spotify.confidence.sdk.internal.host.Filter;
 import com.spotify.confidence.sdk.internal.host.MaterializationStore;
 import com.spotify.confidence.sdk.internal.testutil.TestBackend;
 import java.time.Duration;
@@ -25,6 +26,10 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.helpers.NOPLogger;
+import run.endive.runtime.HostFunction;
+import run.endive.runtime.TrapException;
+import run.endive.wasm.types.FunctionType;
+import run.endive.wasm.types.ValType;
 
 /** Ports the Go engine tests: startup, swap under load, broken modules, and close. */
 class EngineTest {
@@ -343,5 +348,35 @@ class EngineTest {
     Awaitility.await()
         .atMost(5, TimeUnit.SECONDS)
         .until(() -> tokens(backend).getOrDefault("tok-1", 0) > 0);
+  }
+
+  /** A filter whose seen import traps, failing every module call that consults it. */
+  private static final Filter TRAP_FILTER =
+      importModule ->
+          new Filter.Link(
+              new HostFunction(
+                  importModule,
+                  "seen",
+                  FunctionType.of(List.of(ValType.I64), List.of(ValType.I32)),
+                  (instance, args) -> {
+                    throw new TrapException("trap filter");
+                  }),
+              null);
+
+  @Test
+  void aTrappedGenerationIsReplacedFromItsModule() {
+    backend = new TestBackend();
+    backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v1\"");
+    engine = newEngine(backend, c -> c.applyFilter(TRAP_FILTER));
+    engine.start(Duration.ofSeconds(5));
+    Engine.Generation first = engine.currentGeneration();
+    assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> engine.currentGeneration() != first);
+    Engine.Generation next = engine.currentGeneration();
+    assertThat(first.resolver.isPoisoned()).isTrue();
+    assertThat(next.resolver.isPoisoned()).isFalse();
+    assertThat(next.module).isSameAs(first.module);
   }
 }
