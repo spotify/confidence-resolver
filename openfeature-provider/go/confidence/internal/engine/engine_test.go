@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/host"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/s2wpb/resolverpb"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/s2wpb/wasmpb"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/testutil"
@@ -278,4 +279,27 @@ func TestCloseDeadlineWithReadInFlight(t *testing.T) {
 		t.Errorf("in-flight evaluation: %v", err)
 	}
 	eventually(t, "the retired generation's logs", func() bool { return tokens(b)["tok-1"] > 0 })
+}
+
+// A generation whose module traps is replaced by a new one built from the same module, without
+// a new fetch, and evaluations fail on it in the meantime rather than hanging.
+func TestTrappedGenerationIsReplaced(t *testing.T) {
+	b := testutil.NewBackend(t)
+	b.Publish(fixture(t), "tok", `"v1"`)
+	e := newEngine(t, b, func(c *Config) { c.applyFilter = host.TrapFilter })
+	if err := e.Start(context.Background(), 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	first := e.current.Load()
+	if err := evaluate(e, "u1"); err == nil {
+		t.Fatal("evaluate through a trapping filter succeeded")
+	}
+	eventually(t, "a new generation", func() bool { g := e.current.Load(); return g != nil && g != first })
+	next := e.current.Load()
+	if !first.resolver.Poisoned() || next.resolver.Poisoned() {
+		t.Error("want the old generation poisoned and the new one not")
+	}
+	if next.module != first.module {
+		t.Error("the new generation wasn't built from the trapped generation's module")
+	}
 }

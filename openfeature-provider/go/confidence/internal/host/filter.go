@@ -36,14 +36,25 @@ var (
 	AlwaysSeen Filter = fixedFilter(1)
 )
 
+// TrapFilter traps on every call. For tests of module calls that fail.
+var TrapFilter Filter = trapFilter{}
+
+type trapFilter struct{}
+
+func (trapFilter) module() ([]byte, api.Module) { return seenModule(0x00), nil } // unreachable
+
 // constSeenModule exports seen(i64) -> i32 returning v (0 or 1).
-func constSeenModule(v int32) []byte {
+func constSeenModule(v int32) []byte { return seenModule(0x41, byte(v)) } // i32.const v
+
+// seenModule exports seen(i64) -> i32 with the given body instructions.
+func seenModule(body ...byte) []byte {
 	b := []byte{0, 'a', 's', 'm', 1, 0, 0, 0}
 	b = section(b, 1, []byte{1, 0x60, 1, 0x7e, 1, 0x7f}) // (i64) -> i32
 	b = section(b, 3, []byte{1, 0})
 	exp := append([]byte{1, 4}, "seen"...)
 	b = section(b, 7, append(exp, 0x00, 0))
-	return section(b, 10, []byte{1, 4, 0, 0x41, byte(v), 0x0b}) // i32.const v
+	code := append(append([]byte{0}, body...), 0x0b) // no locals, body, end
+	return section(b, 10, append([]byte{1, byte(len(code))}, code...))
 }
 
 // DedupeFilter is a fixed-size filter memory in a runtime of its own, which outlives the

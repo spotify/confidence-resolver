@@ -21,6 +21,9 @@ import (
 // ErrClosed is returned by calls on a closed Resolver.
 var ErrClosed = errors.New("resolver is closed")
 
+// ErrPoisoned is returned by calls on a Resolver after a module call failed (see Config.OnPoison).
+var ErrPoisoned = errors.New("resolver module trapped; its state may be inconsistent")
+
 // MaterializationStore is the storage boundary for suspended resolves.
 type MaterializationStore interface {
 	// Read answers the requested records. Omitted records are absent.
@@ -41,6 +44,11 @@ type Config struct {
 	ApplyFilter, SchemaFilter Filter
 	// ReportFailure receives errors raised inside host callbacks.
 	ReportFailure func(error)
+	// OnPoison is called once, with the error, when a module call fails (a trap). The module's
+	// shared state may then be inconsistent: later calls fail with ErrPoisoned, calls in flight
+	// on other instances may never return, and Close abandons the module without calling into it.
+	// It must not block.
+	OnPoison func(error)
 }
 
 // DefaultMaxMemoryBytes is the default shared-memory cap.
@@ -58,6 +66,7 @@ type Resolver struct {
 	created int
 	all     []*instance
 	closed  atomic.Bool
+	poison  atomic.Bool
 	// raceToken orders Go-side shared-memory accesses for the race detector (see race.go).
 	raceToken byte
 }
@@ -70,6 +79,7 @@ type instance struct {
 	race                                                    *byte        // see race.go
 	latency                                                 api.Function // observe_client_resolve_latency, if exported
 	discards                                                int          // resolve_process_discard calls, for tests
+	poison                                                  func(error)
 }
 
 // callCtx is passed to every call into an instance. Callers' contexts are deliberately not used:
@@ -97,6 +107,9 @@ func NewResolver(ctx context.Context, wasm []byte, interpreter bool, cfg Config)
 	}
 	if cfg.ReportFailure == nil {
 		cfg.ReportFailure = func(error) {}
+	}
+	if cfg.OnPoison == nil {
+		cfg.OnPoison = func(error) {}
 	}
 	rt := NewRuntime(ctx, interpreter)
 	r := &Resolver{rt: rt, cfg: cfg, free: make(chan *instance, cfg.Instances)}
@@ -199,7 +212,7 @@ func (r *Resolver) newInstance(ctx context.Context) (*instance, error) {
 	}
 	e := mod.ExportedFunction
 	inst := &instance{
-		race: &r.raceToken, mod: mod, alloc: e("alloc"), free: e("free"), start: e("resolve_process_start"),
+		race: &r.raceToken, poison: r.poisoned, mod: mod, alloc: e("alloc"), free: e("free"), start: e("resolve_process_start"),
 		resume: e("resolve_process_resume"), discard: e("resolve_process_discard"), apply: e("apply_flags"),
 		flush: e("flush_logs"), eval: e("evaluate"), destroy: e("destroy_instance"),
 	}
@@ -209,11 +222,24 @@ func (r *Resolver) newInstance(ctx context.Context) (*instance, error) {
 	return inst, nil
 }
 
+// poisoned marks r poisoned by err, a failed module call. Only the first failure is reported.
+func (r *Resolver) poisoned(err error) {
+	if !r.poison.Swap(true) {
+		r.cfg.OnPoison(err)
+	}
+}
+
+// Poisoned reports whether a module call has failed (see Config.OnPoison).
+func (r *Resolver) Poisoned() bool { return r.poison.Load() }
+
 // with runs f on a claimed instance. ctx only bounds the wait for an instance; f receives the
 // instance's own call context.
 func (r *Resolver) with(ctx context.Context, f func(ctx context.Context, inst *instance) error) error {
 	if r.closed.Load() {
 		return ErrClosed
+	}
+	if r.poison.Load() {
+		return ErrPoisoned
 	}
 	inst, err := r.claim(ctx)
 	if err != nil {
@@ -477,6 +503,11 @@ func (r *Resolver) Close(ctx context.Context) error {
 	if r.closed.Swap(true) {
 		return nil
 	}
+	if r.poison.Load() {
+		// Abandoned: a call into the module could block on a lock the failed call holds, and the
+		// runtime can't be closed under calls that may still be running.
+		return nil
+	}
 	var errs []error
 	for i, inst := range r.all {
 		if i == 0 {
@@ -500,7 +531,7 @@ func (r *Resolver) writeLogs(ctx context.Context, m api.Module, payload uint64) 
 			r.cfg.ReportFailure(fmt.Errorf("write_logs panicked: %v", p))
 		}
 		if _, err := m.ExportedFunction("ack_logs").Call(ctx, payload); err != nil {
-			r.cfg.ReportFailure(fmt.Errorf("ack_logs: %w", err))
+			r.poisoned(fmt.Errorf("ack_logs: %w", err))
 		}
 	}()
 	raceAcquire(&r.raceToken)
@@ -559,6 +590,9 @@ func (i *instance) write(ctx context.Context, b []byte) (uint64, error) {
 func (i *instance) call(ctx context.Context, f api.Function, args ...uint64) (uint64, error) {
 	copy(i.stack[:], args)
 	if err := f.CallWithStack(ctx, i.stack[:]); err != nil {
+		// Module calls never get a cancellable context, so a failed call is a trap (or a panic
+		// in a host function), which may have left the shared state inconsistent.
+		i.poison(err)
 		return 0, err
 	}
 	return i.stack[0], nil
