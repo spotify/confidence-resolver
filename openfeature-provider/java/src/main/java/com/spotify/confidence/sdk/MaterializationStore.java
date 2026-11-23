@@ -22,8 +22,9 @@ import java.util.concurrent.CompletionStage;
  * </ul>
  *
  * <p><strong>Default Behavior:</strong> By default, the provider uses {@link
- * UnsupportedMaterializationStore} which triggers remote resolution via gRPC to the Confidence
- * service. Confidence manages materializations server-side with automatic 90-day TTL management.
+ * UnsupportedMaterializationStore} which means the evaluation falls back to the caller's default
+ * value to the Confidence service. Confidence manages materializations server-side with automatic
+ * 90-day TTL management.
  *
  * <p><strong>Custom Implementations:</strong> Optionally implement this interface to store
  * materialization data in your own infrastructure (Redis, database, etc.) to eliminate network

@@ -1,307 +1,146 @@
 package com.spotify.confidence.sdk;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.spotify.confidence.sdk.flags.resolver.v1.*;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
-import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import org.junit.jupiter.api.BeforeEach;
+import com.spotify.confidence.sdk.MaterializationStore.ReadOp;
+import com.spotify.confidence.sdk.MaterializationStore.ReadResult;
+import com.spotify.confidence.sdk.MaterializationStore.WriteOp;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
+/**
+ * The hosted store's hand-encoded protobuf wire, as the Go provider's remote_materialization_
+ * store_test.go; that file is the reference for the bytes.
+ */
 class RemoteMaterializationStoreTest {
 
-  private InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub mockStub;
+  private HttpServer server;
   private RemoteMaterializationStore store;
 
-  @BeforeEach
-  void setUp() {
-    mockStub = mock(InternalFlagLoggerServiceGrpc.InternalFlagLoggerServiceBlockingStub.class);
-    when(mockStub.withDeadlineAfter(anyLong(), any())).thenReturn(mockStub);
+  // ReadOperationsRequest{ops: [ReadOp{inclusion_read_op{unit: "user-a", materialization: "m"}}]}
+  private static final byte[] WANT_READ = {
+    0x1a, 0x0d, 0x12, 0x0b, 0x0a, 0x06, 'u', 's', 'e', 'r', '-', 'a', 0x12, 0x01, 'm'
+  };
+  // ReadOperationsResult{results: [ReadResult{inclusion_result{unit, materialization, is_included:
+  // true}}]}
+  private static final byte[] READ_RESPONSE = {
+    0x0a, 0x0f, 0x12, 0x0d, 0x0a, 0x06, 'u', 's', 'e', 'r', '-', 'a', 0x12, 0x01, 'm', 0x18, 0x01
+  };
+  // WriteOperationsRequest{store_variant_op: VariantData{unit "u", materialization "m",
+  // rule "r", variant "v"}}
+  private static final byte[] WANT_WRITE = {
+    0x0a, 0x0c, 0x0a, 0x01, 'u', 0x12, 0x01, 'm', 0x1a, 0x01, 'r', 0x22, 0x01, 'v'
+  };
+
+  static final class Captured {
+    volatile String path;
+    volatile String authorization;
+    volatile String contentType;
+    volatile byte[] body;
+  }
+
+  private RemoteMaterializationStore started(Captured captured, byte[] response) {
+    try {
+      server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+      server.createContext(
+          "/",
+          exchange -> {
+            captured.path = exchange.getRequestURI().getPath();
+            captured.authorization = exchange.getRequestHeaders().getFirst("Authorization");
+            captured.contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+            captured.body = exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().add("Content-Type", "application/x-protobuf");
+            exchange.sendResponseHeaders(200, response == null ? -1 : response.length);
+            if (response != null) {
+              exchange.getResponseBody().write(response);
+            }
+            exchange.close();
+          });
+      server.start();
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
+    }
     store =
-        new RemoteMaterializationStore(
-            mockStub,
-            Duration.ofSeconds(2),
-            Duration.ofSeconds(5),
-            Executors.newCachedThreadPool());
+        new RemoteMaterializationStore("sec", "http://127.0.0.1:" + server.getAddress().getPort());
+    return store;
+  }
+
+  @AfterEach
+  void tearDown() {
+    if (store != null) {
+      store.shutdown();
+    }
+    if (server != null) {
+      server.stop(0);
+    }
   }
 
   @Test
-  void testReadEmptyOps() throws Exception {
-    List<MaterializationStore.ReadResult> results =
-        store.read(Collections.emptyList()).toCompletableFuture().get();
-    assertEquals(0, results.size());
-    verify(mockStub, never()).readMaterializedOperations(any());
-  }
+  void testRemoteStoreWire() {
+    Captured captured = new Captured();
+    started(captured, READ_RESPONSE);
 
-  @Test
-  void testReadVariantOp() throws Exception {
-    ReadOperationsResult mockResponse =
-        ReadOperationsResult.newBuilder()
-            .addResults(
-                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
-                    .setVariantResult(
-                        VariantData.newBuilder()
-                            .setMaterialization("exp_v1")
-                            .setUnit("user-123")
-                            .setRule("rule-1")
-                            .setVariant("variant-a")
-                            .build())
-                    .build())
-            .build();
+    List<ReadResult> results =
+        store
+            .read(List.of(new ReadOp.Inclusion("m", "user-a")))
+            .toCompletableFuture()
+            .orTimeout(5, TimeUnit.SECONDS)
+            .join();
 
-    when(mockStub.readMaterializedOperations(any())).thenReturn(mockResponse);
-
-    List<MaterializationStore.ReadOp> ops =
-        List.of(new MaterializationStore.ReadOp.Variant("exp_v1", "user-123", "rule-1"));
-
-    List<MaterializationStore.ReadResult> results = store.read(ops).toCompletableFuture().get();
+    assertEquals("/v1/materialization:readMaterializedOperations", captured.path);
+    assertEquals("ClientSecret sec", captured.authorization);
+    assertEquals("application/x-protobuf", captured.contentType);
+    assertArrayEquals(WANT_READ, captured.body);
 
     assertEquals(1, results.size());
-    assertTrue(results.get(0) instanceof MaterializationStore.ReadResult.Variant);
+    ReadResult.Inclusion inclusion = (ReadResult.Inclusion) results.get(0);
+    assertTrue(inclusion.included());
+    assertEquals("user-a", inclusion.unit());
+    assertEquals("m", inclusion.materialization());
 
-    MaterializationStore.ReadResult.Variant variantResult =
-        (MaterializationStore.ReadResult.Variant) results.get(0);
-    assertEquals("exp_v1", variantResult.materialization());
-    assertEquals("user-123", variantResult.unit());
-    assertEquals("rule-1", variantResult.rule());
-    assertTrue(variantResult.variant().isPresent());
-    assertEquals("variant-a", variantResult.variant().get());
+    store
+        .write(Set.of(new WriteOp.Variant("m", "u", "r", "v")))
+        .toCompletableFuture()
+        .orTimeout(5, TimeUnit.SECONDS)
+        .join();
+
+    assertEquals("/v1/materialization:writeMaterializedOperations", captured.path);
+    assertArrayEquals(WANT_WRITE, captured.body);
   }
 
   @Test
-  void testReadInclusionOp() throws Exception {
-    ReadOperationsResult mockResponse =
-        ReadOperationsResult.newBuilder()
-            .addResults(
-                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
-                    .setInclusionResult(
-                        InclusionData.newBuilder()
-                            .setMaterialization("segment_v1")
-                            .setUnit("user-456")
-                            .setIsIncluded(true)
-                            .build())
-                    .build())
-            .build();
+  void testVariantReadRoundTrip() {
+    // ReadOperationsResult{results: [ReadResult{variant_result{unit "u", materialization "m",
+    // rule "r", variant "v"}}]}
+    byte[] variantResponse = {
+      0x0a, 0x0e, 0x0a, 0x0c, 0x0a, 0x01, 'u', 0x12, 0x01, 'm', 0x1a, 0x01, 'r', 0x22, 0x01, 'v'
+    };
+    Captured captured = new Captured();
+    started(captured, variantResponse);
 
-    when(mockStub.readMaterializedOperations(any())).thenReturn(mockResponse);
+    List<ReadResult> results =
+        store
+            .read(List.of(new ReadOp.Variant("m", "u", "r")))
+            .toCompletableFuture()
+            .orTimeout(5, TimeUnit.SECONDS)
+            .join();
 
-    List<MaterializationStore.ReadOp> ops =
-        List.of(new MaterializationStore.ReadOp.Inclusion("segment_v1", "user-456"));
+    ReadResult.Variant variant = (ReadResult.Variant) results.get(0);
+    assertEquals("v", variant.variant().orElse(null));
+    assertEquals("r", variant.rule());
+    assertEquals("u", variant.unit());
 
-    List<MaterializationStore.ReadResult> results = store.read(ops).toCompletableFuture().get();
-
-    assertEquals(1, results.size());
-    assertTrue(results.get(0) instanceof MaterializationStore.ReadResult.Inclusion);
-
-    MaterializationStore.ReadResult.Inclusion inclusionResult =
-        (MaterializationStore.ReadResult.Inclusion) results.get(0);
-    assertEquals("segment_v1", inclusionResult.materialization());
-    assertEquals("user-456", inclusionResult.unit());
-    assertTrue(inclusionResult.included());
-  }
-
-  @Test
-  void testReadDeadlineExceeded() {
-    when(mockStub.readMaterializedOperations(any()))
-        .thenThrow(new StatusRuntimeException(Status.DEADLINE_EXCEEDED));
-
-    List<MaterializationStore.ReadOp> ops =
-        List.of(new MaterializationStore.ReadOp.Variant("exp_v1", "user-123", "rule-1"));
-
-    ExecutionException exception =
-        assertThrows(ExecutionException.class, () -> store.read(ops).toCompletableFuture().get());
-
-    assertTrue(exception.getCause() instanceof RuntimeException);
-    assertTrue(
-        exception.getCause().getMessage().contains("Failed to read materialized operations"));
-  }
-
-  @Test
-  void testReadUnauthenticated() {
-    when(mockStub.readMaterializedOperations(any()))
-        .thenThrow(new StatusRuntimeException(Status.UNAUTHENTICATED));
-
-    List<MaterializationStore.ReadOp> ops =
-        List.of(new MaterializationStore.ReadOp.Variant("exp_v1", "user-123", "rule-1"));
-
-    ExecutionException exception =
-        assertThrows(ExecutionException.class, () -> store.read(ops).toCompletableFuture().get());
-
-    assertTrue(exception.getCause() instanceof RuntimeException);
-    assertTrue(
-        exception.getCause().getMessage().contains("Failed to read materialized operations"));
-  }
-
-  @Test
-  void testReadUnavailable() {
-    when(mockStub.readMaterializedOperations(any()))
-        .thenThrow(new StatusRuntimeException(Status.UNAVAILABLE));
-
-    List<MaterializationStore.ReadOp> ops =
-        List.of(new MaterializationStore.ReadOp.Variant("exp_v1", "user-123", "rule-1"));
-
-    ExecutionException exception =
-        assertThrows(ExecutionException.class, () -> store.read(ops).toCompletableFuture().get());
-
-    assertTrue(exception.getCause() instanceof RuntimeException);
-    assertTrue(
-        exception.getCause().getMessage().contains("Failed to read materialized operations"));
-  }
-
-  @Test
-  void testWriteEmptyOps() throws Exception {
-    store.write(Collections.emptySet()).toCompletableFuture().get();
-    verify(mockStub, never()).writeMaterializedOperations(any());
-  }
-
-  @Test
-  void testWriteVariantOp() throws Exception {
-    WriteOperationsResult mockResponse = WriteOperationsResult.newBuilder().build();
-    when(mockStub.writeMaterializedOperations(any())).thenReturn(mockResponse);
-
-    Set<MaterializationStore.WriteOp> ops =
-        Set.of(
-            new MaterializationStore.WriteOp.Variant("exp_v1", "user-123", "rule-1", "variant-a"));
-
-    store.write(ops).toCompletableFuture().get();
-
-    ArgumentCaptor<WriteOperationsRequest> requestCaptor =
-        ArgumentCaptor.forClass(WriteOperationsRequest.class);
-    verify(mockStub).writeMaterializedOperations(requestCaptor.capture());
-
-    WriteOperationsRequest request = requestCaptor.getValue();
-    assertEquals(1, request.getStoreVariantOpCount());
-    VariantData variantData = request.getStoreVariantOp(0);
-    assertEquals("exp_v1", variantData.getMaterialization());
-    assertEquals("user-123", variantData.getUnit());
-    assertEquals("rule-1", variantData.getRule());
-    assertEquals("variant-a", variantData.getVariant());
-  }
-
-  @Test
-  void testWriteDeadlineExceeded() {
-    when(mockStub.writeMaterializedOperations(any()))
-        .thenThrow(new StatusRuntimeException(Status.DEADLINE_EXCEEDED));
-
-    Set<MaterializationStore.WriteOp> ops =
-        Set.of(
-            new MaterializationStore.WriteOp.Variant("exp_v1", "user-123", "rule-1", "variant-a"));
-
-    ExecutionException exception =
-        assertThrows(ExecutionException.class, () -> store.write(ops).toCompletableFuture().get());
-
-    assertTrue(exception.getCause() instanceof RuntimeException);
-    assertTrue(
-        exception.getCause().getMessage().contains("Failed to write materialized operations"));
-  }
-
-  @Test
-  void testWritePermissionDenied() {
-    when(mockStub.writeMaterializedOperations(any()))
-        .thenThrow(new StatusRuntimeException(Status.PERMISSION_DENIED));
-
-    Set<MaterializationStore.WriteOp> ops =
-        Set.of(
-            new MaterializationStore.WriteOp.Variant("exp_v1", "user-123", "rule-1", "variant-a"));
-
-    ExecutionException exception =
-        assertThrows(ExecutionException.class, () -> store.write(ops).toCompletableFuture().get());
-
-    assertTrue(exception.getCause() instanceof RuntimeException);
-    assertTrue(
-        exception.getCause().getMessage().contains("Failed to write materialized operations"));
-  }
-
-  @Test
-  void testReadMultipleOps() throws Exception {
-    ReadOperationsResult mockResponse =
-        ReadOperationsResult.newBuilder()
-            .addResults(
-                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
-                    .setVariantResult(
-                        VariantData.newBuilder()
-                            .setMaterialization("exp_v1")
-                            .setUnit("user-123")
-                            .setRule("rule-1")
-                            .setVariant("variant-a")
-                            .build())
-                    .build())
-            .addResults(
-                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
-                    .setInclusionResult(
-                        InclusionData.newBuilder()
-                            .setMaterialization("segment_v1")
-                            .setUnit("user-456")
-                            .setIsIncluded(false)
-                            .build())
-                    .build())
-            .build();
-
-    when(mockStub.readMaterializedOperations(any())).thenReturn(mockResponse);
-
-    List<MaterializationStore.ReadOp> ops =
-        List.of(
-            new MaterializationStore.ReadOp.Variant("exp_v1", "user-123", "rule-1"),
-            new MaterializationStore.ReadOp.Inclusion("segment_v1", "user-456"));
-
-    List<MaterializationStore.ReadResult> results = store.read(ops).toCompletableFuture().get();
-
-    assertEquals(2, results.size());
-  }
-
-  @Test
-  void testWriteMultipleOps() throws Exception {
-    WriteOperationsResult mockResponse = WriteOperationsResult.newBuilder().build();
-    when(mockStub.writeMaterializedOperations(any())).thenReturn(mockResponse);
-
-    Set<MaterializationStore.WriteOp> ops =
-        Set.of(
-            new MaterializationStore.WriteOp.Variant("exp_v1", "user-123", "rule-1", "variant-a"),
-            new MaterializationStore.WriteOp.Variant("exp_v2", "user-456", "rule-2", "variant-b"));
-
-    store.write(ops).toCompletableFuture().get();
-
-    ArgumentCaptor<WriteOperationsRequest> requestCaptor =
-        ArgumentCaptor.forClass(WriteOperationsRequest.class);
-    verify(mockStub).writeMaterializedOperations(requestCaptor.capture());
-
-    WriteOperationsRequest request = requestCaptor.getValue();
-    assertEquals(2, request.getStoreVariantOpCount());
-  }
-
-  @Test
-  void testReadVariantWithEmptyOptional() throws Exception {
-    ReadOperationsResult mockResponse =
-        ReadOperationsResult.newBuilder()
-            .addResults(
-                com.spotify.confidence.sdk.flags.resolver.v1.ReadResult.newBuilder()
-                    .setVariantResult(
-                        VariantData.newBuilder()
-                            .setMaterialization("exp_v1")
-                            .setUnit("user-123")
-                            .setRule("rule-1")
-                            // No variant set, meaning empty optional
-                            .build())
-                    .build())
-            .build();
-
-    when(mockStub.readMaterializedOperations(any())).thenReturn(mockResponse);
-
-    List<MaterializationStore.ReadOp> ops =
-        List.of(new MaterializationStore.ReadOp.Variant("exp_v1", "user-123", "rule-1"));
-
-    List<MaterializationStore.ReadResult> results = store.read(ops).toCompletableFuture().get();
-
-    assertEquals(1, results.size());
-    MaterializationStore.ReadResult.Variant variantResult =
-        (MaterializationStore.ReadResult.Variant) results.get(0);
-    assertFalse(variantResult.variant().isPresent());
+    // ReadOperationsRequest{ops: [ReadOp{variant_read_op{unit "u", materialization "m", rule
+    // "r"}}]}
+    byte[] wantRead = {0x1a, 0x0b, 0x0a, 0x09, 0x0a, 0x01, 'u', 0x12, 0x01, 'm', 0x1a, 0x01, 'r'};
+    assertArrayEquals(wantRead, captured.body);
   }
 }

@@ -1,63 +1,61 @@
 package com.spotify.confidence.sdk;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.spotify.confidence.sdk.internal.engine.ExposureMode;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class LocalProviderConfigTest {
 
   @Test
-  void disableExposureCollection_defaultsToFalse() {
-    assertThat(new LocalProviderConfig().isDisableExposureCollection()).isFalse();
+  void defaults() {
+    LocalProviderConfig config = LocalProviderConfig.builder().build();
+
+    assertNull(config.getMaterializationStore());
+    assertFalse(config.isUseRemoteMaterializationStore());
+    assertEquals(0, config.getInstances(), "zero means the engine default");
+    assertEquals(0, config.getMaxMemoryBytes(), "zero means the engine default");
+    assertNull(config.getStatePollInterval());
+    assertNull(config.getRetryInterval());
+    assertEquals(
+        LocalProviderConfig.DEFAULT_INITIALIZATION_TIMEOUT, config.getInitializationTimeout());
+    assertEquals(ExposureMode.DEDUPLICATED, config.getExposureMode());
+    assertFalse(config.isInterpreter());
+    assertNotNull(config.getHttpClientFactory());
+    assertNotNull(config.getLogger());
   }
 
   @Test
-  void disableExposureCollection_canBeEnabled() {
-    final LocalProviderConfig config =
-        LocalProviderConfig.builder().disableExposureCollection(true).build();
-    assertThat(config.isDisableExposureCollection()).isTrue();
-  }
-
-  /** Dedup is on by default, so a config that never mentions it must still have it enabled. */
-  @Test
-  void enableApplyDedup_defaultsToTrue() {
-    assertThat(new LocalProviderConfig().isEnableApplyDedup()).isTrue();
-    assertThat(LocalProviderConfig.builder().build().isEnableApplyDedup()).isTrue();
-  }
-
-  /**
-   * Callers written against the previous release pass true explicitly. That must still compile and
-   * still leave dedup enabled.
-   */
-  @Test
-  void enableApplyDedup_trueStillEnables() {
-    assertThat(LocalProviderConfig.builder().enableApplyDedup(true).build().isEnableApplyDedup())
-        .isTrue();
+  void exposureModeFallsBackToDeduplicated() {
+    LocalProviderConfig config =
+        LocalProviderConfig.builder().exposureMode(ExposureMode.ALL).exposureMode(null).build();
+    assertEquals(ExposureMode.DEDUPLICATED, config.getExposureMode());
   }
 
   @Test
-  void enableApplyDedup_canBeDisabledViaBuilder() {
-    assertThat(LocalProviderConfig.builder().enableApplyDedup(false).build().isEnableApplyDedup())
-        .isFalse();
+  void initializationTimeoutFallsBackToDefault() {
+    LocalProviderConfig config =
+        LocalProviderConfig.builder()
+            .initializationTimeout(Duration.ZERO)
+            .initializationTimeout(null)
+            .build();
+    assertEquals(
+        LocalProviderConfig.DEFAULT_INITIALIZATION_TIMEOUT, config.getInitializationTimeout());
   }
 
-  /**
-   * The constructor overload is the opt-out for callers not using the builder. Written in exactly
-   * the form the README documents — including {@code DEFAULT_RESOLVER_POOL_SIZE} rather than a bare
-   * literal — so that renaming or hiding that constant breaks the build instead of only breaking
-   * the documented snippet.
-   */
   @Test
-  void enableApplyDedup_canBeDisabledViaConstructor() {
-    assertThat(
-            new LocalProviderConfig(
-                    null, null, false, LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE, false)
-                .isEnableApplyDedup())
-        .isFalse();
-    assertThat(
-            new LocalProviderConfig(
-                    null, null, false, LocalProviderConfig.DEFAULT_RESOLVER_POOL_SIZE, true)
-                .isEnableApplyDedup())
-        .isTrue();
+  void storeAndRemoteStoreAreMutuallyExclusive() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            LocalProviderConfig.builder()
+                .materializationStore(new InMemoryMaterializationStoreExample())
+                .useRemoteMaterializationStore(true)
+                .build());
   }
 }
