@@ -416,15 +416,7 @@ public final class Resolver implements AutoCloseable {
     try {
       return call.run(inst);
     } catch (RuntimeException e) {
-      if (e instanceof run.endive.runtime.WasmInterruptedException
-          || e instanceof run.endive.runtime.TrapException) {
-        // The call was aborted midway (a routine JVM interrupt — Future.cancel(true),
-        // shutdownNow() — or a trap), and the shared state may be inconsistent: poison the
-        // resolver, reporting the first failure.
-        if (poisoned.compareAndSet(false, true)) {
-          cfg.onPoison.accept(e);
-        }
-      }
+      poisonIfAborted(e);
       throw e;
     } finally {
       release(inst);
@@ -562,8 +554,27 @@ public final class Resolver implements AutoCloseable {
     try {
       instance.export("ack_logs").apply(payload);
     } catch (RuntimeException e) {
-      cfg.reportFailure.accept(e);
+      // The export calling write_logs carries on after this, so it may not see the abort.
+      if (!poisonIfAborted(e)) {
+        cfg.reportFailure.accept(e);
+      }
     }
+  }
+
+  /**
+   * Poisons the resolver if e means a module call was aborted midway (a routine JVM interrupt —
+   * Future.cancel(true), shutdownNow() — or a trap): the shared state may be inconsistent. Reports
+   * the first failure only.
+   */
+  private boolean poisonIfAborted(RuntimeException e) {
+    if (!(e instanceof run.endive.runtime.WasmInterruptedException
+        || e instanceof run.endive.runtime.TrapException)) {
+      return false;
+    }
+    if (poisoned.compareAndSet(false, true)) {
+      cfg.onPoison.accept(e);
+    }
+    return true;
   }
 
   private long randomSeed() {

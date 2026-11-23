@@ -29,7 +29,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -70,9 +70,10 @@ public final class Engine {
   private final AtomicBoolean notified = new AtomicBoolean();
   // Orders install's publish against close: nothing is published after it.
   private final Object publishLock = new Object();
-  // Replaced generations not yet reported, by ModuleTrapCause number; the next flag-log batch
-  // carries them.
-  private final AtomicLongArray traps = new AtomicLongArray(3);
+  // Replaced generations not yet reported, by cause (a trap, or an interrupted call); the next
+  // flag-log batch carries them.
+  private final AtomicLong traps = new AtomicLong();
+  private final AtomicLong interrupts = new AtomicLong();
   // Replacements since a generation last wrote logs, or a new module was fetched. Past
   // MAX_REPLACEMENTS the module is given up until the next one.
   private final AtomicInteger replacements = new AtomicInteger();
@@ -306,9 +307,11 @@ public final class Engine {
                   .writeLogs(
                       b -> {
                         replacements.set(0); // the module works well enough to write logs
-                        b = withTraps(b);
-                        if (!shipper.enqueue(b, token)) {
-                          cfg.logger.warn("flag log queue full; dropping a batch");
+                        long[] taken = takeTraps();
+                        if (!shipper.enqueue(withTraps(b, taken), token)) {
+                          restoreTraps(taken);
+                          cfg.logger.warn(
+                              "flag log batch dropped: the queue is full or the shipper closed");
                         }
                       })
                   .reportFailure(t -> cfg.logger.warn("resolver host callback failed", t))
@@ -351,7 +354,8 @@ public final class Engine {
         cause instanceof run.endive.runtime.WasmInterruptedException
             ? ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED
             : ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP;
-    traps.incrementAndGet(trapCause.getNumber());
+    (trapCause == ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED ? interrupts : traps)
+        .incrementAndGet();
     cfg.logger.error(
         "resolver module call aborted; replacing the module. Its buffered flag logs are lost, and"
             + " evaluations in flight on it may not return",
@@ -377,9 +381,11 @@ public final class Engine {
   private void giveUp(Generation g, RuntimeException cause) {
     cfg.logger.error(
         "resolver module keeps failing; giving up on it until a new module is published", cause);
-    byte[] report = withTraps(new byte[0]);
+    long[] taken = takeTraps();
+    byte[] report = withTraps(new byte[0], taken);
     if (report.length > 0 && !shipper.enqueue(report, g.module.logToken())) {
-      cfg.logger.warn("flag log queue full; dropping the trap report");
+      restoreTraps(taken); // the next batch carries them
+      cfg.logger.warn("trap report dropped: the queue is full or the shipper closed");
     }
   }
 
@@ -387,17 +393,10 @@ public final class Engine {
    * Appends the traps not yet reported to a module's write_logs payload, as a WriteFlagLogsRequest
    * whose telemetry protobuf concatenation adds to the payload's.
    */
-  private byte[] withTraps(byte[] payload) {
+  private byte[] withTraps(byte[] payload, long[] taken) {
     Counter.Builder counter = Counter.newBuilder();
-    for (ModuleTrapCause cause :
-        List.of(
-            ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP,
-            ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED)) {
-      long n = traps.getAndSet(cause.getNumber(), 0);
-      if (n > 0) {
-        counter.addPoints(Counter.Point.newBuilder().setDelta(n).addLabels(cause.getNumber()));
-      }
-    }
+    addPoint(counter, ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP, taken[0]);
+    addPoint(counter, ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED, taken[1]);
     if (counter.getPointsCount() == 0) {
       return payload;
     }
@@ -409,6 +408,23 @@ public final class Engine {
     byte[] out = java.util.Arrays.copyOf(payload, payload.length + report.length);
     System.arraycopy(report, 0, out, payload.length, report.length);
     return out;
+  }
+
+  /** Takes the traps not yet reported: {traps, interrupts}. */
+  private long[] takeTraps() {
+    return new long[] {traps.getAndSet(0), interrupts.getAndSet(0)};
+  }
+
+  /** Puts back traps taken for a report that was dropped. */
+  private void restoreTraps(long[] taken) {
+    traps.addAndGet(taken[0]);
+    interrupts.addAndGet(taken[1]);
+  }
+
+  private static void addPoint(Counter.Builder counter, ModuleTrapCause cause, long n) {
+    if (n > 0) {
+      counter.addPoints(Counter.Point.newBuilder().setDelta(n).addLabels(cause.getNumber()));
+    }
   }
 
   /** Retires g (which must already be unpublished) on a background thread. */

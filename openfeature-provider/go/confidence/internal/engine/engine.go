@@ -257,11 +257,13 @@ func (e *Engine) install(ctx context.Context, m *cdn.Module) error {
 		SchemaFilter:   e.schemaFilter,
 		WriteLogs: func(b []byte) {
 			e.replacements.Store(0) // the module works well enough to write logs
-			if n := e.traps.Swap(0); n > 0 {
+			n := e.traps.Swap(0)
+			if n > 0 {
 				b = append(b, trapTelemetry(n)...)
 			}
 			if !e.shipper.Enqueue(b, token) {
-				e.cfg.Logger.Warn("flag log queue full; dropping a batch")
+				e.traps.Add(n) // the next batch carries them
+				e.cfg.Logger.Warn("flag log batch dropped: the queue is full or the shipper closed")
 			}
 		},
 		ReportFailure: func(err error) { e.cfg.Logger.Warn("resolver host callback failed", "error", err) },
@@ -326,7 +328,8 @@ func (e *Engine) replace(g *generation, err error) {
 func (e *Engine) giveUp(g *generation, err error) {
 	e.cfg.Logger.Error("resolver module keeps failing; giving up on it until a new module is published", "error", err)
 	if n := e.traps.Swap(0); n > 0 && !e.shipper.Enqueue(trapTelemetry(n), g.module.LogToken) {
-		e.cfg.Logger.Warn("flag log queue full; dropping the trap report")
+		e.traps.Add(n) // the next batch carries them
+		e.cfg.Logger.Warn("trap report dropped: the queue is full or the shipper closed")
 	}
 }
 

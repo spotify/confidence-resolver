@@ -396,6 +396,36 @@ class ResolverTest {
   }
 
   @Test
+  void anAbortedAckPoisonsTheResolver() {
+    // An interrupt set by the log sink aborts the re-entrant ack_logs call. The ack failure alone
+    // poisons the resolver, as in Go: the export that called write_logs may not see it.
+    bothEngines(
+        interp -> {
+          CopyOnWriteArrayList<Throwable> poisons = new CopyOnWriteArrayList<>();
+          Resolver r =
+              newResolver(
+                  interp,
+                  new HostConfig.Builder()
+                      .writeLogs(b -> Thread.currentThread().interrupt())
+                      .onPoison((Consumer<Throwable>) poisons::add));
+          try {
+            evaluate(r, request("u1", "flags/plain"), new HostTestSupport.FakeStore());
+            try {
+              r.flushLogs();
+            } catch (RuntimeException expected) {
+              // the flush may also see the abort
+            }
+          } finally {
+            Thread.interrupted();
+          }
+          assertThat(r.isPoisoned()).isTrue();
+          assertThat(poisons).hasSize(1);
+          assertThat(poisons.get(0).getStackTrace()).anyMatch(f -> f.getMethodName().equals("ack"));
+          r.close();
+        });
+  }
+
+  @Test
   void closeFlushesLogsEvenWhenTheThreadIsInterrupted() {
     bothEngines(
         interp -> {
