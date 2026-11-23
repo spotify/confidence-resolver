@@ -303,3 +303,44 @@ func TestTrappedGenerationIsReplaced(t *testing.T) {
 		t.Error("the new generation wasn't built from the trapped generation's module")
 	}
 }
+
+// A replaced generation's trap is reported once, with the next flag-log batch.
+func TestTrapReportedWithTheNextLogs(t *testing.T) {
+	b := testutil.NewBackend(t)
+	b.Publish(fixture(t), "tok", `"v1"`)
+	e := newEngine(t, b, func(c *Config) { c.applyFilter = host.TrapFilter })
+	if err := e.Start(context.Background(), 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	first := e.current.Load()
+	e.applyFilter = host.NeverSeen // the replacement doesn't trap
+	if err := evaluate(e, "u1"); err == nil {
+		t.Fatal("evaluate through a trapping filter succeeded")
+	}
+	eventually(t, "a new generation", func() bool { g := e.current.Load(); return g != nil && g != first })
+	for range 2 {
+		if err := evaluate(e, "u1"); err != nil {
+			t.Fatal(err)
+		}
+		e.flush()
+	}
+	eventually(t, "two batches", func() bool { return len(b.Batches()) >= 2 })
+	if n := reportedTraps(b); n != 1 {
+		t.Errorf("%d traps reported, want 1", n)
+	}
+}
+
+func reportedTraps(b *testutil.Backend) uint64 {
+	var n uint64
+	for _, req := range b.Logs() {
+		for _, tel := range req.GetTelemetry() {
+			for _, p := range tel.GetModuleTraps().GetPoints() {
+				if len(p.GetLabels()) != 1 || p.GetLabels()[0] != int32(wasmpb.ModuleTrapCause_MODULE_TRAP_CAUSE_TRAP) {
+					return 1000 // a malformed point fails the count
+				}
+				n += p.GetDelta()
+			}
+		}
+	}
+	return n
+}

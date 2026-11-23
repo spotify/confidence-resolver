@@ -2,8 +2,12 @@ package com.spotify.confidence.sdk.internal.engine;
 
 import com.spotify.confidence.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.flags.resolver.v1.ResolveFlagsResponse;
+import com.spotify.confidence.flags.wasm.v1.Counter;
 import com.spotify.confidence.flags.wasm.v1.EvaluateRequest;
+import com.spotify.confidence.flags.wasm.v1.ModuleTrapCause;
 import com.spotify.confidence.flags.wasm.v1.ResolutionDetails;
+import com.spotify.confidence.flags.wasm.v1.ResolverTelemetry;
+import com.spotify.confidence.flags.wasm.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.internal.cdn.CdnException;
 import com.spotify.confidence.sdk.internal.cdn.CdnFetcher;
 import com.spotify.confidence.sdk.internal.cdn.NotModifiedException;
@@ -24,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -64,6 +69,9 @@ public final class Engine {
   private final AtomicBoolean notified = new AtomicBoolean();
   // Orders install's publish against close: nothing is published after it.
   private final Object publishLock = new Object();
+  // Replaced generations not yet reported, by ModuleTrapCause number; the next flag-log batch
+  // carries them.
+  private final AtomicLongArray traps = new AtomicLongArray(3);
   private final ConcurrentLinkedQueue<CompletableFuture<Void>> retiring =
       new ConcurrentLinkedQueue<>();
   private ScheduledExecutorService loops;
@@ -291,6 +299,7 @@ public final class Engine {
                   .interpreter(cfg.interpreter)
                   .writeLogs(
                       b -> {
+                        b = withTraps(b);
                         if (!shipper.enqueue(b, token)) {
                           cfg.logger.warn("flag log queue full; dropping a batch");
                         }
@@ -331,6 +340,11 @@ public final class Engine {
    * If that fails, the next poll fetches the module again.
    */
   private void replace(Generation g, Throwable cause) {
+    ModuleTrapCause trapCause =
+        cause instanceof run.endive.runtime.WasmInterruptedException
+            ? ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED
+            : ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP;
+    traps.incrementAndGet(trapCause.getNumber());
     cfg.logger.error(
         "resolver module call aborted; replacing the module. Its buffered flag logs are lost, and"
             + " evaluations in flight on it may not return",
@@ -344,6 +358,34 @@ public final class Engine {
       cfg.logger.error("replacing the aborted resolver module failed; refetching it", e);
       fetcher.accept(null);
     }
+  }
+
+  /**
+   * Appends the traps not yet reported to a module's write_logs payload, as a WriteFlagLogsRequest
+   * whose telemetry protobuf concatenation adds to the payload's.
+   */
+  private byte[] withTraps(byte[] payload) {
+    Counter.Builder counter = Counter.newBuilder();
+    for (ModuleTrapCause cause :
+        List.of(
+            ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP,
+            ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED)) {
+      long n = traps.getAndSet(cause.getNumber(), 0);
+      if (n > 0) {
+        counter.addPoints(Counter.Point.newBuilder().setDelta(n).addLabels(cause.getNumber()));
+      }
+    }
+    if (counter.getPointsCount() == 0) {
+      return payload;
+    }
+    byte[] report =
+        WriteFlagLogsRequest.newBuilder()
+            .addTelemetry(ResolverTelemetry.newBuilder().setModuleTraps(counter))
+            .build()
+            .toByteArray();
+    byte[] out = java.util.Arrays.copyOf(payload, payload.length + report.length);
+    System.arraycopy(report, 0, out, payload.length, report.length);
+    return out;
   }
 
   /** Retires g (which must already be unpublished) on a background thread. */

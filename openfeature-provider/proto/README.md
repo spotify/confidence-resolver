@@ -3,7 +3,7 @@
 Verbatim copies; don't edit them here.
 
 - `confidence/` — from state-to-wasm `protos/src/main/proto` at
-  `1a4005a1fd7ba92f86b13a32350a44942c8f2fd5`. Only the files providers use: the module API
+  `b119f6f7e9a59ffcab924174d9a760a0cdcaf018` (release 1.0.80). Only the files providers use: the module API
   (`flags/wasm/v1`) and the messages it references.
 - `google/api/field_behavior.proto`, `google/type/decimal.proto` — from
   `com.google.api.grpc:proto-google-common-protos:2.65.0`, the version state-to-wasm builds with.

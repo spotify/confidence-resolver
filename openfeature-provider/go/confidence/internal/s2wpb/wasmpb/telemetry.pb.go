@@ -79,6 +79,58 @@ func (ResolveOutcome) EnumDescriptor() ([]byte, []int) {
 	return file_confidence_flags_wasm_v1_telemetry_proto_rawDescGZIP(), []int{0}
 }
 
+type ModuleTrapCause int32
+
+const (
+	ModuleTrapCause_MODULE_TRAP_CAUSE_UNSPECIFIED ModuleTrapCause = 0
+	// The module trapped (unreachable, out-of-bounds access, a failing host
+	// import, ...).
+	ModuleTrapCause_MODULE_TRAP_CAUSE_TRAP ModuleTrapCause = 1
+	// The host runtime aborted the call, e.g. on a JVM thread interrupt.
+	ModuleTrapCause_MODULE_TRAP_CAUSE_INTERRUPTED ModuleTrapCause = 2
+)
+
+// Enum value maps for ModuleTrapCause.
+var (
+	ModuleTrapCause_name = map[int32]string{
+		0: "MODULE_TRAP_CAUSE_UNSPECIFIED",
+		1: "MODULE_TRAP_CAUSE_TRAP",
+		2: "MODULE_TRAP_CAUSE_INTERRUPTED",
+	}
+	ModuleTrapCause_value = map[string]int32{
+		"MODULE_TRAP_CAUSE_UNSPECIFIED": 0,
+		"MODULE_TRAP_CAUSE_TRAP":        1,
+		"MODULE_TRAP_CAUSE_INTERRUPTED": 2,
+	}
+)
+
+func (x ModuleTrapCause) Enum() *ModuleTrapCause {
+	p := new(ModuleTrapCause)
+	*p = x
+	return p
+}
+
+func (x ModuleTrapCause) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ModuleTrapCause) Descriptor() protoreflect.EnumDescriptor {
+	return file_confidence_flags_wasm_v1_telemetry_proto_enumTypes[1].Descriptor()
+}
+
+func (ModuleTrapCause) Type() protoreflect.EnumType {
+	return &file_confidence_flags_wasm_v1_telemetry_proto_enumTypes[1]
+}
+
+func (x ModuleTrapCause) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ModuleTrapCause.Descriptor instead.
+func (ModuleTrapCause) EnumDescriptor() ([]byte, []int) {
+	return file_confidence_flags_wasm_v1_telemetry_proto_rawDescGZIP(), []int{1}
+}
+
 // One label dimension of a metric. Repeat the option for several labels;
 // the i-th option describes the i-th entry of each point's labels.
 type Label struct {
@@ -160,8 +212,12 @@ type ResolverTelemetry struct {
 	// Host-observed, from start through the final resume, successful requests
 	// only. Exponential scale 2.
 	ResolveLatencyMicroseconds *Histogram `protobuf:"bytes,13,opt,name=resolve_latency_microseconds,json=resolveLatencyMicroseconds,proto3" json:"resolve_latency_microseconds,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Host-reported: module calls that failed midway, after which the host
+	// replaces the module (its buffered logs are lost). Abnormal; any nonzero
+	// rate is worth investigating.
+	ModuleTraps   *Counter `protobuf:"bytes,14,opt,name=module_traps,json=moduleTraps,proto3" json:"module_traps,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResolverTelemetry) Reset() {
@@ -232,6 +288,13 @@ func (x *ResolverTelemetry) GetFlagResolves() *Counter {
 func (x *ResolverTelemetry) GetResolveLatencyMicroseconds() *Histogram {
 	if x != nil {
 		return x.ResolveLatencyMicroseconds
+	}
+	return nil
+}
+
+func (x *ResolverTelemetry) GetModuleTraps() *Counter {
+	if x != nil {
+		return x.ModuleTraps
 	}
 	return nil
 }
@@ -596,7 +659,7 @@ const file_confidence_flags_wasm_v1_telemetry_proto_rawDesc = "" +
 	"(confidence/flags/wasm/v1/telemetry.proto\x12\x18confidence.flags.wasm.v1\x1a(confidence/flags/resolver/v1/types.proto\x1a google/protobuf/descriptor.proto\"8\n" +
 	"\x05Label\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
-	"\tenum_type\x18\x02 \x01(\tR\benumType\"\xa0\x04\n" +
+	"\tenum_type\x18\x02 \x01(\tR\benumType\"\x9d\x05\n" +
 	"\x11ResolverTelemetry\x12>\n" +
 	"\bproducer\x18\x01 \x01(\v2\".confidence.flags.wasm.v1.ProducerR\bproducer\x12\x16\n" +
 	"\x06client\x18\x02 \x01(\tR\x06client\x12\x84\x01\n" +
@@ -606,7 +669,9 @@ const file_confidence_flags_wasm_v1_telemetry_proto_rawDesc = "" +
 	"\fmemory_bytes\x18\v \x01(\v2\x1f.confidence.flags.wasm.v1.GaugeR\vmemoryBytes\x12\x80\x01\n" +
 	"\rflag_resolves\x18\f \x01(\v2!.confidence.flags.wasm.v1.CounterB8\x8a\xb5\x184\n" +
 	"\x06reason\x12*confidence.flags.resolver.v1.ResolveReasonR\fflagResolves\x12e\n" +
-	"\x1cresolve_latency_microseconds\x18\r \x01(\v2#.confidence.flags.wasm.v1.HistogramR\x1aresolveLatencyMicroseconds\"P\n" +
+	"\x1cresolve_latency_microseconds\x18\r \x01(\v2#.confidence.flags.wasm.v1.HistogramR\x1aresolveLatencyMicroseconds\x12{\n" +
+	"\fmodule_traps\x18\x0e \x01(\v2!.confidence.flags.wasm.v1.CounterB5\x8a\xb5\x181\n" +
+	"\x05cause\x12(confidence.flags.wasm.v1.ModuleTrapCauseR\vmoduleTraps\"P\n" +
 	"\bProducer\x12)\n" +
 	"\x10resolver_version\x18\x01 \x01(\tR\x0fresolverVersion\x12\x19\n" +
 	"\bstate_id\x18\x02 \x01(\tR\astateId\"\x81\x01\n" +
@@ -632,7 +697,11 @@ const file_confidence_flags_wasm_v1_telemetry_proto_rawDesc = "" +
 	"\x1bRESOLVE_OUTCOME_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12RESOLVE_OUTCOME_OK\x10\x01\x12\x19\n" +
 	"\x15RESOLVE_OUTCOME_ERROR\x10\x02\x12\x1d\n" +
-	"\x19RESOLVE_OUTCOME_DISCARDED\x10\x03:V\n" +
+	"\x19RESOLVE_OUTCOME_DISCARDED\x10\x03*s\n" +
+	"\x0fModuleTrapCause\x12!\n" +
+	"\x1dMODULE_TRAP_CAUSE_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16MODULE_TRAP_CAUSE_TRAP\x10\x01\x12!\n" +
+	"\x1dMODULE_TRAP_CAUSE_INTERRUPTED\x10\x02:V\n" +
 	"\x05label\x12\x1d.google.protobuf.FieldOptions\x18ц\x03 \x03(\v2\x1f.confidence.flags.wasm.v1.LabelR\x05labelB(\n" +
 	"$com.spotify.confidence.flags.wasm.v1P\x01b\x06proto3"
 
@@ -648,35 +717,37 @@ func file_confidence_flags_wasm_v1_telemetry_proto_rawDescGZIP() []byte {
 	return file_confidence_flags_wasm_v1_telemetry_proto_rawDescData
 }
 
-var file_confidence_flags_wasm_v1_telemetry_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_confidence_flags_wasm_v1_telemetry_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_confidence_flags_wasm_v1_telemetry_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_confidence_flags_wasm_v1_telemetry_proto_goTypes = []any{
 	(ResolveOutcome)(0),               // 0: confidence.flags.wasm.v1.ResolveOutcome
-	(*Label)(nil),                     // 1: confidence.flags.wasm.v1.Label
-	(*ResolverTelemetry)(nil),         // 2: confidence.flags.wasm.v1.ResolverTelemetry
-	(*Producer)(nil),                  // 3: confidence.flags.wasm.v1.Producer
-	(*Counter)(nil),                   // 4: confidence.flags.wasm.v1.Counter
-	(*Gauge)(nil),                     // 5: confidence.flags.wasm.v1.Gauge
-	(*Histogram)(nil),                 // 6: confidence.flags.wasm.v1.Histogram
-	(*Counter_Point)(nil),             // 7: confidence.flags.wasm.v1.Counter.Point
-	(*Gauge_Point)(nil),               // 8: confidence.flags.wasm.v1.Gauge.Point
-	(*descriptorpb.FieldOptions)(nil), // 9: google.protobuf.FieldOptions
+	(ModuleTrapCause)(0),              // 1: confidence.flags.wasm.v1.ModuleTrapCause
+	(*Label)(nil),                     // 2: confidence.flags.wasm.v1.Label
+	(*ResolverTelemetry)(nil),         // 3: confidence.flags.wasm.v1.ResolverTelemetry
+	(*Producer)(nil),                  // 4: confidence.flags.wasm.v1.Producer
+	(*Counter)(nil),                   // 5: confidence.flags.wasm.v1.Counter
+	(*Gauge)(nil),                     // 6: confidence.flags.wasm.v1.Gauge
+	(*Histogram)(nil),                 // 7: confidence.flags.wasm.v1.Histogram
+	(*Counter_Point)(nil),             // 8: confidence.flags.wasm.v1.Counter.Point
+	(*Gauge_Point)(nil),               // 9: confidence.flags.wasm.v1.Gauge.Point
+	(*descriptorpb.FieldOptions)(nil), // 10: google.protobuf.FieldOptions
 }
 var file_confidence_flags_wasm_v1_telemetry_proto_depIdxs = []int32{
-	3, // 0: confidence.flags.wasm.v1.ResolverTelemetry.producer:type_name -> confidence.flags.wasm.v1.Producer
-	4, // 1: confidence.flags.wasm.v1.ResolverTelemetry.resolve_requests:type_name -> confidence.flags.wasm.v1.Counter
-	5, // 2: confidence.flags.wasm.v1.ResolverTelemetry.memory_bytes:type_name -> confidence.flags.wasm.v1.Gauge
-	4, // 3: confidence.flags.wasm.v1.ResolverTelemetry.flag_resolves:type_name -> confidence.flags.wasm.v1.Counter
-	6, // 4: confidence.flags.wasm.v1.ResolverTelemetry.resolve_latency_microseconds:type_name -> confidence.flags.wasm.v1.Histogram
-	7, // 5: confidence.flags.wasm.v1.Counter.points:type_name -> confidence.flags.wasm.v1.Counter.Point
-	8, // 6: confidence.flags.wasm.v1.Gauge.points:type_name -> confidence.flags.wasm.v1.Gauge.Point
-	9, // 7: confidence.flags.wasm.v1.label:extendee -> google.protobuf.FieldOptions
-	1, // 8: confidence.flags.wasm.v1.label:type_name -> confidence.flags.wasm.v1.Label
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	8, // [8:9] is the sub-list for extension type_name
-	7, // [7:8] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	4,  // 0: confidence.flags.wasm.v1.ResolverTelemetry.producer:type_name -> confidence.flags.wasm.v1.Producer
+	5,  // 1: confidence.flags.wasm.v1.ResolverTelemetry.resolve_requests:type_name -> confidence.flags.wasm.v1.Counter
+	6,  // 2: confidence.flags.wasm.v1.ResolverTelemetry.memory_bytes:type_name -> confidence.flags.wasm.v1.Gauge
+	5,  // 3: confidence.flags.wasm.v1.ResolverTelemetry.flag_resolves:type_name -> confidence.flags.wasm.v1.Counter
+	7,  // 4: confidence.flags.wasm.v1.ResolverTelemetry.resolve_latency_microseconds:type_name -> confidence.flags.wasm.v1.Histogram
+	5,  // 5: confidence.flags.wasm.v1.ResolverTelemetry.module_traps:type_name -> confidence.flags.wasm.v1.Counter
+	8,  // 6: confidence.flags.wasm.v1.Counter.points:type_name -> confidence.flags.wasm.v1.Counter.Point
+	9,  // 7: confidence.flags.wasm.v1.Gauge.points:type_name -> confidence.flags.wasm.v1.Gauge.Point
+	10, // 8: confidence.flags.wasm.v1.label:extendee -> google.protobuf.FieldOptions
+	2,  // 9: confidence.flags.wasm.v1.label:type_name -> confidence.flags.wasm.v1.Label
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	9,  // [9:10] is the sub-list for extension type_name
+	8,  // [8:9] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_confidence_flags_wasm_v1_telemetry_proto_init() }
@@ -689,7 +760,7 @@ func file_confidence_flags_wasm_v1_telemetry_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_confidence_flags_wasm_v1_telemetry_proto_rawDesc), len(file_confidence_flags_wasm_v1_telemetry_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   8,
 			NumExtensions: 1,
 			NumServices:   0,

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/cdn"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/host"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/ingest"
@@ -82,6 +84,8 @@ type Engine struct {
 	loops    sync.WaitGroup
 	retiring sync.WaitGroup
 	notified atomic.Bool
+	// traps counts replaced generations not yet reported; the next flag-log batch carries them.
+	traps atomic.Uint64
 }
 
 // generation is one installed module. Requests hold mu for reading for the whole evaluation. To
@@ -246,6 +250,9 @@ func (e *Engine) install(ctx context.Context, m *cdn.Module) error {
 		ApplyFilter:    e.applyFilter,
 		SchemaFilter:   e.schemaFilter,
 		WriteLogs: func(b []byte) {
+			if n := e.traps.Swap(0); n > 0 {
+				b = append(b, trapTelemetry(n)...)
+			}
 			if !e.shipper.Enqueue(b, token) {
 				e.cfg.Logger.Warn("flag log queue full; dropping a batch")
 			}
@@ -292,6 +299,7 @@ func (e *Engine) install(ctx context.Context, m *cdn.Module) error {
 // replace rebuilds g from its module after a module call trapped, unless g has been replaced
 // already. If that fails, the next poll fetches the module again.
 func (e *Engine) replace(g *generation, err error) {
+	e.traps.Add(1)
 	e.cfg.Logger.Error("resolver module trapped; replacing it. Its buffered flag logs are lost, and evaluations in flight on it may not return",
 		"error", err)
 	if e.closed.Load() || e.current.Load() != g {
@@ -301,6 +309,18 @@ func (e *Engine) replace(g *generation, err error) {
 		e.cfg.Logger.Error("replacing the trapped resolver module failed; refetching it", "error", err)
 		e.fetcher.Accept("")
 	}
+}
+
+// trapTelemetry encodes a WriteFlagLogsRequest reporting n module traps. Appended to a module's
+// write_logs payload, protobuf concatenation adds it to the payload's telemetry.
+func trapTelemetry(n uint64) []byte {
+	b, _ := proto.Marshal(&wasmpb.WriteFlagLogsRequest{Telemetry: []*wasmpb.ResolverTelemetry{{
+		ModuleTraps: &wasmpb.Counter{Points: []*wasmpb.Counter_Point{{
+			Delta:  n,
+			Labels: []int32{int32(wasmpb.ModuleTrapCause_MODULE_TRAP_CAUSE_TRAP)},
+		}}},
+	}}})
+	return b
 }
 
 // retire drains g (which must already be unpublished), flushes its logs and closes it.

@@ -379,4 +379,51 @@ class EngineTest {
     assertThat(next.resolver.isPoisoned()).isFalse();
     assertThat(next.module).isSameAs(first.module);
   }
+
+  @Test
+  void aTrapIsReportedOnceWithTheNextLogs() {
+    // Traps on its first call only, so the replacement generation evaluates and writes logs.
+    AtomicBoolean trapped = new AtomicBoolean();
+    Filter trapOnce =
+        importModule ->
+            new Filter.Link(
+                new HostFunction(
+                    importModule,
+                    "seen",
+                    FunctionType.of(List.of(ValType.I64), List.of(ValType.I32)),
+                    (instance, args) -> {
+                      if (!trapped.getAndSet(true)) {
+                        throw new TrapException("trap once");
+                      }
+                      return new long[] {0};
+                    }),
+                null);
+    backend = new TestBackend();
+    backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v1\"");
+    engine = newEngine(backend, c -> c.applyFilter(trapOnce));
+    engine.start(Duration.ofSeconds(5));
+    Engine.Generation first = engine.currentGeneration();
+    assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> engine.currentGeneration() != first);
+    for (int i = 0; i < 2; i++) {
+      evaluate(engine, "u1");
+      engine.flush();
+    }
+    Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> backend.batches().size() >= 2);
+    long reported = 0;
+    for (var req : backend.logs()) {
+      for (var telemetry : req.getTelemetryList()) {
+        for (var point : telemetry.getModuleTraps().getPointsList()) {
+          assertThat(point.getLabelsList())
+              .containsExactly(
+                  com.spotify.confidence.flags.wasm.v1.ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP
+                      .getNumber());
+          reported += point.getDelta();
+        }
+      }
+    }
+    assertThat(reported).isEqualTo(1);
+  }
 }
