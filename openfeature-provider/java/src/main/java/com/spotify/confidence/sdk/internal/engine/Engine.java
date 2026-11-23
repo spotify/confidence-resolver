@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -72,6 +73,10 @@ public final class Engine {
   // Replaced generations not yet reported, by ModuleTrapCause number; the next flag-log batch
   // carries them.
   private final AtomicLongArray traps = new AtomicLongArray(3);
+  // Replacements since a generation last wrote logs, or a new module was fetched. Past
+  // MAX_REPLACEMENTS the module is given up until the next one.
+  private final AtomicInteger replacements = new AtomicInteger();
+  private static final int MAX_REPLACEMENTS = 3;
   private final ConcurrentLinkedQueue<CompletableFuture<Void>> retiring =
       new ConcurrentLinkedQueue<>();
   private ScheduledExecutorService loops;
@@ -279,6 +284,7 @@ public final class Engine {
     } catch (CdnException e) {
       throw e; // retryable
     }
+    replacements.set(0); // a new module gets its own replacements
     install(m);
   }
 
@@ -299,6 +305,7 @@ public final class Engine {
                   .interpreter(cfg.interpreter)
                   .writeLogs(
                       b -> {
+                        replacements.set(0); // the module works well enough to write logs
                         b = withTraps(b);
                         if (!shipper.enqueue(b, token)) {
                           cfg.logger.warn("flag log queue full; dropping a batch");
@@ -352,11 +359,27 @@ public final class Engine {
     if (closed.get() || current.get() != g) {
       return;
     }
+    if (replacements.incrementAndGet() > MAX_REPLACEMENTS) {
+      giveUp(g, null);
+      return;
+    }
     try {
       install(g.module);
     } catch (RuntimeException e) {
-      cfg.logger.error("replacing the aborted resolver module failed; refetching it", e);
-      fetcher.accept(null);
+      giveUp(g, e); // it fails before serving a call: rebuilding it again won't help
+    }
+  }
+
+  /**
+   * Keeps the poisoned generation g (evaluations fail fast) until a new module is published, and
+   * reports its traps on their own, since it won't write logs.
+   */
+  private void giveUp(Generation g, RuntimeException cause) {
+    cfg.logger.error(
+        "resolver module keeps failing; giving up on it until a new module is published", cause);
+    byte[] report = withTraps(new byte[0]);
+    if (report.length > 0 && !shipper.enqueue(report, g.module.logToken())) {
+      cfg.logger.warn("flag log queue full; dropping the trap report");
     }
   }
 

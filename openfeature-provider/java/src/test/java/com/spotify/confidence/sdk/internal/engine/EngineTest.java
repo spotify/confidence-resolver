@@ -426,4 +426,49 @@ class EngineTest {
     }
     assertThat(reported).isEqualTo(1);
   }
+
+  private static long reportedTraps(TestBackend b) {
+    long n = 0;
+    for (var req : b.logs()) {
+      for (var telemetry : req.getTelemetryList()) {
+        for (var point : telemetry.getModuleTraps().getPointsList()) {
+          n += point.getDelta();
+        }
+      }
+    }
+    return n;
+  }
+
+  @Test
+  void aModuleThatKeepsTrappingIsGivenUpUntilANewOne() {
+    backend = new TestBackend();
+    backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v1\"");
+    engine = newEngine(backend, c -> c.applyFilter(TRAP_FILTER));
+    engine.start(Duration.ofSeconds(5));
+    // Three replacements, each trapping again; the fourth trap gives up.
+    for (int i = 0; i < 3; i++) {
+      Engine.Generation g = engine.currentGeneration();
+      assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+      Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> engine.currentGeneration() != g);
+    }
+    Engine.Generation last = engine.currentGeneration();
+    assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+    // The module never writes logs, so the traps go out on their own, once.
+    Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> reportedTraps(backend) == 4);
+    assertThat(engine.currentGeneration()).isSameAs(last);
+    assertThat(last.resolver.isPoisoned()).isTrue();
+    assertThatThrownBy(() -> evaluate(engine, "u1"))
+        .isInstanceOf(com.spotify.confidence.sdk.internal.host.PoisonedException.class);
+
+    // A new module is installed and gets replacements of its own.
+    backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v2\"");
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> engine.currentGeneration() != last);
+    Engine.Generation fresh = engine.currentGeneration();
+    assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> engine.currentGeneration() != fresh);
+  }
 }

@@ -86,7 +86,12 @@ type Engine struct {
 	notified atomic.Bool
 	// traps counts replaced generations not yet reported; the next flag-log batch carries them.
 	traps atomic.Uint64
+	// replacements since a generation last wrote logs, or a new module was fetched. Past
+	// maxReplacements the module is given up until the next one.
+	replacements atomic.Int32
 }
+
+const maxReplacements = 3
 
 // generation is one installed module. Requests hold mu for reading for the whole evaluation. To
 // retire a generation, first replace the engine's pointer, then take mu for writing and never
@@ -237,6 +242,7 @@ func (e *Engine) load(ctx context.Context) error {
 		}
 		return err
 	}
+	e.replacements.Store(0) // a new module gets its own replacements
 	return e.install(ctx, m)
 }
 
@@ -250,6 +256,7 @@ func (e *Engine) install(ctx context.Context, m *cdn.Module) error {
 		ApplyFilter:    e.applyFilter,
 		SchemaFilter:   e.schemaFilter,
 		WriteLogs: func(b []byte) {
+			e.replacements.Store(0) // the module works well enough to write logs
 			if n := e.traps.Swap(0); n > 0 {
 				b = append(b, trapTelemetry(n)...)
 			}
@@ -297,7 +304,7 @@ func (e *Engine) install(ctx context.Context, m *cdn.Module) error {
 }
 
 // replace rebuilds g from its module after a module call trapped, unless g has been replaced
-// already. If that fails, the next poll fetches the module again.
+// already. It gives up on a module that fails to rebuild or keeps trapping.
 func (e *Engine) replace(g *generation, err error) {
 	e.traps.Add(1)
 	e.cfg.Logger.Error("resolver module trapped; replacing it. Its buffered flag logs are lost, and evaluations in flight on it may not return",
@@ -305,9 +312,21 @@ func (e *Engine) replace(g *generation, err error) {
 	if e.closed.Load() || e.current.Load() != g {
 		return
 	}
+	if e.replacements.Add(1) > maxReplacements {
+		e.giveUp(g, nil)
+		return
+	}
 	if err := e.install(context.Background(), g.module); err != nil {
-		e.cfg.Logger.Error("replacing the trapped resolver module failed; refetching it", "error", err)
-		e.fetcher.Accept("")
+		e.giveUp(g, err) // it fails before serving a call: rebuilding it again won't help
+	}
+}
+
+// giveUp keeps the poisoned generation g (evaluations fail fast) until a new module is published,
+// and reports its traps on their own, since it won't write logs.
+func (e *Engine) giveUp(g *generation, err error) {
+	e.cfg.Logger.Error("resolver module keeps failing; giving up on it until a new module is published", "error", err)
+	if n := e.traps.Swap(0); n > 0 && !e.shipper.Enqueue(trapTelemetry(n), g.module.LogToken) {
+		e.cfg.Logger.Warn("flag log queue full; dropping the trap report")
 	}
 }
 

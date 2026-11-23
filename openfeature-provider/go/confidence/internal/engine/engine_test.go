@@ -344,3 +344,41 @@ func reportedTraps(b *testutil.Backend) uint64 {
 	}
 	return n
 }
+
+// A module that keeps trapping is given up after three replacements, its traps reported on their
+// own, until a new module is published.
+func TestModuleThatKeepsTrappingIsGivenUp(t *testing.T) {
+	b := testutil.NewBackend(t)
+	b.Publish(fixture(t), "tok", `"v1"`)
+	e := newEngine(t, b, func(c *Config) { c.applyFilter = host.TrapFilter })
+	if err := e.Start(context.Background(), 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	for range maxReplacements {
+		g := e.current.Load()
+		if err := evaluate(e, "u1"); err == nil {
+			t.Fatal("evaluate through a trapping filter succeeded")
+		}
+		eventually(t, "a replacement", func() bool { return e.current.Load() != g })
+	}
+	last := e.current.Load()
+	if err := evaluate(e, "u1"); err == nil {
+		t.Fatal("evaluate through a trapping filter succeeded")
+	}
+	eventually(t, "the traps reported", func() bool { return reportedTraps(b) == maxReplacements+1 })
+	if e.current.Load() != last || !last.resolver.Poisoned() {
+		t.Fatal("want the poisoned generation kept")
+	}
+	if err := evaluate(e, "u1"); !errors.Is(err, host.ErrPoisoned) {
+		t.Errorf("after giving up: %v, want ErrPoisoned", err)
+	}
+
+	// A new module is installed and gets replacements of its own.
+	b.Publish(fixture(t), "tok", `"v2"`)
+	eventually(t, "the new module", func() bool { return e.current.Load() != last })
+	fresh := e.current.Load()
+	if err := evaluate(e, "u1"); err == nil {
+		t.Fatal("evaluate through a trapping filter succeeded")
+	}
+	eventually(t, "a replacement", func() bool { return e.current.Load() != fresh })
+}
