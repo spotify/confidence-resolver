@@ -5,6 +5,7 @@
   "prerelease": true,
   "prerelease-type": "rc1",
   "pull-request-footer": "> **Post-release reminder:** After merging this PR, remember to update internal version registries with the new version numbers.",
+  "separate-pull-requests": true,
   "packages": {
     "openfeature-provider/go": {
       "release-type": "go",
@@ -19,9 +20,7 @@
     "openfeature-provider/java": {
       "release-type": "maven",
       "changelog-path": "CHANGELOG.md",
-      "include-component-in-tag": true,
-      "component": "openfeature-provider/java",
-      "tag-separator": "/",
+      "component": "openfeature-provider-java",
       "extra-files": [
         "README.md",
         "src/main/java/com/spotify/confidence/sdk/Version.java"
