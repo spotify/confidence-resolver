@@ -3851,6 +3851,35 @@ mod tests {
         assert_case(r#"{"client": { "score": 43.1 }, "user_id": "test"}"#, false);
     }
 
+    // Regression: `numberKey > 45` must match a fractional context value like 45.117.
+    #[test]
+    fn test_segment_match_range_number_fractional_value_gt_integer_threshold() {
+        let rule_json = r#"{
+            "attributeName": "numberKey",
+            "rangeRule": {
+                "startExclusive": { "numberValue": 45 }
+            }
+        }"#;
+        let assert_case = |context_json: &str, expected: bool| {
+            let (segment, state) = parse_segment(rule_json);
+            let resolver: AccountResolver<'_, L> = state
+                .get_resolver_with_json_context(SECRET, context_json, &ENCRYPTION_KEY)
+                .unwrap();
+            assert_eq!(
+                resolver.segment_match_no_materialization(&segment, "test"),
+                Ok(expected),
+                "context: {context_json}"
+            );
+        };
+
+        assert_case(r#"{"numberKey": 45.117, "user_id": "test"}"#, true);
+        assert_case(r#"{"numberKey": 45.0001, "user_id": "test"}"#, true);
+        assert_case(r#"{"numberKey": 46, "user_id": "test"}"#, true);
+        assert_case(r#"{"numberKey": 45, "user_id": "test"}"#, false);
+        assert_case(r#"{"numberKey": 45.0, "user_id": "test"}"#, false);
+        assert_case(r#"{"numberKey": 44.999, "user_id": "test"}"#, false);
+    }
+
     #[test]
     fn test_segment_match_range_number_l() {
         let rule_json = r#"{
