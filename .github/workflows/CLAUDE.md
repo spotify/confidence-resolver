@@ -27,15 +27,15 @@ After a release is published, remember to update internal version registries wit
 
 ### Java snapshot publishing (next-only)
 
-When a release-please "bleeding-edge SNAPSHOT" PR for the java provider (label
-`autorelease: snapshot`) merges into `next`, the `publish-java-provider-snapshot` job in this
-workflow — gated on that merged PR's commit, like the release publish jobs on main — builds,
-signs, and deploys the provider to the Central Portal snapshots repo, so release candidates
-can be tried before GA. Release versions are never published from `next`: the job skips
-them, and even a broken version guard could only reach a local file:// trap repo. Runs in
-the `deployment` environment. **This job is next-only and must not be carried over to main
-when `next` replaces it**: GA publishes releases, and main has its own release publish jobs.
-Releases themselves remain tag-only until `next` replaces `main`.
+Whenever a release-please run on `next` does not itself cut a release — the complement of
+main's release publish jobs, mirroring spotify/confidence-sdk-java's `snapshot-deploy` — the
+`publish-java-provider-snapshot` job in this workflow builds, signs, and deploys the java
+provider to the Central Portal snapshots repo, if its pom sits at a `-SNAPSHOT` version (a
+version guard skips released versions, and even a broken guard could only reach a local
+file:// trap repo). While a release candidate is open, the published snapshot always reflects
+current `next`. Runs in the `deployment` environment. **This job is next-only and must not be
+carried over to `main` when `next` replaces it**: GA publishes releases, and main has its own
+release publish jobs. Releases themselves remain tag-only until `next` replaces `main`.
 
 ## PR Lint (`lint-pr-name.yaml`)
 

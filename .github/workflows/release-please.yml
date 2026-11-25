@@ -20,6 +20,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.releasemanifest.outputs.releases_created }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -36,11 +38,13 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   # NEXT-ONLY: publishes the java provider's release candidates as -SNAPSHOT versions to the
-  # Central Portal snapshots repo, so they can be tried before GA. Fires when a
-  # release-please "bleeding-edge SNAPSHOT" PR for the java provider merges into next (the
-  # push whose head commit is that PR's squash) — release-please-driven, shaped like the
-  # release publish jobs on main. Do not carry this job over to main when next replaces it:
-  # GA publishes releases, and main has its own release publish jobs.
+  # Central Portal snapshots repo, so they can be tried before GA. The complement of the
+  # release publish jobs on main, mirroring spotify/confidence-sdk-java's snapshot-deploy:
+  # it runs whenever the release-please run did not itself cut a release, and the version
+  # guard below decides whether the pom sits at a -SNAPSHOT worth publishing. While a
+  # release candidate is open, the published snapshot always reflects current next. Do not
+  # carry this job over to main when next replaces it: GA publishes releases, and main has its
+  # own release publish jobs.
   #
   # The pom's release publishing runs through central-publishing-maven-plugin, a build
   # extension that replaces the deploy phase and rejects non-release versions. Snapshot
@@ -50,12 +54,7 @@ jobs:
   # verified against maven-deploy-plugin 3.1.2).
   publish-java-provider-snapshot:
     needs: release
-    # Same signal the maven strategy itself uses: the merged PR's title. The "(#…" suffix
-    # keeps the -SNAPSHOT check in the title, not somewhere in the PR body.
-    if: >-
-      github.event.head_commit != null &&
-      startsWith(github.event.head_commit.message, 'chore(next): release openfeature-provider-java ') &&
-      contains(github.event.head_commit.message, '-SNAPSHOT (#')
+    if: ${{ github.ref_name == 'next' && needs.release.outputs.releases_created == 'false' }}
     runs-on: ubuntu-latest
     # Publish jobs run in the deployment environment (see .github/workflows/CLAUDE.md).
     environment: deployment
