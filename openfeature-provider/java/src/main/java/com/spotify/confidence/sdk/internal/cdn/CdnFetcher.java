@@ -10,7 +10,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongSupplier;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
@@ -29,6 +31,8 @@ public final class CdnFetcher {
 
   private static final int NONCE_SIZE = 12;
   private static final int TAG_BITS = 128;
+  private static final long FIRST_BACKOFF_NANOS = Duration.ofMillis(200).toNanos();
+  private static final long MAX_BACKOFF_NANOS = Duration.ofSeconds(10).toNanos();
 
   /** A decrypted module. The wasm embeds the client secret: never log it or write it to disk. */
   public record FetchedModule(byte[] wasm, String logToken, String etag) {}
@@ -36,7 +40,14 @@ public final class CdnFetcher {
   private final String url;
   private final SecretKey key;
   private final HttpClient client;
+  private final ProfileRegistration registration;
+  private final LongSupplier nanoTime;
   private final AtomicReference<String> acceptedEtag = new AtomicReference<>();
+
+  private long nextAttempt;
+  private long backoff = FIRST_BACKOFF_NANOS;
+  private boolean registered;
+  private TerminalCdnException registrationFailure;
 
   /** Validates a hex-encoded AES-256 key. The error never includes the key. */
   public static byte[] parseKey(String hexKey) {
@@ -72,7 +83,24 @@ public final class CdnFetcher {
    * Creates a fetcher for clientSecret. baseUrl may be empty (the production CDN); client may be
    * null (a default one).
    */
-  public CdnFetcher(String clientSecret, byte[] key, String baseUrl, HttpClient client) {
+  public CdnFetcher(
+      String clientSecret,
+      byte[] key,
+      String baseUrl,
+      String resolverBaseUrl,
+      String profile,
+      HttpClient client) {
+    this(clientSecret, key, baseUrl, resolverBaseUrl, profile, client, System::nanoTime);
+  }
+
+  CdnFetcher(
+      String clientSecret,
+      byte[] key,
+      String baseUrl,
+      String resolverBaseUrl,
+      String profile,
+      HttpClient client,
+      LongSupplier nanoTime) {
     if (key == null || key.length != 32) {
       throw new IllegalArgumentException("encryption key must be 32 bytes (AES-256)");
     }
@@ -82,7 +110,13 @@ public final class CdnFetcher {
     }
     this.client = client == null ? HttpClient.newHttpClient() : client;
     String sum = sha256Hex(clientSecret);
-    this.url = baseUrl + "/modules/" + sum + ".wasm.enc";
+    String cdnProfileName = profile.toLowerCase(Locale.ROOT);
+    this.url =
+        baseUrl.replaceFirst("/+$", "") + "/modules/" + sum + "/" + cdnProfileName + ".wasm.enc";
+    this.registration =
+        new ProfileRegistration(clientSecret, resolverBaseUrl, profile, this.client);
+    this.nanoTime = nanoTime;
+    this.nextAttempt = nanoTime.getAsLong();
   }
 
   /** Fetches with the default 30-second request timeout. */
@@ -96,7 +130,11 @@ public final class CdnFetcher {
    * module that fails to install is fetched again in full. The timeout bounds one attempt, so a
    * stalling CDN cannot wedge the caller past its own deadline.
    */
-  public FetchedModule fetch(Duration timeout) {
+  public synchronized FetchedModule fetch(Duration timeout) {
+    if (nextAttempt - nanoTime.getAsLong() > 0) {
+      throw new NotPublishedException();
+    }
+    long deadline = System.nanoTime() + timeout.toNanos();
     HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(timeout).GET();
     String etag = acceptedEtag.get();
     if (etag != null && !etag.isEmpty()) {
@@ -113,9 +151,11 @@ public final class CdnFetcher {
     }
     int status = response.statusCode();
     if (status == 304) {
+      resetPublication();
       throw new NotModifiedException();
     }
     if (status == 404) {
+      onMissing(deadline - System.nanoTime());
       throw new NotPublishedException();
     }
     if (status == 408 || status == 429 || status >= 500) {
@@ -124,8 +164,44 @@ public final class CdnFetcher {
     if (status != 200) {
       throw new TerminalCdnException("module CDN: " + status);
     }
+    resetPublication();
     FetchedModule module = decrypt(response.body());
     return new FetchedModule(module.wasm(), module.logToken(), header(response, "ETag"));
+  }
+
+  // The engine owns the retry schedule; the gate survives startup timeout and never blocks it.
+  private void onMissing(long remaining) {
+    if (registrationFailure != null) {
+      throw registrationFailure;
+    }
+    if (registered) {
+      deferWithBackoff();
+    } else if (remaining > 0) {
+      try {
+        long delay = registration.register(Duration.ofNanos(remaining));
+        registered = true;
+        backoff = FIRST_BACKOFF_NANOS;
+        nextAttempt = nanoTime.getAsLong() + delay;
+      } catch (TerminalCdnException e) {
+        registrationFailure = e;
+        throw e;
+      } catch (CdnException e) {
+        deferWithBackoff();
+        throw e;
+      }
+    }
+  }
+
+  private void deferWithBackoff() {
+    nextAttempt = nanoTime.getAsLong() + backoff;
+    backoff = Math.min(backoff * 2, MAX_BACKOFF_NANOS);
+  }
+
+  private void resetPublication() {
+    registered = false;
+    registrationFailure = null;
+    backoff = FIRST_BACKOFF_NANOS;
+    nextAttempt = nanoTime.getAsLong();
   }
 
   /** Records etag as installed. Later fetches are conditional on it. */

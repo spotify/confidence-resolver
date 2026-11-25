@@ -88,6 +88,7 @@ class OpenFeatureLocalResolveProviderTest {
         LocalProviderConfig.builder()
             .httpClientFactory(() -> backend.client())
             .cdnBaseUrl(backend.cdnUrl())
+            .resolverBaseUrl(backend.resolverUrl())
             .ingestBaseUrl(backend.ingestUrl())
             .retryInterval(Duration.ofMillis(5))
             .statePollInterval(Duration.ofMillis(10))
@@ -414,6 +415,7 @@ class OpenFeatureLocalResolveProviderTest {
     // The engine keeps polling; the provider becomes READY when the module lands.
     backend.publish(TestBackend.module("basic.wasm"), "log-token", "\"v1\"");
     awaitState(p, ProviderState.READY);
+    assertEquals(1, backend.registrations());
     assertTrue(p.getBooleanEvaluation("plain.enabled", false, USER).getValue());
   }
 

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.ByteString;
 import com.spotify.confidence.flags.wasm.v1.ClientModule;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -13,8 +14,12 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -25,14 +30,19 @@ import org.junit.jupiter.api.Test;
 class CdnFetcherTest {
 
   private static final String SECRET = "test-secret";
+  private static final String PROFILE = "TEST_PROFILE_1";
 
   private final SecureRandom random = new SecureRandom();
   private FakeCdn cdn;
+  private HttpServer resolver;
 
   @AfterEach
   void stop() {
     if (cdn != null) {
       cdn.close();
+    }
+    if (resolver != null) {
+      resolver.stop(0);
     }
   }
 
@@ -44,7 +54,9 @@ class CdnFetcherTest {
     CdnFetcher fetcher = cdn.fetcher(key);
 
     CdnFetcher.FetchedModule module = fetcher.fetch();
-    assertThat(cdn.lastPath).isEqualTo("/modules/" + sha256Hex(SECRET) + ".wasm.enc");
+    assertThat(cdn.lastPath)
+        .isEqualTo("/modules/" + sha256Hex(SECRET) + "/test_profile_1.wasm.enc");
+    assertThat(cdn.lastAuthorization).isNull();
     assertThat(module.wasm()).startsWith(new byte[] {0, 'a', 's', 'm'});
     assertThat(module.logToken()).isEqualTo("jwt");
     assertThat(module.etag()).isEqualTo("\"v1\"");
@@ -68,7 +80,6 @@ class CdnFetcherTest {
     record Case(String name, int status, byte[] body, byte[] fetchKey, Class<?> type) {}
     List<Case> cases =
         List.of(
-            new Case("not published", 404, new byte[0], key, NotPublishedException.class),
             new Case("server error", 503, new byte[0], key, CdnException.class),
             new Case("rate limited", 429, new byte[0], key, CdnException.class),
             new Case("request timeout", 408, new byte[0], key, CdnException.class),
@@ -82,14 +93,121 @@ class CdnFetcherTest {
                 encrypt(key, module(new byte[] {'w', 'a', 's', 'm'}, "")),
                 key,
                 TerminalCdnException.class));
+    AtomicInteger registrations = new AtomicInteger();
+    startResolver(
+        exchange -> {
+          registrations.incrementAndGet();
+          exchange.sendResponseHeaders(500, -1);
+          exchange.close();
+        });
     for (Case c : cases) {
-      cdn = new FakeCdn(c.status(), c.body(), null);
-      CdnFetcher fetcher = cdn.fetcher(c.fetchKey());
-      assertThatThrownBy(fetcher::fetch)
-          .as(c.name())
-          .isInstanceOf(c.type())
-          .hasMessageNotContaining(HexFormat.of().formatHex(c.fetchKey()));
+      try (FakeCdn fake = new FakeCdn(c.status(), c.body(), null)) {
+        CdnFetcher fetcher = fake.fetcher(c.fetchKey());
+        assertThatThrownBy(fetcher::fetch)
+            .as(c.name())
+            .isExactlyInstanceOf(c.type())
+            .hasMessageNotContaining(HexFormat.of().formatHex(c.fetchKey()));
+      }
     }
+    assertThat(registrations).hasValue(0);
+  }
+
+  @Test
+  void registersOnceAndWaitsBeforePollingForPublication() throws IOException {
+    byte[] key = newKey();
+    AtomicLong clock = new AtomicLong();
+    AtomicInteger registrations = new AtomicInteger();
+    AtomicReference<List<String>> request = new AtomicReference<>();
+    startResolver(
+        exchange -> {
+          registrations.incrementAndGet();
+          request.set(
+              List.of(
+                  exchange.getRequestMethod(),
+                  exchange.getRequestURI().getPath(),
+                  exchange.getRequestHeaders().getFirst("Authorization"),
+                  exchange.getRequestHeaders().getFirst("Content-Type"),
+                  new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
+          byte[] ack = "{\"cdnRetryDelay\":\"1.25s\"}".getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, ack.length);
+          exchange.getResponseBody().write(ack);
+          exchange.close();
+        });
+    cdn = new FakeCdn(404, new byte[0], null);
+    CdnFetcher fetcher =
+        new CdnFetcher(SECRET, key, cdn.url(), resolverUrl(), PROFILE, cdn.client, clock::get);
+
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
+    assertThat(request.get())
+        .containsExactly(
+            "POST",
+            "/v1/profile:register",
+            "ClientSecret " + SECRET,
+            "application/json",
+            "{\"profile\":\"TEST_PROFILE_1\"}");
+    clock.set(Duration.ofMillis(1249).toNanos());
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
+    assertThat(cdn.requests).hasValue(1);
+
+    clock.set(Duration.ofMillis(1250).toNanos());
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
+    assertThat(cdn.requests).hasValue(2);
+    cdn.body = encrypt(key, module(new byte[] {1, 2, 3}, "jwt"));
+    cdn.status = 200;
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
+    assertThat(cdn.requests).hasValue(2);
+    clock.addAndGet(Duration.ofMillis(200).toNanos());
+    assertThat(fetcher.fetch().wasm()).containsExactly(1, 2, 3);
+    assertThat(registrations).hasValue(1);
+  }
+
+  @Test
+  void registrationRejectsRedirectsEvenWithARedirectFollowingClient() throws IOException {
+    AtomicInteger redirectHits = new AtomicInteger();
+    startResolver(
+        exchange -> {
+          if (exchange.getRequestURI().getPath().equals("/v1/profile:register")) {
+            exchange.getResponseHeaders().set("Location", "/redirected");
+            exchange.sendResponseHeaders(307, -1);
+          } else {
+            redirectHits.incrementAndGet();
+            exchange.sendResponseHeaders(500, -1);
+          }
+          exchange.close();
+        });
+    cdn = new FakeCdn(404, new byte[0], null);
+    HttpClient redirecting =
+        HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
+    CdnFetcher fetcher =
+        new CdnFetcher(SECRET, newKey(), cdn.url(), resolverUrl(), PROFILE, redirecting);
+
+    assertThatThrownBy(fetcher::fetch)
+        .isInstanceOf(TerminalCdnException.class)
+        .hasMessage("module profile registration: 307");
+    assertThat(redirectHits).hasValue(0);
+  }
+
+  @Test
+  void rejectsInvalidAcknowledgmentWithoutLoggingItOrRegisteringAgain() throws IOException {
+    AtomicInteger registrations = new AtomicInteger();
+    startResolver(
+        exchange -> {
+          registrations.incrementAndGet();
+          byte[] invalidAck =
+              ("{\"cdnRetryDelay\":\"" + SECRET + "\"}").getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, invalidAck.length);
+          exchange.getResponseBody().write(invalidAck);
+          exchange.close();
+        });
+    cdn = new FakeCdn(404, new byte[0], null);
+    CdnFetcher fetcher = cdn.fetcher(newKey());
+    for (int i = 0; i < 2; i++) {
+      assertThatThrownBy(fetcher::fetch)
+          .isInstanceOf(TerminalCdnException.class)
+          .hasMessage("invalid module profile registration acknowledgment")
+          .hasNoCause();
+    }
+    assertThat(registrations).hasValue(1);
   }
 
   @Test
@@ -106,6 +224,20 @@ class CdnFetcherTest {
   }
 
   // ---------------------------------------------------------------- helpers
+
+  private void startResolver(HttpHandler handler) {
+    try {
+      resolver = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    } catch (IOException e) {
+      throw new IllegalStateException("bind", e);
+    }
+    resolver.createContext("/", handler);
+    resolver.start();
+  }
+
+  private String resolverUrl() {
+    return resolver == null ? cdn.url() : "http://127.0.0.1:" + resolver.getAddress().getPort();
+  }
 
   private static ClientModule module(byte[] wasm, String logToken) {
     return ClientModule.newBuilder()
@@ -164,10 +296,12 @@ class CdnFetcherTest {
     volatile String etag;
     volatile String lastPath;
     volatile String lastIfNoneMatch;
+    volatile String lastAuthorization;
+    final AtomicInteger requests = new AtomicInteger();
 
-    FakeCdn(int status, byte[] body, String etag) {
-      this.status = status;
-      this.body = body;
+    FakeCdn(int initialStatus, byte[] initialBody, String etag) {
+      this.status = initialStatus;
+      this.body = initialBody;
       this.etag = etag;
       try {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -177,7 +311,9 @@ class CdnFetcherTest {
       server.createContext(
           "/",
           exchange -> {
+            requests.incrementAndGet();
             lastPath = exchange.getRequestURI().getPath();
+            lastAuthorization = exchange.getRequestHeaders().getFirst("Authorization");
             lastIfNoneMatch =
                 exchange.getRequestHeaders().getFirst("If-None-Match") == null
                     ? ""
@@ -186,10 +322,10 @@ class CdnFetcherTest {
             int code = status;
             if (etag != null && !etag.isEmpty() && etag.equals(lastIfNoneMatch)) {
               code = 304;
-            } else if (etag != null && !etag.isEmpty()) {
-              exchange.getResponseHeaders().add("ETag", etag);
-              response = body;
             } else {
+              if (etag != null && !etag.isEmpty()) {
+                exchange.getResponseHeaders().add("ETag", etag);
+              }
               response = body;
             }
             exchange.sendResponseHeaders(code, code == 304 ? -1 : response.length);
@@ -204,11 +340,12 @@ class CdnFetcherTest {
     }
 
     CdnFetcher fetcher(byte[] key) {
-      return new CdnFetcher(SECRET, key, "http://127.0.0.1:" + port(), client);
+      return new CdnFetcher(
+          SECRET, key, url(), resolver == null ? url() : resolverUrl(), PROFILE, client);
     }
 
-    int port() {
-      return server.getAddress().getPort();
+    String url() {
+      return "http://127.0.0.1:" + server.getAddress().getPort();
     }
 
     @Override

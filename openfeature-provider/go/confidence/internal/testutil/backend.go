@@ -1,4 +1,4 @@
-// Package testutil fakes the Confidence backend (module CDN and flag-log ingestion) for tests.
+// Package testutil fakes the Confidence backend for tests.
 package testutil
 
 import (
@@ -45,7 +45,7 @@ type Backend struct {
 	inm     []string
 	batches []Batch
 
-	CDN, Ingest *httptest.Server
+	CDN, Resolver, Ingest *httptest.Server
 }
 
 // Batch is one received flag-log request.
@@ -72,6 +72,14 @@ func NewBackend(t testing.TB) *Backend {
 			_, _ = w.Write(b.module)
 		}
 	}))
+	b.Resolver = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/profile:register" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"cdnRetryDelay":"0.050s"}`)
+	}))
 	b.Ingest = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		b.mu.Lock()
@@ -79,6 +87,7 @@ func NewBackend(t testing.TB) *Backend {
 		b.mu.Unlock()
 	}))
 	t.Cleanup(b.CDN.Close)
+	t.Cleanup(b.Resolver.Close)
 	t.Cleanup(b.Ingest.Close)
 	return b
 }
