@@ -20,6 +20,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      java_provider_release_created: ${{ steps.releasemanifest.outputs['openfeature-provider/java--release_created'] }}
+      java_provider_tag_name: ${{ steps.releasemanifest.outputs['openfeature-provider/java--tag_name'] }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -34,3 +37,51 @@ jobs:
           target-branch: ${{ github.ref_name }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish-java-provider-release:
+    needs: release
+    if: ${{ needs.release.outputs.java_provider_release_created == 'true' }}
+    runs-on: ubuntu-latest
+    environment: deployment
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ needs.release.outputs.java_provider_tag_name }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Write Maven settings and GPG key to files
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          SIGN_KEY_PASS: ${{ secrets.SIGN_KEY_PASS }}
+        run: |
+          cat > "$RUNNER_TEMP/maven_settings.xml" <<EOF
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+            <servers>
+              <server>
+                <id>central</id>
+                <username>${MAVEN_CENTRAL_USERNAME}</username>
+                <password>${MAVEN_CENTRAL_PASSWORD}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+          printf '%s\n' "$GPG_PRIVATE_KEY" > "$RUNNER_TEMP/gpg_private_key.asc"
+          printf '%s' "$SIGN_KEY_PASS" > "$RUNNER_TEMP/gpg_pass.txt"
+
+      - name: Publish to Maven Central with Docker
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          target: openfeature-provider-java.publish
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cache:next
+          secret-files: |
+            maven_settings=${{ runner.temp }}/maven_settings.xml
+            gpg_private_key=${{ runner.temp }}/gpg_private_key.asc
+            gpg_pass=${{ runner.temp }}/gpg_pass.txt

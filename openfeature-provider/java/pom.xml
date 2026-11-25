@@ -94,6 +94,11 @@
       <version>${endive.version}</version>
     </dependency>
     <dependency>
+      <groupId>run.endive</groupId>
+      <artifactId>wasm</artifactId>
+      <version>${endive.version}</version>
+    </dependency>
+    <dependency>
       <groupId>com.google.api.grpc</groupId>
       <artifactId>proto-google-common-protos</artifactId>
       <version>${common.protos.version}</version>

@@ -91,6 +91,15 @@ RUN --mount=type=secret,id=confidence_client_secret \
     CONFIDENCE_CLIENT_ENCRYPTION_KEY=$(cat /run/secrets/confidence_client_encryption_key) \
     make test-e2e
 
+# Deploys to Maven Central (signed). Built only by the release workflow, from the release tag,
+# with the Maven settings and the GPG key and passphrase mounted as secrets.
+FROM openfeature-provider-java.base AS openfeature-provider-java.publish
+RUN --mount=type=secret,id=gpg_private_key \
+    gpg --batch --import /run/secrets/gpg_private_key
+RUN --mount=type=secret,id=maven_settings \
+    --mount=type=secret,id=gpg_pass,env=MAVEN_GPG_PASSPHRASE \
+    mvn -s /run/secrets/maven_settings --batch-mode -DskipTests deploy
+
 # ==============================================================================
 # E2E - end-to-end tests against the Confidence backend (needs secrets)
 # ==============================================================================
