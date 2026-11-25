@@ -25,6 +25,15 @@ run in the **`deployment` GitHub environment**. npm releases must publish rcs un
 
 After a release is published, remember to update internal version registries with the new version numbers.
 
+## Java Snapshot Publish (`publish-java-snapshot.yml`)
+
+On pushes to `next` touching the java provider, while its pom sits at a `-SNAPSHOT` version
+(between a merged bleeding-edge SNAPSHOT PR and the matching release PR), the provider is
+built, signed, and deployed to the Central Portal snapshots repo, so release candidates can
+be tried before GA. Release versions are never published from `next`: the job skips them,
+and even a broken version guard could only reach a local file:// trap repo. Runs in the
+`deployment` environment. Releases themselves remain tag-only until `next` replaces `main`.
+
 ## PR Lint (`lint-pr-name.yaml`)
 
 PR titles must follow **conventional commits** (`feat:`, `fix:`, `chore:`, etc.). Enforced via `amannn/action-semantic-pull-request@v6`. Posts a sticky comment on the PR explaining the error if validation fails.

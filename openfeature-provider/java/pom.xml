@@ -47,6 +47,10 @@
   </developers>
 
   <distributionManagement>
+    <snapshotRepository>
+      <id>central-portal-snapshots</id>
+      <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+    </snapshotRepository>
     <repository>
       <id>central</id>
       <url>https://central.sonatype.com/repository/maven-releases/</url>

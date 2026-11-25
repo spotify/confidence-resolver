@@ -1,0 +1,83 @@
+# The rewritten java provider's release candidates are published as -SNAPSHOT versions to the
+# Central Portal snapshots repo, so they can be tried before GA. Releases themselves stay
+# tag-only until next replaces main.
+#
+# Triggers on pushes to next that touch the java provider while its pom sits at a -SNAPSHOT
+# version, i.e. between a merged "bleeding-edge SNAPSHOT" PR and the matching release PR.
+# Mirrors the snapshot-deploy flow of spotify/confidence-sdk-java.
+#
+# The pom's release publishing runs through central-publishing-maven-plugin, a build extension
+# that replaces the deploy phase and rejects non-release versions. Snapshot deploys therefore
+# invoke maven-deploy-plugin directly with `deploy:deploy`, which the extension does not
+# intercept.
+name: Publish Java Provider Snapshot
+
+on:
+  push:
+    branches:
+      - next
+    paths:
+      - 'openfeature-provider/java/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-java-snapshot
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Publish jobs run in the deployment environment (see .github/workflows/CLAUDE.md).
+    environment: deployment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: temurin
+          java-version: 17
+          server-id: central-portal-snapshots
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Only publish actual SNAPSHOT versions
+        id: snapshot
+        working-directory: openfeature-provider/java
+        run: |
+          v="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          echo "pom version: ${v}"
+          if [[ "${v}" == *-SNAPSHOT ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            # Between a release PR and the next snapshot PR the pom sits at a released
+            # version; there is nothing to publish.
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::pom at released version ${v}; skipping snapshot publish"
+          fi
+
+      - name: Build, sign, and install
+        if: steps.snapshot.outputs.publish == 'true'
+        working-directory: openfeature-provider/java
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.SIGN_KEY_PASS }}
+        run: mvn --batch-mode -DskipTests install
+
+      - name: Deploy SNAPSHOT to the Central Portal snapshots repo
+        if: steps.snapshot.outputs.publish == 'true'
+        working-directory: openfeature-provider/java
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.SIGN_KEY_PASS }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        # Release versions can never leave this job: altDeploymentRepository only applies to
+        # non-snapshot versions and points them at a local file:// trap repo, so even if the
+        # version guard above passed a released version, it could not reach Central.
+        run: >
+          mvn --batch-mode deploy:deploy
+          -DaltDeploymentRepository=snapshot-job-release-trap::file:///tmp/noop-repo
