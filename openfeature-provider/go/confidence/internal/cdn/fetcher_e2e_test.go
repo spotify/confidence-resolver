@@ -1,10 +1,12 @@
-package cdn
+package cdn_test
 
 import (
 	"context"
 	"os"
 	"testing"
 
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/cdn"
+	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/engine"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/host"
 )
 
@@ -15,11 +17,11 @@ func TestE2E_FetchProductionModule(t *testing.T) {
 	if secret == "" || hexKey == "" {
 		t.Skip("CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY not set")
 	}
-	key, err := ParseKey(hexKey)
+	key, err := cdn.ParseKey(hexKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := NewFetcher(secret, key, "", nil)
+	f, err := cdn.NewFetcher(secret, key, engine.ModuleProfile, "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

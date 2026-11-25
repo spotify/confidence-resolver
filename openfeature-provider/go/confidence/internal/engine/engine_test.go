@@ -24,7 +24,7 @@ func fixture(t *testing.T) []byte { return testutil.Module(t, "basic.wasm") }
 
 func newEngine(t *testing.T, b *testutil.Backend, mod func(*Config)) *Engine {
 	cfg := Config{
-		ClientSecret: secret, EncryptionKey: b.Key, CDNBaseURL: b.CDN.URL, IngestBaseURL: b.Ingest.URL,
+		ClientSecret: secret, EncryptionKey: b.Key, CDNBaseURL: b.CDN.URL, IngestBaseURL: b.Ingest.URL, ResolverBaseURL: b.Resolver.URL,
 		Instances: 4, PollInterval: 10 * time.Millisecond, FlushInterval: time.Hour, RetryInterval: 5 * time.Millisecond,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}

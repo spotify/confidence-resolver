@@ -36,6 +36,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public final class Engine {
 
+  public static final String MODULE_PROFILE = "OPENFEATURE_MT_1";
+
   /** Filter sizes, as in the Java host state-to-wasm builds with. */
   private static final int APPLY_FILTER_PAGES = 8;
 
@@ -88,7 +90,13 @@ public final class Engine {
   public Engine(EngineConfig cfg) {
     this.cfg = cfg;
     this.fetcher =
-        new CdnFetcher(cfg.clientSecret, cfg.encryptionKey, cfg.cdnBaseUrl, cfg.httpClient);
+        new CdnFetcher(
+            cfg.clientSecret,
+            cfg.encryptionKey,
+            cfg.cdnBaseUrl,
+            cfg.resolverBaseUrl,
+            MODULE_PROFILE,
+            cfg.httpClient);
     switch (cfg.exposure) {
       case ALL -> this.applyFilter = Filter.neverSeen();
       case NONE -> this.applyFilter = Filter.alwaysSeen();
@@ -124,7 +132,11 @@ public final class Engine {
       } catch (RuntimeException e) {
         lastError = e;
         cfg.logger.warn("loading resolver module failed; retrying", e);
-        if (System.nanoTime() >= deadline) {
+        if (Thread.currentThread().isInterrupted()) {
+          throw e;
+        }
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
           startLoops();
           throw new StartupTimeoutException(
               "no resolver module within "
@@ -133,7 +145,7 @@ public final class Engine {
                   + "polling)",
               lastError);
         }
-        sleep(cfg.retryInterval);
+        sleep(Duration.ofNanos(Math.min(remaining, cfg.retryInterval.toNanos())));
       }
     }
     startLoops();
@@ -386,7 +398,7 @@ public final class Engine {
 
   private void sleep(Duration duration) {
     try {
-      Thread.sleep(duration.toMillis());
+      TimeUnit.NANOSECONDS.sleep(duration.toNanos());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }

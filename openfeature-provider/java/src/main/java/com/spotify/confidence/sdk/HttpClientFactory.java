@@ -9,8 +9,10 @@ import java.time.Duration;
  * RemoteMaterializationStore}.
  *
  * <p>The provider calls {@link #createHttpClient()} once and shares the client across those
- * components for the provider's lifetime. The factory itself owns the lifecycle of whatever it
- * creates; {@code java.net.http.HttpClient} needs no explicit shutdown.
+ * components for the provider's lifetime. If the client follows redirects, authenticated module
+ * profile registration uses a separate client with the same transport settings and redirects
+ * disabled. The factory itself owns the lifecycle of whatever it creates; {@code
+ * java.net.http.HttpClient} needs no explicit shutdown.
  *
  * <p>Useful for:
  *

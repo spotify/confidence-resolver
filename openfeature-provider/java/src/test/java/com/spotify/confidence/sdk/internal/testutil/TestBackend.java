@@ -8,12 +8,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -44,7 +46,9 @@ public final class TestBackend implements AutoCloseable {
 
   private final byte[] key = new byte[32];
   private final HttpServer cdn;
+  private final HttpServer resolver;
   private final HttpServer ingest;
+  private final AtomicInteger registrations = new AtomicInteger();
   private final HttpClient client = HttpClient.newHttpClient();
 
   private volatile int status = 404;
@@ -81,6 +85,14 @@ public final class TestBackend implements AutoCloseable {
                 body = module;
               }
               respond(exchange, code, body);
+            });
+    resolver =
+        server(
+            "/v1/profile:register",
+            exchange -> {
+              registrations.incrementAndGet();
+              respond(
+                  exchange, 200, "{\"cdnRetryDelay\":\"0.5s\"}".getBytes(StandardCharsets.UTF_8));
             });
     ingest =
         server(
@@ -162,6 +174,14 @@ public final class TestBackend implements AutoCloseable {
     return "http://127.0.0.1:" + cdn.getAddress().getPort();
   }
 
+  public String resolverUrl() {
+    return "http://127.0.0.1:" + resolver.getAddress().getPort();
+  }
+
+  public int registrations() {
+    return registrations.get();
+  }
+
   /** The fake ingestion's base URL. */
   public String ingestUrl() {
     return "http://127.0.0.1:" + ingest.getAddress().getPort();
@@ -184,6 +204,7 @@ public final class TestBackend implements AutoCloseable {
   @Override
   public void close() {
     cdn.stop(0);
+    resolver.stop(0);
     ingest.stop(0);
   }
 

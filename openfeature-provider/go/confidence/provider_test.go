@@ -20,8 +20,9 @@ func newTestProvider(t *testing.T, mod func(*ProviderConfig)) (*LocalResolverPro
 	b.Publish(testutil.Module(t, "basic.wasm"), "log-token", `"v1"`)
 	cfg := ProviderConfig{
 		ClientSecret: testutil.Secret, EncryptionKey: b.HexKey(), Instances: 2,
-		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		cdnBaseURL: b.CDN.URL, ingestBaseURL: b.Ingest.URL, retryInterval: 5 * time.Millisecond,
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ResolverBaseURL: b.Resolver.URL,
+		cdnBaseURL:      b.CDN.URL, ingestBaseURL: b.Ingest.URL, retryInterval: 5 * time.Millisecond,
 	}
 	if mod != nil {
 		mod(&cfg)

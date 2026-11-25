@@ -2,6 +2,7 @@ package com.spotify.confidence.sdk.internal.cdn;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.spotify.confidence.sdk.internal.engine.Engine;
 import com.spotify.confidence.sdk.internal.host.Module;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -18,7 +19,14 @@ class CdnFetcherE2ETest {
   @EnabledIfEnvironmentVariable(named = "CONFIDENCE_CLIENT_ENCRYPTION_KEY", matches = ".+")
   void fetchProductionModule() {
     byte[] key = CdnFetcher.parseKey(System.getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"));
-    CdnFetcher fetcher = new CdnFetcher(System.getenv("CONFIDENCE_CLIENT_SECRET"), key, null, null);
+    CdnFetcher fetcher =
+        new CdnFetcher(
+            System.getenv("CONFIDENCE_CLIENT_SECRET"),
+            key,
+            null,
+            null,
+            Engine.MODULE_PROFILE,
+            null);
     CdnFetcher.FetchedModule module = fetcher.fetch();
     assertThat(module.etag()).isNotEmpty();
     assertThat(module.logToken()).isNotEmpty();

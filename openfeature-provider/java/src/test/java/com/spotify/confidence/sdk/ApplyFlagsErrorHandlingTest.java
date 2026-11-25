@@ -58,6 +58,7 @@ class ApplyFlagsErrorHandlingTest {
             LocalProviderConfig.builder()
                 .httpClientFactory(() -> backend.client())
                 .cdnBaseUrl(backend.cdnUrl())
+                .resolverBaseUrl(backend.resolverUrl())
                 .ingestBaseUrl(backend.ingestUrl())
                 .retryInterval(Duration.ofMillis(5))
                 .statePollInterval(Duration.ofMillis(10))
