@@ -97,6 +97,13 @@
       <artifactId>compiler</artifactId>
       <version>${endive.version}</version>
     </dependency>
+    <!-- Declared for the analyze-deps check: the code's compiled bytecode references the
+         wasm host bindings directly, so they must not ride in transitively. -->
+    <dependency>
+      <groupId>run.endive</groupId>
+      <artifactId>wasm</artifactId>
+      <version>${endive.version}</version>
+    </dependency>
     <dependency>
       <groupId>com.google.api.grpc</groupId>
       <artifactId>proto-google-common-protos</artifactId>
