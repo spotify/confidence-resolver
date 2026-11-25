@@ -2,22 +2,29 @@
 # Central Portal snapshots repo, so they can be tried before GA. Releases themselves stay
 # tag-only until next replaces main.
 #
-# Triggers on pushes to next that touch the java provider while its pom sits at a -SNAPSHOT
-# version, i.e. between a merged "bleeding-edge SNAPSHOT" PR and the matching release PR.
-# Mirrors the snapshot-deploy flow of spotify/confidence-sdk-java.
+# Publishes exactly when a release-please "bleeding-edge SNAPSHOT" PR (label
+# `autorelease: snapshot`) merges into next — release-please-driven, like the publish jobs on
+# main. Mirrors the snapshot-deploy flow of spotify/confidence-sdk-java.
 #
 # The pom's release publishing runs through central-publishing-maven-plugin, a build extension
 # that replaces the deploy phase and rejects non-release versions. Snapshot deploys therefore
-# invoke maven-deploy-plugin directly with `deploy:deploy`, which the extension does not
-# intercept.
+# invoke maven-deploy-plugin directly with `deploy:deploy` — as a direct goal it bypasses the
+# extension, but it must run in the same Maven session as `install` (standalone deploy:deploy
+# fails with "did not assign a file to the build artifact"; verified against
+# maven-deploy-plugin 3.1.2).
+#
+# NEXT-ONLY: this workflow exists to make next's release candidates tryable. Do not carry it
+# over to main when next replaces it — GA publishes releases, and main already has its own
+# release publish jobs. The pull_request trigger is scoped to next, so the workflow is inert
+# anywhere else.
 name: Publish Java Provider Snapshot
 
 on:
-  push:
+  pull_request:
     branches:
       - next
-    paths:
-      - 'openfeature-provider/java/**'
+    types:
+      - closed
 
 permissions:
   contents: read
@@ -28,6 +35,10 @@ concurrency:
 
 jobs:
   publish:
+    # Only merged release-please SNAPSHOT PRs ("chore(next): release ...-SNAPSHOT").
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'autorelease: snapshot')
     runs-on: ubuntu-latest
     # Publish jobs run in the deployment environment (see .github/workflows/CLAUDE.md).
     environment: deployment
@@ -55,20 +66,11 @@ jobs:
           if [[ "${v}" == *-SNAPSHOT ]]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
-            # Between a release PR and the next snapshot PR the pom sits at a released
-            # version; there is nothing to publish.
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "::notice::pom at released version ${v}; skipping snapshot publish"
           fi
 
-      - name: Build, sign, and install
-        if: steps.snapshot.outputs.publish == 'true'
-        working-directory: openfeature-provider/java
-        env:
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.SIGN_KEY_PASS }}
-        run: mvn --batch-mode -DskipTests install
-
-      - name: Deploy SNAPSHOT to the Central Portal snapshots repo
+      - name: Build, sign, install, and deploy the SNAPSHOT
         if: steps.snapshot.outputs.publish == 'true'
         working-directory: openfeature-provider/java
         env:
@@ -79,5 +81,5 @@ jobs:
         # non-snapshot versions and points them at a local file:// trap repo, so even if the
         # version guard above passed a released version, it could not reach Central.
         run: >
-          mvn --batch-mode deploy:deploy
+          mvn --batch-mode -DskipTests install deploy:deploy
           -DaltDeploymentRepository=snapshot-job-release-trap::file:///tmp/noop-repo

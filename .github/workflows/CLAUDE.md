@@ -27,12 +27,16 @@ After a release is published, remember to update internal version registries wit
 
 ## Java Snapshot Publish (`publish-java-snapshot.yml`)
 
-On pushes to `next` touching the java provider, while its pom sits at a `-SNAPSHOT` version
-(between a merged bleeding-edge SNAPSHOT PR and the matching release PR), the provider is
-built, signed, and deployed to the Central Portal snapshots repo, so release candidates can
-be tried before GA. Release versions are never published from `next`: the job skips them,
-and even a broken version guard could only reach a local file:// trap repo. Runs in the
-`deployment` environment. Releases themselves remain tag-only until `next` replaces `main`.
+When a release-please "bleeding-edge SNAPSHOT" PR for the java provider (label
+`autorelease: snapshot`) merges into `next`, the provider is built, signed, and deployed to
+the Central Portal snapshots repo, so release candidates can be tried before GA. Release
+versions are never published from `next`: the job skips them, and even a broken version guard
+could only reach a local file:// trap repo. Runs in the `deployment` environment. Releases
+themselves remain tag-only until `next` replaces `main`.
+
+**This workflow is next-only.** Do not carry it over to `main` when `next` replaces it: GA
+publishes releases, and `main` has its own release publish jobs. The `pull_request` trigger is
+scoped to `next`, so the workflow stays inert anywhere else.
 
 ## PR Lint (`lint-pr-name.yaml`)
 
