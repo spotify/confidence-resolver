@@ -52,7 +52,7 @@ jobs:
           ref: ${{ needs.release.outputs.java_provider_tag_name }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Write Maven settings and GPG key to files
         env:
@@ -76,7 +76,7 @@ jobs:
           printf '%s' "$SIGN_KEY_PASS" > "$RUNNER_TEMP/gpg_pass.txt"
 
       - name: Publish to Maven Central with Docker
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           target: openfeature-provider-java.publish
