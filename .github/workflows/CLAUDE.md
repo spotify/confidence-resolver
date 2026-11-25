@@ -25,18 +25,17 @@ run in the **`deployment` GitHub environment**. npm releases must publish rcs un
 
 After a release is published, remember to update internal version registries with the new version numbers.
 
-## Java Snapshot Publish (`publish-java-snapshot.yml`)
+### Java snapshot publishing (next-only)
 
 When a release-please "bleeding-edge SNAPSHOT" PR for the java provider (label
-`autorelease: snapshot`) merges into `next`, the provider is built, signed, and deployed to
-the Central Portal snapshots repo, so release candidates can be tried before GA. Release
-versions are never published from `next`: the job skips them, and even a broken version guard
-could only reach a local file:// trap repo. Runs in the `deployment` environment. Releases
-themselves remain tag-only until `next` replaces `main`.
-
-**This workflow is next-only.** Do not carry it over to `main` when `next` replaces it: GA
-publishes releases, and `main` has its own release publish jobs. The `pull_request` trigger is
-scoped to `next`, so the workflow stays inert anywhere else.
+`autorelease: snapshot`) merges into `next`, the `publish-java-provider-snapshot` job in this
+workflow — gated on that merged PR's commit, like the release publish jobs on main — builds,
+signs, and deploys the provider to the Central Portal snapshots repo, so release candidates
+can be tried before GA. Release versions are never published from `next`: the job skips
+them, and even a broken version guard could only reach a local file:// trap repo. Runs in
+the `deployment` environment. **This job is next-only and must not be carried over to main
+when `next` replaces it**: GA publishes releases, and main has its own release publish jobs.
+Releases themselves remain tag-only until `next` replaces `main`.
 
 ## PR Lint (`lint-pr-name.yaml`)
 

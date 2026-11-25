@@ -34,3 +34,69 @@ jobs:
           target-branch: ${{ github.ref_name }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # NEXT-ONLY: publishes the java provider's release candidates as -SNAPSHOT versions to the
+  # Central Portal snapshots repo, so they can be tried before GA. Fires when a
+  # release-please "bleeding-edge SNAPSHOT" PR for the java provider merges into next (the
+  # push whose head commit is that PR's squash) — release-please-driven, shaped like the
+  # release publish jobs on main. Do not carry this job over to main when next replaces it:
+  # GA publishes releases, and main has its own release publish jobs.
+  #
+  # The pom's release publishing runs through central-publishing-maven-plugin, a build
+  # extension that replaces the deploy phase and rejects non-release versions. Snapshot
+  # deploys therefore invoke maven-deploy-plugin directly with `deploy:deploy` — as a direct
+  # goal it bypasses the extension, but it must run in the same Maven session as `install`
+  # (standalone, deploy:deploy fails with "did not assign a file to the build artifact";
+  # verified against maven-deploy-plugin 3.1.2).
+  publish-java-provider-snapshot:
+    needs: release
+    # Same signal the maven strategy itself uses: the merged PR's title. The "(#…" suffix
+    # keeps the -SNAPSHOT check in the title, not somewhere in the PR body.
+    if: >-
+      github.event.head_commit != null &&
+      startsWith(github.event.head_commit.message, 'chore(next): release openfeature-provider-java ') &&
+      contains(github.event.head_commit.message, '-SNAPSHOT (#')
+    runs-on: ubuntu-latest
+    # Publish jobs run in the deployment environment (see .github/workflows/CLAUDE.md).
+    environment: deployment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: temurin
+          java-version: 17
+          server-id: central-portal-snapshots
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Only publish actual SNAPSHOT versions
+        id: snapshot
+        working-directory: openfeature-provider/java
+        run: |
+          v="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          echo "pom version: ${v}"
+          if [[ "${v}" == *-SNAPSHOT ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::pom at released version ${v}; skipping snapshot publish"
+          fi
+
+      - name: Build, sign, install, and deploy the SNAPSHOT
+        if: steps.snapshot.outputs.publish == 'true'
+        working-directory: openfeature-provider/java
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.SIGN_KEY_PASS }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        # Release versions can never leave this job: altDeploymentRepository only applies to
+        # non-snapshot versions and points them at a local file:// trap repo, so even if the
+        # version guard above passed a released version, it could not reach Central.
+        run: >
+          mvn --batch-mode -DskipTests install deploy:deploy
+          -DaltDeploymentRepository=snapshot-job-release-trap::file:///tmp/noop-repo
