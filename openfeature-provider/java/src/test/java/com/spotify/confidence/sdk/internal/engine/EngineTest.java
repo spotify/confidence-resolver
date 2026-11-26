@@ -53,7 +53,6 @@ class EngineTest {
             .clientSecret(TestBackend.SECRET)
             .encryptionKey(CdnFetcher.parseKey(b.hexKey()))
             .cdnBaseUrl(b.cdnUrl())
-            .resolverBaseUrl(b.resolverUrl())
             .ingestBaseUrl(b.ingestUrl())
             .instances(4)
             .pollInterval(Duration.ofMillis(10))

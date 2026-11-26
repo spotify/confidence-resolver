@@ -21,12 +21,7 @@ class CdnFetcherE2ETest {
     byte[] key = CdnFetcher.parseKey(System.getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"));
     CdnFetcher fetcher =
         new CdnFetcher(
-            System.getenv("CONFIDENCE_CLIENT_SECRET"),
-            key,
-            null,
-            null,
-            Engine.MODULE_PROFILE,
-            null);
+            System.getenv("CONFIDENCE_CLIENT_SECRET"), key, null, Engine.MODULE_PROFILE, null);
     CdnFetcher.FetchedModule module = fetcher.fetch();
     assertThat(module.etag()).isNotEmpty();
     assertThat(module.logToken()).isNotEmpty();

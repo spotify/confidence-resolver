@@ -163,7 +163,6 @@ public class OpenFeatureLocalResolveProvider implements FeatureProvider {
             .clientSecret(clientSecret)
             .encryptionKey(hexToBytes(encryptionKey))
             .httpClient(httpClient)
-            .resolverBaseUrl(config.getResolverBaseUrl())
             .exposure(config.getExposureMode())
             .interpreter(config.isInterpreter())
             .logger(logger)

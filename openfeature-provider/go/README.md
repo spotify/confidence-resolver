@@ -42,6 +42,15 @@ You'll need a **client secret** from Confidence to use this provider.
 - Creating a test flag for verification
 - Best practices for credential storage
 
+## Module registration
+
+`POST /v1/profile:register` sets up the `OPENFEATURE_MT_1` profile for a client credential.
+The provider checks the CDN first. Until registration returns any HTTP 2xx, each CDN 404
+triggers one registration POST. Registration failures are logged and retried on the next
+regular poll that returns CDN 404, with no extra delay. After a 2xx, the provider keeps polling
+the CDN but does not POST again during that fetcher's lifetime, even if the module later
+disappears. On restart, the provider checks the CDN first again.
+
 ## Encryption
 
 The provider fetches its flag module encrypted and decrypts it before loading it. Pass the encryption key for your client credential when creating the provider.

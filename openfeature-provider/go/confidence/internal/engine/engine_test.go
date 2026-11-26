@@ -1,11 +1,14 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -25,7 +28,7 @@ func fixture(t *testing.T) []byte { return testutil.Module(t, "basic.wasm") }
 
 func newEngine(t *testing.T, b *testutil.Backend, mod func(*Config)) *Engine {
 	cfg := Config{
-		ClientSecret: secret, EncryptionKey: b.Key, CDNBaseURL: b.CDN.URL, IngestBaseURL: b.Ingest.URL, ResolverBaseURL: b.Resolver.URL,
+		ClientSecret: secret, EncryptionKey: b.Key, CDNBaseURL: b.CDN.URL, IngestBaseURL: b.Ingest.URL, HTTPClient: b.Client,
 		Instances: 4, PollInterval: 10 * time.Millisecond, FlushInterval: time.Hour, RetryInterval: 5 * time.Millisecond,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
@@ -179,17 +182,39 @@ func TestBrokenModuleKeepsCurrentAndIsRefetched(t *testing.T) {
 	}
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (rt roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return rt(r) }
+
 func TestStartup(t *testing.T) {
-	t.Run("404 then published", func(t *testing.T) {
+	t.Run("registration failure is logged and retried", func(t *testing.T) {
 		b := testutil.NewBackend(t)
-		b.SetStatus(404)
-		e := newEngine(t, b, nil)
-		go func() {
-			time.Sleep(30 * time.Millisecond)
-			b.Publish(fixture(t), "tok", `"v"`)
-		}()
+		wasm := fixture(t)
+		var logs bytes.Buffer
+		attempts := 0
+		e := newEngine(t, b, func(c *Config) {
+			c.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+			c.HTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() != "https://resolver.confidence.dev/v1/profile:register" {
+					return b.Client.Transport.RoundTrip(r)
+				}
+				_ = r.Body.Close()
+				attempts++
+				if attempts == 1 {
+					return &http.Response{StatusCode: http.StatusForbidden, Body: http.NoBody}, nil
+				}
+				b.Publish(wasm, "tok", `"v"`)
+				return &http.Response{StatusCode: http.StatusAccepted, Body: http.NoBody}, nil
+			})}
+		})
 		if err := e.Start(context.Background(), 5*time.Second); err != nil {
 			t.Fatal(err)
+		}
+		if err := e.Close(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if attempts != 2 || !strings.Contains(logs.String(), "no module published for this credential: module registration: HTTP 403") {
+			t.Fatalf("registration attempts = %d, logs = %q; want two attempts and a warning for HTTP 403", attempts, logs.String())
 		}
 	})
 	t.Run("forbidden is terminal", func(t *testing.T) {

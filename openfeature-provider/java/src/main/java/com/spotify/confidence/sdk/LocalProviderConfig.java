@@ -40,7 +40,6 @@ public final class LocalProviderConfig {
   private final boolean interpreter;
   private final Duration retryInterval;
   private final String cdnBaseUrl;
-  private final String resolverBaseUrl;
   private final String ingestBaseUrl;
   private final HttpClientFactory httpClientFactory;
   private final Logger logger;
@@ -57,7 +56,6 @@ public final class LocalProviderConfig {
     this.interpreter = b.interpreter;
     this.retryInterval = b.retryInterval;
     this.cdnBaseUrl = b.cdnBaseUrl;
-    this.resolverBaseUrl = b.resolverBaseUrl;
     this.ingestBaseUrl = b.ingestBaseUrl;
     this.httpClientFactory = b.httpClientFactory;
     this.logger = b.logger;
@@ -118,11 +116,6 @@ public final class LocalProviderConfig {
     return cdnBaseUrl;
   }
 
-  /** Overrides the resolver base URL for module profile registration. */
-  public String getResolverBaseUrl() {
-    return resolverBaseUrl;
-  }
-
   /** Overrides the flag-log ingestion base URL (for tests); empty means the production default. */
   public String getIngestBaseUrl() {
     return ingestBaseUrl;
@@ -150,7 +143,6 @@ public final class LocalProviderConfig {
     private boolean interpreter;
     private Duration retryInterval;
     private String cdnBaseUrl = "";
-    private String resolverBaseUrl = "";
     private String ingestBaseUrl = "";
     private HttpClientFactory httpClientFactory = HttpClientFactory.defaultFactory();
     private Logger logger = LoggerFactory.getLogger(OpenFeatureLocalResolveProvider.class);
@@ -224,15 +216,6 @@ public final class LocalProviderConfig {
     /** Overrides the module CDN base URL (for tests). */
     public Builder cdnBaseUrl(String cdnBaseUrl) {
       this.cdnBaseUrl = cdnBaseUrl == null ? "" : cdnBaseUrl;
-      return this;
-    }
-
-    /**
-     * Overrides the resolver base URL for module profile registration; defaults to
-     * resolver.confidence.dev.
-     */
-    public Builder resolverBaseUrl(String resolverBaseUrl) {
-      this.resolverBaseUrl = resolverBaseUrl == null ? "" : resolverBaseUrl;
       return this;
     }
 

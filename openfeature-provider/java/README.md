@@ -42,6 +42,16 @@ You'll need a **client secret** from Confidence to use this provider.
 - How to navigate the Confidence dashboard
 - Creating a Backend integration
 
+## Module registration
+
+`POST /v1/profile:register` is a one-time setup step for the `OPENFEATURE_MT_1` profile per
+client credential (client secret), not a call made on every startup. The provider tries the CDN
+first and attempts registration only if the module is missing (HTTP 404). If registration fails,
+the next scheduled poll tries the CDN first and retries registration only if the module is still
+missing. Any successful registration response stops further registration attempts in that provider
+instance. The provider polls the CDN on its normal schedule without adding a delay. Once
+published, the module is fetched directly from the CDN, including on restarts.
+
 ## Encryption
 
 The provider fetches the flag module as an encrypted artifact and decrypts it when loading.

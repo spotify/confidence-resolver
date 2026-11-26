@@ -108,12 +108,7 @@ public final class Engine {
     this.cfg = cfg;
     this.fetcher =
         new CdnFetcher(
-            cfg.clientSecret,
-            cfg.encryptionKey,
-            cfg.cdnBaseUrl,
-            cfg.resolverBaseUrl,
-            MODULE_PROFILE,
-            cfg.httpClient);
+            cfg.clientSecret, cfg.encryptionKey, cfg.cdnBaseUrl, MODULE_PROFILE, cfg.httpClient);
     if (cfg.applyFilter != null) {
       this.applyFilter = cfg.applyFilter;
     } else {

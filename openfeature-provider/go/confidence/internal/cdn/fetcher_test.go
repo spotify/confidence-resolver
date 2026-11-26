@@ -72,14 +72,14 @@ func setup(t *testing.T, c *cdn, key []byte) *Fetcher {
 		switch r.URL.Host {
 		case "cdn.test":
 			c.ServeHTTP(w, r)
-		case "resolver.test":
-			_, _ = io.WriteString(w, `{"cdnRetryDelay":"10s"}`)
+		case "resolver.confidence.dev":
+			w.WriteHeader(http.StatusOK)
 		default:
 			t.Fatalf("unexpected HTTP request: %s", r.URL)
 		}
 		return w.Result(), nil
 	})}
-	f, err := NewFetcher(secret, key, testProfile, "https://cdn.test", "https://resolver.test", client)
+	f, err := NewFetcher(secret, key, testProfile, "https://cdn.test", client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,12 +162,10 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (rt roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return rt(r) }
 
-// Mock both origins and advance a fake monotonic clock instead of waiting on retry timers.
-func registrationFixture(t *testing.T, resolverURL string, register roundTripFunc) (*Fetcher, *cdn, *time.Time, *[]string) {
+func registrationFixture(t *testing.T, register roundTripFunc) (*Fetcher, *cdn, *[]string) {
 	t.Helper()
 	key := newKey(t)
-	c := &cdn{status: 404, body: nil}
-	now := time.Now()
+	c := &cdn{status: http.StatusNotFound}
 	var calls []string
 	client := &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -186,11 +184,14 @@ func registrationFixture(t *testing.T, resolverURL string, register roundTripFun
 				resp := w.Result()
 				resp.Status = "untrusted reason: " + secret
 				return resp, nil
-			case "resolver.test", "resolver.confidence.dev":
+			case "resolver.confidence.dev":
 				calls = append(calls, "POST")
-				if r.Method != http.MethodPost || r.URL.Path != "/v1/profile:register" ||
+				if r.Method != http.MethodPost || r.URL.String() != "https://resolver.confidence.dev/v1/profile:register" ||
 					r.Header.Get("Authorization") != "ClientSecret "+secret || r.Header.Get("Content-Type") != "application/json" {
-					t.Error("incorrect registration request method, path or headers")
+					t.Error("incorrect registration request method, URL or headers")
+				}
+				if r.GetBody != nil {
+					t.Error("registration body must not be replayable")
 				}
 				body, err := io.ReadAll(r.Body)
 				_ = r.Body.Close()
@@ -204,12 +205,11 @@ func registrationFixture(t *testing.T, resolverURL string, register roundTripFun
 			}
 		}),
 	}
-	f, err := NewFetcher(secret, key, testProfile, "https://cdn.test/", resolverURL, client)
+	f, err := NewFetcher(secret, key, testProfile, "https://cdn.test/", client)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.now = func() time.Time { return now }
-	return f, c, &now, &calls
+	return f, c, &calls
 }
 
 func response(status int, body string) *http.Response {
@@ -219,14 +219,34 @@ func response(status int, body string) *http.Response {
 	return w.Result()
 }
 
-func TestRegistrationDelayBackoffAndReset(t *testing.T) {
+func TestRegistrationAcknowledgementIgnoresBody(t *testing.T) {
+	for name, body := range map[string]string{
+		"empty body":      "",
+		"malformed body":  "not JSON",
+		"delay ignored":   `{"cdnRetryDelay":"10s"}`,
+		"malformed delay": `{"cdnRetryDelay":null}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, _, calls := registrationFixture(t, func(*http.Request) (*http.Response, error) {
+				return response(http.StatusOK, body), nil
+			})
+			for range 2 {
+				if _, err := f.Fetch(context.Background()); !errors.Is(err, ErrNotPublished) {
+					t.Fatalf("Fetch: got %v, want ErrNotPublished", err)
+				}
+			}
+			if got := strings.Join(*calls, " "); got != "GET POST GET" {
+				t.Errorf("requests: got %q, want immediate CDN poll without another POST", got)
+			}
+		})
+	}
+}
+
+func TestRegistrationSuccessSurvivesCDNHits(t *testing.T) {
 	for _, published := range []int{http.StatusOK, http.StatusNotModified} {
 		t.Run(http.StatusText(published), func(t *testing.T) {
-			f, c, now, calls := registrationFixture(t, "https://resolver.test/", func(r *http.Request) (*http.Response, error) {
-				if r.URL.Host != "resolver.test" {
-					t.Errorf("registration ignored resolver override: %s", r.URL.Host)
-				}
-				return response(200, `{"cdnRetryDelay":"10s"}`), nil
+			f, c, calls := registrationFixture(t, func(*http.Request) (*http.Response, error) {
+				return response(http.StatusNoContent, ""), nil
 			})
 			poll := func(wantErr error, wantCalls string) {
 				t.Helper()
@@ -237,14 +257,9 @@ func TestRegistrationDelayBackoffAndReset(t *testing.T) {
 				}
 			}
 			poll(ErrNotPublished, "GET POST")
-			for _, delay := range []time.Duration{10 * time.Second, 200 * time.Millisecond, 400 * time.Millisecond,
-				800 * time.Millisecond, 1600 * time.Millisecond, 3200 * time.Millisecond, 6400 * time.Millisecond, 10 * time.Second} {
-				*now = now.Add(delay - time.Nanosecond)
-				poll(ErrNotPublished, "")
-				*now = now.Add(time.Nanosecond)
+			for range 3 {
 				poll(ErrNotPublished, "GET")
 			}
-			*now = now.Add(10 * time.Second)
 			c.status = published
 			if published == http.StatusOK {
 				plain, _ := proto.Marshal(&wasmpb.ClientModule{Module: []byte("wasm"), LogToken: "jwt"})
@@ -255,94 +270,89 @@ func TestRegistrationDelayBackoffAndReset(t *testing.T) {
 				poll(ErrNotModified, "GET")
 			}
 			c.status = http.StatusNotFound
-			poll(ErrNotPublished, "GET POST")
-			*now = now.Add(10 * time.Second)
-			poll(ErrNotPublished, "GET")
-			*now = now.Add(200 * time.Millisecond)
-			poll(ErrNotPublished, "GET")
+			for range 3 {
+				poll(ErrNotPublished, "GET")
+			}
 		})
 	}
 }
 
-func TestRegistrationRetriesOnlyAfterAnotherCDNMiss(t *testing.T) {
-	attempt := 0
-	f, c, now, calls := registrationFixture(t, "", func(r *http.Request) (*http.Response, error) {
-		if r.URL.Host != "resolver.confidence.dev" {
-			t.Errorf("wrong default resolver host: %s", r.URL.Host)
-		}
-		attempt++
-		switch attempt {
-		case 1:
-			return nil, errors.New("transport leaked " + secret)
-		case 2:
-			return response(429, secret), nil
-		default:
-			return response(200, `{"cdnRetryDelay":"0s"}`), nil
-		}
-	})
-	poll := func(wantCalls, wantError string) {
-		t.Helper()
-		*calls = nil
-		_, err := f.Fetch(context.Background())
-		var terminal *TerminalError
-		if err == nil || errors.As(err, &terminal) || !strings.Contains(err.Error(), wantError) || strings.Contains(err.Error(), secret) ||
-			strings.Join(*calls, " ") != wantCalls {
-			t.Fatalf("Fetch: err=%v calls=%v, want retryable %q and %q", err, *calls, wantError, wantCalls)
-		}
-	}
-	poll("GET POST", "registration request failed")
-	poll("", ErrNotPublished.Error())
-	*now = now.Add(200 * time.Millisecond)
-	c.status = 503
-	poll("GET", "module CDN: HTTP 503")
-	c.status = 404
-	poll("GET POST", "HTTP 429")
-	*now = now.Add(200 * time.Millisecond)
-	poll("", ErrNotPublished.Error())
-	*now = now.Add(200 * time.Millisecond)
-	poll("GET POST", ErrNotPublished.Error())
-	poll("GET", ErrNotPublished.Error())
-}
-
-func TestRegistrationTerminalFailures(t *testing.T) {
+func TestRegistrationRetriesOnCDNMissUntilSuccess(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		status int
-		body   string
+		err    error
+		want   string
 	}{
-		{"redirect", 307, secret},
-		{"forbidden", 403, secret},
-		{"unexpected success status", 201, `{"cdnRetryDelay":"10s"}`},
-		{"missing delay", 200, `{}`},
-		{"null delay", 200, `{"cdnRetryDelay":null}`},
-		{"invalid delay", 200, `{"cdnRetryDelay":"` + secret + `"}`},
-		{"negative delay", 200, `{"cdnRetryDelay":"-1s"}`},
-		{"overflowing delay", 200, `{"cdnRetryDelay":"10000000000s"}`},
+		{"transport error", 0, errors.New("transport leaked " + secret), "module registration request failed"},
+		{"timeout", 0, context.DeadlineExceeded, "module registration request timed out"},
+		{"redirect to GET", http.StatusFound, nil, "module registration: HTTP 302"},
+		{"redirect preserving POST", http.StatusTemporaryRedirect, nil, "module registration: HTTP 307"},
+		{"forbidden", http.StatusForbidden, nil, "module registration: HTTP 403"},
+		{"rate limited", http.StatusTooManyRequests, nil, "module registration: HTTP 429"},
+		{"unavailable", http.StatusServiceUnavailable, nil, "module registration: HTTP 503"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _, _, calls := registrationFixture(t, "https://resolver.test", func(*http.Request) (*http.Response, error) {
-				r := response(tc.status, tc.body)
+			attempts := 0
+			f, c, calls := registrationFixture(t, func(*http.Request) (*http.Response, error) {
+				attempts++
+				if attempts == 3 {
+					return response(http.StatusAccepted, ""), nil
+				}
+				if tc.err != nil {
+					return nil, tc.err
+				}
+				r := response(tc.status, secret)
+				r.Status = "untrusted reason: " + secret
 				r.Header.Set("Location", "https://redirect.test/"+secret)
 				return r, nil
 			})
-			for range 2 {
+			poll := func(wantErr error, wantMessage, wantCalls string) {
+				t.Helper()
+				*calls = nil
 				_, err := f.Fetch(context.Background())
 				var terminal *TerminalError
-				if !errors.As(err, &terminal) || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "resolver.test") {
-					t.Fatalf("Fetch: expected a sanitized terminal error, got %v", err)
+				if !errors.Is(err, wantErr) || errors.As(err, &terminal) || err.Error() != wantMessage || strings.Join(*calls, " ") != wantCalls {
+					t.Fatalf("Fetch: err=%v calls=%v, want %q and %q", err, *calls, wantMessage, wantCalls)
 				}
 			}
-			if got := strings.Join(*calls, " "); got != "GET POST GET" {
-				t.Errorf("requests: %s", got)
-			}
+			failure := ErrNotPublished.Error() + ": " + tc.want
+			poll(ErrNotPublished, failure, "GET POST")
+			poll(ErrNotPublished, failure, "GET POST")
+			c.status = http.StatusNotModified
+			poll(ErrNotModified, ErrNotModified.Error(), "GET")
+			c.status = http.StatusNotFound
+			poll(ErrNotPublished, ErrNotPublished.Error(), "GET POST")
+			poll(ErrNotPublished, ErrNotPublished.Error(), "GET")
 		})
+	}
+}
+
+func TestRegistrationSkipsPOSTWhenFetchCanceledAfterCDNMiss(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f, _, calls := registrationFixture(t, func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, ""), nil
+	})
+	transport := f.client.Transport
+	f.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		resp, err := transport.RoundTrip(r)
+		cancel()
+		return resp, err
+	})
+	if _, err := f.Fetch(ctx); !errors.Is(err, context.Canceled) || strings.Join(*calls, " ") != "GET" {
+		t.Fatalf("canceled Fetch: err=%v calls=%v, want cancellation and no POST", err, *calls)
+	}
+	f.client.Transport = transport
+	if _, err := f.Fetch(context.Background()); !errors.Is(err, ErrNotPublished) || strings.Join(*calls, " ") != "GET GET POST" {
+		t.Fatalf("next Fetch: err=%v calls=%v, want ErrNotPublished and first POST", err, *calls)
 	}
 }
 
 func TestRegistrationUsesFetchContext(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Second))
 	defer cancel()
-	f, _, _, _ := registrationFixture(t, "", func(r *http.Request) (*http.Response, error) {
+	f, _, _ := registrationFixture(t, func(r *http.Request) (*http.Response, error) {
 		got, _ := r.Context().Deadline()
 		want, _ := ctx.Deadline()
 		if !got.Equal(want) {
