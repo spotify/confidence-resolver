@@ -4,7 +4,7 @@
 .PHONY: build test test-e2e lint clean proto
 
 build:
-	mvn -q package -DskipTests
+	mvn -q verify -DskipTests
 	@j="$$(ls target/openfeature-provider-local-*.jar | grep -v original | head -1)"; \
 	jar tf "$$j" | grep -q 'com/spotify/confidence/sdk/shaded/run/endive/' \
 		|| (echo "shading broken: run.endive not relocated in $$j" && exit 1); \

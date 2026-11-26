@@ -4,6 +4,7 @@
   "versioning": "prerelease",
   "prerelease": true,
   "prerelease-type": "rc1",
+  "bootstrap-sha": "e3d70e49470e98c9ba94db58f346caa600c29c4a",
   "pull-request-footer": "> **Post-release reminder:** After merging this PR, remember to update internal version registries with the new version numbers.",
   "separate-pull-requests": true,
   "packages": {

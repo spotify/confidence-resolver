@@ -21,6 +21,13 @@ release candidates (`versioning: prerelease`, `prerelease-type: rc`), e.g.
 run in the **`deployment` GitHub environment**. npm releases must publish rcs under a dist-tag
 (`--tag next`) so they don't become `latest`.
 
+`bootstrap-sha` is the main/next branch point, so changelogs only collect `next`'s commits.
+
+- **Java**: `publish-java-provider-release` runs when Release Please cuts a java release. It checks
+  out the release tag and builds the Dockerfile's `openfeature-provider-java.publish` stage, which
+  signs and `mvn deploy`s the rc to Maven Central. The Maven settings and GPG key and passphrase
+  are mounted as Docker secrets.
+
 ### Post-release
 
 After a release is published, remember to update internal version registries with the new version numbers.

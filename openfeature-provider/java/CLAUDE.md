@@ -33,7 +33,7 @@ edit; `make proto` regenerates). Test modules come from `../testdata/modules`. E
 ## Build & Test
 
 ```bash
-make build      # mvn package -DskipTests (shaded jar)
+make build      # mvn verify -DskipTests (shaded jar + dependency analysis)
 make test       # unit tests (excludes *E2ETest)
 make test-e2e   # needs CONFIDENCE_CLIENT_SECRET and CONFIDENCE_CLIENT_ENCRYPTION_KEY
 make lint       # mvn fmt:check
