@@ -50,6 +50,52 @@ fi
 # them as plaintext readable by anyone with dashboard or API read access to
 # the Worker.
 
+# Fingerprint of everything this run would put into the worker besides the
+# resolver state: secrets, [vars] inputs, queue settings and wrangler
+# overrides. Stored on the worker as DEPLOY_CONFIG_HASH and compared on the
+# next run, so a rotated secret or changed setting redeploys even when the
+# state is unchanged — without the caller having to know to set FORCE_DEPLOY.
+# It is an HMAC keyed with the client secret, so the stored value cannot be
+# brute-forced back into the secrets it covers. Computed before the
+# resolve-token key is auto-generated: only an operator-supplied key counts.
+# Values are passed through the environment, never argv.
+deploy_config_hash() {
+    HASH_KEY="$CONFIDENCE_CLIENT_SECRET" \
+    HASH_WORKDIR="$INITIAL_WORKDIR" \
+    RESOLVE_TOKEN_ENCRYPTION_KEY="$RESOLVE_TOKEN_ENCRYPTION_KEY" \
+    CONFIDENCE_RESOLVER_ALLOWED_ORIGIN="$CONFIDENCE_RESOLVER_ALLOWED_ORIGIN" \
+    FORCE_APPLY="$FORCE_APPLY" \
+    ENABLE_APPLY_DEDUP="$ENABLE_APPLY_DEDUP" \
+    FLAG_LOG_SINK="${FLAG_LOG_SINK:-}" \
+    FLAG_LOGS_QUEUE_COUNT="${FLAG_LOGS_QUEUE_COUNT:-}" \
+    FLAG_LOGS_CONSUMER_CONCURRENCY="${FLAG_LOGS_CONSUMER_CONCURRENCY:-}" \
+    ENABLE_STICKY_ASSIGNMENTS="$ENABLE_STICKY_ASSIGNMENTS" \
+    ENABLE_METRICS="${ENABLE_METRICS:-}" \
+    WRANGLER_DEPLOY_ARGS="$WRANGLER_DEPLOY_ARGS" \
+    WRANGLER_CONFIG_APPEND_FILE="$WRANGLER_CONFIG_APPEND_FILE" \
+    WRANGLER_DEPLOY_ARGS_FILE="$WRANGLER_DEPLOY_ARGS_FILE" \
+    node -e '
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+const env = process.env;
+const file = (p) => {
+  if (!p) return "";
+  try { return fs.readFileSync(path.resolve(env.HASH_WORKDIR, p), "utf8"); } catch { return "<unreadable>"; }
+};
+const parts = [
+  "RESOLVE_TOKEN_ENCRYPTION_KEY", "CONFIDENCE_RESOLVER_ALLOWED_ORIGIN", "FORCE_APPLY",
+  "ENABLE_APPLY_DEDUP", "FLAG_LOG_SINK", "FLAG_LOGS_QUEUE_COUNT",
+  "FLAG_LOGS_CONSUMER_CONCURRENCY", "ENABLE_STICKY_ASSIGNMENTS", "ENABLE_METRICS",
+  "WRANGLER_DEPLOY_ARGS",
+].map((n) => [n, env[n] || ""]);
+parts.push(["WRANGLER_CONFIG_APPEND_FILE", file(env.WRANGLER_CONFIG_APPEND_FILE)]);
+parts.push(["WRANGLER_DEPLOY_ARGS_FILE", file(env.WRANGLER_DEPLOY_ARGS_FILE)]);
+console.log(crypto.createHmac("sha256", env.HASH_KEY).update(JSON.stringify(parts)).digest("hex"));
+'
+}
+DEPLOY_CONFIG_HASH=$(deploy_config_hash)
+
 # Auto-detect Cloudflare account ID from token if not provided
 if test -z "$CLOUDFLARE_ACCOUNT_ID"; then
     echo "🔍 Auto-detecting Cloudflare account ID from API token..."
@@ -124,41 +170,55 @@ fi
 
 mkdir -p data
 
-# Print the type of the named binding on the worker, read from the worker's
-# settings (which list secret and var bindings alike). Shared by the
-# resolve-token key check and the skip-path client-secret repair; each caller
-# decides its own policy for an inconclusive answer. Prints one of:
-#   secret_text | plain_text | absent  — the binding's state on the worker
+# Cached read of the worker's settings, which list secret and var bindings
+# alike. The resolve-token key check, the deploy config fingerprint and the
+# skip-path client-secret repair all read the same endpoint, so the response
+# is fetched at most once per run. The readers run inside command
+# substitutions and cannot write a cache variable back, so call this in the
+# main shell first; the readers parse the WORKER_SETTINGS they inherit.
+worker_settings() {
+    if [ -z "${WORKER_SETTINGS:-}" ]; then
+        WORKER_SETTINGS=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || WORKER_SETTINGS="000"
+    fi
+}
+
+# Print a field ("type" or "text") of the named binding on the worker, read
+# from the cached worker settings. Each caller decides its own policy for an
+# inconclusive answer. Prints one of:
+#   <field value> | absent  — the binding's state on the worker
 #   no_worker  — Cloudflare confirms the worker does not exist yet (10007)
 #   unknown    — could not be determined (API error, timeout, bad response,
 #                jq missing); details go to stderr
-worker_binding_type() {
+# A jq failure or an empty field reads as "unknown" in both modes, never as
+# a value: an unparseable response must stay inconclusive, or the deploy
+# config fingerprint would see a phantom change and force a redeploy.
+worker_binding_field() {
     local binding_name="$1"
+    local field="$2"
     local settings_resp
     local settings_status
     local settings_body
-    local binding_type
+    local binding_value
     if ! command -v jq >/dev/null 2>&1; then
         echo "⚠️ jq unavailable; cannot read worker bindings" >&2
         echo "unknown"
         return 0
     fi
-    settings_resp=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || settings_resp="000"
+    settings_resp="${WORKER_SETTINGS:-}"
     settings_status="${settings_resp: -3}"
     settings_body="${settings_resp%???}"
     case "$settings_status" in
         200)
-            binding_type=$(printf "%s" "$settings_body" | jq -r --arg n "$binding_name" \
-                '[.result.bindings[]? | select(.name == $n) | .type][0] // "absent"' 2>/dev/null) || binding_type="error"
-            case "$binding_type" in
-                secret_text|plain_text|absent) echo "$binding_type" ;;
-                *)
-                    echo "⚠️ Could not parse the worker settings response" >&2
-                    echo "unknown"
-                    ;;
-            esac
+            binding_value=$(printf "%s" "$settings_body" | jq -r --arg n "$binding_name" --arg f "$field" \
+                '[.result.bindings[]? | select(.name == $n) | .[$f]][0] // "absent"' 2>/dev/null) || binding_value="error"
+            if [ -n "$binding_value" ] && [ "$binding_value" != "error" ]; then
+                echo "$binding_value"
+            else
+                echo "⚠️ Could not parse the worker settings response" >&2
+                echo "unknown"
+            fi
             ;;
         404)
             # Only Cloudflare's worker-not-found codes mean the worker is
@@ -179,6 +239,20 @@ worker_binding_type() {
     esac
 }
 
+# Type of the named binding: secret_text | plain_text | absent, or the
+# inconclusive sentinels above.
+worker_binding_type() {
+    worker_binding_field "$1" "type"
+}
+
+# Value of a plaintext var binding on the worker, "absent" when the worker
+# has no such binding. A secret binding carries no readable text and also
+# reads as "absent" — callers that must tell the two apart use
+# worker_binding_type.
+worker_var_value() {
+    worker_binding_field "$1" "text"
+}
+
 # --- Resolve Token Encryption Key ---
 # Auto-generate only when the worker is confirmed to have no key. The key is
 # stored as a Cloudflare Worker secret so it persists across deploys.
@@ -193,6 +267,7 @@ if test -n "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
     SET_SECRET_AFTER_DEPLOY="true"
 else
     echo "🔍 Checking for existing RESOLVE_TOKEN_ENCRYPTION_KEY on worker '$WORKER_NAME'..."
+    worker_settings
     KEY_BINDING=$(worker_binding_type "RESOLVE_TOKEN_ENCRYPTION_KEY")
     case "$KEY_BINDING" in
         secret_text|plain_text)
@@ -261,6 +336,7 @@ ensure_worker_secret() {
     local secret_name="$1"
     local secret_text="$2"
     local binding_type
+    worker_settings
     binding_type=$(worker_binding_type "$secret_name")
     case "$binding_type" in
         secret_text)
@@ -360,7 +436,33 @@ if [ -n "$DEPLOYER_VERSION" ] && { [ -z "$PREV_DEPLOYER_VERSION" ] || [ "$PREV_D
     echo "☑️ Deployer version changed ($PREV_DEPLOYER_VERSION -> $DEPLOYER_VERSION); forcing state download and redeploy"
     FORCE_DEPLOY=1
 fi
- 
+
+# If the deploy config changed (a rotated secret, a changed setting), force a
+# redeploy even though the resolver state may be unchanged. A worker with no
+# stored fingerprint (deployed by an older deployer) is redeployed once. An
+# inconclusive read does not force: the next scheduled run retries, and a
+# Cloudflare API blip must not turn every run into a deploy.
+if [ -z "$FORCE_DEPLOY" ] && [ -n "$PREV_ETAG" ]; then
+    worker_settings
+    PREV_DEPLOY_CONFIG_HASH=$(worker_var_value "DEPLOY_CONFIG_HASH")
+    case "$PREV_DEPLOY_CONFIG_HASH" in
+        "$DEPLOY_CONFIG_HASH")
+            echo "✅ Deploy config unchanged"
+            ;;
+        unknown|no_worker)
+            echo "⚠️ Could not read the deployed config fingerprint; not forcing a redeploy on this run" >&2
+            ;;
+        absent)
+            echo "☑️ No config fingerprint stored on the worker yet; forcing redeploy"
+            FORCE_DEPLOY=1
+            ;;
+        *)
+            echo "☑️ Deploy config changed since the last deploy; forcing redeploy"
+            FORCE_DEPLOY=1
+            ;;
+    esac
+fi
+
 if [ -n "$PREV_ETAG" ]; then
     if [ -z "$FORCE_DEPLOY" ]; then
         EXTRA_HEADER+=("-H" "If-None-Match: $PREV_ETAG")
@@ -887,17 +989,18 @@ if [ -n "$ENABLE_APPLY_DEDUP" ]; then
 fi
 
 # Update [vars] without duplicating the table.
-if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
+if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSION" ] || [ -n "$DEPLOY_CONFIG_HASH" ] || [ -n "$FORCE_APPLY" ] || [ -n "$ENABLE_APPLY_DEDUP" ] || [ -n "$FLAG_LOG_SINK" ]; then
     # Remove any existing definitions to avoid duplicates
     sed -i.tmp '/^ALLOWED_ORIGIN *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_STATE_ETAG *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^RESOLVER_VERSION *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^DEPLOYER_VERSION *= *.*$/d' wrangler.toml || true
+    sed -i.tmp '/^DEPLOY_CONFIG_HASH *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^CONFIDENCE_CLIENT_SECRET *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^FORCE_APPLY *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^ENABLE_APPLY_DEDUP *= *.*$/d' wrangler.toml || true
     sed -i.tmp '/^FLAG_LOG_SINK *= *.*$/d' wrangler.toml || true
-    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" '
+    awk -v allowed="${ALLOWED_ORIGIN_TOML}" -v etag="${ETAG_TOML}" -v version="${DEPLOYER_VERSION}" -v force_apply="${FORCE_APPLY}" -v enable_apply_dedup="${ENABLE_APPLY_DEDUP}" -v flag_log_sink="${FLAG_LOG_SINK}" -v config_hash="${DEPLOY_CONFIG_HASH}" '
         BEGIN{inserted=0}
         {
             print $0
@@ -905,6 +1008,7 @@ if [ -n "$ALLOWED_ORIGIN_TOML" ] || [ -n "$ETAG_TOML" ] || [ -n "$DEPLOYER_VERSI
                 if (allowed != "") print "ALLOWED_ORIGIN = \"" allowed "\""
                 if (etag != "") print "RESOLVER_STATE_ETAG = \"" etag "\""
                 if (version != "") print "DEPLOYER_VERSION = \"" version "\""
+                if (config_hash != "") print "DEPLOY_CONFIG_HASH = \"" config_hash "\""
                 if (force_apply != "") print "FORCE_APPLY = \"" force_apply "\""
                 if (enable_apply_dedup != "") print "ENABLE_APPLY_DEDUP = \"" enable_apply_dedup "\""
                 if (flag_log_sink != "") print "FLAG_LOG_SINK = \"" flag_log_sink "\""

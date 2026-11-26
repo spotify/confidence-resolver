@@ -367,6 +367,7 @@ set -euo pipefail
 ALLOWED_ORIGIN_TOML="https://example.com"
 ETAG_TOML="etag-123"
 DEPLOYER_VERSION="v1.2.3"
+DEPLOY_CONFIG_HASH="abc123"
 FORCE_APPLY=""
 ENABLE_APPLY_DEDUP=""
 FLAG_LOG_SINK="queue"
@@ -380,6 +381,7 @@ ${awkMatch[0]}
     assert.match(config, /ALLOWED_ORIGIN = "https:\/\/example\.com"/);
     assert.match(config, /RESOLVER_STATE_ETAG = "etag-123"/);
     assert.match(config, /DEPLOYER_VERSION = "v1\.2\.3"/);
+    assert.match(config, /DEPLOY_CONFIG_HASH = "abc123"/);
     assert.match(config, /FLAG_LOG_SINK = "queue"/);
     assert.doesNotMatch(config, /^CONFIDENCE_CLIENT_SECRET *=/m);
   } finally {
@@ -523,10 +525,12 @@ test('the ETag-skip path repairs a worker missing the client secret', () => {
 // -r binding classification with the baked value (secret_text / plain_text /
 // absent); GET_STATUS and PUT_STATUS are what the stubbed settings GET and
 // secret PUT return respectively.
-const WORKER_BINDING_TYPE = (() => {
+const WORKER_BINDING_FNS = (() => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
-  const match = script.match(/^worker_binding_type\(\) \{[\s\S]*?^\}/m);
-  assert.ok(match, 'could not find worker_binding_type in script.sh');
+  // The four binding-read helpers are contiguous in script.sh; one regex
+  // grabs them through worker_var_value's closing brace.
+  const match = script.match(/^worker_settings\(\) \{[\s\S]*?^worker_var_value\(\) \{[\s\S]*?^\}/m);
+  assert.ok(match, 'could not find the worker binding helpers in script.sh');
   return match[0];
 })();
 
@@ -583,7 +587,7 @@ CLOUDFLARE_ACCOUNT_ID=acct123
 WORKER_NAME=worker-test
 ${STORE_WORKER_SECRET}
 
-${WORKER_BINDING_TYPE}
+${WORKER_BINDING_FNS}
 
 ${ENSURE_WORKER_SECRET}
 ensure_worker_secret "CONFIDENCE_CLIENT_SECRET" "super-secret-value"
@@ -733,12 +737,12 @@ test('the secrets file cleanup trap is armed before first use', () => {
 test('the repair curls carry connect/max timeouts', () => {
   const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
   const storeFn = script.match(/^store_worker_secret\(\) \{[\s\S]*?^\}/m);
-  const lookupFn = script.match(/^worker_binding_type\(\) \{[\s\S]*?^\}/m);
+  const settingsFn = script.match(/^worker_settings\(\) \{[\s\S]*?^\}/m);
   assert.ok(storeFn, 'store_worker_secret not found');
-  assert.ok(lookupFn, 'worker_binding_type not found');
+  assert.ok(settingsFn, 'worker_settings not found');
   assert.match(storeFn[0], /--connect-timeout 10 --max-time 30/,
     'the secret PUT must have timeouts');
-  assert.match(lookupFn[0], /--connect-timeout 10 --max-time 30/,
+  assert.match(settingsFn[0], /--connect-timeout 10 --max-time 30/,
     'the settings GET must have timeouts');
 });
 
@@ -770,7 +774,7 @@ CLOUDFLARE_API_TOKEN=tok
 CLOUDFLARE_ACCOUNT_ID=acct123
 WORKER_NAME=worker-test
 RESOLVE_TOKEN_ENCRYPTION_KEY="${providedKey}"
-${WORKER_BINDING_TYPE}
+${WORKER_BINDING_FNS}
 ${RESOLVE_KEY_BLOCK}
 echo "SET_SECRET=$SET_SECRET_AFTER_DEPLOY KEY_LEN=\${#RESOLVE_TOKEN_ENCRYPTION_KEY}"
 `], { encoding: 'utf8', timeout: 5000 });
@@ -849,4 +853,141 @@ test('resolve key: provided explicitly → no lookup at all', () => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /RESOLVE_TOKEN_ENCRYPTION_KEY provided/);
   assert.doesNotMatch(r.stdout, /Checking for existing/);
+});
+
+// --- Deploy config fingerprint ---
+
+// The fingerprint is what makes a rotated secret or changed setting redeploy
+// when the resolver state is unchanged; without it, skipping on 304 would
+// leave the worker on stale config until the next flag change.
+const DEPLOY_CONFIG_HASH_FN = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  // The embedded node program closes with its own column-0 "};" line, so
+  // anchor on the call site instead of the first column-0 "}".
+  const match = script.match(/^deploy_config_hash\(\) \{[\s\S]*?(?=^DEPLOY_CONFIG_HASH=\$\(deploy_config_hash\)$)/m);
+  assert.ok(match, 'could not find deploy_config_hash in script.sh');
+  return match[0];
+})();
+
+const CONFIG_FORCE_BLOCK = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/# If the deploy config changed[\s\S]*?^fi$/m);
+  assert.ok(match, 'could not find the deploy config force block');
+  return match[0];
+})();
+
+function configHash(overrides = {}) {
+  const vars = {
+    CONFIDENCE_CLIENT_SECRET: 'secret-1', INITIAL_WORKDIR: '/tmp',
+    RESOLVE_TOKEN_ENCRYPTION_KEY: '', CONFIDENCE_RESOLVER_ALLOWED_ORIGIN: '',
+    FORCE_APPLY: '', ENABLE_APPLY_DEDUP: '', ENABLE_STICKY_ASSIGNMENTS: '',
+    WRANGLER_DEPLOY_ARGS: '', WRANGLER_CONFIG_APPEND_FILE: '', WRANGLER_DEPLOY_ARGS_FILE: '',
+    ...overrides,
+  };
+  const assigns = Object.entries(vars).map(([k, v]) => `${k}='${v}'`).join('\n');
+  const r = runBash(`set -euo pipefail\n${assigns}\n${DEPLOY_CONFIG_HASH_FN}\ndeploy_config_hash`);
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.trim();
+}
+
+test('deploy config hash is a stable hex HMAC that never contains the secret', () => {
+  const h = configHash();
+  assert.match(h, /^[0-9a-f]{64}$/);
+  assert.equal(configHash(), h, 'same config must hash the same');
+  assert.ok(!h.includes('secret-1'));
+});
+
+test('deploy config hash changes on secret rotation and setting changes', () => {
+  const base = configHash();
+  assert.notEqual(configHash({ CONFIDENCE_CLIENT_SECRET: 'secret-2' }), base, 'client secret rotation');
+  assert.notEqual(configHash({ RESOLVE_TOKEN_ENCRYPTION_KEY: 'k2' }), base, 'resolve key rotation');
+  assert.notEqual(configHash({ FLAG_LOG_SINK: 'buffer' }), base, 'FLAG_LOG_SINK');
+  assert.notEqual(configHash({ CONFIDENCE_RESOLVER_ALLOWED_ORIGIN: 'https://x' }), base, 'ALLOWED_ORIGIN');
+  assert.notEqual(configHash({ FLAG_LOGS_QUEUE_COUNT: '2' }), base, 'queue count');
+});
+
+test('deploy config hash covers the append file contents', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'config-hash-test-'));
+  try {
+    writeFileSync(join(directory, 'extra.toml'), 'a = 1\n');
+    const one = configHash({ INITIAL_WORKDIR: directory, WRANGLER_CONFIG_APPEND_FILE: 'extra.toml' });
+    writeFileSync(join(directory, 'extra.toml'), 'a = 2\n');
+    const two = configHash({ INITIAL_WORKDIR: directory, WRANGLER_CONFIG_APPEND_FILE: 'extra.toml' });
+    assert.notEqual(one, two);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('config force fires on change and on fingerprintless workers, not on match or blip', () => {
+  const run = (stored, { prevEtag = 'e1', force = '' } = {}) => runBash(`
+set -euo pipefail
+worker_settings() { :; }
+worker_var_value() { echo "${stored}"; }
+PREV_ETAG="${prevEtag}"
+DEPLOY_CONFIG_HASH="h1"
+FORCE_DEPLOY="${force}"
+${CONFIG_FORCE_BLOCK}
+[ -n "$FORCE_DEPLOY" ] && echo FORCED || echo NOT_FORCED
+`);
+  // Anchored: a bare /FORCED/ also matches NOT_FORCED, so an unfixed block
+  // would pass the two "must force" assertions without ever forcing.
+  assert.match(run('h1').stdout, /^NOT_FORCED$/m, 'matching fingerprint must not force');
+  assert.match(run('h0').stdout, /^FORCED$/m, 'changed fingerprint must force');
+  assert.match(run('absent').stdout, /^FORCED$/m, 'a worker without a fingerprint must force once');
+  assert.match(run('unknown').stdout, /^NOT_FORCED$/m, 'an API blip must not force');
+  assert.match(run('h0', { prevEtag: '' }).stdout, /^NOT_FORCED$/m, 'no previous etag: nothing to skip, no lookup needed');
+});
+
+test('binding reads share one settings fetch, and a bad body stays inconclusive in both modes', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'binding-reads-test-'));
+  try {
+    writeFileSync(join(directory, 'body'), '');
+    writeFileSync(join(directory, 'curl'), `#!/bin/bash
+echo ok >> "$STUB_DIR/fetches"
+cat "$STUB_DIR/body"; echo -n "$SETTINGS_STATUS"
+`, { mode: 0o755 });
+    const run = (body, status) => {
+      writeFileSync(join(directory, 'body'), body);
+      writeFileSync(join(directory, 'fetches'), '');
+      return runBash(`
+set -euo pipefail
+export PATH="${directory}:$PATH"
+export STUB_DIR="${directory}"
+export SETTINGS_STATUS="${status}"
+CLOUDFLARE_API_TOKEN=tok
+CLOUDFLARE_ACCOUNT_ID=acct
+WORKER_NAME=w
+${WORKER_BINDING_FNS}
+worker_settings
+worker_binding_type CONFIDENCE_CLIENT_SECRET
+worker_var_value DEPLOY_CONFIG_HASH
+echo "fetches=$(wc -l < "$STUB_DIR/fetches" | tr -d ' ')"
+`, { STUB_DIR: directory, SETTINGS_STATUS: status });
+    };
+    const good = JSON.stringify({ result: { bindings: [
+      { name: 'CONFIDENCE_CLIENT_SECRET', type: 'secret_text' },
+      { name: 'DEPLOY_CONFIG_HASH', type: 'plain_text', text: 'h1' },
+    ] } });
+    const goodRun = run(good, '200');
+    assert.equal(goodRun.status, 0, goodRun.stderr);
+    assert.match(goodRun.stdout, /secret_text/);
+    assert.match(goodRun.stdout, /h1/);
+    assert.match(goodRun.stdout, /fetches=1/, 'both reads must share one settings fetch');
+
+    // An unparseable 200 body must read as unknown for the value too: the
+    // old text mode returned jq's "error" sentinel as if it were a value,
+    // and the config fingerprint treated it as a change and forced a redeploy.
+    const badRun = run('<html>blip</html>', '200');
+    assert.equal(badRun.status, 0, badRun.stderr);
+    assert.match(badRun.stdout, /unknown/);
+    assert.doesNotMatch(badRun.stdout, /error/, 'the jq failure sentinel must not leak as a value');
+    assert.match(badRun.stdout, /fetches=1/);
+
+    const missingRun = run(JSON.stringify({ errors: [{ code: 10007 }] }), '404');
+    assert.match(missingRun.stdout, /no_worker/);
+    assert.match(missingRun.stdout, /fetches=1/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

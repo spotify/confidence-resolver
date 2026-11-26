@@ -51,7 +51,7 @@ The deployer automatically:
 * **Detects Cloudflare account ID** from your API token
 * **Creates the queue** (`flag-logs-queue`) if it doesn't exist
 * **Fetches resolver state** from Confidence CDN
-* **Skips deployment** if state hasn't changed (using ETags)
+* **Skips deployment** if state hasn't changed (using ETags) — unless the deploy config changed: a keyed fingerprint (`DEPLOY_CONFIG_HASH`) of the secrets, settings and wrangler overrides is stored on the Worker, so a rotated secret or changed variable redeploys on the next run without `FORCE_DEPLOY`
 * **Stores `CONFIDENCE_CLIENT_SECRET` as a Cloudflare Worker secret** — uploaded with each deploy via `--secrets-file` and re-checked on ETag-skip runs, never written into the generated `wrangler.toml` `[vars]`, so it never appears in deploy logs or as a plaintext variable readable from the Cloudflare dashboard or API
 
 > **Note:** The deployer does not poll for changes. Each run fetches the current state from Confidence, deploys the Worker if the state has changed, and then exits. To keep the Worker up to date, run the deployer on a schedule (for example, via a cron job) or trigger it when flag rules or targeting changes are made in Confidence.
