@@ -82,7 +82,7 @@ const env = process.env;
 const file = (p) => {
   if (!p) return "";
   try { return fs.readFileSync(path.resolve(env.HASH_WORKDIR, p), "utf8"); } catch { return "<unreadable>"; }
-  };
+};
 const parts = [
   "RESOLVE_TOKEN_ENCRYPTION_KEY", "CONFIDENCE_RESOLVER_ALLOWED_ORIGIN", "FORCE_APPLY",
   "ENABLE_APPLY_DEDUP", "FLAG_LOG_SINK", "FLAG_LOGS_QUEUE_COUNT",
@@ -170,45 +170,55 @@ fi
 
 mkdir -p data
 
-# Print the type of the named binding on the worker, read from the worker's
-# settings (which list secret and var bindings alike). Shared by the
-# resolve-token key check, the skip-path client-secret repair and the deploy
-# config fingerprint; each caller decides its own policy for an inconclusive
-# answer. With a second argument "text", prints a plaintext var's value
-# instead of the type ("absent" if the var is missing). Prints one of:
-#   secret_text | plain_text | absent  — the binding's state on the worker
+# Cached read of the worker's settings, which list secret and var bindings
+# alike. The resolve-token key check, the deploy config fingerprint and the
+# skip-path client-secret repair all read the same endpoint, so the response
+# is fetched at most once per run. The readers run inside command
+# substitutions and cannot write a cache variable back, so call this in the
+# main shell first; the readers parse the WORKER_SETTINGS they inherit.
+worker_settings() {
+    if [ -z "${WORKER_SETTINGS:-}" ]; then
+        WORKER_SETTINGS=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || WORKER_SETTINGS="000"
+    fi
+}
+
+# Print a field ("type" or "text") of the named binding on the worker, read
+# from the cached worker settings. Each caller decides its own policy for an
+# inconclusive answer. Prints one of:
+#   <field value> | absent  — the binding's state on the worker
 #   no_worker  — Cloudflare confirms the worker does not exist yet (10007)
 #   unknown    — could not be determined (API error, timeout, bad response,
 #                jq missing); details go to stderr
-worker_binding_type() {
+# A jq failure or an empty field reads as "unknown" in both modes, never as
+# a value: an unparseable response must stay inconclusive, or the deploy
+# config fingerprint would see a phantom change and force a redeploy.
+worker_binding_field() {
     local binding_name="$1"
-    local field="${2:-type}"
+    local field="$2"
     local settings_resp
     local settings_status
     local settings_body
-    local binding_type
+    local binding_value
     if ! command -v jq >/dev/null 2>&1; then
         echo "⚠️ jq unavailable; cannot read worker bindings" >&2
         echo "unknown"
         return 0
     fi
-    settings_resp=$(curl -sS -w "%{http_code}" --connect-timeout 10 --max-time 30 \
-        -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-        "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings" 2>/dev/null) || settings_resp="000"
+    settings_resp="${WORKER_SETTINGS:-}"
     settings_status="${settings_resp: -3}"
     settings_body="${settings_resp%???}"
     case "$settings_status" in
         200)
-            binding_type=$(printf "%s" "$settings_body" | jq -r --arg n "$binding_name" --arg f "$field" \
-                '[.result.bindings[]? | select(.name == $n) | .[$f]][0] // "absent"' 2>/dev/null) || binding_type="error"
-            case "$field:$binding_type" in
-                type:secret_text|type:plain_text|type:absent) echo "$binding_type" ;;
-                text:?*) echo "$binding_type" ;;
-                *)
-                    echo "⚠️ Could not parse the worker settings response" >&2
-                    echo "unknown"
-                    ;;
-            esac
+            binding_value=$(printf "%s" "$settings_body" | jq -r --arg n "$binding_name" --arg f "$field" \
+                '[.result.bindings[]? | select(.name == $n) | .[$f]][0] // "absent"' 2>/dev/null) || binding_value="error"
+            if [ -n "$binding_value" ] && [ "$binding_value" != "error" ]; then
+                echo "$binding_value"
+            else
+                echo "⚠️ Could not parse the worker settings response" >&2
+                echo "unknown"
+            fi
             ;;
         404)
             # Only Cloudflare's worker-not-found codes mean the worker is
@@ -229,6 +239,20 @@ worker_binding_type() {
     esac
 }
 
+# Type of the named binding: secret_text | plain_text | absent, or the
+# inconclusive sentinels above.
+worker_binding_type() {
+    worker_binding_field "$1" "type"
+}
+
+# Value of a plaintext var binding on the worker, "absent" when the worker
+# has no such binding. A secret binding carries no readable text and also
+# reads as "absent" — callers that must tell the two apart use
+# worker_binding_type.
+worker_var_value() {
+    worker_binding_field "$1" "text"
+}
+
 # --- Resolve Token Encryption Key ---
 # Auto-generate only when the worker is confirmed to have no key. The key is
 # stored as a Cloudflare Worker secret so it persists across deploys.
@@ -243,6 +267,7 @@ if test -n "$RESOLVE_TOKEN_ENCRYPTION_KEY"; then
     SET_SECRET_AFTER_DEPLOY="true"
 else
     echo "🔍 Checking for existing RESOLVE_TOKEN_ENCRYPTION_KEY on worker '$WORKER_NAME'..."
+    worker_settings
     KEY_BINDING=$(worker_binding_type "RESOLVE_TOKEN_ENCRYPTION_KEY")
     case "$KEY_BINDING" in
         secret_text|plain_text)
@@ -311,6 +336,7 @@ ensure_worker_secret() {
     local secret_name="$1"
     local secret_text="$2"
     local binding_type
+    worker_settings
     binding_type=$(worker_binding_type "$secret_name")
     case "$binding_type" in
         secret_text)
@@ -417,7 +443,8 @@ fi
 # inconclusive read does not force: the next scheduled run retries, and a
 # Cloudflare API blip must not turn every run into a deploy.
 if [ -z "$FORCE_DEPLOY" ] && [ -n "$PREV_ETAG" ]; then
-    PREV_DEPLOY_CONFIG_HASH=$(worker_binding_type "DEPLOY_CONFIG_HASH" text)
+    worker_settings
+    PREV_DEPLOY_CONFIG_HASH=$(worker_var_value "DEPLOY_CONFIG_HASH")
     case "$PREV_DEPLOY_CONFIG_HASH" in
         "$DEPLOY_CONFIG_HASH")
             echo "✅ Deploy config unchanged"
@@ -425,13 +452,17 @@ if [ -z "$FORCE_DEPLOY" ] && [ -n "$PREV_ETAG" ]; then
         unknown|no_worker)
             echo "⚠️ Could not read the deployed config fingerprint; not forcing a redeploy on this run" >&2
             ;;
+        absent)
+            echo "☑️ No config fingerprint stored on the worker yet; forcing redeploy"
+            FORCE_DEPLOY=1
+            ;;
         *)
             echo "☑️ Deploy config changed since the last deploy; forcing redeploy"
             FORCE_DEPLOY=1
             ;;
     esac
 fi
- 
+
 if [ -n "$PREV_ETAG" ]; then
     if [ -z "$FORCE_DEPLOY" ]; then
         EXTRA_HEADER+=("-H" "If-None-Match: $PREV_ETAG")
