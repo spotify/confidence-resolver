@@ -2,8 +2,12 @@ package com.spotify.confidence.sdk.internal.engine;
 
 import com.spotify.confidence.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.flags.resolver.v1.ResolveFlagsResponse;
+import com.spotify.confidence.flags.wasm.v1.Counter;
 import com.spotify.confidence.flags.wasm.v1.EvaluateRequest;
+import com.spotify.confidence.flags.wasm.v1.ModuleTrapCause;
 import com.spotify.confidence.flags.wasm.v1.ResolutionDetails;
+import com.spotify.confidence.flags.wasm.v1.ResolverTelemetry;
+import com.spotify.confidence.flags.wasm.v1.WriteFlagLogsRequest;
 import com.spotify.confidence.sdk.internal.cdn.CdnException;
 import com.spotify.confidence.sdk.internal.cdn.CdnFetcher;
 import com.spotify.confidence.sdk.internal.cdn.NotModifiedException;
@@ -24,6 +28,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -62,6 +68,16 @@ public final class Engine {
   private final AtomicReference<Generation> current = new AtomicReference<>();
   private final AtomicBoolean closed = new AtomicBoolean();
   private final AtomicBoolean notified = new AtomicBoolean();
+  // Orders install's publish against close: nothing is published after it.
+  private final Object publishLock = new Object();
+  // Replaced generations not yet reported, by cause (a trap, or an interrupted call); the next
+  // flag-log batch carries them.
+  private final AtomicLong traps = new AtomicLong();
+  private final AtomicLong interrupts = new AtomicLong();
+  // Replacements since a generation last wrote logs, or a new module was fetched. Past
+  // MAX_REPLACEMENTS the module is given up until the next one.
+  private final AtomicInteger replacements = new AtomicInteger();
+  private static final int MAX_REPLACEMENTS = 3;
   private final ConcurrentLinkedQueue<CompletableFuture<Void>> retiring =
       new ConcurrentLinkedQueue<>();
   private ScheduledExecutorService loops;
@@ -75,12 +91,13 @@ public final class Engine {
   static final class Generation {
 
     final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    final Resolver resolver;
-    final String etag;
+    // Kept to rebuild the generation if its module traps.
+    final CdnFetcher.FetchedModule module;
+    // Set before the generation is published.
+    Resolver resolver;
 
-    Generation(Resolver resolver, String etag) {
-      this.resolver = resolver;
-      this.etag = etag;
+    Generation(CdnFetcher.FetchedModule module) {
+      this.module = module;
     }
   }
 
@@ -89,10 +106,14 @@ public final class Engine {
     this.cfg = cfg;
     this.fetcher =
         new CdnFetcher(cfg.clientSecret, cfg.encryptionKey, cfg.cdnBaseUrl, cfg.httpClient);
-    switch (cfg.exposure) {
-      case ALL -> this.applyFilter = Filter.neverSeen();
-      case NONE -> this.applyFilter = Filter.alwaysSeen();
-      default -> this.applyFilter = new DedupeFilter(APPLY_FILTER_PAGES);
+    if (cfg.applyFilter != null) {
+      this.applyFilter = cfg.applyFilter;
+    } else {
+      switch (cfg.exposure) {
+        case ALL -> this.applyFilter = Filter.neverSeen();
+        case NONE -> this.applyFilter = Filter.alwaysSeen();
+        default -> this.applyFilter = new DedupeFilter(APPLY_FILTER_PAGES);
+      }
     }
     this.schemaFilter = new DedupeFilter(SCHEMA_FILTER_PAGES);
     this.shipper =
@@ -264,7 +285,14 @@ public final class Engine {
     } catch (CdnException e) {
       throw e; // retryable
     }
+    replacements.set(0); // a new module gets its own replacements
+    install(m);
+  }
+
+  /** Creates a generation for m and publishes it, retiring the one it replaces. */
+  private void install(CdnFetcher.FetchedModule m) {
     String token = m.logToken();
+    Generation g = new Generation(m);
     Resolver resolver;
     try {
       resolver =
@@ -278,15 +306,16 @@ public final class Engine {
                   .interpreter(cfg.interpreter)
                   .writeLogs(
                       b -> {
-                        if (!shipper.enqueue(b, token)) {
-                          cfg.logger.warn("flag log queue full; dropping a batch");
+                        replacements.set(0); // the module works well enough to write logs
+                        long[] taken = takeTraps();
+                        if (!shipper.enqueue(withTraps(b, taken), token)) {
+                          restoreTraps(taken);
+                          cfg.logger.warn(
+                              "flag log batch dropped: the queue is full or the shipper closed");
                         }
                       })
                   .reportFailure(t -> cfg.logger.warn("resolver host callback failed", t))
-                  .reportTrap(
-                      t ->
-                          cfg.logger.error(
-                              "module call aborted; the generation's state may be inconsistent", t))
+                  .onPoison(t -> RETIRE.execute(() -> replace(g, t)))
                   .build());
     } catch (InvalidModuleException e) {
       throw new TerminalStartupException("the fetched module is invalid", e);
@@ -297,16 +326,104 @@ public final class Engine {
       resolver.close();
       throw new IllegalStateException("warming up module: " + e.getMessage(), e);
     }
-    if (closed.get()) {
-      resolver.close();
+    g.resolver = resolver;
+    Generation old;
+    synchronized (publishLock) {
+      if (closed.get()) {
+        resolver.close();
+        return;
+      }
+      old = current.getAndSet(g);
+    }
+    fetcher.accept(m.etag());
+    if (old == null) {
+      if (!notified.getAndSet(true)) {
+        cfg.onReady.run();
+      }
+    } else if (!old.resolver.isPoisoned()) {
+      retireAsync(old);
+    } // else abandoned, not retired: its readers may be blocked on a lock the failed call holds
+  }
+
+  /**
+   * Rebuilds g from its module after a module call was aborted, unless g has been replaced already.
+   * If that fails, the next poll fetches the module again.
+   */
+  private void replace(Generation g, Throwable cause) {
+    ModuleTrapCause trapCause =
+        cause instanceof run.endive.runtime.WasmInterruptedException
+            ? ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED
+            : ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP;
+    (trapCause == ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED ? interrupts : traps)
+        .incrementAndGet();
+    cfg.logger.error(
+        "resolver module call aborted; replacing the module. Its buffered flag logs are lost, and"
+            + " evaluations in flight on it may not return",
+        cause);
+    if (closed.get() || current.get() != g) {
       return;
     }
-    Generation old = current.getAndSet(new Generation(resolver, m.etag()));
-    fetcher.accept(m.etag());
-    if (old != null) {
-      retireAsync(old);
-    } else if (!notified.getAndSet(true)) {
-      cfg.onReady.run();
+    if (replacements.incrementAndGet() > MAX_REPLACEMENTS) {
+      giveUp(g, null);
+      return;
+    }
+    try {
+      install(g.module);
+    } catch (RuntimeException e) {
+      giveUp(g, e); // it fails before serving a call: rebuilding it again won't help
+    }
+  }
+
+  /**
+   * Keeps the poisoned generation g (evaluations fail fast) until a new module is published, and
+   * reports its traps on their own, since it won't write logs.
+   */
+  private void giveUp(Generation g, RuntimeException cause) {
+    cfg.logger.error(
+        "resolver module keeps failing; giving up on it until a new module is published", cause);
+    long[] taken = takeTraps();
+    byte[] report = withTraps(new byte[0], taken);
+    if (report.length > 0 && !shipper.enqueue(report, g.module.logToken())) {
+      restoreTraps(taken); // the next batch carries them
+      cfg.logger.warn("trap report dropped: the queue is full or the shipper closed");
+    }
+  }
+
+  /**
+   * Appends the traps not yet reported to a module's write_logs payload, as a WriteFlagLogsRequest
+   * whose telemetry protobuf concatenation adds to the payload's.
+   */
+  private byte[] withTraps(byte[] payload, long[] taken) {
+    Counter.Builder counter = Counter.newBuilder();
+    addPoint(counter, ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP, taken[0]);
+    addPoint(counter, ModuleTrapCause.MODULE_TRAP_CAUSE_INTERRUPTED, taken[1]);
+    if (counter.getPointsCount() == 0) {
+      return payload;
+    }
+    byte[] report =
+        WriteFlagLogsRequest.newBuilder()
+            .addTelemetry(ResolverTelemetry.newBuilder().setModuleTraps(counter))
+            .build()
+            .toByteArray();
+    byte[] out = java.util.Arrays.copyOf(payload, payload.length + report.length);
+    System.arraycopy(report, 0, out, payload.length, report.length);
+    return out;
+  }
+
+  /** Takes the traps not yet reported: {traps, interrupts}. */
+  private long[] takeTraps() {
+    return new long[] {traps.getAndSet(0), interrupts.getAndSet(0)};
+  }
+
+  /** Puts back traps taken for a report that was dropped. */
+  private void restoreTraps(long[] taken) {
+    traps.addAndGet(taken[0]);
+    interrupts.addAndGet(taken[1]);
+  }
+
+  private static void addPoint(Counter.Builder counter, ModuleTrapCause cause, long n) {
+    if (n > 0) {
+      counter.addPoints(Counter.Point.newBuilder().setDelta(n).addLabels(cause.getNumber()));
     }
   }
 
@@ -368,8 +485,11 @@ public final class Engine {
         Thread.currentThread().interrupt();
       }
     }
-    Generation g = current.getAndSet(null);
-    if (g != null) {
+    Generation g;
+    synchronized (publishLock) {
+      g = current.getAndSet(null);
+    }
+    if (g != null && !g.resolver.isPoisoned()) {
       retireAsync(g);
     }
     // The filters and the shipper outlive every generation: modules link to the filters and

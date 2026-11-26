@@ -406,3 +406,32 @@ func discardCalls(r *Resolver) int {
 	}
 	return n
 }
+
+// A module call that traps poisons the resolver: reported once, later calls fail, and Close
+// abandons the module without calling into it.
+func TestTrapPoisons(t *testing.T) {
+	bothEngines(t, func(t *testing.T, interp bool) {
+		var reports []error
+		sink := &logSink{}
+		r := newResolver(t, interp, Config{ApplyFilter: TrapFilter, WriteLogs: sink.write,
+			OnPoison: func(err error) { reports = append(reports, err) }})
+		if _, err := r.Evaluate(context.Background(), request("u1", "flags/plain"), nil, &fakeStore{}); err == nil {
+			t.Fatal("evaluate through a trapping filter succeeded")
+		}
+		if !r.Poisoned() || len(reports) != 1 {
+			t.Fatalf("poisoned %v, %d reports; want true, 1", r.Poisoned(), len(reports))
+		}
+		if _, err := r.Evaluate(context.Background(), request("u1", "flags/plain"), nil, &fakeStore{}); !errors.Is(err, ErrPoisoned) {
+			t.Errorf("after the trap: %v, want ErrPoisoned", err)
+		}
+		if len(reports) != 1 {
+			t.Errorf("%d reports, want 1", len(reports))
+		}
+		if err := r.Close(context.Background()); err != nil {
+			t.Errorf("close: %v", err)
+		}
+		if sink.assigned != 0 {
+			t.Errorf("close flushed %d assigned flags from a poisoned module", sink.assigned)
+		}
+	})
+}

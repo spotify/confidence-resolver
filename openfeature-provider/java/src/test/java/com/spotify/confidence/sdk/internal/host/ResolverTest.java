@@ -333,11 +333,12 @@ class ResolverTest {
   }
 
   @Test
-  void aTrapMidCallIsReportedAndFailsTheEvaluation() {
+  void anAbortMidCallPoisonsTheResolver() {
     // Endive aborts the module call at its next interruption check when a host import sets the
-    // flag. The abort must surface as a failure (rethrown) and be reported for observability;
-    // recovering the generation is the planned follow-up.
-    CopyOnWriteArrayList<Throwable> traps = new CopyOnWriteArrayList<>();
+    // flag. The abort fails the evaluation and poisons the resolver: reported once, later calls
+    // fail, and close abandons the module instead of blocking on a lock the aborted call holds.
+    CopyOnWriteArrayList<Throwable> poisons = new CopyOnWriteArrayList<>();
+    CopyOnWriteArrayList<byte[]> logs = new CopyOnWriteArrayList<>();
     Filter interruptingFilter =
         importModule ->
             new Filter.Link(
@@ -350,18 +351,22 @@ class ResolverTest {
                       return new long[] {0};
                     }),
                 null);
+    EvaluateRequest enabled =
+        EvaluateRequest.newBuilder()
+            .setFlagKey("plain.enabled")
+            .setDefaultValue(Value.newBuilder().setBoolValue(false).build())
+            .build();
     bothEngines(
         interp -> {
-          // The aborted call may leave the module's lock held with the instance back in the
-          // pool; closing the resolver could block on it. Recovery (retiring the generation)
-          // is the planned follow-up for both providers, so this test deliberately leaves the
-          // poisoned resolver unclosed.
+          poisons.clear();
+          logs.clear();
           Resolver r =
               newResolver(
                   interp,
                   new HostConfig.Builder()
                       .applyFilter(interruptingFilter)
-                      .reportTrap((Consumer<Throwable>) traps::add));
+                      .writeLogs(logs::add)
+                      .onPoison((Consumer<Throwable>) poisons::add));
           try {
             assertThatThrownBy(
                     () ->
@@ -369,17 +374,54 @@ class ResolverTest {
                             r,
                             request("u1", "flags/plain"),
                             new HostTestSupport.FakeStore(),
-                            EvaluateRequest.newBuilder()
-                                .setFlagKey("plain.enabled")
-                                .setDefaultValue(Value.newBuilder().setBoolValue(false).build())
-                                .build()))
+                            enabled))
                 .isInstanceOf(RuntimeException.class)
                 .isNotInstanceOf(InterruptedCallException.class); // aborted midway, not at entry
-            assertThat(traps).isNotEmpty();
+          } finally {
             Thread.interrupted(); // Endive may leave the flag set after the abort
+          }
+          assertThat(r.isPoisoned()).isTrue();
+          assertThatThrownBy(
+                  () ->
+                      evaluate(
+                          r,
+                          request("u1", "flags/plain"),
+                          new HostTestSupport.FakeStore(),
+                          enabled))
+              .isInstanceOf(PoisonedException.class);
+          assertThat(poisons).hasSize(1);
+          r.close();
+          assertThat(logs).isEmpty();
+        });
+  }
+
+  @Test
+  void anAbortedAckPoisonsTheResolver() {
+    // An interrupt set by the log sink aborts the re-entrant ack_logs call. The ack failure alone
+    // poisons the resolver, as in Go: the export that called write_logs may not see it.
+    bothEngines(
+        interp -> {
+          CopyOnWriteArrayList<Throwable> poisons = new CopyOnWriteArrayList<>();
+          Resolver r =
+              newResolver(
+                  interp,
+                  new HostConfig.Builder()
+                      .writeLogs(b -> Thread.currentThread().interrupt())
+                      .onPoison((Consumer<Throwable>) poisons::add));
+          try {
+            evaluate(r, request("u1", "flags/plain"), new HostTestSupport.FakeStore());
+            try {
+              r.flushLogs();
+            } catch (RuntimeException expected) {
+              // the flush may also see the abort
+            }
           } finally {
             Thread.interrupted();
           }
+          assertThat(r.isPoisoned()).isTrue();
+          assertThat(poisons).hasSize(1);
+          assertThat(poisons.get(0).getStackTrace()).anyMatch(f -> f.getMethodName().equals("ack"));
+          r.close();
         });
   }
 

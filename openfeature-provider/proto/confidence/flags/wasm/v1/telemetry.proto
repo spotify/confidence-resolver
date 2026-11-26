@@ -50,6 +50,12 @@ message ResolverTelemetry {
   // Host-observed, from start through the final resume, successful requests
   // only. Exponential scale 2.
   Histogram resolve_latency_microseconds = 13;
+  // Host-reported: module calls that failed midway, after which the host
+  // replaces the module (its buffered logs are lost). Abnormal; any nonzero
+  // rate is worth investigating.
+  Counter module_traps = 14 [
+    (label) = { name: "cause", enum_type: "confidence.flags.wasm.v1.ModuleTrapCause" }
+  ];
 }
 
 enum ResolveOutcome {
@@ -61,6 +67,15 @@ enum ResolveOutcome {
   RESOLVE_OUTCOME_ERROR = 2;
   // A suspended resolve the host discarded instead of resuming.
   RESOLVE_OUTCOME_DISCARDED = 3;
+}
+
+enum ModuleTrapCause {
+  MODULE_TRAP_CAUSE_UNSPECIFIED = 0;
+  // The module trapped (unreachable, out-of-bounds access, a failing host
+  // import, ...).
+  MODULE_TRAP_CAUSE_TRAP = 1;
+  // The host runtime aborted the call, e.g. on a JVM thread interrupt.
+  MODULE_TRAP_CAUSE_INTERRUPTED = 2;
 }
 
 message Producer {

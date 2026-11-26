@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/cdn"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/host"
 	"github.com/spotify/confidence-resolver/openfeature-provider/go/confidence/internal/ingest"
@@ -60,6 +62,8 @@ type Config struct {
 	RetryInterval time.Duration // startup retry; default 1s
 
 	Logger *slog.Logger
+	// applyFilter overrides the filter Exposure selects (tests).
+	applyFilter host.Filter
 	// OnReady is called once, when the first module is installed after Start returned without one.
 	OnReady func()
 }
@@ -74,12 +78,20 @@ type Engine struct {
 	closeFilters []func(context.Context) error
 
 	current  atomic.Pointer[generation]
+	publish  sync.Mutex // orders install's publish against Close: nothing is published after it
 	closed   atomic.Bool
 	stop     context.CancelFunc
 	loops    sync.WaitGroup
 	retiring sync.WaitGroup
 	notified atomic.Bool
+	// traps counts replaced generations not yet reported; the next flag-log batch carries them.
+	traps atomic.Uint64
+	// replacements since a generation last wrote logs, or a new module was fetched. Past
+	// maxReplacements the module is given up until the next one.
+	replacements atomic.Int32
 }
+
+const maxReplacements = 3
 
 // generation is one installed module. Requests hold mu for reading for the whole evaluation. To
 // retire a generation, first replace the engine's pointer, then take mu for writing and never
@@ -88,7 +100,7 @@ type Engine struct {
 type generation struct {
 	mu       sync.RWMutex
 	resolver *host.Resolver
-	etag     string
+	module   *cdn.Module // kept to rebuild the generation if its module traps
 }
 
 // New creates an engine. It doesn't touch the network; call Start.
@@ -113,10 +125,12 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		return nil, err
 	}
 	e := &Engine{cfg: cfg, fetcher: fetcher}
-	switch cfg.Exposure {
-	case ExposureAll:
+	switch {
+	case cfg.applyFilter != nil:
+		e.applyFilter = cfg.applyFilter
+	case cfg.Exposure == ExposureAll:
 		e.applyFilter = host.NeverSeen
-	case ExposureNone:
+	case cfg.Exposure == ExposureNone:
 		e.applyFilter = host.AlwaysSeen
 	default:
 		if e.applyFilter, err = e.dedupeFilter(ctx, applyFilterPages); err != nil {
@@ -228,18 +242,32 @@ func (e *Engine) load(ctx context.Context) error {
 		}
 		return err
 	}
+	e.replacements.Store(0) // a new module gets its own replacements
+	return e.install(ctx, m)
+}
+
+// install creates a generation for m and publishes it, retiring the one it replaces.
+func (e *Engine) install(ctx context.Context, m *cdn.Module) error {
 	token := m.LogToken
+	g := &generation{module: m}
 	r, err := host.NewResolver(ctx, m.Wasm, e.cfg.Interpreter, host.Config{
 		Instances:      e.cfg.Instances,
 		MaxMemoryBytes: e.cfg.MaxMemoryBytes,
 		ApplyFilter:    e.applyFilter,
 		SchemaFilter:   e.schemaFilter,
 		WriteLogs: func(b []byte) {
+			e.replacements.Store(0) // the module works well enough to write logs
+			n := e.traps.Swap(0)
+			if n > 0 {
+				b = append(b, trapTelemetry(n)...)
+			}
 			if !e.shipper.Enqueue(b, token) {
-				e.cfg.Logger.Warn("flag log queue full; dropping a batch")
+				e.traps.Add(n) // the next batch carries them
+				e.cfg.Logger.Warn("flag log batch dropped: the queue is full or the shipper closed")
 			}
 		},
 		ReportFailure: func(err error) { e.cfg.Logger.Warn("resolver host callback failed", "error", err) },
+		OnPoison:      func(err error) { go e.replace(g, err) },
 	})
 	if err != nil {
 		if errors.Is(err, host.ErrInvalidModule) {
@@ -251,21 +279,70 @@ func (e *Engine) load(ctx context.Context) error {
 		_ = r.Close(ctx)
 		return fmt.Errorf("warming up module: %w", err)
 	}
+	g.resolver = r
+	e.publish.Lock()
 	if e.closed.Load() {
+		e.publish.Unlock()
 		return r.Close(ctx)
 	}
-	old := e.current.Swap(&generation{resolver: r, etag: m.ETag})
+	old := e.current.Swap(g)
+	e.publish.Unlock()
 	e.fetcher.Accept(m.ETag)
-	if old != nil {
+	switch {
+	case old == nil:
+		if !e.notified.Swap(true) {
+			e.cfg.OnReady()
+		}
+	case old.resolver.Poisoned():
+		// Abandoned, not retired: its readers may be blocked on a lock the failed call holds.
+	default:
 		e.retiring.Add(1)
 		go func() {
 			defer e.retiring.Done()
 			e.retire(old)
 		}()
-	} else if !e.notified.Swap(true) {
-		e.cfg.OnReady()
 	}
 	return nil
+}
+
+// replace rebuilds g from its module after a module call trapped, unless g has been replaced
+// already. It gives up on a module that fails to rebuild or keeps trapping.
+func (e *Engine) replace(g *generation, err error) {
+	e.traps.Add(1)
+	e.cfg.Logger.Error("resolver module trapped; replacing it. Its buffered flag logs are lost, and evaluations in flight on it may not return",
+		"error", err)
+	if e.closed.Load() || e.current.Load() != g {
+		return
+	}
+	if e.replacements.Add(1) > maxReplacements {
+		e.giveUp(g, nil)
+		return
+	}
+	if err := e.install(context.Background(), g.module); err != nil {
+		e.giveUp(g, err) // it fails before serving a call: rebuilding it again won't help
+	}
+}
+
+// giveUp keeps the poisoned generation g (evaluations fail fast) until a new module is published,
+// and reports its traps on their own, since it won't write logs.
+func (e *Engine) giveUp(g *generation, err error) {
+	e.cfg.Logger.Error("resolver module keeps failing; giving up on it until a new module is published", "error", err)
+	if n := e.traps.Swap(0); n > 0 && !e.shipper.Enqueue(trapTelemetry(n), g.module.LogToken) {
+		e.traps.Add(n) // the next batch carries them
+		e.cfg.Logger.Warn("trap report dropped: the queue is full or the shipper closed")
+	}
+}
+
+// trapTelemetry encodes a WriteFlagLogsRequest reporting n module traps. Appended to a module's
+// write_logs payload, protobuf concatenation adds it to the payload's telemetry.
+func trapTelemetry(n uint64) []byte {
+	b, _ := proto.Marshal(&wasmpb.WriteFlagLogsRequest{Telemetry: []*wasmpb.ResolverTelemetry{{
+		ModuleTraps: &wasmpb.Counter{Points: []*wasmpb.Counter_Point{{
+			Delta:  n,
+			Labels: []int32{int32(wasmpb.ModuleTrapCause_MODULE_TRAP_CAUSE_TRAP)},
+		}}},
+	}}})
+	return b
 }
 
 // retire drains g (which must already be unpublished), flushes its logs and closes it.
@@ -357,7 +434,10 @@ func (e *Engine) Close(ctx context.Context) error {
 		e.stop()
 	}
 	e.loops.Wait()
-	if g := e.current.Swap(nil); g != nil {
+	e.publish.Lock()
+	g := e.current.Swap(nil)
+	e.publish.Unlock()
+	if g != nil && !g.resolver.Poisoned() {
 		e.retiring.Add(1)
 		go func() {
 			defer e.retiring.Done()

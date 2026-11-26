@@ -9,6 +9,7 @@ import com.spotify.confidence.flags.resolver.v1.ResolveFlagsRequest;
 import com.spotify.confidence.flags.wasm.v1.EvaluateRequest;
 import com.spotify.confidence.flags.wasm.v1.Materialization.Record;
 import com.spotify.confidence.sdk.internal.cdn.CdnFetcher;
+import com.spotify.confidence.sdk.internal.host.Filter;
 import com.spotify.confidence.sdk.internal.host.MaterializationStore;
 import com.spotify.confidence.sdk.internal.testutil.TestBackend;
 import java.time.Duration;
@@ -25,6 +26,10 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.helpers.NOPLogger;
+import run.endive.runtime.HostFunction;
+import run.endive.runtime.TrapException;
+import run.endive.wasm.types.FunctionType;
+import run.endive.wasm.types.ValType;
 
 /** Ports the Go engine tests: startup, swap under load, broken modules, and close. */
 class EngineTest {
@@ -343,5 +348,127 @@ class EngineTest {
     Awaitility.await()
         .atMost(5, TimeUnit.SECONDS)
         .until(() -> tokens(backend).getOrDefault("tok-1", 0) > 0);
+  }
+
+  /** A filter whose seen import traps, failing every module call that consults it. */
+  private static final Filter TRAP_FILTER =
+      importModule ->
+          new Filter.Link(
+              new HostFunction(
+                  importModule,
+                  "seen",
+                  FunctionType.of(List.of(ValType.I64), List.of(ValType.I32)),
+                  (instance, args) -> {
+                    throw new TrapException("trap filter");
+                  }),
+              null);
+
+  @Test
+  void aTrappedGenerationIsReplacedFromItsModule() {
+    backend = new TestBackend();
+    backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v1\"");
+    engine = newEngine(backend, c -> c.applyFilter(TRAP_FILTER));
+    engine.start(Duration.ofSeconds(5));
+    Engine.Generation first = engine.currentGeneration();
+    assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> engine.currentGeneration() != first);
+    Engine.Generation next = engine.currentGeneration();
+    assertThat(first.resolver.isPoisoned()).isTrue();
+    assertThat(next.resolver.isPoisoned()).isFalse();
+    assertThat(next.module).isSameAs(first.module);
+  }
+
+  @Test
+  void aTrapIsReportedOnceWithTheNextLogs() {
+    // Traps on its first call only, so the replacement generation evaluates and writes logs.
+    AtomicBoolean trapped = new AtomicBoolean();
+    Filter trapOnce =
+        importModule ->
+            new Filter.Link(
+                new HostFunction(
+                    importModule,
+                    "seen",
+                    FunctionType.of(List.of(ValType.I64), List.of(ValType.I32)),
+                    (instance, args) -> {
+                      if (!trapped.getAndSet(true)) {
+                        throw new TrapException("trap once");
+                      }
+                      return new long[] {0};
+                    }),
+                null);
+    backend = new TestBackend();
+    backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v1\"");
+    engine = newEngine(backend, c -> c.applyFilter(trapOnce));
+    engine.start(Duration.ofSeconds(5));
+    Engine.Generation first = engine.currentGeneration();
+    assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> engine.currentGeneration() != first);
+    for (int i = 0; i < 2; i++) {
+      evaluate(engine, "u1");
+      engine.flush();
+    }
+    Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> backend.batches().size() >= 2);
+    long reported = 0;
+    for (var req : backend.logs()) {
+      for (var telemetry : req.getTelemetryList()) {
+        for (var point : telemetry.getModuleTraps().getPointsList()) {
+          assertThat(point.getLabelsList())
+              .containsExactly(
+                  com.spotify.confidence.flags.wasm.v1.ModuleTrapCause.MODULE_TRAP_CAUSE_TRAP
+                      .getNumber());
+          reported += point.getDelta();
+        }
+      }
+    }
+    assertThat(reported).isEqualTo(1);
+  }
+
+  private static long reportedTraps(TestBackend b) {
+    long n = 0;
+    for (var req : b.logs()) {
+      for (var telemetry : req.getTelemetryList()) {
+        for (var point : telemetry.getModuleTraps().getPointsList()) {
+          n += point.getDelta();
+        }
+      }
+    }
+    return n;
+  }
+
+  @Test
+  void aModuleThatKeepsTrappingIsGivenUpUntilANewOne() {
+    backend = new TestBackend();
+    backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v1\"");
+    engine = newEngine(backend, c -> c.applyFilter(TRAP_FILTER));
+    engine.start(Duration.ofSeconds(5));
+    // Three replacements, each trapping again; the fourth trap gives up.
+    for (int i = 0; i < 3; i++) {
+      Engine.Generation g = engine.currentGeneration();
+      assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+      Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> engine.currentGeneration() != g);
+    }
+    Engine.Generation last = engine.currentGeneration();
+    assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+    // The module never writes logs, so the traps go out on their own, once.
+    Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> reportedTraps(backend) == 4);
+    assertThat(engine.currentGeneration()).isSameAs(last);
+    assertThat(last.resolver.isPoisoned()).isTrue();
+    assertThatThrownBy(() -> evaluate(engine, "u1"))
+        .isInstanceOf(com.spotify.confidence.sdk.internal.host.PoisonedException.class);
+
+    // A new module is installed and gets replacements of its own.
+    backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v2\"");
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> engine.currentGeneration() != last);
+    Engine.Generation fresh = engine.currentGeneration();
+    assertThatThrownBy(() -> evaluate(engine, "u1")).isInstanceOf(RuntimeException.class);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> engine.currentGeneration() != fresh);
   }
 }

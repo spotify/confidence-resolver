@@ -54,6 +54,7 @@ public final class Resolver implements AutoCloseable {
   private final List<ModuleInstance> all = new ArrayList<>();
   private int created;
   private final AtomicBoolean closed = new AtomicBoolean();
+  private final AtomicBoolean poisoned = new AtomicBoolean();
   private final SecureRandom random = new SecureRandom();
 
   public Resolver(Module module, HostConfig cfg) {
@@ -156,12 +157,21 @@ public final class Resolver implements AutoCloseable {
     }
   }
 
+  /** Whether a module call was aborted (see {@link HostConfig#onPoison}). */
+  public boolean isPoisoned() {
+    return poisoned.get();
+  }
+
   /**
    * Flushes logs on the first instance, retires every instance, and releases the engine. The caller
    * must ensure no calls are in flight; later calls fail with {@link ClosedException}.
    */
   public void close() {
     if (!closed.compareAndSet(false, true)) {
+      return;
+    }
+    if (poisoned.get()) {
+      // Abandoned: a call into the module could block on a lock the failed call holds.
       return;
     }
     // The final flush and destroy_instance must not be interrupted either: Endive aborts the
@@ -399,18 +409,14 @@ public final class Resolver implements AutoCloseable {
     if (Thread.currentThread().isInterrupted()) {
       throw new InterruptedCallException("module call skipped: thread already interrupted");
     }
+    if (poisoned.get()) {
+      throw new PoisonedException();
+    }
     ModuleInstance inst = claim();
     try {
       return call.run(inst);
     } catch (RuntimeException e) {
-      if (e instanceof run.endive.runtime.WasmInterruptedException
-          || e instanceof run.endive.runtime.TrapException) {
-        // The call was aborted midway (a routine JVM interrupt — Future.cancel(true),
-        // shutdownNow() — or a trap); the instance returns to the pool with state that may be
-        // inconsistent. Recovery (retiring the generation) is a planned follow-up for both
-        // providers; report so we can see whether it happens in the wild.
-        cfg.reportTrap.accept(e);
-      }
+      poisonIfAborted(e);
       throw e;
     } finally {
       release(inst);
@@ -548,8 +554,27 @@ public final class Resolver implements AutoCloseable {
     try {
       instance.export("ack_logs").apply(payload);
     } catch (RuntimeException e) {
-      cfg.reportFailure.accept(e);
+      // The export calling write_logs carries on after this, so it may not see the abort.
+      if (!poisonIfAborted(e)) {
+        cfg.reportFailure.accept(e);
+      }
     }
+  }
+
+  /**
+   * Poisons the resolver if e means a module call was aborted midway (a routine JVM interrupt —
+   * Future.cancel(true), shutdownNow() — or a trap): the shared state may be inconsistent. Reports
+   * the first failure only.
+   */
+  private boolean poisonIfAborted(RuntimeException e) {
+    if (!(e instanceof run.endive.runtime.WasmInterruptedException
+        || e instanceof run.endive.runtime.TrapException)) {
+      return false;
+    }
+    if (poisoned.compareAndSet(false, true)) {
+      cfg.onPoison.accept(e);
+    }
+    return true;
   }
 
   private long randomSeed() {
