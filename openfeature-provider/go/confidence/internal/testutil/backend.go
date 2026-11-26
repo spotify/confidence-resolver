@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,8 +46,13 @@ type Backend struct {
 	inm     []string
 	batches []Batch
 
-	CDN, Resolver, Ingest *httptest.Server
+	CDN, Ingest *httptest.Server
+	Client      *http.Client
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (rt roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return rt(r) }
 
 // Batch is one received flag-log request.
 type Batch struct {
@@ -72,22 +78,26 @@ func NewBackend(t testing.TB) *Backend {
 			_, _ = w.Write(b.module)
 		}
 	}))
-	b.Resolver = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/profile:register" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"cdnRetryDelay":"0.050s"}`)
-	}))
 	b.Ingest = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		b.mu.Lock()
 		b.batches = append(b.batches, Batch{strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body})
 		b.mu.Unlock()
 	}))
+	b.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodPost && r.URL.String() == "https://resolver.confidence.dev/v1/profile:register" {
+			_ = r.Body.Close()
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+		}
+		if r.URL.Host != b.CDN.Listener.Addr().String() && r.URL.Host != b.Ingest.Listener.Addr().String() {
+			if r.Body != nil {
+				_ = r.Body.Close()
+			}
+			return nil, fmt.Errorf("unexpected test backend host: %s", r.URL.Host)
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
 	t.Cleanup(b.CDN.Close)
-	t.Cleanup(b.Resolver.Close)
 	t.Cleanup(b.Ingest.Close)
 	return b
 }

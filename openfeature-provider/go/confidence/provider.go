@@ -66,8 +66,6 @@ type ProviderConfig struct {
 	// HTTPClient is used for all requests to Confidence. Default http.DefaultClient.
 	HTTPClient *http.Client
 	Logger     *slog.Logger
-	// ResolverBaseURL is the base URL for module profile registration. Default https://resolver.confidence.dev.
-	ResolverBaseURL string
 
 	// Test-only overrides.
 	cdnBaseURL, ingestBaseURL, remoteStoreURL string
@@ -126,7 +124,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 	p.engine, err = engine.New(ctx, engine.Config{
 		ClientSecret: config.ClientSecret, EncryptionKey: key, HTTPClient: config.HTTPClient,
-		CDNBaseURL: config.cdnBaseURL, IngestBaseURL: config.ingestBaseURL, ResolverBaseURL: config.ResolverBaseURL,
+		CDNBaseURL: config.cdnBaseURL, IngestBaseURL: config.ingestBaseURL,
 		Instances: config.Instances, MaxMemoryBytes: config.MaxMemoryBytes, Interpreter: config.UseWasmInterpreter,
 		Exposure: config.ExposureMode, PollInterval: config.StatePollInterval, RetryInterval: config.retryInterval,
 		Logger: config.Logger,

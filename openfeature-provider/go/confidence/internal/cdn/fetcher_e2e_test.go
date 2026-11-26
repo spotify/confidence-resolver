@@ -21,7 +21,7 @@ func TestE2E_FetchProductionModule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := cdn.NewFetcher(secret, key, engine.ModuleProfile, "", "", nil)
+	f, err := cdn.NewFetcher(secret, key, engine.ModuleProfile, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

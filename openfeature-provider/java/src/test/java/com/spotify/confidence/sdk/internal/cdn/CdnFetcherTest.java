@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.ByteString;
 import com.spotify.confidence.flags.wasm.v1.ClientModule;
+import com.spotify.confidence.sdk.internal.testutil.TestBackend;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -14,11 +15,9 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -113,9 +112,8 @@ class CdnFetcherTest {
   }
 
   @Test
-  void registersOnceAndWaitsBeforePollingForPublication() throws IOException {
+  void registersOnceAndChecksTheCdnOnEveryPoll() {
     byte[] key = newKey();
-    AtomicLong clock = new AtomicLong();
     AtomicInteger registrations = new AtomicInteger();
     AtomicReference<List<String>> request = new AtomicReference<>();
     startResolver(
@@ -135,7 +133,7 @@ class CdnFetcherTest {
         });
     cdn = new FakeCdn(404, new byte[0], null);
     CdnFetcher fetcher =
-        new CdnFetcher(SECRET, key, cdn.url(), resolverUrl(), PROFILE, cdn.client, clock::get);
+        new CdnFetcher(SECRET, key, cdn.url(), PROFILE, TestBackend.withMockRegistration(resolver));
 
     assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
     assertThat(request.get())
@@ -145,24 +143,24 @@ class CdnFetcherTest {
             "ClientSecret " + SECRET,
             "application/json",
             "{\"profile\":\"TEST_PROFILE_1\"}");
-    clock.set(Duration.ofMillis(1249).toNanos());
-    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
     assertThat(cdn.requests).hasValue(1);
 
-    clock.set(Duration.ofMillis(1250).toNanos());
+    // The next scheduled attempt reaches the CDN even before the response's delay expires.
     assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
-    assertThat(cdn.requests).hasValue(2);
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
+    assertThat(cdn.requests).hasValue(3);
     cdn.body = encrypt(key, module(new byte[] {1, 2, 3}, "jwt"));
     cdn.status = 200;
-    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
-    assertThat(cdn.requests).hasValue(2);
-    clock.addAndGet(Duration.ofMillis(200).toNanos());
     assertThat(fetcher.fetch().wasm()).containsExactly(1, 2, 3);
+
+    cdn.status = 404;
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
+    assertThat(cdn.requests).hasValue(5);
     assertThat(registrations).hasValue(1);
   }
 
   @Test
-  void registrationRejectsRedirectsEvenWithARedirectFollowingClient() throws IOException {
+  void registrationRejectsRedirects() {
     AtomicInteger redirectHits = new AtomicInteger();
     startResolver(
         exchange -> {
@@ -176,38 +174,61 @@ class CdnFetcherTest {
           exchange.close();
         });
     cdn = new FakeCdn(404, new byte[0], null);
-    HttpClient redirecting =
-        HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
-    CdnFetcher fetcher =
-        new CdnFetcher(SECRET, newKey(), cdn.url(), resolverUrl(), PROFILE, redirecting);
+    CdnFetcher fetcher = cdn.fetcher(newKey());
 
     assertThatThrownBy(fetcher::fetch)
-        .isInstanceOf(TerminalCdnException.class)
-        .hasMessage("module profile registration: 307");
+        .isInstanceOf(NotPublishedException.class)
+        .hasCauseInstanceOf(CdnException.class)
+        .hasRootCauseMessage("module profile registration: 307");
     assertThat(redirectHits).hasValue(0);
   }
 
   @Test
-  void rejectsInvalidAcknowledgmentWithoutLoggingItOrRegisteringAgain() throws IOException {
+  void registrationUsesANonRedirectingClientEvenWhenTheProviderFollowsRedirects() {
+    HttpClient redirecting =
+        HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
+    assertThat(ProfileRegistration.withoutRedirects(redirecting).followRedirects())
+        .isEqualTo(HttpClient.Redirect.NEVER);
+  }
+
+  @Test
+  void failedRegistrationIsRetriedOnTheNextCdnMissUntilSuccess() {
+    byte[] key = newKey();
     AtomicInteger registrations = new AtomicInteger();
     startResolver(
         exchange -> {
-          registrations.incrementAndGet();
-          byte[] invalidAck =
-              ("{\"cdnRetryDelay\":\"" + SECRET + "\"}").getBytes(StandardCharsets.UTF_8);
-          exchange.sendResponseHeaders(200, invalidAck.length);
-          exchange.getResponseBody().write(invalidAck);
+          int attempt = registrations.incrementAndGet();
+          exchange.sendResponseHeaders(attempt == 1 ? 403 : 204, -1);
+          exchange.close();
+        });
+    cdn = new FakeCdn(404, new byte[0], null);
+    CdnFetcher fetcher =
+        new CdnFetcher(SECRET, key, cdn.url(), PROFILE, TestBackend.withMockRegistration(resolver));
+
+    assertThatThrownBy(fetcher::fetch)
+        .isExactlyInstanceOf(NotPublishedException.class)
+        .hasRootCauseMessage("module profile registration: 403");
+    assertThat(registrations).hasValue(1);
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class).hasNoCause();
+    assertThat(registrations).hasValue(2);
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class).hasNoCause();
+    assertThat(cdn.requests).hasValue(3);
+    cdn.body = encrypt(key, module(new byte[] {1, 2, 3}, "jwt"));
+    cdn.status = 200;
+    assertThat(fetcher.fetch().wasm()).containsExactly(1, 2, 3);
+    assertThat(registrations).hasValue(2);
+  }
+
+  @Test
+  void acceptsRegistrationWithoutAResponseBody() {
+    startResolver(
+        exchange -> {
+          exchange.sendResponseHeaders(200, -1);
           exchange.close();
         });
     cdn = new FakeCdn(404, new byte[0], null);
     CdnFetcher fetcher = cdn.fetcher(newKey());
-    for (int i = 0; i < 2; i++) {
-      assertThatThrownBy(fetcher::fetch)
-          .isInstanceOf(TerminalCdnException.class)
-          .hasMessage("invalid module profile registration acknowledgment")
-          .hasNoCause();
-    }
-    assertThat(registrations).hasValue(1);
+    assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
   }
 
   @Test
@@ -233,10 +254,6 @@ class CdnFetcherTest {
     }
     resolver.createContext("/", handler);
     resolver.start();
-  }
-
-  private String resolverUrl() {
-    return resolver == null ? cdn.url() : "http://127.0.0.1:" + resolver.getAddress().getPort();
   }
 
   private static ClientModule module(byte[] wasm, String logToken) {
@@ -290,7 +307,6 @@ class CdnFetcherTest {
   private final class FakeCdn implements AutoCloseable {
 
     final HttpServer server;
-    final HttpClient client = HttpClient.newHttpClient();
     volatile int status;
     volatile byte[] body;
     volatile String etag;
@@ -341,7 +357,7 @@ class CdnFetcherTest {
 
     CdnFetcher fetcher(byte[] key) {
       return new CdnFetcher(
-          SECRET, key, url(), resolver == null ? url() : resolverUrl(), PROFILE, client);
+          SECRET, key, url(), PROFILE, TestBackend.withMockRegistration(resolver));
     }
 
     String url() {
