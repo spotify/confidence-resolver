@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.19.0...confidence-cloudflare-resolver-v0.20.0) (2026-11-27)
+
+
+### Features
+
+* **cloudflare:** redeploy when deploy config changes ([#686](https://github.com/spotify/confidence-resolver/issues/686)) ([b70213d](https://github.com/spotify/confidence-resolver/commit/b70213da6122ab2e9a7cddc4de3ba31403348994))
+
 ## [0.19.0](https://github.com/spotify/confidence-resolver/compare/confidence-cloudflare-resolver-v0.18.1...confidence-cloudflare-resolver-v0.19.0) (2026-11-03)
 
 
