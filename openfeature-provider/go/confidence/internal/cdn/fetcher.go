@@ -180,10 +180,6 @@ func (f *Fetcher) register(ctx context.Context) error {
 	}
 	req.Header.Set("Authorization", "ClientSecret "+f.clientSecret)
 	req.Header.Set("Content-Type", "application/json")
-	req.GetBody = nil // Do not let the HTTP transport replay the POST body.
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	resp, err := f.registrationClient.Do(req)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded) {

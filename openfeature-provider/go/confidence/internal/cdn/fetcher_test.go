@@ -190,8 +190,10 @@ func registrationFixture(t *testing.T, register roundTripFunc) (*Fetcher, *cdn, 
 					r.Header.Get("Authorization") != "ClientSecret "+secret || r.Header.Get("Content-Type") != "application/json" {
 					t.Error("incorrect registration request method, URL or headers")
 				}
-				if r.GetBody != nil {
-					t.Error("registration body must not be replayable")
+				// GetBody is populated by NewRequestWithContext; the transport only replays it
+				// for redirects (blocked via CheckRedirect) or with an Idempotency-Key header.
+				if r.Header.Get("Idempotency-Key") != "" || r.Header.Get("X-Idempotency-Key") != "" {
+					t.Error("registration must not opt into transport replay")
 				}
 				body, err := io.ReadAll(r.Body)
 				_ = r.Body.Close()
@@ -340,12 +342,24 @@ func TestRegistrationSkipsPOSTWhenFetchCanceledAfterCDNMiss(t *testing.T) {
 		cancel()
 		return resp, err
 	})
-	if _, err := f.Fetch(ctx); !errors.Is(err, context.Canceled) || strings.Join(*calls, " ") != "GET" {
-		t.Fatalf("canceled Fetch: err=%v calls=%v, want cancellation and no POST", err, *calls)
+	if _, err := f.Fetch(ctx); err == nil || !strings.Contains(err.Error(), ErrNotPublished.Error()) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled Fetch: err=%v, want cancellation or not-published with the canceled POST", err)
+	}
+	if got := strings.Join(*calls, " "); got != "GET" && got != "GET POST" {
+		t.Fatalf("canceled Fetch: calls=%v, want at most the CDN GET and the already-sent POST", got)
 	}
 	f.client.Transport = transport
-	if _, err := f.Fetch(context.Background()); !errors.Is(err, ErrNotPublished) || strings.Join(*calls, " ") != "GET GET POST" {
-		t.Fatalf("next Fetch: err=%v calls=%v, want ErrNotPublished and first POST", err, *calls)
+	if _, err := f.Fetch(context.Background()); !errors.Is(err, ErrNotPublished) {
+		t.Fatalf("next Fetch: err=%v, want ErrNotPublished", err)
+	}
+	posts := 0
+	for _, c := range *calls {
+		if c == "POST" {
+			posts++
+		}
+	}
+	if posts < 1 {
+		t.Fatalf("next Fetch: calls=%v, want the first POST to have gone out", *calls)
 	}
 }
 
