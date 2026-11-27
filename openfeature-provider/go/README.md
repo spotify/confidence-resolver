@@ -133,6 +133,32 @@ Network failures, timeouts, HTTP 408/429/5xx, and HTTP 404 are retried; 404 rema
 
 Once valid state has been installed, **any** refresh failure preserves the last working state. The provider remains `READY`, evaluations continue using cached flags, and polling continues. Rejected state, including subsequent 304 responses for those rejected bytes, never replaces the last working state.
 
+### Initialization at startup
+
+`SetProviderAndWait` returns the initialization error instead of panicking, so the choice of
+failing fast or serving defaults is yours at the call site:
+
+```go
+provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
+    ClientSecret:          "[REDACTED assignment-style secret]",
+    EncryptionKey:         "your-encryption-key",
+    InitializationTimeout: 10 * time.Second, // bounds how long startup blocks
+})
+if err != nil {
+    log.Fatalf("Provider creation failed: %v", err)
+}
+if err := openfeature.SetProviderAndWait(provider); err != nil {
+    // Timeout: boot on defaults and alert — the provider retries in the background and
+    // recovers on its own. FATAL (rejected credential) needs a fix and restart.
+    log.Printf("Confidence provider initialization failed; serving flag defaults: %v", err)
+}
+```
+
+For most services this is the right default: a flag CDN outage degrades the service instead of
+preventing it from starting. Let the error propagate instead when wrong defaults are more
+dangerous than downtime — flags gating compliance or payment logic where starting on defaults is
+worse than not starting. Catching is only as safe as your defaults.
+
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
 
 - Common failure scenarios
@@ -154,18 +180,6 @@ if err != nil {
 // For critical flags, you might want to check the error
 if err != nil && strings.Contains(err.Error(), "FLAG_NOT_FOUND") {
     log.Warn("Flag 'my-flag' not found in Confidence - check flag name")
-}
-
-provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
-    ClientSecret:          "your-client-secret",
-    EncryptionKey:         "your-encryption-key",
-    InitializationTimeout: 10 * time.Second,
-})
-if err != nil {
-	log.Fatalf("Provider creation failed: %v", err)
-}
-if err := openfeature.SetProviderAndWait(provider); err != nil {
-	log.Printf("Provider is recovering in the background: %v", err)
 }
 ```
 
