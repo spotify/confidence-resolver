@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.ByteString;
 import com.spotify.confidence.flags.wasm.v1.ClientModule;
-import com.spotify.confidence.sdk.internal.testutil.TestBackend;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -132,8 +131,7 @@ class CdnFetcherTest {
           exchange.close();
         });
     cdn = new FakeCdn(404, new byte[0], null);
-    CdnFetcher fetcher =
-        new CdnFetcher(SECRET, key, cdn.url(), PROFILE, TestBackend.withMockRegistration(resolver));
+    CdnFetcher fetcher = cdn.fetcher(key);
 
     assertThatThrownBy(fetcher::fetch).isInstanceOf(NotPublishedException.class);
     assertThat(request.get())
@@ -184,11 +182,25 @@ class CdnFetcherTest {
   }
 
   @Test
-  void registrationUsesANonRedirectingClientEvenWhenTheProviderFollowsRedirects() {
+  void registrationDoesNotSendTheSecretWithARedirectFollowingClient() {
+    AtomicInteger registrations = new AtomicInteger();
+    startResolver(
+        exchange -> {
+          registrations.incrementAndGet();
+          exchange.sendResponseHeaders(200, -1);
+          exchange.close();
+        });
+    cdn = new FakeCdn(404, new byte[0], null);
     HttpClient redirecting =
         HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
-    assertThat(ProfileRegistration.withoutRedirects(redirecting).followRedirects())
-        .isEqualTo(HttpClient.Redirect.NEVER);
+    CdnFetcher fetcher =
+        CdnFetcher.createForTest(
+            SECRET, newKey(), cdn.url(), PROFILE, redirecting, registrationUrl(cdn.url()));
+    assertThatThrownBy(fetcher::fetch)
+        .isInstanceOf(NotPublishedException.class)
+        .hasRootCauseMessage(
+            "module profile registration requires an HTTP client with redirects disabled");
+    assertThat(registrations).hasValue(0);
   }
 
   @Test
@@ -202,8 +214,7 @@ class CdnFetcherTest {
           exchange.close();
         });
     cdn = new FakeCdn(404, new byte[0], null);
-    CdnFetcher fetcher =
-        new CdnFetcher(SECRET, key, cdn.url(), PROFILE, TestBackend.withMockRegistration(resolver));
+    CdnFetcher fetcher = cdn.fetcher(key);
 
     assertThatThrownBy(fetcher::fetch)
         .isExactlyInstanceOf(NotPublishedException.class)
@@ -254,6 +265,12 @@ class CdnFetcherTest {
     }
     resolver.createContext("/", handler);
     resolver.start();
+  }
+
+  private String registrationUrl(String fallback) {
+    String base =
+        resolver == null ? fallback : "http://127.0.0.1:" + resolver.getAddress().getPort();
+    return base + "/v1/profile:register";
   }
 
   private static ClientModule module(byte[] wasm, String logToken) {
@@ -356,8 +373,8 @@ class CdnFetcherTest {
     }
 
     CdnFetcher fetcher(byte[] key) {
-      return new CdnFetcher(
-          SECRET, key, url(), PROFILE, TestBackend.withMockRegistration(resolver));
+      return CdnFetcher.createForTest(
+          SECRET, key, url(), PROFILE, HttpClient.newHttpClient(), registrationUrl(url()));
     }
 
     String url() {

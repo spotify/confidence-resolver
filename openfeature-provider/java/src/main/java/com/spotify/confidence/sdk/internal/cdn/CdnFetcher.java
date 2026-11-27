@@ -76,8 +76,29 @@ public final class CdnFetcher {
    * Creates a fetcher for clientSecret. baseUrl may be empty (the production CDN); client may be
    * null (a default one).
    */
-  public CdnFetcher(
+  public static CdnFetcher create(
       String clientSecret, byte[] key, String baseUrl, String profile, HttpClient client) {
+    return new CdnFetcher(clientSecret, key, baseUrl, profile, client, null);
+  }
+
+  /** For tests: overrides where the profile registration request goes. */
+  public static CdnFetcher createForTest(
+      String clientSecret,
+      byte[] key,
+      String baseUrl,
+      String profile,
+      HttpClient client,
+      String registrationUrl) {
+    return new CdnFetcher(clientSecret, key, baseUrl, profile, client, registrationUrl);
+  }
+
+  CdnFetcher(
+      String clientSecret,
+      byte[] key,
+      String baseUrl,
+      String profile,
+      HttpClient client,
+      String registrationUrlForTesting) {
     if (key == null || key.length != 32) {
       throw new IllegalArgumentException("encryption key must be 32 bytes (AES-256)");
     }
@@ -90,7 +111,8 @@ public final class CdnFetcher {
     String cdnProfileName = profile.toLowerCase(Locale.ROOT);
     this.url =
         baseUrl.replaceFirst("/+$", "") + "/modules/" + sum + "/" + cdnProfileName + ".wasm.enc";
-    this.registration = new ProfileRegistration(clientSecret, profile, this.client);
+    this.registration =
+        new ProfileRegistration(clientSecret, profile, this.client, registrationUrlForTesting);
   }
 
   /** Fetches with the default 30-second request timeout. */

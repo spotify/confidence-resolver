@@ -20,7 +20,7 @@ class CdnFetcherE2ETest {
   void fetchProductionModule() {
     byte[] key = CdnFetcher.parseKey(System.getenv("CONFIDENCE_CLIENT_ENCRYPTION_KEY"));
     CdnFetcher fetcher =
-        new CdnFetcher(
+        CdnFetcher.create(
             System.getenv("CONFIDENCE_CLIENT_SECRET"), key, null, Engine.MODULE_PROFILE, null);
     CdnFetcher.FetchedModule module = fetcher.fetch();
     assertThat(module.etag()).isNotEmpty();

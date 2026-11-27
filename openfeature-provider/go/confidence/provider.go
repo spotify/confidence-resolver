@@ -69,6 +69,7 @@ type ProviderConfig struct {
 
 	// Test-only overrides.
 	cdnBaseURL, ingestBaseURL, remoteStoreURL string
+	registrationURL                           string
 	retryInterval                             time.Duration
 }
 
@@ -124,7 +125,7 @@ func NewProvider(ctx context.Context, config ProviderConfig) (*LocalResolverProv
 	}
 	p.engine, err = engine.New(ctx, engine.Config{
 		ClientSecret: config.ClientSecret, EncryptionKey: key, HTTPClient: config.HTTPClient,
-		CDNBaseURL: config.cdnBaseURL, IngestBaseURL: config.ingestBaseURL,
+		CDNBaseURL: config.cdnBaseURL, IngestBaseURL: config.ingestBaseURL, RegistrationURL: config.registrationURL,
 		Instances: config.Instances, MaxMemoryBytes: config.MaxMemoryBytes, Interpreter: config.UseWasmInterpreter,
 		Exposure: config.ExposureMode, PollInterval: config.StatePollInterval, RetryInterval: config.retryInterval,
 		Logger: config.Logger,

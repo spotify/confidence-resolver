@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,8 @@ func fixture(t *testing.T) []byte { return testutil.Module(t, "basic.wasm") }
 
 func newEngine(t *testing.T, b *testutil.Backend, mod func(*Config)) *Engine {
 	cfg := Config{
-		ClientSecret: secret, EncryptionKey: b.Key, CDNBaseURL: b.CDN.URL, IngestBaseURL: b.Ingest.URL, HTTPClient: b.Client,
+		ClientSecret: secret, EncryptionKey: b.Key,
+		CDNBaseURL: b.CDN.URL, IngestBaseURL: b.Ingest.URL, RegistrationURL: b.RegistrationURL,
 		Instances: 4, PollInterval: 10 * time.Millisecond, FlushInterval: time.Hour, RetryInterval: 5 * time.Millisecond,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
@@ -182,30 +184,28 @@ func TestBrokenModuleKeepsCurrentAndIsRefetched(t *testing.T) {
 	}
 }
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (rt roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return rt(r) }
-
 func TestStartup(t *testing.T) {
 	t.Run("registration failure is logged and retried", func(t *testing.T) {
 		b := testutil.NewBackend(t)
 		wasm := fixture(t)
 		var logs bytes.Buffer
-		attempts := 0
+		var attempts atomic.Int32
+		registration := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil || string(body) != `{"profile":"OPENFEATURE_MT_1"}` {
+				t.Errorf("unexpected registration body: %q (%v)", body, err)
+			}
+			if attempts.Add(1) == 1 {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			b.Publish(wasm, "tok", `"v"`)
+			w.WriteHeader(http.StatusAccepted)
+		}))
+		t.Cleanup(registration.Close)
 		e := newEngine(t, b, func(c *Config) {
 			c.Logger = slog.New(slog.NewTextHandler(&logs, nil))
-			c.HTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-				if r.URL.String() != "https://resolver.confidence.dev/v1/profile:register" {
-					return b.Client.Transport.RoundTrip(r)
-				}
-				_ = r.Body.Close()
-				attempts++
-				if attempts == 1 {
-					return &http.Response{StatusCode: http.StatusForbidden, Body: http.NoBody}, nil
-				}
-				b.Publish(wasm, "tok", `"v"`)
-				return &http.Response{StatusCode: http.StatusAccepted, Body: http.NoBody}, nil
-			})}
+			c.RegistrationURL = registration.URL
 		})
 		if err := e.Start(context.Background(), 5*time.Second); err != nil {
 			t.Fatal(err)
@@ -213,7 +213,7 @@ func TestStartup(t *testing.T) {
 		if err := e.Close(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		if attempts != 2 || !strings.Contains(logs.String(), "no module published for this credential: module registration: HTTP 403") {
+		if attempts := attempts.Load(); attempts != 2 || !strings.Contains(logs.String(), "no module published for this credential: module registration: HTTP 403") {
 			t.Fatalf("registration attempts = %d, logs = %q; want two attempts and a warning for HTTP 403", attempts, logs.String())
 		}
 	})

@@ -18,29 +18,31 @@ final class ProfileRegistration {
   private final String clientSecret;
   private final HttpClient client;
   private final String requestBody;
-  private HttpClient registrationClient;
+  private final URI url;
 
-  ProfileRegistration(String clientSecret, String profile, HttpClient client) {
+  ProfileRegistration(String clientSecret, String profile, HttpClient client, String testUrl) {
     this.clientSecret = clientSecret;
     this.client = client;
+    this.url = testUrl == null ? REGISTRATION_URL : URI.create(testUrl);
     this.requestBody = "{\"profile\":\"" + profile + "\"}";
   }
 
   void register(Duration remaining) {
+    if (client.followRedirects() != HttpClient.Redirect.NEVER) {
+      throw new CdnException(
+          "module profile registration requires an HTTP client with redirects disabled");
+    }
     Duration timeout = remaining.compareTo(REQUEST_TIMEOUT) < 0 ? remaining : REQUEST_TIMEOUT;
     final HttpResponse<Void> response;
     try {
       HttpRequest request =
-          HttpRequest.newBuilder(REGISTRATION_URL)
+          HttpRequest.newBuilder(url)
               .timeout(timeout)
               .header("Authorization", "ClientSecret " + clientSecret)
               .header("Content-Type", "application/json")
               .POST(HttpRequest.BodyPublishers.ofString(requestBody))
               .build();
-      if (registrationClient == null) {
-        registrationClient = withoutRedirects(client);
-      }
-      var pending = registrationClient.sendAsync(request, HttpResponse.BodyHandlers.discarding());
+      var pending = client.sendAsync(request, HttpResponse.BodyHandlers.discarding());
       try {
         response = pending.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
       } catch (InterruptedException | TimeoutException e) {
@@ -60,22 +62,5 @@ final class ProfileRegistration {
     if (status < 200 || status >= 300) {
       throw new CdnException("module profile registration: " + status);
     }
-  }
-
-  static HttpClient withoutRedirects(HttpClient client) {
-    if (client.followRedirects() == HttpClient.Redirect.NEVER) {
-      return client;
-    }
-    // Redirect policy is per client, so preserve transport settings on a separate client.
-    HttpClient.Builder builder =
-        HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .version(client.version())
-            .sslContext(client.sslContext())
-            .sslParameters(client.sslParameters());
-    client.connectTimeout().ifPresent(builder::connectTimeout);
-    client.proxy().ifPresent(builder::proxy);
-    client.executor().ifPresent(builder::executor);
-    return builder.build();
   }
 }

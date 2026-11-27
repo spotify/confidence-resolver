@@ -26,8 +26,8 @@ import (
 const DefaultBaseURL = "https://confidence-resolver-module-cdn.spotifycdn.com"
 
 const (
-	registrationURL     = "https://resolver.confidence.dev/v1/profile:register"
-	registrationTimeout = 10 * time.Second
+	defaultRegistrationURL = "https://resolver.confidence.dev/v1/profile:register"
+	registrationTimeout    = 10 * time.Second
 )
 
 // Module is a decrypted ClientModule. Wasm embeds the client secret: never log it or write it to disk.
@@ -56,6 +56,7 @@ type Fetcher struct {
 	url                string
 	aead               cipher.AEAD
 	client             *http.Client
+	registrationURL    string
 	registrationBody   []byte
 	registrationClient http.Client
 	clientSecret       string
@@ -77,8 +78,8 @@ func ParseKey(hexKey string) ([]byte, error) {
 	return key, nil
 }
 
-// NewFetcher creates a fetcher for clientSecret. An empty CDN base URL and a nil client select defaults.
-func NewFetcher(clientSecret string, key []byte, profile, baseURL string, client *http.Client) (*Fetcher, error) {
+// NewFetcher creates a fetcher for clientSecret. Empty URLs and a nil client select defaults.
+func NewFetcher(clientSecret string, key []byte, profile, baseURL, registrationURL string, client *http.Client) (*Fetcher, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -89,6 +90,9 @@ func NewFetcher(clientSecret string, key []byte, profile, baseURL string, client
 	}
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
+	}
+	if registrationURL == "" {
+		registrationURL = defaultRegistrationURL
 	}
 	if client == nil {
 		client = http.DefaultClient
@@ -102,6 +106,7 @@ func NewFetcher(clientSecret string, key []byte, profile, baseURL string, client
 	return &Fetcher{
 		url:  strings.TrimRight(baseURL, "/") + "/modules/" + hex.EncodeToString(sum[:]) + "/" + strings.ToLower(profile) + ".wasm.enc",
 		aead: aead, client: client, clientSecret: clientSecret,
+		registrationURL:    registrationURL,
 		registrationBody:   registrationBody,
 		registrationClient: registrationClient,
 	}, nil
@@ -169,7 +174,7 @@ func (f *Fetcher) onMissing(ctx context.Context) error {
 func (f *Fetcher) register(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, registrationTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, registrationURL, bytes.NewReader(f.registrationBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.registrationURL, bytes.NewReader(f.registrationBody))
 	if err != nil {
 		return errors.New("invalid module registration URL")
 	}

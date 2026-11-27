@@ -16,6 +16,7 @@ public final class EngineConfig {
 
   public final HttpClient httpClient;
   public final String cdnBaseUrl;
+  final String registrationUrlForTesting;
   public final String ingestBaseUrl;
 
   public final int instances;
@@ -45,6 +46,7 @@ public final class EngineConfig {
     this.encryptionKey = b.encryptionKey;
     this.httpClient = b.httpClient;
     this.cdnBaseUrl = b.cdnBaseUrl;
+    this.registrationUrlForTesting = b.registrationUrlForTesting;
     this.ingestBaseUrl = b.ingestBaseUrl;
     this.instances = b.instances;
     this.maxMemoryBytes = b.maxMemoryBytes;
@@ -64,6 +66,7 @@ public final class EngineConfig {
     private byte[] encryptionKey;
     private HttpClient httpClient;
     private String cdnBaseUrl = "";
+    private String registrationUrlForTesting;
     private String ingestBaseUrl = "";
     private int instances = 1;
     private long maxMemoryBytes = 64L << 20;
@@ -93,6 +96,11 @@ public final class EngineConfig {
 
     public Builder cdnBaseUrl(String cdnBaseUrl) {
       this.cdnBaseUrl = cdnBaseUrl;
+      return this;
+    }
+
+    Builder registrationUrlForTesting(String url) {
+      this.registrationUrlForTesting = url;
       return this;
     }
 

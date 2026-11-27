@@ -398,7 +398,7 @@ class OpenFeatureLocalResolveProviderTest {
   void testStartupTimeoutThenReadyInBackground() {
     TestBackend backend = new TestBackend();
     cleanup.add(backend);
-    backend.setStatus(404);
+    backend.setStatus(503);
     OpenFeatureLocalResolveProvider p =
         newProvider(
             backend,
@@ -414,7 +414,6 @@ class OpenFeatureLocalResolveProviderTest {
     // The engine keeps polling; the provider becomes READY when the module lands.
     backend.publish(TestBackend.module("basic.wasm"), "log-token", "\"v1\"");
     awaitState(p, ProviderState.READY);
-    assertEquals(1, backend.registrations());
     assertTrue(p.getBooleanEvaluation("plain.enabled", false, USER).getValue());
   }
 

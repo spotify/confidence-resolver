@@ -79,7 +79,7 @@ func setup(t *testing.T, c *cdn, key []byte) *Fetcher {
 		}
 		return w.Result(), nil
 	})}
-	f, err := NewFetcher(secret, key, testProfile, "https://cdn.test", client)
+	f, err := NewFetcher(secret, key, testProfile, "https://cdn.test", "", client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func registrationFixture(t *testing.T, register roundTripFunc) (*Fetcher, *cdn, 
 			}
 		}),
 	}
-	f, err := NewFetcher(secret, key, testProfile, "https://cdn.test/", client)
+	f, err := NewFetcher(secret, key, testProfile, "https://cdn.test/", "", client)
 	if err != nil {
 		t.Fatal(err)
 	}

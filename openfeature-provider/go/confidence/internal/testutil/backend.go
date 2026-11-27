@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -46,13 +45,9 @@ type Backend struct {
 	inm     []string
 	batches []Batch
 
-	CDN, Ingest *httptest.Server
-	Client      *http.Client
+	CDN, Ingest     *httptest.Server
+	RegistrationURL string
 }
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (rt roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return rt(r) }
 
 // Batch is one received flag-log request.
 type Batch struct {
@@ -63,7 +58,12 @@ type Batch struct {
 func NewBackend(t testing.TB) *Backend {
 	b := &Backend{t: t, Key: make([]byte, 32), status: http.StatusNotFound}
 	_, _ = rand.Read(b.Key)
-	b.CDN = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	const registerPath = "/v1/profile:register"
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST "+registerPath, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("GET /modules/", func(w http.ResponseWriter, r *http.Request) {
 		b.mu.Lock()
 		defer b.mu.Unlock()
 		inm := r.Header.Get("If-None-Match")
@@ -77,26 +77,15 @@ func NewBackend(t testing.TB) *Backend {
 			w.Header().Set("ETag", b.etag)
 			_, _ = w.Write(b.module)
 		}
-	}))
+	})
+	b.CDN = httptest.NewServer(mux)
+	b.RegistrationURL = b.CDN.URL + registerPath
 	b.Ingest = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		b.mu.Lock()
 		b.batches = append(b.batches, Batch{strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body})
 		b.mu.Unlock()
 	}))
-	b.Client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.Method == http.MethodPost && r.URL.String() == "https://resolver.confidence.dev/v1/profile:register" {
-			_ = r.Body.Close()
-			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
-		}
-		if r.URL.Host != b.CDN.Listener.Addr().String() && r.URL.Host != b.Ingest.Listener.Addr().String() {
-			if r.Body != nil {
-				_ = r.Body.Close()
-			}
-			return nil, fmt.Errorf("unexpected test backend host: %s", r.URL.Host)
-		}
-		return http.DefaultTransport.RoundTrip(r)
-	})}
 	t.Cleanup(b.CDN.Close)
 	t.Cleanup(b.Ingest.Close)
 	return b

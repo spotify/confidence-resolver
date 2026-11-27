@@ -107,8 +107,16 @@ public final class Engine {
   public Engine(EngineConfig cfg) {
     this.cfg = cfg;
     this.fetcher =
-        new CdnFetcher(
-            cfg.clientSecret, cfg.encryptionKey, cfg.cdnBaseUrl, MODULE_PROFILE, cfg.httpClient);
+        cfg.registrationUrlForTesting == null
+            ? CdnFetcher.create(
+                cfg.clientSecret, cfg.encryptionKey, cfg.cdnBaseUrl, MODULE_PROFILE, cfg.httpClient)
+            : CdnFetcher.createForTest(
+                cfg.clientSecret,
+                cfg.encryptionKey,
+                cfg.cdnBaseUrl,
+                MODULE_PROFILE,
+                cfg.httpClient,
+                cfg.registrationUrlForTesting);
     if (cfg.applyFilter != null) {
       this.applyFilter = cfg.applyFilter;
     } else {

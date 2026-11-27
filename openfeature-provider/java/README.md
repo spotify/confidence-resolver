@@ -42,15 +42,9 @@ You'll need a **client secret** from Confidence to use this provider.
 - How to navigate the Confidence dashboard
 - Creating a Backend integration
 
-## Module registration
-
-`POST /v1/profile:register` is a one-time setup step for the `OPENFEATURE_MT_1` profile per
-client credential (client secret), not a call made on every startup. The provider tries the CDN
-first and attempts registration only if the module is missing (HTTP 404). If registration fails,
-the next scheduled poll tries the CDN first and retries registration only if the module is still
-missing. Any successful registration response stops further registration attempts in that provider
-instance. The provider polls the CDN on its normal schedule without adding a delay. Once
-published, the module is fetched directly from the CDN, including on restarts.
+The first startup with a new client credential may take longer while Confidence builds and
+publishes its flag module. Until the module is available, initialization behaves as it would if the
+CDN were unreachable.
 
 ## Encryption
 
@@ -167,7 +161,7 @@ OpenFeatureLocalResolveProvider provider =
 | `statePollInterval(Duration)` | 10 seconds | How often to check for a new flag module. |
 | `initializationTimeout(Duration)` | 30 seconds | How long `initialize()` waits for the first module. |
 | `interpreter(boolean)` | `false` | Run the flag module on the interpreter instead of the compiled runtime. See [WASM interpreter mode](#wasm-interpreter-mode). |
-| `httpClientFactory(HttpClientFactory)` | shared `HttpClient` | Hook supplying the `java.net.http.HttpClient` used for every request to Confidence (module CDN, flag logs, hosted materialization store). Use it for proxies, custom TLS or instrumentation. |
+| `httpClientFactory(HttpClientFactory)` | shared `HttpClient` | Hook supplying the `java.net.http.HttpClient` used for every request to Confidence (module CDN, profile registration, flag logs, hosted materialization store). Disable redirects on this client to allow profile registration. Use it for proxies, custom TLS or instrumentation. |
 | `logger(Logger)` | SLF4J default | Custom logger. See [Logging](#logging). |
 
 ### Environment Variables

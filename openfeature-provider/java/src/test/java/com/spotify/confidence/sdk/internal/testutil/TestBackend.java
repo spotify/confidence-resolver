@@ -1,9 +1,5 @@
 package com.spotify.confidence.sdk.internal.testutil;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-
 import com.google.protobuf.ByteString;
 import com.spotify.confidence.flags.wasm.v1.ClientModule;
 import com.spotify.confidence.flags.wasm.v1.WriteFlagLogsRequest;
@@ -11,10 +7,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
@@ -25,7 +18,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import org.mockito.AdditionalAnswers;
 
 /**
  * Fakes the Confidence backend — the module CDN and flag-log ingestion — for tests. Port of the Go
@@ -100,7 +92,7 @@ public final class TestBackend implements AutoCloseable {
               registrations.incrementAndGet();
               respond(exchange, 200, new byte[0]);
             });
-    client = withMockRegistration(resolver);
+    client = HttpClient.newHttpClient();
     ingest =
         server(
             "/v1/",
@@ -181,29 +173,8 @@ public final class TestBackend implements AutoCloseable {
     return "http://127.0.0.1:" + cdn.getAddress().getPort();
   }
 
-  /** Intercepts the fixed registration URL at the HTTP client boundary. */
-  public static HttpClient withMockRegistration(HttpServer resolver) {
-    HttpClient real = HttpClient.newHttpClient();
-    HttpClient client = mock(HttpClient.class, AdditionalAnswers.delegatesTo(real));
-    doAnswer(
-            call -> {
-              HttpRequest original = call.getArgument(0);
-              URI uri = original.uri();
-              if (resolver == null
-                  || !uri.equals(
-                      URI.create("https://resolver.confidence.dev/v1/profile:register"))) {
-                throw new AssertionError("unexpected async request URI: " + uri);
-              }
-              URI loopback =
-                  URI.create("http://127.0.0.1:" + resolver.getAddress().getPort() + uri.getPath());
-              HttpRequest request =
-                  HttpRequest.newBuilder(original, (name, value) -> true).uri(loopback).build();
-              HttpResponse.BodyHandler<?> handler = call.getArgument(1);
-              return real.sendAsync(request, handler);
-            })
-        .when(client)
-        .sendAsync(any(HttpRequest.class), any());
-    return client;
+  public String registrationUrl() {
+    return "http://127.0.0.1:" + resolver.getAddress().getPort() + "/v1/profile:register";
   }
 
   public int registrations() {

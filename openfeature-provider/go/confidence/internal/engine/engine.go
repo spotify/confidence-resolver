@@ -49,11 +49,12 @@ const ModuleProfile = "OPENFEATURE_MT_1"
 
 // Config configures an Engine. Zero values select defaults.
 type Config struct {
-	ClientSecret  string
-	EncryptionKey []byte // 32 bytes; see cdn.ParseKey
-	HTTPClient    *http.Client
-	CDNBaseURL    string
-	IngestBaseURL string
+	ClientSecret    string
+	EncryptionKey   []byte // 32 bytes; see cdn.ParseKey
+	HTTPClient      *http.Client
+	CDNBaseURL      string
+	IngestBaseURL   string
+	RegistrationURL string // test override; empty uses the production endpoint
 
 	Instances      int
 	MaxMemoryBytes uint64
@@ -123,7 +124,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	if cfg.OnReady == nil {
 		cfg.OnReady = func() {}
 	}
-	fetcher, err := cdn.NewFetcher(cfg.ClientSecret, cfg.EncryptionKey, ModuleProfile, cfg.CDNBaseURL, cfg.HTTPClient)
+	fetcher, err := cdn.NewFetcher(cfg.ClientSecret, cfg.EncryptionKey, ModuleProfile, cfg.CDNBaseURL, cfg.RegistrationURL, cfg.HTTPClient)
 	if err != nil {
 		return nil, err
 	}
