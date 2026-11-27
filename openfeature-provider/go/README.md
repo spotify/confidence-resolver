@@ -135,7 +135,7 @@ Once valid state has been installed, **any** refresh failure preserves the last 
 
 ### Initialization at startup
 
-`SetProviderAndWait` returns the initialization error instead of panicking, so the choice of
+`SetProviderAndWait` returns the initialization error, so the choice of
 failing fast or serving defaults is yours at the call site:
 
 ```go
