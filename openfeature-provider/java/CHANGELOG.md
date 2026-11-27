@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0-rc3](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.24.0-rc2...openfeature-provider-java-v0.24.0-rc3) (2026-11-27)
+
+
+### Documentation
+
+* **openfeature:** guide services through provider init timeout at startup ([#719](https://github.com/spotify/confidence-resolver/issues/719)) ([505be0c](https://github.com/spotify/confidence-resolver/commit/505be0c9162b6a1056730dbc069a28f2986453bd))
+
 ## [0.24.0-rc2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.24.0-rc1...openfeature-provider-java-v0.24.0-rc2) (2026-11-27)
 
 
