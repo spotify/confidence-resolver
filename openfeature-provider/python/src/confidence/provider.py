@@ -420,6 +420,10 @@ class ConfidenceProvider(AbstractProvider):
                     self._enable_apply_dedup,
                     self._disable_exposure_collection,
                 )
+                # Advance the ETag/cached state only after the state
+                # installed, so a failed install is retried on the next
+                # poll instead of being 304-skipped (#675).
+                self._state_fetcher.mark_applied()
                 self._status = ProviderStatus.READY
                 self.emit_provider_ready(ProviderEventDetails())
                 logger.info("ConfidenceProvider initialized successfully")
@@ -1456,6 +1460,10 @@ class ConfidenceProvider(AbstractProvider):
                             self._enable_apply_dedup,
                             self._disable_exposure_collection,
                         )
+                        # Advance the ETag/cached state only after the state
+                        # installed, so a failed install is retried on the
+                        # next poll instead of being 304-skipped (#675).
+                        self._state_fetcher.mark_applied()
                     self._write_logs(flushed_logs)
 
                     # Update account ID and destinations on the logger

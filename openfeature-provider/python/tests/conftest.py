@@ -81,6 +81,10 @@ class StateFetcherProtocol(Protocol):
         """Fetch state, account ID, whether state changed, and log destinations."""
         ...
 
+    def mark_applied(self) -> None:
+        """Acknowledge that the fetched state was installed."""
+        ...
+
     @property
     def state(self) -> Optional[bytes]:
         """Current cached state."""
@@ -119,12 +123,16 @@ class MockStateFetcher:
         self._account_id = account_id
         self._log_destinations = log_destinations or []
         self.fetch_count = 0
+        self.mark_applied_count = 0
 
     def fetch(self) -> Tuple[bytes, str, bool, List[int]]:
         self.fetch_count += 1
         # Always return changed=True for first fetch, False for subsequent
         changed = self.fetch_count == 1
         return self._state, self._account_id, changed, self._log_destinations
+
+    def mark_applied(self) -> None:
+        self.mark_applied_count += 1
 
     @property
     def state(self) -> Optional[bytes]:

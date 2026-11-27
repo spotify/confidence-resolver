@@ -93,6 +93,10 @@ class TestReloadSuccess:
         assert account_id == test_account_id
         assert changed is True
         assert log_destinations == []
+        # Nothing is cached until the consumer installs the fetched state.
+        assert fetcher.state is None
+        assert fetcher.account_id is None
+        fetcher.mark_applied()
         assert fetcher.state == test_state
         assert fetcher.account_id == test_account_id
 
@@ -125,6 +129,9 @@ class TestReloadNotModified:
         state1, account_id1, changed1, dests1 = fetcher.fetch()
 
         assert changed1 is True
+
+        # The provider installed the first state; only then is it cached.
+        fetcher.mark_applied()
 
         # Second request returns 304 Not Modified
         httpx_mock.add_response(
@@ -208,6 +215,9 @@ class TestEtagSentOnSecondRequest:
         fetcher = StateFetcher(client_secret, TEST_KEY)
         fetcher.fetch()
 
+        # The provider installed the first state, so its ETag may be sent.
+        fetcher.mark_applied()
+
         # Second request should include If-None-Match
         httpx_mock.add_response(
             url=cdn_url,
@@ -225,6 +235,43 @@ class TestEtagSentOnSecondRequest:
 
         # Second request should have If-None-Match with the ETag value
         assert requests[1].headers.get("If-None-Match") == '"test-etag-value"'
+
+
+class TestStateNotCachedUntilApplied:
+    """The cache and ETag advance only via mark_applied() (#675)."""
+
+    def test_failed_install_is_refetched_not_304_skipped(
+        self, httpx_mock: HTTPXMock
+    ) -> None:
+        """A fetch whose install failed must be re-fetched in full (#675)."""
+        client_secret = "test-client-secret"
+        url = get_cdn_url(client_secret)
+        client_state = ClientResolverState(state=b"state", account="account")
+        encrypted = encrypt_state(client_state.SerializeToString())
+        httpx_mock.add_response(url=url, content=encrypted, headers={"ETag": "etag-1"})
+        httpx_mock.add_response(url=url, content=encrypted, headers={"ETag": "etag-1"})
+        httpx_mock.add_response(url=url, status_code=304)
+
+        fetcher = StateFetcher(client_secret, TEST_KEY)
+        # First fetch succeeds but the (simulated) install fails: the
+        # provider never calls mark_applied().
+        _, _, changed, _ = fetcher.fetch()
+        assert changed is True
+
+        # Retry: no If-None-Match may be sent for state that never
+        # installed, so the CDN re-serves the full state (changed=True),
+        # not a 304 that would skip the install.
+        _, _, changed, _ = fetcher.fetch()
+        assert changed is True
+        requests = httpx_mock.get_requests()
+        assert "If-None-Match" not in requests[1].headers
+
+        # The retry installs; only now does the ETag advance.
+        fetcher.mark_applied()
+        _, _, changed, _ = fetcher.fetch()
+        requests = httpx_mock.get_requests()
+        assert changed is False
+        assert requests[2].headers.get("If-None-Match") == "etag-1"
 
 
 @pytest.mark.parametrize(
@@ -273,11 +320,13 @@ def test_decryption_failure_preserves_etag(httpx_mock: HTTPXMock, failure: str) 
     httpx_mock.add_response(url=url, content=encrypted, headers={"ETag": "recovered"})
     fetcher = StateFetcher("secret", TEST_KEY)
     fetcher.fetch()
+    fetcher.mark_applied()  # the provider installed the first state
     with pytest.raises((InvalidTag, StateFetcherError)):
         fetcher.fetch()
     assert fetcher._etag == "good"
     assert fetcher.state == b"state"
     fetcher.fetch()
+    fetcher.mark_applied()  # the provider installed the recovered state
     assert fetcher._etag == "recovered"
     requests = httpx_mock.get_requests()
     assert len(requests) == 3
