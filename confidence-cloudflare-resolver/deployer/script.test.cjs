@@ -1012,3 +1012,99 @@ test('If-None-Match sends the etag in its quoted entity-tag form', () => {
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), 'If-None-Match: "07fec5375bb522af40d13142861e7340"');
 });
+
+// --- ETag conditional request, against a live server ---
+
+// The unit test above pins the header string; these run the real blocks out
+// of script.sh against a live RFC 9110 server that, like the state CDN,
+// only answers 304 to the quoted entity-tag form.
+const IF_NONE_MATCH_BLOCK = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/^if \[ -n "\$PREV_ETAG" \]; then\n    if \[ -z "\$FORCE_DEPLOY" \]; then[\s\S]*?^fi$/m);
+  assert.ok(match, 'could not find the If-None-Match block');
+  return match[0];
+})();
+
+// From the state download through the end of the 304-skip branch (the
+// 200 branch is replaced by the caller, so the slice stays testable).
+const STATE_FETCH_BLOCK = (() => {
+  const script = readFileSync(join(__dirname, 'script.sh'), 'utf8');
+  const match = script.match(/^TMP_HEADER=\$\(mktemp\)\n[\s\S]*?(?=^elif \[ "\$HTTP_STATUS" = "200" \]; then$)/m);
+  assert.ok(match, 'could not find the state fetch block');
+  return match[0];
+})();
+
+test('a quoted If-None-Match gets a 304 from the server and the deployer skips', async () => {
+  const http = require('node:http');
+  const { spawn, execFile } = require('node:child_process');
+  // Async spawns, not spawnSync: the server below runs in this process, and
+  // spawnSync would block the event loop that must answer the request.
+  const runBashAsync = (body) => new Promise((resolve) => {
+    const child = spawn('bash', ['-c', body]);
+    const timer = setTimeout(() => child.kill('SIGKILL'), 10000);
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('close', (code, signal) => { clearTimeout(timer); resolve({ status: code, signal, stdout, stderr }); });
+  });
+  const curlStatus = (header) => new Promise((resolve, reject) => {
+    const args = ['-sS', '-o', '/dev/null', '-w', '%{http_code}', '-H', header, url];
+    execFile('curl', args, { timeout: 5000 }, (err, stdout) => {
+      if (err) reject(err); else resolve(String(stdout).trim());
+    });
+  });
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push(req.headers['if-none-match'] ?? null);
+    if (req.headers['if-none-match'] === '"abc123"') {
+      res.writeHead(304, { ETag: '"abc123"' });
+      res.end();
+      return;
+    }
+    res.writeHead(200, { ETag: '"abc123"' });
+    res.end('state-bytes');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/state`;
+  try {
+    // The premise of the fix: this server, like the CDN, answers 200 to a
+    // bare value — without that, the skip below would pass vacuously.
+    assert.equal(await curlStatus('If-None-Match: abc123'), '200', 'a bare etag must not match');
+    assert.equal(await curlStatus('If-None-Match: "abc123"'), '304', 'the quoted etag must match');
+    seen.length = 0; // the two premise requests above are not the script's
+
+    const directory = mkdtempSync(join(tmpdir(), 'etag-skip-test-'));
+    try {
+      const run = (forceDeploy = '') => runBashAsync(`
+set -euo pipefail
+PREV_ETAG="abc123"
+FORCE_DEPLOY="${forceDeploy}"
+NO_DEPLOY="1"
+RESPONSE_FILE="${join(directory, 'state.pb')}"
+CONFIDENCE_RESOLVER_STATE_URL="${url}"
+${IF_NONE_MATCH_BLOCK}
+${STATE_FETCH_BLOCK}else
+    echo "NOT_SKIPPED status=\$HTTP_STATUS"
+fi
+echo "reached-end"
+`);
+      const skip = await run();
+      assert.equal(skip.status, 0, skip.stderr);
+      assert.match(skip.stdout, /Using If-None-Match: "abc123"/);
+      assert.match(skip.stdout, /Resolver state not modified \(HTTP 304\)\. Skipping the deployment/);
+      assert.doesNotMatch(skip.stdout, /NOT_SKIPPED/, 'a 304 must skip, not re-download');
+      assert.doesNotMatch(skip.stdout, /reached-end/, 'the skip path must exit before the download branch');
+      assert.deepEqual(seen, ['"abc123"'], 'the request must carry the quoted entity-tag');
+
+      const forced = await run('1');
+      assert.equal(forced.status, 0, forced.stderr);
+      assert.match(forced.stdout, /NOT_SKIPPED status=200/, 'a forced deploy must re-download the state');
+      assert.equal(seen[1], null, 'a forced deploy must not send If-None-Match');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  } finally {
+    server.close();
+  }
+});
