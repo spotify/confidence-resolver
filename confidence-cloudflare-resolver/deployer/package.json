@@ -2,7 +2,10 @@
   "name": "confidence-cloudflare-deployer",
   "private": true,
   "engines": { "node": ">=22" },
-  "scripts": { "test": "node --test memory-preflight.test.mjs script.test.cjs" },
+  "scripts": {
+    "test": "node --test memory-preflight.test.mjs script.test.cjs",
+    "test:worker-runtime": "node --test worker-runtime.test.mjs"
+  },
   "dependencies": {
     "miniflare": "4.20260730.0",
     "smol-toml": "1.3.4"
