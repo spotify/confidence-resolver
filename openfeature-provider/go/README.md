@@ -142,7 +142,7 @@ failing fast or serving defaults is yours at the call site:
 provider, err := confidence.NewProvider(ctx, confidence.ProviderConfig{
     ClientSecret:          "[REDACTED assignment-style secret]",
     EncryptionKey:         "your-encryption-key",
-    InitializationTimeout: 10 * time.Second, // bounds how long startup blocks
+    InitializationTimeout: 45 * time.Second, // default: 30 seconds
 })
 if err != nil {
     log.Fatalf("Provider creation failed: %v", err)
@@ -154,7 +154,7 @@ if err := openfeature.SetProviderAndWait(provider); err != nil {
 ```
 
 For most services this is the right default: a CDN outage degrades the service instead of
-preventing it from starting. A timeout keeps retrying in the background and the provider may
+preventing it from starting. The SDK keeps retrying in the background and the provider may
 become ready later — evaluations then switch from defaults to resolved values mid-run; call
 `openfeature.Shutdown()` in the error path (as commented above) if the service must stay on
 defaults for its whole lifetime. A rejected credential is `FATAL` and never retries — fix it
