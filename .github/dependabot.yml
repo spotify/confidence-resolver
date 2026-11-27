@@ -50,6 +50,9 @@ updates:
     schedule:
       interval: "monthly"
     groups:
+      go-security-updates:
+        applies-to: "security-updates"
+        patterns: ["*"]
       go-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
