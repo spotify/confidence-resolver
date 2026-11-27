@@ -51,6 +51,12 @@ make proto      # regenerate the protobuf classes from ../proto
   `byte-buddy-agent` into `target/` and surefire loads it via `-javaagent`.
 - **Shaded JAR**: Endive, ASM, protobuf, gson and common-protos are relocated under
   `com.spotify.confidence.sdk.shaded` — unit tests run against plain classes; check shading
-  changes via `make build` (the shade plugin runs in package).
+  changes via `make build` (the shade plugin runs in package). The bundled protos themselves
+  generate at their real package (`com.spotify.confidence.flags.**`) and are relocated by the
+  same shade step to `com.spotify.confidence.sdk.flags.**`, as 0.23.0 shipped them: consumers
+  generate the same protos at the real names, and unrelocated copies in the jar clash with
+  them (Jib orders the consumer's classes first, so its copies shadow the provider's and
+  evaluation breaks — the 0.24.0-rc1 regression). `make build` asserts the jar layout against
+  that regression.
 - **Secrets in Docker**: mounted as Docker secrets, never written to a layer (see the root
   Dockerfile's `test_e2e` stages).

@@ -3,13 +3,23 @@
 
 .PHONY: build test test-e2e lint clean proto
 
+# The jar-layout assertions below pick the shaded main artifact by excluding the original,
+# sources and javadoc jars explicitly, so the pick does not depend on the locale's ls
+# collation order.
+
 build:
 	mvn -q verify -DskipTests
-	@j="$$(ls target/openfeature-provider-local-*.jar | grep -v original | head -1)"; \
+	@j="$$(ls target/openfeature-provider-local-*.jar 2>/dev/null | grep -Ev 'original|-sources|-javadoc' | head -1)"; \
+	test -n "$$j" || { echo "shading broken: no shaded jar in target/" && exit 1; }; \
 	jar tf "$$j" | grep -q 'com/spotify/confidence/sdk/shaded/run/endive/' \
-		|| (echo "shading broken: run.endive not relocated in $$j" && exit 1); \
+		|| { echo "shading broken: run.endive not relocated in $$j" && exit 1; }; \
 	if jar tf "$$j" | grep -qE '^run/endive/'; then \
 		echo "shading broken: unrelocated run.endive classes in $$j"; exit 1; \
+	fi; \
+	jar tf "$$j" | grep -q 'com/spotify/confidence/sdk/flags/' \
+		|| { echo "shading broken: bundled protos not relocated under com.spotify.confidence.sdk.flags in $$j" && exit 1; }; \
+	if jar tf "$$j" | grep -qE '^com/spotify/confidence/flags/'; then \
+		echo "shading broken: unrelocated proto classes in $$j"; exit 1; \
 	fi
 
 # Unit tests (no credentials needed).

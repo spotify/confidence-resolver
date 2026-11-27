@@ -411,6 +411,17 @@
               </artifactSet>
 
               <relocations>
+                <!-- The bundled state-to-wasm protos generate at their real package
+                     (com.spotify.confidence.flags.**). Relocate them like 0.23.0 did (then via the
+                     protos' java_package) so they cannot clash with copies consumers generate
+                     themselves from the same .proto files: consumers' classes extend the regular
+                     com.google.protobuf while the provider's extend the shaded one, and on a
+                     classes-before-libs classpath (e.g. Jib's /app/classes before /app/libs) the
+                     consumer's copies shadow the provider's and break evaluation. -->
+                <relocation>
+                  <pattern>com.spotify.confidence.flags</pattern>
+                  <shadedPattern>com.spotify.confidence.sdk.flags</shadedPattern>
+                </relocation>
                 <relocation>
                   <pattern>run.endive</pattern>
                   <shadedPattern>com.spotify.confidence.sdk.shaded.run.endive</shadedPattern>
