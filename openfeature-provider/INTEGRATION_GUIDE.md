@@ -95,7 +95,7 @@ If anything goes wrong, the provider returns `DEFAULT_VALUE` instead of throwing
 | **Provider not ready** | Returns default | Called before initialization complete |
 
 > [!NOTE]
-> **Initialization on the `next` (0.24-line) providers:** the rewritten [Go](go/README.md#initialization-at-startup)
+> **Initialization on the `next` (state2wasm-line) providers:** the rewritten [Go](go/README.md#initialization-at-startup)
 > and [Java](java/README.md#initialization-at-startup) providers *throw* from `setProviderAndWait` when
 > initialization fails — a 30-second timeout reaching the module CDN, or a rejected credential —
 > while evaluations themselves still return defaults. Wrap the call if your service should boot on
