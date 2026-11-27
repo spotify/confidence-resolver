@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.24.0-rc1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.24.0-rc0...openfeature-provider-java-v0.24.0-rc1) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **java:** the Java provider on state-to-wasm flag modules ([#702](https://github.com/spotify/confidence-resolver/issues/702))
+* release candidates of rewritten providers from next
+
+### Features
+
+* **go,java:** recover from module traps ([#706](https://github.com/spotify/confidence-resolver/issues/706)) ([941f082](https://github.com/spotify/confidence-resolver/commit/941f0821ad8425ed9d5888842861caa4666fafc4))
+* **java:** the Java provider on state-to-wasm flag modules ([#702](https://github.com/spotify/confidence-resolver/issues/702)) ([9a5355f](https://github.com/spotify/confidence-resolver/commit/9a5355f352bb0f4f53e60bed33b94747236eb4cb))
+* **openfeature:** fetch profiled modules in Java and Go ([#715](https://github.com/spotify/confidence-resolver/issues/715)) ([99460c5](https://github.com/spotify/confidence-resolver/commit/99460c564cb1a0d37477625f60e29bcafd94f901))
+
+
+### Documentation
+
+* describe next and mark unported providers as reference ([2feda42](https://github.com/spotify/confidence-resolver/commit/2feda420202d4f148d6576e291d025b676f4b05b))
+* **java:** fold the stale resolve-token warning into the module token warning ([924ea9f](https://github.com/spotify/confidence-resolver/commit/924ea9f5867cac0f98511683b9592a840893ea87))
+
+
+### Continuous Integration
+
+* release candidates of rewritten providers from next ([ea2f3f3](https://github.com/spotify/confidence-resolver/commit/ea2f3f3dc224170b1f7f9a3199d72fa0947b38a1))
+
 ## [0.23.4](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.23.3...openfeature-provider-java-v0.23.4) (2026-11-09)
 
 
