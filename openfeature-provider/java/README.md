@@ -69,11 +69,17 @@ import com.spotify.confidence.sdk.OpenFeatureLocalResolveProvider;
 import dev.openfeature.sdk.OpenFeatureAPI;
 import dev.openfeature.sdk.Client;
 import dev.openfeature.sdk.MutableContext;
+import dev.openfeature.sdk.exceptions.OpenFeatureError;
 
 // Create and register the provider
 OpenFeatureLocalResolveProvider provider =
     new OpenFeatureLocalResolveProvider("your-client-secret", "your-encryption-key"); // Get from Confidence dashboard
-OpenFeatureAPI.getInstance().setProviderAndWait(provider); // Important: use setProviderAndWait()
+try {
+    OpenFeatureAPI.getInstance().setProviderAndWait(provider); // Important: use setProviderAndWait()
+} catch (OpenFeatureError e) {
+    // Flag module not installed yet — keep booting on defaults; see "Initialization at startup"
+    System.err.println("Confidence provider init failed, serving flag defaults: " + e.getMessage());
+}
 
 // Get a client
 Client client = OpenFeatureAPI.getInstance().getClient();
@@ -90,9 +96,43 @@ System.out.println("Flag value: " + enabled);
 // Don't forget to shutdown when your application exits (see Shutdown section)
 ```
 
-`setProviderAndWait` calls `initialize()`, which installs the credential's first flag module —
-throwing on a rejected credential, or on timeout while the provider keeps retrying in the
-background. Evaluations before the first module (and after errors) return your defaults.
+`setProviderAndWait` calls `initialize()`, which installs the credential's first flag module and
+rethrows on failure. Evaluations before the first module (and after errors) return your
+defaults. See [Initialization at startup](#initialization-at-startup) for the failure modes and
+how to handle them at service startup.
+
+## Initialization at startup
+
+`setProviderAndWait` blocks until the credential's first flag module is installed — up to
+`initializationTimeout`, 30 seconds by default — and **rethrows** when initialization fails. In
+0.23 a failed state load only logged a warning and the provider served defaults; from 0.24 the
+failure surfaces at registration, so an unguarded call can stop a service from booting during
+an outage of the module CDN (`confidence-resolver-module-cdn.spotifycdn.com`).
+
+Catch the failure and keep booting on defaults — the provider stays registered and evaluations
+return your defaults (`PROVIDER_NOT_READY` on the details) until the module installs:
+
+```java
+try {
+    OpenFeatureAPI.getInstance().setProviderAndWait(provider);
+} catch (OpenFeatureError e) {
+    logger.error("Confidence provider init failed; serving flag defaults", e);
+    // OpenFeatureAPI.getInstance().shutdown(); // stay on defaults for the whole process
+}
+```
+
+- **Timeout** (CDN unreachable, or the credential's module still building): the engine keeps
+  retrying in the background and the provider may become ready later — evaluations then switch
+  from defaults to resolved values mid-run. If the service must behave consistently for its
+  whole lifetime, call `shutdown()` in the catch (as commented above); evaluations then return
+  defaults for the rest of the process.
+- **Rejected credential**: `FATAL`, no retry — fix the credential and restart. Alert on the
+  catch either way.
+- Let the exception propagate instead when wrong defaults are more dangerous than downtime
+  (compliance, payment logic). Catching is only as safe as your
+  [defaults](../INTEGRATION_GUIDE.md#production-best-practices).
+
+Upgrading from `0.23`? See [Migrating to the `next` providers](../MIGRATION.md).
 
 ## Evaluation Context
 
@@ -112,6 +152,9 @@ ctx.add("age", 25);
 
 The provider uses a **default value fallback** pattern - when evaluation fails, it returns your
 specified default value with an error code set on the details, instead of throwing.
+
+Initialization failures behave differently — they throw from `setProviderAndWait`; see
+[Initialization at startup](#initialization-at-startup).
 
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
 - Common failure scenarios
@@ -391,6 +434,7 @@ import com.spotify.confidence.sdk.FlagResolverService;
 OpenFeatureLocalResolveProvider provider =
     new OpenFeatureLocalResolveProvider("your-client-secret", "your-encryption-key");
 // If you're not using OpenFeature, don't forget to call provider.initialize()
+// Guard this call as in "Initialization at startup" — it throws when initialization fails
 OpenFeatureAPI.getInstance().setProviderAndWait(provider);
 
 // Create the HTTP service

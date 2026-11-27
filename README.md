@@ -48,6 +48,9 @@ For providers this means:
 
 Not on `next` yet: `track()` (event tracking), which will return through the flag modules.
 
+Migrating a service from a `main` provider to its release candidate? See
+[openfeature-provider/MIGRATION.md](openfeature-provider/MIGRATION.md).
+
 ## Repository layout
 
 - `openfeature-provider/<lang>/`: the providers
