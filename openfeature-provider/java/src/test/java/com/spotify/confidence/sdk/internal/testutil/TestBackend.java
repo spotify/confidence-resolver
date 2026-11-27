@@ -14,6 +14,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -44,8 +45,10 @@ public final class TestBackend implements AutoCloseable {
 
   private final byte[] key = new byte[32];
   private final HttpServer cdn;
+  private final HttpServer resolver;
   private final HttpServer ingest;
-  private final HttpClient client = HttpClient.newHttpClient();
+  private final AtomicInteger registrations = new AtomicInteger();
+  private final HttpClient client;
 
   private volatile int status = 404;
   private volatile long cdnDelayMillis = 0;
@@ -82,6 +85,14 @@ public final class TestBackend implements AutoCloseable {
               }
               respond(exchange, code, body);
             });
+    resolver =
+        server(
+            "/v1/profile:register",
+            exchange -> {
+              registrations.incrementAndGet();
+              respond(exchange, 200, new byte[0]);
+            });
+    client = HttpClient.newHttpClient();
     ingest =
         server(
             "/v1/",
@@ -162,6 +173,14 @@ public final class TestBackend implements AutoCloseable {
     return "http://127.0.0.1:" + cdn.getAddress().getPort();
   }
 
+  public String registrationUrl() {
+    return "http://127.0.0.1:" + resolver.getAddress().getPort() + "/v1/profile:register";
+  }
+
+  public int registrations() {
+    return registrations.get();
+  }
+
   /** The fake ingestion's base URL. */
   public String ingestUrl() {
     return "http://127.0.0.1:" + ingest.getAddress().getPort();
@@ -184,6 +203,7 @@ public final class TestBackend implements AutoCloseable {
   @Override
   public void close() {
     cdn.stop(0);
+    resolver.stop(0);
     ingest.stop(0);
   }
 

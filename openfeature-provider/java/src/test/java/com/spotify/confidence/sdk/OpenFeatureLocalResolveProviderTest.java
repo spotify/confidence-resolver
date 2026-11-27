@@ -398,7 +398,7 @@ class OpenFeatureLocalResolveProviderTest {
   void testStartupTimeoutThenReadyInBackground() {
     TestBackend backend = new TestBackend();
     cleanup.add(backend);
-    backend.setStatus(404);
+    backend.setStatus(503);
     OpenFeatureLocalResolveProvider p =
         newProvider(
             backend,

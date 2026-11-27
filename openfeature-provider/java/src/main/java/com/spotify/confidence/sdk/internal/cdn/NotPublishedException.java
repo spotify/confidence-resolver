@@ -6,4 +6,8 @@ public final class NotPublishedException extends CdnException {
   NotPublishedException() {
     super("no module published for this credential");
   }
+
+  NotPublishedException(CdnException cause) {
+    super("no module published for this credential", cause);
+  }
 }

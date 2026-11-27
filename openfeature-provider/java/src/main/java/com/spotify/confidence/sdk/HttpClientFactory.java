@@ -9,8 +9,9 @@ import java.time.Duration;
  * RemoteMaterializationStore}.
  *
  * <p>The provider calls {@link #createHttpClient()} once and shares the client across those
- * components for the provider's lifetime. The factory itself owns the lifecycle of whatever it
- * creates; {@code java.net.http.HttpClient} needs no explicit shutdown.
+ * components for the provider's lifetime. The client must use {@link HttpClient.Redirect#NEVER} for
+ * module profile registration. The provider won't send the client secret with a client that follows
+ * redirects. The factory owns the lifecycle of the client it creates.
  *
  * <p>Useful for:
  *
@@ -29,15 +30,12 @@ public interface HttpClientFactory {
    */
   HttpClient createHttpClient();
 
-  /**
-   * The default factory: a client with a 10-second connect timeout that follows redirects, as the
-   * module CDN and ingestion endpoints may answer with one.
-   */
+  /** The default factory: a client with a 10-second connect timeout and redirects disabled. */
   static HttpClientFactory defaultFactory() {
     return () ->
         HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            .followRedirects(HttpClient.Redirect.NEVER)
             .build();
   }
 }

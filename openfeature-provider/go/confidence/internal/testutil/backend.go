@@ -1,4 +1,4 @@
-// Package testutil fakes the Confidence backend (module CDN and flag-log ingestion) for tests.
+// Package testutil fakes the Confidence backend for tests.
 package testutil
 
 import (
@@ -45,7 +45,8 @@ type Backend struct {
 	inm     []string
 	batches []Batch
 
-	CDN, Ingest *httptest.Server
+	CDN, Ingest     *httptest.Server
+	RegistrationURL string
 }
 
 // Batch is one received flag-log request.
@@ -57,7 +58,12 @@ type Batch struct {
 func NewBackend(t testing.TB) *Backend {
 	b := &Backend{t: t, Key: make([]byte, 32), status: http.StatusNotFound}
 	_, _ = rand.Read(b.Key)
-	b.CDN = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	const registerPath = "/v1/profile:register"
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST "+registerPath, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("GET /modules/", func(w http.ResponseWriter, r *http.Request) {
 		b.mu.Lock()
 		defer b.mu.Unlock()
 		inm := r.Header.Get("If-None-Match")
@@ -71,7 +77,9 @@ func NewBackend(t testing.TB) *Backend {
 			w.Header().Set("ETag", b.etag)
 			_, _ = w.Write(b.module)
 		}
-	}))
+	})
+	b.CDN = httptest.NewServer(mux)
+	b.RegistrationURL = b.CDN.URL + registerPath
 	b.Ingest = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		b.mu.Lock()

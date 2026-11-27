@@ -53,6 +53,7 @@ class EngineTest {
             .clientSecret(TestBackend.SECRET)
             .encryptionKey(CdnFetcher.parseKey(b.hexKey()))
             .cdnBaseUrl(b.cdnUrl())
+            .registrationUrlForTesting(b.registrationUrl())
             .ingestBaseUrl(b.ingestUrl())
             .instances(4)
             .pollInterval(Duration.ofMillis(10))
@@ -249,16 +250,17 @@ class EngineTest {
     backend = new TestBackend();
     backend.setStatus(404);
     engine = newEngine(backend, null);
-    CompletableFuture.runAsync(
-        () -> {
-          try {
-            Thread.sleep(30);
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-          }
-          backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v\"");
-        });
+    CompletableFuture<Void> publish =
+        CompletableFuture.runAsync(
+            () -> {
+              Awaitility.await()
+                  .atMost(Duration.ofSeconds(5))
+                  .until(() -> backend.registrations() > 0);
+              backend.publish(TestBackend.module("basic.wasm"), "tok", "\"v\"");
+            });
     engine.start(Duration.ofSeconds(5));
+    publish.get(5, TimeUnit.SECONDS);
+    assertThat(backend.registrations()).isEqualTo(1);
     evaluate(engine, "u");
   }
 

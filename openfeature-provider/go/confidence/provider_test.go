@@ -21,7 +21,8 @@ func newTestProvider(t *testing.T, mod func(*ProviderConfig)) (*LocalResolverPro
 	cfg := ProviderConfig{
 		ClientSecret: testutil.Secret, EncryptionKey: b.HexKey(), Instances: 2,
 		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		cdnBaseURL: b.CDN.URL, ingestBaseURL: b.Ingest.URL, retryInterval: 5 * time.Millisecond,
+		cdnBaseURL: b.CDN.URL, ingestBaseURL: b.Ingest.URL, registrationURL: b.RegistrationURL,
+		retryInterval: 5 * time.Millisecond,
 	}
 	if mod != nil {
 		mod(&cfg)

@@ -61,6 +61,8 @@ Each client credential has a unique encryption key, available alongside it in [C
 
 ## Quick Start
 
+The first startup with a new client credential may take longer while its flag module is built.
+
 ```go
 package main
 

@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
@@ -36,7 +37,10 @@ public final class CdnFetcher {
   private final String url;
   private final SecretKey key;
   private final HttpClient client;
+  private final ProfileRegistration registration;
   private final AtomicReference<String> acceptedEtag = new AtomicReference<>();
+
+  private boolean registered;
 
   /** Validates a hex-encoded AES-256 key. The error never includes the key. */
   public static byte[] parseKey(String hexKey) {
@@ -72,7 +76,29 @@ public final class CdnFetcher {
    * Creates a fetcher for clientSecret. baseUrl may be empty (the production CDN); client may be
    * null (a default one).
    */
-  public CdnFetcher(String clientSecret, byte[] key, String baseUrl, HttpClient client) {
+  public static CdnFetcher create(
+      String clientSecret, byte[] key, String baseUrl, String profile, HttpClient client) {
+    return new CdnFetcher(clientSecret, key, baseUrl, profile, client, null);
+  }
+
+  /** For tests: overrides where the profile registration request goes. */
+  public static CdnFetcher createForTest(
+      String clientSecret,
+      byte[] key,
+      String baseUrl,
+      String profile,
+      HttpClient client,
+      String registrationUrl) {
+    return new CdnFetcher(clientSecret, key, baseUrl, profile, client, registrationUrl);
+  }
+
+  CdnFetcher(
+      String clientSecret,
+      byte[] key,
+      String baseUrl,
+      String profile,
+      HttpClient client,
+      String registrationUrlForTesting) {
     if (key == null || key.length != 32) {
       throw new IllegalArgumentException("encryption key must be 32 bytes (AES-256)");
     }
@@ -82,7 +108,11 @@ public final class CdnFetcher {
     }
     this.client = client == null ? HttpClient.newHttpClient() : client;
     String sum = sha256Hex(clientSecret);
-    this.url = baseUrl + "/modules/" + sum + ".wasm.enc";
+    String cdnProfileName = profile.toLowerCase(Locale.ROOT);
+    this.url =
+        baseUrl.replaceFirst("/+$", "") + "/modules/" + sum + "/" + cdnProfileName + ".wasm.enc";
+    this.registration =
+        new ProfileRegistration(clientSecret, profile, this.client, registrationUrlForTesting);
   }
 
   /** Fetches with the default 30-second request timeout. */
@@ -96,7 +126,8 @@ public final class CdnFetcher {
    * module that fails to install is fetched again in full. The timeout bounds one attempt, so a
    * stalling CDN cannot wedge the caller past its own deadline.
    */
-  public FetchedModule fetch(Duration timeout) {
+  public synchronized FetchedModule fetch(Duration timeout) {
+    long deadline = System.nanoTime() + timeout.toNanos();
     HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(timeout).GET();
     String etag = acceptedEtag.get();
     if (etag != null && !etag.isEmpty()) {
@@ -116,6 +147,7 @@ public final class CdnFetcher {
       throw new NotModifiedException();
     }
     if (status == 404) {
+      onMissing(deadline - System.nanoTime());
       throw new NotPublishedException();
     }
     if (status == 408 || status == 429 || status >= 500) {
@@ -126,6 +158,17 @@ public final class CdnFetcher {
     }
     FetchedModule module = decrypt(response.body());
     return new FetchedModule(module.wasm(), module.logToken(), header(response, "ETag"));
+  }
+
+  private void onMissing(long remaining) {
+    if (!registered && remaining > 0) {
+      try {
+        registration.register(Duration.ofNanos(remaining));
+        registered = true;
+      } catch (CdnException e) {
+        throw new NotPublishedException(e);
+      }
+    }
   }
 
   /** Records etag as installed. Later fetches are conditional on it. */
