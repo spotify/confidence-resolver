@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "confidence-cloudflare-resolver"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
