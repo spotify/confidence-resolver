@@ -22,6 +22,7 @@
       "release-type": "maven",
       "changelog-path": "CHANGELOG.md",
       "component": "openfeature-provider-java",
+      "skip-snapshot": true,
       "extra-files": [
         "README.md",
         "src/main/java/com/spotify/confidence/sdk/Version.java"
