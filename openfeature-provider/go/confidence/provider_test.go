@@ -419,6 +419,20 @@ func TestFlattenedContextToProto(t *testing.T) {
 	}
 }
 
+func TestFlattenedContextToProto_PreservesFractionalNumber(t *testing.T) {
+	result, err := flattenedContextToProto(openfeature.FlattenedContext{"numberKey": 45.117})
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	v, ok := result.Fields["numberKey"].GetKind().(*structpb.Value_NumberValue)
+	if !ok {
+		t.Fatalf("Expected number value, got %T", result.Fields["numberKey"].GetKind())
+	}
+	if v.NumberValue != 45.117 {
+		t.Errorf("Expected 45.117, got %v", v.NumberValue)
+	}
+}
+
 func TestFlattenedContextToProto_InvalidValue(t *testing.T) {
 	ctx := openfeature.FlattenedContext{
 		"invalid": make(chan int), // Channels cannot be converted
