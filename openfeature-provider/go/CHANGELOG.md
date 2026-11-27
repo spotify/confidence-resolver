@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.30.0-rc2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.30.0-rc1...openfeature-provider/go/v0.30.0-rc2) (2026-11-27)
+
+
+### Features
+
+* **go,java:** recover from module traps ([#706](https://github.com/spotify/confidence-resolver/issues/706)) ([941f082](https://github.com/spotify/confidence-resolver/commit/941f0821ad8425ed9d5888842861caa4666fafc4))
+* **openfeature:** fetch profiled modules in Java and Go ([#715](https://github.com/spotify/confidence-resolver/issues/715)) ([99460c5](https://github.com/spotify/confidence-resolver/commit/99460c564cb1a0d37477625f60e29bcafd94f901))
+
 ## [0.30.0-rc1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider/go/v0.29.0...openfeature-provider/go/v0.30.0-rc1) (2026-11-19)
 
 
