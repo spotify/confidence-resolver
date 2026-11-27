@@ -161,6 +161,8 @@ defaults for its whole lifetime. A rejected credential is `FATAL` and never retr
 and restart. Let the error propagate instead when wrong defaults are more dangerous than
 downtime; catching is only as safe as your defaults.
 
+Upgrading from the `main` provider? See [Migrating to the `next` providers](../MIGRATION.md).
+
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
 
 - Common failure scenarios

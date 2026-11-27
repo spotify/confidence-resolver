@@ -99,7 +99,8 @@ If anything goes wrong, the provider returns `DEFAULT_VALUE` instead of throwing
 > and [Java](java/README.md#initialization-at-startup) providers *throw* from `setProviderAndWait` when
 > initialization fails — a 30-second timeout reaching the module CDN, or a rejected credential —
 > while evaluations themselves still return defaults. Wrap the call if your service should boot on
-> defaults during a flag CDN outage instead of failing to start.
+> defaults during a flag CDN outage instead of failing to start. See
+> [Migrating to the `next` providers](MIGRATION.md) for the full upgrade picture.
 
 ### Error Details
 

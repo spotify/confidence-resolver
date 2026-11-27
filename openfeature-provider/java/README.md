@@ -132,6 +132,8 @@ try {
   (compliance, payment logic). Catching is only as safe as your
   [defaults](../INTEGRATION_GUIDE.md#production-best-practices).
 
+Upgrading from `0.23`? See [Migrating to the `next` providers](../MIGRATION.md).
+
 ## Evaluation Context
 
 The evaluation context contains information about the user/session being evaluated for targeting and A/B testing.
