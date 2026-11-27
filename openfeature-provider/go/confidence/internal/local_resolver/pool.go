@@ -36,6 +36,8 @@ func (f *PooledResolverFactory) Close(ctx context.Context) error {
 type slot struct {
 	lr LocalResolver
 	rw *sync.RWMutex
+	// stateLoaded is true once lr holds a resolver state.
+	stateLoaded bool
 }
 
 type PooledResolver struct {
@@ -102,10 +104,62 @@ func (s *PooledResolver) ApplyFlags(request *resolver.ApplyFlagsRequest) error {
 }
 
 // SetResolverState implements LocalResolver.
+//
+// A slot that already holds a state is replaced by a fresh instance loaded
+// with the new state instead of being updated in place. WASM linear memory
+// never shrinks, so an in-place update leaves the instance sized for the old
+// state, the encoded request and the new state at once, and later updates
+// fragment the freed space (#455, #665). The old instance flushes its pending logs
+// when it is closed. A slot whose fresh instance fails to load keeps serving
+// the old state.
 func (s *PooledResolver) SetResolverState(request *wasm.SetResolverStateRequest) error {
-	return s.maintenance(func(lr LocalResolver) error {
-		return lr.SetResolverState(request)
-	})
+	errs := []error{}
+	s.mmu.Lock()
+	defer s.mmu.Unlock()
+	for i := range s.slots {
+		if err := s.loadState(&s.slots[i], request); err != nil {
+			errs = append(errs, fmt.Errorf("slot %d: %w", i, err))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+func (s *PooledResolver) loadState(slot *slot, request *wasm.SetResolverStateRequest) error {
+	slot.rw.Lock()
+	defer slot.rw.Unlock()
+	if !slot.stateLoaded {
+		if err := slot.lr.SetResolverState(request); err != nil {
+			return err
+		}
+		slot.stateLoaded = true
+		return nil
+	}
+	fresh, err := s.newInstance()
+	if err != nil {
+		return err
+	}
+	if err := fresh.SetResolverState(request); err != nil {
+		_ = fresh.Close(context.Background())
+		return err
+	}
+	old := slot.lr
+	slot.lr = fresh
+	_ = old.Close(context.Background())
+	return nil
+}
+
+// newInstance calls the supplier, turning its panic (how the WASM factory
+// reports an instantiation failure) into an error.
+func (s *PooledResolver) newInstance() (lr LocalResolver, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("creating resolver instance: %v", rec)
+		}
+	}()
+	return s.supplier(), nil
 }
 
 // FlushAllLogs implements LocalResolver.
