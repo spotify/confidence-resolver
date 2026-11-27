@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0-rc2](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.24.0-rc1...openfeature-provider-java-v0.24.0-rc2) (2026-11-27)
+
+
+### Bug Fixes
+
+* **openfeature:** relocate the bundled protos in the java shaded jar ([#721](https://github.com/spotify/confidence-resolver/issues/721)) ([0003229](https://github.com/spotify/confidence-resolver/commit/000322953e07b4182a125142bc9beb6d34b9b2d4))
+
 ## [0.24.0-rc1](https://github.com/spotify/confidence-resolver/compare/openfeature-provider-java-v0.24.0-rc0...openfeature-provider-java-v0.24.0-rc1) (2026-11-27)
 
 
