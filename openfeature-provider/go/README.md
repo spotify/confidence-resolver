@@ -148,16 +148,18 @@ if err != nil {
     log.Fatalf("Provider creation failed: %v", err)
 }
 if err := openfeature.SetProviderAndWait(provider); err != nil {
-    // Timeout: boot on defaults and alert — the provider retries in the background and
-    // recovers on its own. FATAL (rejected credential) needs a fix and restart.
-    log.Printf("Confidence provider initialization failed; serving flag defaults: %v", err)
+    log.Printf("Confidence provider init failed; serving flag defaults: %v", err)
+    // openfeature.Shutdown() // stay on defaults for the whole process
 }
 ```
 
-For most services this is the right default: a flag CDN outage degrades the service instead of
-preventing it from starting. Let the error propagate instead when wrong defaults are more
-dangerous than downtime — flags gating compliance or payment logic where starting on defaults is
-worse than not starting. Catching is only as safe as your defaults.
+For most services this is the right default: a CDN outage degrades the service instead of
+preventing it from starting. A timeout keeps retrying in the background and the provider may
+become ready later — evaluations then switch from defaults to resolved values mid-run; call
+`openfeature.Shutdown()` in the error path (as commented above) if the service must stay on
+defaults for its whole lifetime. A rejected credential is `FATAL` and never retries — fix it
+and restart. Let the error propagate instead when wrong defaults are more dangerous than
+downtime; catching is only as safe as your defaults.
 
 **📖 See the [Integration Guide: Error Handling](../INTEGRATION_GUIDE.md#error-handling)** for:
 

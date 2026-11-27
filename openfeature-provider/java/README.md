@@ -109,47 +109,28 @@ how to handle them at service startup.
 failure surfaces at registration, so an unguarded call can stop a service from booting during
 an outage of the module CDN (`confidence-resolver-module-cdn.spotifycdn.com`).
 
-Two failures reach the caller, both as a `GeneralError`:
-
-| Failure | Provider after the throw | Recovery |
-| --- | --- | --- |
-| **Timeout** — CDN unreachable, or the credential's module still building | keeps retrying in the background | automatic: the provider becomes ready when the module lands, and evaluations switch from defaults to resolved values |
-| **Credential rejected** — bad client secret or encryption key | `FATAL`, no retry | fix the credential and restart |
-
-### Recommended: catch and serve defaults
-
-A caught failure leaves the provider registered: evaluations keep returning your defaults
-(`PROVIDER_NOT_READY` on the details) until the module installs. For most services this is the
-right default — a flag CDN outage degrades the service instead of preventing it from starting.
+Catch the failure and keep booting on defaults — the provider stays registered and evaluations
+return your defaults (`PROVIDER_NOT_READY` on the details) until the module installs:
 
 ```java
 try {
     OpenFeatureAPI.getInstance().setProviderAndWait(provider);
 } catch (OpenFeatureError e) {
-    // Boot on flag defaults. A timeout recovers on its own; a rejected credential does not.
-    // Alert on this either way — don't let it hide in the logs.
-    logger.error("Confidence provider initialization failed; serving flag defaults", e);
+    logger.error("Confidence provider init failed; serving flag defaults", e);
+    // OpenFeatureAPI.getInstance().shutdown(); // stay on defaults for the whole process
 }
 ```
 
-Catching is only as safe as your defaults: each flag's default must be the variant you want
-during an outage (see [Production Best Practices](../INTEGRATION_GUIDE.md#production-best-practices)).
-
-### When to fail fast instead
-
-Let the exception propagate (or rethrow) when wrong defaults are more dangerous than downtime —
-for example flags gating compliance or payment logic where starting on defaults is worse than not
-starting. A failed boot is loud and blocks rollout; a degraded boot is quiet.
-
-### Tuning
-
-- **`initializationTimeout(Duration)`** bounds how long `setProviderAndWait` blocks (default 30
-  seconds). Lower it to shorten worst-case startup; raise it to give a slow module build time to
-  land — the first startup with a new credential can be slower while its module is published.
-- **No retry loop needed.** After a timeout the engine keeps polling in the background (every
-  `statePollInterval`, 10 seconds by default). Only a rejected credential needs action.
-- **`setProvider(provider)`** registers and initializes in the background: it never throws at
-  the call site, and evaluations serve defaults until the module installs.
+- **Timeout** (CDN unreachable, or the credential's module still building): the engine keeps
+  retrying in the background and the provider may become ready later — evaluations then switch
+  from defaults to resolved values mid-run. If the service must behave consistently for its
+  whole lifetime, call `shutdown()` in the catch (as commented above); evaluations then return
+  defaults for the rest of the process.
+- **Rejected credential**: `FATAL`, no retry — fix the credential and restart. Alert on the
+  catch either way.
+- Let the exception propagate instead when wrong defaults are more dangerous than downtime
+  (compliance, payment logic). Catching is only as safe as your
+  [defaults](../INTEGRATION_GUIDE.md#production-best-practices).
 
 ## Evaluation Context
 
